@@ -1196,8 +1196,6 @@ def add_scheduled_job(args, req_json, cli_command, api_endpoint, request_method)
     print(f"headers: {headers}")
     print(f"request_body: {request_body}")
 
-        # Raise an exception for HTTP errors
-    response.raise_for_status()
 
         # Handle the response based on the status code
     if response.status_code == 200:
@@ -1206,9 +1204,28 @@ def add_scheduled_job(args, req_json, cli_command, api_endpoint, request_method)
         print(response.json())
     elif response.status_code == 401:
         print(f"Failed with error {response.status_code}. It could be because you aren't using a valid api_key.")
+    elif response.status_code == 409:
+        response = update_scheduled_job(cli_command, time_interval, schedule_job_url, start_date, end_date, request_body) 
     else:
             # print(r.text)
         print(f"Failed with error {response.status_code}.") 
+        
+
+def update_scheduled_job(cli_command, time_interval, schedule_job_url, start_date, end_date, request_body):
+    response = requests.put(schedule_job_url, headers=headers, json=request_body)
+
+        # Raise an exception for HTTP errors
+    response.raise_for_status()
+    if response.status_code == 200:
+        time_interval_hours = millis_to_hours(time_interval)
+        print(f"Scheduling job to {cli_command} from {start_date} to {end_date} every {time_interval_hours} hours")
+        print(response.json())
+    elif response.status_code == 401:
+        print(f"Failed with error {response.status_code}. It could be because you aren't using a valid api_key.")
+    else:
+            # print(r.text)
+        print(f"Failed with error {response.status_code}.")
+    return response
 
 
 @parser.command(

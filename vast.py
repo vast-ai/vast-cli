@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 import getpass
 import subprocess
+from time import sleep
 from subprocess import PIPE
 from croniter import croniter, CroniterBadCronError
 
@@ -1204,12 +1205,12 @@ def add_scheduled_job(args, req_json, cli_command, api_endpoint, request_method)
         print(response.json())
     elif response.status_code == 401:
         print(f"Failed with error {response.status_code}. It could be because you aren't using a valid api_key.")
-    elif response.status_code == 409:
+    elif response.status_code == 422:
+        sleep(4)
         response = update_scheduled_job(cli_command, time_interval, schedule_job_url, start_date, end_date, request_body) 
     else:
             # print(r.text)
-        print(f"Failed with error {response.status_code}.") 
-        
+        print(f"Failed with error {response.status_code}. Response body: {response.text}")        
 
 def update_scheduled_job(cli_command, time_interval, schedule_job_url, start_date, end_date, request_body):
     response = requests.put(schedule_job_url, headers=headers, json=request_body)

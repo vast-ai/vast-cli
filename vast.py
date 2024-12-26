@@ -3021,7 +3021,7 @@ def search__invoices(args):
             dlperf:                 float     DL-perf score  (see FAQ for explanation)
             dlperf_usd:             float     DL-perf/$
             dph:                    float     $/hour rental cost
-            driver_version          string    machine's nvidia driver version as 3 digit string ex. "535.86.05"
+            driver_version:         string    machine's nvidia/amd driver version as 3 digit string ex. "535.86.05,"
             duration:               float     max rental duration in days
             external:               bool      show external offers in addition to datacenter offers
             flops_usd:              float     TFLOPs/$
@@ -4453,7 +4453,7 @@ def copy__volume(args: argparse.Namespace):
         print("Created. {}".format(r.json()))
 
 @parser.command(
-    usage="vastai show volumes [options]",
+    usage="vastai show volumes",
     help="Show stats on owned volumes.",
     epilog=deindent("""
         Show stats on owned volumes
@@ -4472,7 +4472,7 @@ def show__volumes(args: argparse.Namespace):
     if args.raw:
         return processed
     else:
-        display_table(processed, volume_fields, False)
+        display_table(processed, volume_fields, replace_spaces=False)
 
 @parser.command(
     argument("-n", "--no-default", action="store_true", help="Disable default query"),
@@ -4504,28 +4504,28 @@ def show__volumes(args: argparse.Namespace):
 
               Name                  Type       Description
 
-            cpu_arch                string    host machine cpu architecture (e.g. amd64, arm64)
+            cpu_arch:               string    host machine cpu architecture (e.g. amd64, arm64)
             cuda_vers:              float     machine max supported cuda version (based on driver version)
             datacenter:             bool      show only datacenter offers
             disk_bw:                float     disk read bandwidth, in MB/s
             disk_space:             float     disk storage space, in GB
-            driver_version          string    machine's nvidia driver version as 3 digit string ex. "535.86.05"
+            driver_version:         string    machine's nvidia/amd driver version as 3 digit string ex. "535.86.05"
             duration:               float     max rental duration in days
             geolocation:            string    Two letter country code. Works with operators =, !=, in, notin (e.g. geolocation not in ['XV','XZ'])
-            gpu_arch                string    host machine gpu architecture (e.g. nvidia, amd)
+            gpu_arch:               string    host machine gpu architecture (e.g. nvidia, amd)
             gpu_name:               string    GPU model name (no quotes, replace spaces with underscores, ie: RTX_3090 rather than 'RTX 3090')
             has_avx:                bool      CPU supports AVX instruction set.
             id:                     int       volume offer unique ID
             inet_down:              float     internet download speed in Mb/s
             inet_up:                float     internet upload speed in Mb/s
-            machine_id              int       machine id of volume offer
+            machine_id:             int       machine id of volume offer
             pci_gen:                float     PCIE generation
             pcie_bw:                float     PCIE bandwidth (CPU to GPU)
             reliability:            float     machine reliability score (see FAQ for explanation)
             storage_cost:           float     storage cost in $/GB/month
             static_ip:              bool      is the IP addr static/stable
             total_flops:            float     total TFLOPs from all GPUs
-            ubuntu_version          string    host machine ubuntu OS version
+            ubuntu_version:         string    host machine ubuntu OS version
             verified:               bool      is the machine verified
     """),
 )
@@ -4826,10 +4826,10 @@ def list__machines(args):
 
 @parser.command(
     argument("id", help="id of machine to list", type=int),
-    argument("-s", "--price_disk",
-             help="storage price in $/GB/month, default: $0.15/GB/month", type=float),
+    argument("-p", "--price_disk",
+             help="storage price in $/GB/month, default: $0.15/GB/month", default=.15, type=float),
     argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format), default 1 month", type=str),
-    argument("-n", "--size", help="size of disk space allocated to offer in GB, default 15 GB"),
+    argument("-s", "--size", help="size of disk space allocated to offer in GB, default 15 GB", default=15),
     usage="vastai list volume ID [options]",
     help="[Host] list disk space for rent as a volume on a machine",
     epilog=deindent("""

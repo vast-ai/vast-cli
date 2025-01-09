@@ -5206,6 +5206,22 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
         progress_print(args, f"Machine: {machine_id} Done with testing remote.py results {message}")
         warnings.simplefilter('default')
 
+def safe_float(value):
+    """
+    Convert value to float, returning 0 if value is None.
+    
+    Args:
+        value: The value to convert to float
+        
+    Returns:
+        float: The converted value, or 0 if value is None
+    """
+    if value is None:
+        return 0
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return 0
 
 def check_requirements(machine_id, api_key, args):
     """
@@ -5267,38 +5283,38 @@ def check_requirements(machine_id, api_key, args):
 
         # Requirement checks
         # 1. CUDA version
-        if float(top_offer.get('cuda_max_good', 0)) < 12.4:
+        if safe_float(top_offer.get('cuda_max_good')) < 12.4:
             unmet_reasons.append("CUDA version < 12.4")
 
         # 2. Reliability
-        if float(top_offer.get('reliability', 0)) <= 0.90:
+        if safe_float(top_offer.get('reliability')) <= 0.90:
             unmet_reasons.append("Reliability <= 0.90")
 
         # 3. Direct port count
-        if int(top_offer.get('direct_port_count', 0)) <= 3:
+        if safe_float(top_offer.get('direct_port_count')) <= 3:
             unmet_reasons.append("Direct port count <= 3")
 
         # 4. PCIe bandwidth
-        if float(top_offer.get('pcie_bw', 0)) <= 2.85:
+        if safe_float(top_offer.get('pcie_bw')) <= 2.85:
             unmet_reasons.append("PCIe bandwidth <= 2.85")
 
         # 5. Download speed
-        if float(top_offer.get('inet_down', 0)) <= 10:
+        if safe_float(top_offer.get('inet_down')) <= 10:
             unmet_reasons.append("Download speed <= 10 Mb/s")
 
         # 6. Upload speed
-        if float(top_offer.get('inet_up', 0)) <= 10:
+        if safe_float(top_offer.get('inet_up')) <= 10:
             unmet_reasons.append("Upload speed <= 10 Mb/s")
 
         # 7. GPU RAM
-        if float(top_offer.get('gpu_ram', 0)) <= 7:
+        if safe_float(top_offer.get('gpu_ram')) <= 7:
             unmet_reasons.append("GPU RAM <= 7 GB")
 
         # Additional Requirement Checks
 
         # 8. System RAM vs. Total GPU RAM
-        gpu_total_ram = float(top_offer.get('gpu_total_ram', 0))  # in MB
-        cpu_ram = float(top_offer.get('cpu_ram', 0))  # in MB
+        gpu_total_ram = safe_float(top_offer.get('gpu_total_ram'))  # in MB
+        cpu_ram = safe_float(top_offer.get('cpu_ram'))  # in MB
         if cpu_ram < gpu_total_ram:
             unmet_reasons.append("System RAM is less than total VRAM.")
 
@@ -5308,8 +5324,8 @@ def check_requirements(machine_id, api_key, args):
             debug_print(args, f"Total GPU RAM: {gpu_total_ram} MB")
 
         # 9. CPU Cores vs. Number of GPUs
-        cpu_cores = int(top_offer.get('cpu_cores', 0))
-        num_gpus = int(top_offer.get('num_gpus', 0))
+        cpu_cores = int(safe_float(top_offer.get('cpu_cores')))
+        num_gpus = int(safe_float(top_offer.get('num_gpus')))
         if cpu_cores < 2 * num_gpus:
             unmet_reasons.append("Number of CPU cores is less than twice the number of GPUs.")
 

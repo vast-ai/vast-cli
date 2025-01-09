@@ -492,6 +492,51 @@ displayable_fields_reserved = (
 )
 
 
+vol_offers_fields = {
+        "cpu_arch",
+        "cuda_vers",
+        "datacenter",
+        "disk_bw",
+        "disk_space",
+        "driver_version",
+        "duration",
+        "geolocation",
+        "gpu_arch",
+        "has_avx",
+        "id",
+        "inet_down",
+        "inet_up",
+        "machine_id",
+        "pci_gen",
+        "pcie_bw",
+        "reliability",
+        "storage_cost",
+        "static_ip",
+        "total_flops",
+        "ubuntu_version",
+        "verified",
+}
+
+
+vol_displayable_fields = (
+    ("id", "ID", "{}", None, True),
+    ("cuda_max_good", "CUDA", "{:0.1f}", None, True),
+    ("cpu_ghz", "cpu_ghz", "{:0.1f}", None, True),
+    ("disk_bw", "Disk B/W", "{:0.1f}", None, True),
+    ("disk_space", "Disk", "{:.0f}", None, True),
+    ("disk_name", "Disk Name", "{}", None, True),
+    ("storage_cost", "$/Gb/Month", "{:.2f}", None, True),
+    ("driver_version", "NV Driver", "{}", None, True),
+    ("inet_up", "Net_up", "{:0.1f}", None, True),
+    ("inet_down", "Net_down", "{:0.1f}", None, True),
+    ("reliability", "R", "{:0.1f}", lambda x: x * 100, True),
+    ("duration", "Max_Days", "{:0.1f}", lambda x: x / (24.0 * 60.0 * 60.0), True),
+    ("machine_id", "mach_id", "{}", None, True),
+    ("verification", "status", "{}", None, True),
+    ("host_id", "host_id", "{}", None, True),
+    ("geolocation", "country", "{}", None, True),
+)
+
 # Need to add bw_nvlink, machine_id, direct_port_count to output.
 
 
@@ -520,6 +565,22 @@ instance_fields = (
     ("uptime_mins", "uptime(mins)", "{:0.2f}",  None, True),
 )
 
+volume_fields = (
+    ("id", "ID", "{}", None, True),
+    ("disk_space", "Disk", "{:.0f}", None, True),
+    ("status", "status", "{}", None, True),
+    ("disk_name", "Disk Name", "{}", None, True),
+    ("driver_version", "NV Driver", "{}", None, True),
+    ("inet_up", "Net_up", "{:0.1f}", None, True),
+    ("inet_down", "Net_down", "{:0.1f}", None, True),
+    ("reliability2", "R", "{:0.1f}", lambda x: x * 100, True),
+    ("duration", "age(hours)", "{:0.2f}", lambda x: x/(3600.0), True),
+    ("machine_id", "mach_id", "{}", None, True),
+    ("verification", "Verification", "{}", None, True),
+    ("host_id", "host_id", "{}", None, True),
+    ("geolocation", "country", "{}", None, True),
+    ("instances", "instances","{}", None, True)
+)
 
 # These fields are displayed when you do 'show machines'
 machine_fields = (
@@ -823,7 +884,7 @@ def parse_query(query_str: str, res: Dict = None, fields = {}, field_alias = {},
     return res
 
 
-def display_table(rows: list, fields: Tuple) -> None:
+def display_table(rows: list, fields: Tuple, replace_spaces: bool = True) -> None:
     """Basically takes a set of field names and rows containing the corresponding data and prints a nice tidy table
     of it.
 
@@ -849,7 +910,8 @@ def display_table(rows: list, fields: Tuple) -> None:
             else:
                 val = conv(val)
                 s = fmt.format(val)
-            s = s.replace(' ', '_')
+            if replace_spaces:
+                s = s.replace(' ', '_')
             idx = len(row)
             lengths[idx] = max(len(s), lengths[idx])
             row.append(s)
@@ -2993,7 +3055,7 @@ def search__invoices(args):
             dlperf:                 float     DL-perf score  (see FAQ for explanation)
             dlperf_usd:             float     DL-perf/$
             dph:                    float     $/hour rental cost
-            driver_version          string    machine's nvidia driver version as 3 digit string ex. "535.86.05"
+            driver_version:         string    machine's nvidia/amd driver version as 3 digit string ex. "535.86.05,"
             duration:               float     max rental duration in days
             external:               bool      show external offers in addition to datacenter offers
             flops_usd:              float     TFLOPs/$
@@ -4331,6 +4393,227 @@ def filter_invoice_items(args: argparse.Namespace, rows: List) -> Dict:
     return {"rows": rows, "header_text": header_text, "pdf_filename": filename}
 
 
+@parser.command(
+    argument("id", help="id of volume offer", type=int),
+    argument("-s", "--size",
+             help="size in GB of volume. Default 15 GB.", type=float),
+    usage="vastai create volume ID [options]",
+    help="Create a new volume",
+    epilog=deindent("""
+        Creates a volume from an offer ID (which is returned from "search volumes"). Each offer ID can be used to create multiple volumes,
+        provided the size of all volumes does not exceed the size of the offer.
+    """)
+)
+def create__volume(args: argparse.Namespace):
+    
+    size = args.size
+    
+    if not size:
+        size = 15.0
+    json_blob ={
+        "size": size,
+        "id": args.id
+    }
+
+    url = apiurl(args, "/volumes/")
+
+    if (args.explain):
+        print("request json: ")
+        print(json_blob)
+    r = http_put(args, url,  headers=headers,json=json_blob)
+    r.raise_for_status()
+    if args.raw:
+        return r
+    else:
+        print("Created. {}".format(r.json()))
+
+@parser.command(
+    argument("id", help="id of volume contract", type=int),
+    usage="vastai delete volume ID",
+    help="Delete a volume",
+    epilog=deindent("""
+        Deletes volume with the given ID. All instances using the volume must be destroyed before the volume can be deleted.
+    """)
+)
+def delete__volume(args: argparse.Namespace):
+    url = apiurl(args, "/volumes/", query_args={"id": args.id})
+    r = http_del(args, url, headers=headers)
+    r.raise_for_status()
+    if args.raw:
+        return r
+    else:
+        print("Deleted. {}".format(r.json()))
+
+@parser.command(
+    argument("source", help="id of volume contract being copied", type=int),
+    argument("dest", help="id of volume offer volume is being copied to", type=int),
+    argument("-s", "--size", help="Size of new volume contract, in GB. Must be greater than or equal to the source volume, and less than or equal to the destination offer.", type=float),
+    argument("-d", "--disable_compression", action="store_true", help="Do not compress volume data before copying."),
+    usage="vastai copy volume <source_id> <dest_id> [options]",
+    help="Copy an existing volume",
+    epilog=deindent("""
+        Create a new volume with the given offer, by copying the existing volume. 
+        Size defaults to the size of the existing volume, but can be increased if there is available space.
+    """)
+)
+def copy__volume(args: argparse.Namespace):
+    json_blob={
+        "source" : args.source,
+        "dest": args.dest,
+    }
+    if args.size:
+        json_blob["size"] = args.size
+    if args.disable_compression:
+        json_blob["disable_compression"] = True
+
+
+    url = apiurl(args, "/volumes/copy/")
+
+    if (args.explain):
+        print("request json: ")
+        print(json_blob)
+    r = http_post(args, url,  headers=headers,json=json_blob)
+    r.raise_for_status()
+    if args.raw:
+        return r
+    else:
+        print("Created. {}".format(r.json()))
+
+@parser.command(
+    usage="vastai show volumes",
+    help="Show stats on owned volumes.",
+    epilog=deindent("""
+        Show stats on owned volumes
+    """)
+)
+def show__volumes(args: argparse.Namespace):
+    req_url = apiurl(args, "/volumes", {"owner": "me"});
+    r = http_get(args, req_url)
+    r.raise_for_status()
+    rows = r.json()["volumes"]
+    processed = []
+    for row in rows:
+        row = {k: strip_strings(v) for k, v in row.items()} 
+        row['duration'] = time.time() - row['start_date']
+        processed.append(row)
+    if args.raw:
+        return processed
+    else:
+        display_table(processed, volume_fields, replace_spaces=False)
+
+@parser.command(
+    argument("-n", "--no-default", action="store_true", help="Disable default query"),
+    argument("--limit", type=int, help=""),
+    argument("--storage", type=float, default=1.0, help="Amount of storage to use for pricing, in GiB. default=1.0GiB"),
+    argument("-o", "--order", type=str, help="Comma-separated list of fields to sort on. postfix field with - to sort desc. ex: -o 'disk_space,inet_up-'.  default='score-'", default='score-'),
+    argument("query", help="Query to search for. default: 'external=false verified=true disk_space>=1', pass -n to ignore default", nargs="*", default=None),
+    usage="vastai search volumes [--help] [--api-key API_KEY] [--raw] <query>",
+    help="Search for volume offers using custom query",
+    epilog=deindent("""
+        Query syntax:
+
+            query = comparison comparison...
+            comparison = field op value
+            field = <name of a field>
+            op = one of: <, <=, ==, !=, >=, >, in, notin
+            value = <bool, int, float, string> | 'any' | [value0, value1, ...]
+            bool: True, False
+
+        note: to pass '>' and '<' on the command line, make sure to use quotes
+        note: to encode a string query value (ie for gpu_name), replace any spaces ' ' with underscore '_'
+
+        Examples:
+
+            # search for volumes with greater than 50GB of available storage and greater than 500 Mb/s upload and download speed
+            vastai search volumes "disk_space>50 inet_up>500 inet_down>500"
+            
+        Available fields:
+
+              Name                  Type       Description
+
+            cpu_arch:               string    host machine cpu architecture (e.g. amd64, arm64)
+            cuda_vers:              float     machine max supported cuda version (based on driver version)
+            datacenter:             bool      show only datacenter offers
+            disk_bw:                float     disk read bandwidth, in MB/s
+            disk_space:             float     disk storage space, in GB
+            driver_version:         string    machine's nvidia/amd driver version as 3 digit string ex. "535.86.05"
+            duration:               float     max rental duration in days
+            geolocation:            string    Two letter country code. Works with operators =, !=, in, notin (e.g. geolocation not in ['XV','XZ'])
+            gpu_arch:               string    host machine gpu architecture (e.g. nvidia, amd)
+            gpu_name:               string    GPU model name (no quotes, replace spaces with underscores, ie: RTX_3090 rather than 'RTX 3090')
+            has_avx:                bool      CPU supports AVX instruction set.
+            id:                     int       volume offer unique ID
+            inet_down:              float     internet download speed in Mb/s
+            inet_up:                float     internet upload speed in Mb/s
+            machine_id:             int       machine id of volume offer
+            pci_gen:                float     PCIE generation
+            pcie_bw:                float     PCIE bandwidth (CPU to GPU)
+            reliability:            float     machine reliability score (see FAQ for explanation)
+            storage_cost:           float     storage cost in $/GB/month
+            static_ip:              bool      is the IP addr static/stable
+            total_flops:            float     total TFLOPs from all GPUs
+            ubuntu_version:         string    host machine ubuntu OS version
+            verified:               bool      is the machine verified
+    """),
+)
+def search__volumes(args: argparse.Namespace):
+    try:
+
+        if args.no_default:
+            query = {}
+        else:
+            query = {"verified": {"eq": True}, "external": {"eq": False}, "disk_space": {"gte": 1}}
+
+        if args.query is not None:
+            query = parse_query(args.query, query, vol_offers_fields, {}, offers_mult)
+
+        order = []
+        for name in args.order.split(","):
+            name = name.strip()
+            if not name: continue
+            direction = "asc"
+            field = name
+            if name.strip("-") != name:
+                direction = "desc"
+                field = name.strip("-")
+            if name.strip("+") != name:
+                direction = "asc"
+                field = name.strip("+")
+            if field in offers_alias:
+                field = offers_alias[field];
+            order.append([field, direction])
+
+        query["order"] = order
+        if (args.limit):
+            query["limit"] = int(args.limit)
+        query["allocated_storage"] = args.storage
+    except ValueError as e:
+        print("Error: ", e)
+        return 1
+
+    json_blob = query
+
+    if (args.explain):
+        print("request json: ")
+        print(json_blob)
+    url = apiurl(args, "/volumes/search/")
+    r = http_post(args, url, headers=headers, json=json_blob)
+
+    r.raise_for_status()
+   
+    if (r.headers.get('Content-Type') != 'application/json'):
+        print(f"invalid return Content-Type: {r.headers.get('Content-Type')}")
+        return   
+
+    rows = r.json()["offers"]
+    
+    if args.raw:
+        return rows
+    else:
+        display_table(rows, vol_displayable_fields)
+
+
+
 #@parser.command(
 #    argument("-q", "--quiet", action="store_true", help="only display numeric ids"),
 #    argument("-s", "--start_date", help="start date and time for report. Many formats accepted (optional)", type=str),
@@ -4568,6 +4851,87 @@ def list__machines(args):
     return res
 
 
+@parser.command(
+    argument("id", help="id of machine to list", type=int),
+    argument("-p", "--price_disk",
+             help="storage price in $/GB/month, default: $0.15/GB/month", default=.15, type=float),
+    argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format), default 1 month", type=str),
+    argument("-s", "--size", help="size of disk space allocated to offer in GB, default 15 GB", default=15),
+    usage="vastai list volume ID [options]",
+    help="[Host] list disk space for rent as a volume on a machine",
+    epilog=deindent("""
+        Allocates a section of disk on a machine to be used for volumes.  
+    """)
+)
+def list__volume(args):        
+    size = args.size
+    if not size:
+        size = 15.0
+    price_disk = args.price_disk
+    if not price_disk:
+        price_disk = .15
+
+    json_blob ={
+        "size": int(size),
+        "machine": int(args.id)
+    }
+    if args.end_date:
+        json_blob["end_date"] = string_to_unix_epoch(args.end_date)
+
+
+    url = apiurl(args, "/volumes/")
+
+    if (args.explain):
+        print("request json: ")
+        print(json_blob)
+    r = http_post(args, url,  headers=headers,json=json_blob)
+    r.raise_for_status()
+    if args.raw:
+        return r
+    else:
+        print("Created. {}".format(r.json()))
+
+
+@parser.command(
+    argument("ids", help="id of machines list", type=int, nargs='+'),
+    argument("-s", "--price_disk",
+             help="storage price in $/GB/month, default: $0.10/GB/month", type=float),
+    argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format)", type=str),
+    argument("-n", "--size", help="size of disk space allocated to offer in GB, default 5 GB"),
+    usage="vastai list volume IDs [options]",
+    help="[Host] list disk space for rent as a volume on machines",
+    epilog=deindent("""
+        Allocates a section of disk on machines to be used for volumes.  
+    """)
+)
+def list__volumes(args):
+    size = args.size
+    if not size:
+        size = 15.0
+    price_disk = args.price_disk
+    if not price_disk:
+        price_disk = .15
+
+    json_blob ={
+        "size": int(size),
+        "machine": [int(id) for id in args.ids]
+    }
+    if args.end_date:
+        json_blob["end_date"] = string_to_unix_epoch(args.end_date)
+
+
+    url = apiurl(args, "/volumes/")
+
+    if (args.explain):
+        print("request json: ")
+        print(json_blob)
+    r = http_post(args, url,  headers=headers,json=json_blob)
+    r.raise_for_status()
+    if args.raw:
+        return r
+    else:
+        print("Created. {}".format(r.json()))
+
 
 
 @parser.command(
@@ -4678,7 +5042,7 @@ def parse_env(envs):
     prev = None
     for e in env:
         if (prev is None):
-          if (e in {"-e", "-p", "-h"}):
+          if (e in {"-e", "-p", "-h", "-v"}):
               prev = e
           else:
             pass
@@ -4697,6 +5061,9 @@ def parse_env(envs):
                 result[kv[0]] = val.strip("'\"")
             else:
                 pass
+          elif (prev == "-v"):
+            if (set(e).issubset(set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:./_"))):
+                result["-v " + e] = "1" 
           else:
               result[prev] = e
           prev = None

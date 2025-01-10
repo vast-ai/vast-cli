@@ -181,7 +181,7 @@ def get_best_offers(offers):
     logging.info(f"Selected best offers for {len(best_offers)} machines based on dlperf.")
     return best_offers
 
-def test_machine(machine_id):
+def test_machine(machine_id, ignore_requirements=False):
     """
     Performs a self-test on a given machine.
 
@@ -192,6 +192,8 @@ def test_machine(machine_id):
         tuple: (machine_id, status, reason)
     """
     cmd = [get_vast_command(), 'self-test', 'machine', str(machine_id), '--raw']
+    if ignore_requirements:
+        cmd.append('--ignore-requirements')
     max_retries = 30  # Increased from 3 to 30
 
     for attempt in range(1, max_retries + 1):
@@ -248,7 +250,7 @@ def test_machine(machine_id):
     logging.error(f"Request failed after {max_retries} retries for machine {machine_id}.")
     return (machine_id, 'failure', "Request failed after 30 retries")
 
-def process_machine_ids(machine_ids):
+def process_machine_ids(machine_ids, ignore_requirements=False):
     """
     Manages the concurrent execution of self-tests on multiple machines.
 
@@ -269,7 +271,7 @@ def process_machine_ids(machine_ids):
     logging.info(f"Starting self-tests on {total_machines} machine(s)...")
     
     with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(test_machine, mid): mid for mid in machine_ids}
+        futures = {executor.submit(test_machine, mid, ignore_requirements): mid for mid in machine_ids}
         for future in as_completed(futures):
             machine_id, status, reason = future.result()
             with lock:
@@ -382,6 +384,11 @@ Example Usage:
         default='any',
         help="Specify a particular host ID to filter offers or 'any' for no filtering.\nDefault: 'any'."
     )
+    parser.add_argument(
+        '--ignore-requirements',
+        action='store_true',
+        help="Ignore the minimum system requirements in 'self-test machine'."
+    )
     return parser.parse_args()
 
 def main():
@@ -416,7 +423,7 @@ def main():
         logging.warning("No machines to test.")
         return
 
-    successes, failures = process_machine_ids(machine_ids)
+    successes, failures = process_machine_ids(machine_ids,ignore_requirements=args.ignore_requirements)
     save_results(successes, failures)
 
     logging.info(f"\nSummary:")

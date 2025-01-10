@@ -5810,7 +5810,8 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
     argument("--raw", action="store_true", help="Output machine-readable JSON"), 
     argument("--url", help="Server REST API URL", default="https://console.vast.ai"),
     argument("--retry", help="Retry limit", type=int, default=3),
-    usage="vastai self-test machine <machine_id> [--debugging] [--explain] [--api_key API_KEY] [--url URL] [--retry RETRY] [--raw]",
+    argument("--ignore-requirements", action="store_true", help="Ignore the minimum system requirements and run the self test regardless"),
+    usage="vastai self-test machine <machine_id> [--debugging] [--explain] [--api_key API_KEY] [--url URL] [--retry RETRY] [--raw] [--ignore-requirements]",
     help="Perform a self-test on the specified machine",
     epilog=deindent("""
         This command tests if a machine meets specific requirements and 
@@ -5864,12 +5865,18 @@ def self_test__machine(args):
         # Check requirements
         meets_requirements, unmet_reasons = check_requirements(args.machine_id, api_key, args)
         if not meets_requirements:
-            progress_print(args, f"Machine ID {args.machine_id} does not meet the requirements:")
+            # Always print the unmet requirements
+            progress_print(args, f"Machine ID {args.machine_id} does not meet the following requirements:")
             for reason in unmet_reasons:
                 progress_print(args, f"- {reason}")
-            result["reason"] = "; ".join(unmet_reasons)
-        else:
-            # Find the top offer
+
+            if not args.ignore_requirements:
+                # If user did NOT pass --ignore-requirements, fail as before
+                result["reason"] = "; ".join(unmet_reasons)
+                return result  # This ends the function (and prints "Test failed" further down)
+            else:
+                # If user did pass --ignore-requirements, warn and continue
+                progress_print(args, "Continuing despite unmet requirements because --ignore-requirements is set.")
             def search_offers_and_get_top(machine_id):
                 search_args = argparse.Namespace(
                     query=[f"machine_id={machine_id}", "verified=any", "rentable=any"],
@@ -5905,6 +5912,7 @@ def self_test__machine(args):
                 # Prepare arguments for instance creation
                 create_args = argparse.Namespace(
                     id=ask_contract_id,
+                    user=None,
                     price=None,  # Set bid_price to None
                     disk=40,  # Match the disk size from the working command
                     image="vastai/test:selftest",  # Use the same image as the working command

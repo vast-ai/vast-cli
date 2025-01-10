@@ -9,6 +9,14 @@ require installing an additional second script called `vast_pdf.py`.
 
 [![PyPI version](https://badge.fury.io/py/vastai.svg)](https://badge.fury.io/py/vastai)
 
+## Table of Contents
+1. [Quickstart](#quickstart)
+2. [Commands Overview](#commands-overview)
+3. [Self-Test a Machine (Single Machine)](#self-test-a-machine-single-machine)
+4. [Host Machine Testing with `vast_machine_tester.py`](#host-machine-testing-with-vast_machine_testerpy)
+5. [Usage Examples](#usage-examples)
+6. [Tab-Completion](#tab-completion)
+
 ## Quickstart
 
 You should probably create a subdirectory in which to put this script and related files if you
@@ -30,6 +38,11 @@ named "vast" in this command on the website and your installed script is named "
 you will need to change the name of the script in the command you run. The `set api-key`
 command saves your api-key in a hidden file in your home directory. Do not share your
 api-key with anyone as it authenticates your other vast commands to your account.
+
+Check you can run a search:
+
+```./vast.py search offers --limit 3```
+You should see a small list of machine offers in tabular format.
 
 ## Usage
 
@@ -125,105 +138,233 @@ command we type `./vast.py show machines`
 usage: vast.py [-h] [--url URL] [--retry RETRY] [--raw] [--explain] [--api-key API_KEY] command ...
 
 positional arguments:
-  command               command to run. one of:
-    help                print this help message
-    attach ssh          Attach an ssh key to an instance. This will allow you to connect to the instance with the ssh key.
-    cancel copy         Cancel a remote copy in progress, specified by DST id
-    cancel sync         Cancel a remote copy in progress, specified by DST id
-    change bid          Change the bid price for a spot/interruptible instance
-    copy                Copy directories between instances and/or local
-    cloud copy          Copy files/folders to and from cloud providers
-    create api-key      Create a new api-key with restricted permissions. Can be sent to other users and teammates
-    create ssh-key      Create a new ssh-key
-    create autoscaler   Create a new autoscale group
-    create endpoint     Create a new endpoint group
-    create instance     Create a new instance
-    create env-var      Create a new user environment variable
-    create subaccount   Create a subaccount
-    create team         Create a new team
-    create team-role    Add a new role to your
-    create template     Create a new template
-    delete api-key      Remove an api-key
-    delete env-var      Delete a user environment variable
-    delete ssh-key      Remove an ssh-key
-    delete autoscaler   Delete an autoscaler group
-    delete endpoint     Delete an endpoint group
-    destroy instance    Destroy an instance (irreversible, deletes data)
-    destroy instances   Destroy a list of instances (irreversible, deletes data)
-    destroy team        Destroy your team
-    detach ssh          Detach an ssh key from an instance
-    execute             Execute a (constrained) remote command on a machine
-    invite team-member  Invite a team member
-    label instance      Assign a string label to an instance
-    logs                Get the logs for an instance
-    prepay instance     Deposit credits into reserved instance.
-    reboot instance     Reboot (stop/start) an instance
-    recycle instance    Recycle (destroy/create) an instance
-    remove team-member  Remove a team member
-    remove team-role    Remove a role from your team
-    reports             Get the user reports for a given machine
-    reset api-key       Reset your api-key (get new key from website).
-    start instance      Start a stopped instance
-    start instances     Start a list of instances
-    stop instance       Stop a running instance
-    stop instances      Stop a list of instances
-    search benchmarks   Search for benchmark results using custom query
-    search invoices     Search for benchmark results using custom query
-    search offers       Search for instance types using custom query
-    search templates    Search for template results using custom query
-    set api-key         Set api-key (get your api-key from the console/CLI)
-    set user            Update user data from json file
-    ssh-url             ssh url helper
-    scp-url             scp url helper
-    show api-key        Show an api-key
-    show api-keys       List your api-keys associated with your account
-    show ssh-keys       List your ssh keys associated with your account
-    show autoscalers    Display user's current autoscaler groups
-    show endpoints      Display user's current endpoint groups
-    show connections    Displays user's cloud connections
-    show deposit        Display reserve deposit info for an instance
-    show earnings       Get machine earning history reports
-    show invoices       Get billing history reports
-    show instance       Display user's current instances
-    show instances      Display user's current instances
-    show ipaddrs        Display user's history of ip addresses
-    show user           Get current user data
-    show subaccounts    Get current subaccounts
-    show env-vars       Show user environment variables
-    show team-members   Show your team members
-    show team-role      Show your team role
-    show team-roles     Show roles for a team
-    transfer credit     Transfer credits to another account
-    update autoscaler   Update an existing autoscale group
-    update endpoint     Update an existing endpoint group
-    update team-role    Update an existing team role
-    update env-var      Update an existing user environment variable
-    update ssh-key      Update an existing ssh key
-    generate pdf-invoices
-    cleanup machine     [Host] Remove all expired storage instances from the machine, freeing up space.
-    delete machine      [Host] Delete machine if the machine is not being used by clients
-    list machine        [Host] list a machine for rent
-    list machines       [Host] list machines for rent
-    remove defjob       [Host] Delete default jobs
-    set defjob          [Host] Create default jobs for a machine
-    set min-bid         [Host] Set the minimum bid/rental price for a machine
-    schedule maint      [Host] Schedule upcoming maint window
-    cancel maint        [Host] Cancel maint window
-    show machines       [Host] Show hosted machines
-    show maints         [Host] Show maintenance information for host machines
-    unlist machine      [Host] Unlist a listed machine
-    launch instance     Launch the top instance from the search offers based on the given parameters
+  command             command to run. one of:
+    help              print this help message
+    attach ssh        Attach an ssh key to an instance. This will allow you to connect to the instance with the ssh key
+    cancel copy       Cancel a remote copy in progress, specified by DST id
+    cancel sync       Cancel a remote copy in progress, specified by DST id
+    change bid        Change the bid price for a spot/interruptible instance
+    copy              Copy directories between instances and/or local
+    vm copy           Copy VM image from one VM instance to another
+    cloud copy        Copy files/folders to and from cloud providers
+    create api-key    Create a new api-key with restricted permissions. Can be sent to other users and teammates
+    create env-var    Create a new user environment variable
+    create ssh-key    Create a new ssh-key
+    create autogroup  Create a new autoscale group
+    create endpoint   Create a new endpoint group
+    create instance   Create a new instance
+    create subaccount
+                      Create a subaccount
+    create team       Create a new team
+    create team-role  Add a new role to your team
+    create template   Create a new template
+    delete api-key    Remove an api-key
+    delete ssh-key    Remove an ssh-key
+    delete autogroup  Delete an autogroup group
+    delete endpoint   Delete an endpoint group
+    delete env-var    Delete a user environment variable
+    delete template   Delete a Template
+    destroy instance  Destroy an instance (irreversible, deletes data)
+    destroy instances
+                      Destroy a list of instances (irreversible, deletes data)
+    destroy team      Destroy your team
+    detach ssh        Detach an ssh key from an instance
+    execute           Execute a (constrained) remote command on a machine
+    get endpt-logs    Fetch logs for a specific serverless endpoint group
+    invite team-member
+                      Invite a team member
+    label instance    Assign a string label to an instance
+    launch instance   Launch the top instance from the search offers based on the given parameters
+    logs              Get the logs for an instance
+    prepay instance   Deposit credits into reserved instance
+    reboot instance   Reboot (stop/start) an instance
+    recycle instance  Recycle (destroy/create) an instance
+    remove team-member
+                      Remove a team member
+    remove team-role  Remove a role from your team
+    reports           Get the user reports for a given machine
+    reset api-key     Reset your api-key (get new key from website)
+    start instance    Start a stopped instance
+    start instances   Start a list of instances
+    stop instance     Stop a running instance
+    stop instances    Stop a list of instances
+    search benchmarks
+                      Search for benchmark results using custom query
+    search invoices   Search for benchmark results using custom query
+    search offers     Search for instance types using custom query
+    search templates  Search for template results using custom query
+    set api-key       Set api-key (get your api-key from the console/CLI)
+    set user          Update user data from json file
+    ssh-url           ssh url helper
+    scp-url           scp url helper
+    show api-key      Show an api-key
+    show api-keys     List your api-keys associated with your account
+    show audit-logs   Display account's history of important actions
+    show ssh-keys     List your ssh keys associated with your account
+    show autogroups   Display user's current autogroup groups
+    show endpoints    Display user's current endpoint groups
+    show connections  Display user's cloud connections
+    show deposit      Display reserve deposit info for an instance
+    show earnings     Get machine earning history reports
+    show env-vars     Show user environment variables
+    show invoices     Get billing history reports
+    show instance     Display user's current instances
+    show instances    Display user's current instances
+    show ipaddrs      Display user's history of ip addresses
+    show user         Get current user data
+    show subaccounts  Get current subaccounts
+    show team-members
+                      Show your team members
+    show team-role    Show your team role
+    show team-roles   Show roles for a team
+    transfer credit   Transfer credits to another account
+    update autogroup  Update an existing autoscale group
+    update endpoint   Update an existing endpoint group
+    update env-var    Update an existing user environment variable
+    update instance   Update recreate an instance from a new/updated template
+    update team-role  Update an existing team role
+    update template   Update an existing template
+    update ssh-key    Update an existing ssh key
+    cancel maint      [Host] Cancel maint window
+    cleanup machine   [Host] Remove all expired storage instances from the machine, freeing up space
+    delete machine    [Host] Delete machine if the machine is not being used by clients. host jobs on their own machines are disregarded and machine is force deleted.
+    list machine      [Host] list a machine for rent
+    list machines     [Host] list machines for rent
+    remove defjob     [Host] Delete default jobs
+    set defjob        [Host] Create default jobs for a machine
+    set min-bid       [Host] Set the minimum bid/rental price for a machine
+    schedule maint    [Host] Schedule upcoming maint window
+    show machine      [Host] Show hosted machines
+    show machines     [Host] Show hosted machines
+    show maints       [Host] Show maintenance information for host machines
+    unlist machine    [Host] Unlist a listed machine
+    self-test machine
+                      Perform a self-test on the specified machine
 
 options:
-  -h, --help            show this help message and exit
-  --url URL             server REST api url
-  --retry RETRY         retry limit
-  --raw                 output machine-readable json
-  --explain             output verbose explanation of mapping of CLI calls to HTTPS API endpoints
-  --api-key API_KEY     api key. defaults to using the one stored in ~/.vast_api_key
+  -h, --help          show this help message and exit
+  --url URL           server REST api url
+  --retry RETRY       retry limit
+  --raw               output machine-readable json
+  --explain           output verbose explanation of mapping of CLI calls to HTTPS API endpoints
+  --api-key API_KEY   api key. defaults to using the one stored in /root/.config/vastai/vast_api_key
 
-Use 'vast COMMAND --help' for more info about a command
+Use 'vast COMMAND --help' for more info about a comman
 ```
+
+## Self-Test a Machine (Single Machine)
+Hosts can run a **self-test** to verify that a single machine meets necessary requirements and performs basic reliability & stress tests.
+
+### Usage
+```
+./vast.py self-test machine <machine_id> [--ignore-requirements]
+```
+
+- **`machine_id`** is the numeric ID of the machine you want to self-test.
+- **`--ignore-requirements`** (optional) will **print** which requirements your machine fails, but it will still continue the tests. If not passed, the self-test stops upon failing requirements.
+
+Example:
+```
+# Standard self-test, respecting requirements
+./vast.py self-test machine 12345
+
+# Ignore system requirements and run anyway:
+./vast.py self-test machine 12345 --ignore-requirements
+```
+
+**Typical Output:**
+
+1. **Requirements Check**  
+   Prints “Machine ID <id> does not meet the requirements” if any fail. Then either stops (if you didn’t use `--ignore-requirements`) or continues.  
+
+2. **Instance Creation**  
+   The CLI spins up a short-lived test instance on the machine.  
+
+3. **Series of Tests**  
+   - System & environment checks  
+   - GPU tests (ResNet50, ECC test, etc.)  
+   - Stress tests (stress-ng, gpu-burn)  
+
+4. **Summary**  
+   - `Test passed.` if everything works  
+   - Or a reason if it fails (e.g. “No response for 60 seconds with running instance”)
+
+At the end, the test instance is automatically **destroyed**.
+
+---
+
+## Host Machine Testing with `vast_machine_tester.py`
+
+For **hosts** who want to **test multiple machines automatically**, we provide `vast_machine_tester.py`. It:
+
+1. **Searches** for offers on your host (filters by `--host_id` or `--verified`).  
+2. **Selects** the “best offer” for each machine (highest `dlperf`).  
+3. **Spins up** concurrent self-tests on each machine.  
+4. **Saves** results to:
+   - `passed_machines.txt`
+   - `failed_machines.txt`
+5. **Outputs** a summary (including a table of failure reasons).
+
+### Usage
+```
+python3 vast_machine_tester.py [--verified {true,false,any}] [--host_id HOST_ID] [--ignore-requirements]
+```
+- **`--verified`**: Filter offers by verification status (`true`, `false`, or `any`). Defaults to `false`.  
+- **`--host_id`**: Filter by a specific host ID. `any` means no filter. Defaults to `any`.  
+- **`--ignore-requirements`**: Passes the `--ignore-requirements` flag to each `self-test machine` call, so any requirement failures are printed but not blocking.
+
+**Examples**:
+
+1. **Test all unverified machines for Host #123456** (the default also set to `verified=false`):
+   ```
+   python3 vast_machine_tester.py --host_id 123456
+   ```
+   See which machines pass or fail. 
+   
+2. **Test for all machines (verified or unverified)**:
+   ```
+   python3 vast_machine_tester.py --verified any --host_id 123456
+   ```
+3. **Ignore system requirements** (but still see them printed):
+   ```
+   python3 vast_machine_tester.py --host_id 123456 --ignore-requirements
+   ```
+
+### Output Files
+
+- **`passed_machines.txt`**  
+  Contains a timestamp and a **comma-separated** list of machine IDs that have passed.
+
+- **`failed_machines.txt`**  
+  Contains a timestamp and lines of the form `<machine_id>: <reason>` for each failure.
+
+### Failure Summary
+
+A short table is printed showing reasons for failing tests (e.g., “Download speed <= 10 Mb/s; Upload speed <= 10 Mb/s”).
+
+---
+
+## Usage Examples
+
+1. **Single machine, fail if not meeting requirements**:
+   ```
+   ./vast.py self-test machine 54321
+   ```
+   If it fails, you see the failing requirements in the output, and the test ends.
+
+2. **Single machine, continue testing anyway**:
+   ```
+   ./vast.py self-test machine 54321 --ignore-requirements
+   ```
+   Prints the failure reasons but **still** runs the tests.  
+
+3. **Multiple machines** from a single host ID, ignoring requirements:
+   ```
+   python3 vast_machine_tester.py --host_id 123456 --ignore-requirements
+   ```
+   In a few minutes, you’ll have **passed_machines.txt** and **failed_machines.txt** with a summary.
+
+---
 
 ## Tab-Completion
 Vast.py has optional tab completion in both the Bash and Zsh shell if the [argcomplete](https://github.com/kislyuk/argcomplete) package is installed. To enable this first install the `argcomplete` pip then either run `activate-global-python-argcomplete` to install global handlers or, for a local shell instance, `eval "$(register-python-argcomplete vast.py)"`. If necessary, change `vast.py` to whatever name you've assigned to invoke the tool as you are instrumenting the shell to autocomplete upon a certain command.

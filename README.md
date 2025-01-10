@@ -138,118 +138,113 @@ command we type `./vast.py show machines`
 usage: vast.py [-h] [--url URL] [--retry RETRY] [--raw] [--explain] [--api-key API_KEY] command ...
 
 positional arguments:
-  command             command to run. one of:
-    help              print this help message
-    attach ssh        Attach an ssh key to an instance. This will allow you to connect to the instance with the ssh key
-    cancel copy       Cancel a remote copy in progress, specified by DST id
-    cancel sync       Cancel a remote copy in progress, specified by DST id
-    change bid        Change the bid price for a spot/interruptible instance
-    copy              Copy directories between instances and/or local
-    vm copy           Copy VM image from one VM instance to another
-    cloud copy        Copy files/folders to and from cloud providers
-    create api-key    Create a new api-key with restricted permissions. Can be sent to other users and teammates
-    create env-var    Create a new user environment variable
-    create ssh-key    Create a new ssh-key
-    create autogroup  Create a new autoscale group
-    create endpoint   Create a new endpoint group
-    create instance   Create a new instance
-    create subaccount
-                      Create a subaccount
-    create team       Create a new team
-    create team-role  Add a new role to your team
-    create template   Create a new template
-    delete api-key    Remove an api-key
-    delete ssh-key    Remove an ssh-key
-    delete autogroup  Delete an autogroup group
-    delete endpoint   Delete an endpoint group
-    delete env-var    Delete a user environment variable
-    delete template   Delete a Template
-    destroy instance  Destroy an instance (irreversible, deletes data)
-    destroy instances
-                      Destroy a list of instances (irreversible, deletes data)
-    destroy team      Destroy your team
-    detach ssh        Detach an ssh key from an instance
-    execute           Execute a (constrained) remote command on a machine
-    get endpt-logs    Fetch logs for a specific serverless endpoint group
-    invite team-member
-                      Invite a team member
-    label instance    Assign a string label to an instance
-    launch instance   Launch the top instance from the search offers based on the given parameters
-    logs              Get the logs for an instance
-    prepay instance   Deposit credits into reserved instance
-    reboot instance   Reboot (stop/start) an instance
-    recycle instance  Recycle (destroy/create) an instance
-    remove team-member
-                      Remove a team member
-    remove team-role  Remove a role from your team
-    reports           Get the user reports for a given machine
-    reset api-key     Reset your api-key (get new key from website)
-    start instance    Start a stopped instance
-    start instances   Start a list of instances
-    stop instance     Stop a running instance
-    stop instances    Stop a list of instances
-    search benchmarks
-                      Search for benchmark results using custom query
-    search invoices   Search for benchmark results using custom query
-    search offers     Search for instance types using custom query
-    search templates  Search for template results using custom query
-    set api-key       Set api-key (get your api-key from the console/CLI)
-    set user          Update user data from json file
-    ssh-url           ssh url helper
-    scp-url           scp url helper
-    show api-key      Show an api-key
-    show api-keys     List your api-keys associated with your account
-    show audit-logs   Display account's history of important actions
-    show ssh-keys     List your ssh keys associated with your account
-    show autogroups   Display user's current autogroup groups
-    show endpoints    Display user's current endpoint groups
-    show connections  Display user's cloud connections
-    show deposit      Display reserve deposit info for an instance
-    show earnings     Get machine earning history reports
-    show env-vars     Show user environment variables
-    show invoices     Get billing history reports
-    show instance     Display user's current instances
-    show instances    Display user's current instances
-    show ipaddrs      Display user's history of ip addresses
-    show user         Get current user data
-    show subaccounts  Get current subaccounts
-    show team-members
-                      Show your team members
-    show team-role    Show your team role
-    show team-roles   Show roles for a team
-    transfer credit   Transfer credits to another account
-    update autogroup  Update an existing autoscale group
-    update endpoint   Update an existing endpoint group
-    update env-var    Update an existing user environment variable
-    update instance   Update recreate an instance from a new/updated template
-    update team-role  Update an existing team role
-    update template   Update an existing template
-    update ssh-key    Update an existing ssh key
-    cancel maint      [Host] Cancel maint window
-    cleanup machine   [Host] Remove all expired storage instances from the machine, freeing up space
-    delete machine    [Host] Delete machine if the machine is not being used by clients. host jobs on their own machines are disregarded and machine is force deleted.
-    list machine      [Host] list a machine for rent
-    list machines     [Host] list machines for rent
-    remove defjob     [Host] Delete default jobs
-    set defjob        [Host] Create default jobs for a machine
-    set min-bid       [Host] Set the minimum bid/rental price for a machine
-    schedule maint    [Host] Schedule upcoming maint window
-    show machine      [Host] Show hosted machines
-    show machines     [Host] Show hosted machines
-    show maints       [Host] Show maintenance information for host machines
-    unlist machine    [Host] Unlist a listed machine
-    self-test machine
-                      Perform a self-test on the specified machine
+ command             command to run. one of:
+  help               print this help message
+  attach ssh         Attach an ssh key to an instance. This will allow you to connect to the instance with the ssh key
+  cancel copy        Cancel a remote copy in progress, specified by DST id
+  cancel sync        Cancel a remote copy in progress, specified by DST id
+  change bid         Change the bid price for a spot/interruptible instance
+  copy               Copy directories between instances and/or local
+  vm copy            Copy VM image from one VM instance to another
+  cloud copy         Copy files/folders to and from cloud providers
+  create api-key     Create a new api-key with restricted permissions. Can be sent to other users and teammates
+  create env-var     Create a new user environment variable
+  create ssh-key     Create a new ssh-key
+  create autogroup   Create a new autoscale group
+  create endpoint    Create a new endpoint group
+  create instance    Create a new instance
+  create subaccount  Create a subaccount
+  create team        Create a new team
+  create team-role   Add a new role to your team
+  create template    Create a new template
+  delete api-key     Remove an api-key
+  delete ssh-key     Remove an ssh-key
+  delete autogroup   Delete an autogroup group
+  delete endpoint    Delete an endpoint group
+  delete env-var     Delete a user environment variable
+  delete template    Delete a Template
+  destroy instance   Destroy an instance (irreversible, deletes data)
+  destroy instances  Destroy a list of instances (irreversible, deletes data)
+  destroy team       Destroy your team
+  detach ssh         Detach an ssh key from an instance
+  execute            Execute a (constrained) remote command on a machine
+  get endpt-logs     Fetch logs for a specific serverless endpoint group
+  invite team-member
+                     Invite a team member
+  label instance     Assign a string label to an instance
+  launch instance    Launch the top instance from the search offers based on the given parameters
+  logs               Get the logs for an instance
+  prepay instance    Deposit credits into reserved instance
+  reboot instance    Reboot (stop/start) an instance
+  recycle instance   Recycle (destroy/create) an instance
+  remove team-member
+                     Remove a team member
+  remove team-role   Remove a role from your team
+  reports            Get the user reports for a given machine
+  reset api-key      Reset your api-key (get new key from website)
+  start instance     Start a stopped instance
+  start instances    Start a list of instances
+  stop instance      Stop a running instance
+  stop instances     Stop a list of instances
+  search benchmarks  Search for benchmark results using custom query
+  search invoices    Search for benchmark results using custom query
+  search offers      Search for instance types using custom query
+  search templates   Search for template results using custom query
+  set api-key        Set api-key (get your api-key from the console/CLI)
+  set user           Update user data from json file
+  ssh-url            ssh url helper
+  scp-url            scp url helper
+  show api-key       Show an api-key
+  show api-keys      List your api-keys associated with your account
+  show audit-logs    Display account's history of important actions
+  show ssh-keys      List your ssh keys associated with your account
+  show autogroups    Display user's current autogroup groups
+  show endpoints     Display user's current endpoint groups
+  show connections   Display user's cloud connections
+  show deposit       Display reserve deposit info for an instance
+  show earnings      Get machine earning history reports
+  show env-vars      Show user environment variables
+  show invoices      Get billing history reports
+  show instance      Display user's current instances
+  show instances     Display user's current instances
+  show ipaddrs       Display user's history of ip addresses
+  show user          Get current user data
+  show subaccounts   Get current subaccounts
+  show team-members  Show your team members
+  show team-role     Show your team role
+  show team-roles    Show roles for a team
+  transfer credit    Transfer credits to another account
+  update autogroup   Update an existing autoscale group
+  update endpoint    Update an existing endpoint group
+  update env-var     Update an existing user environment variable
+  update instance    Update recreate an instance from a new/updated template
+  update team-role   Update an existing team role
+  update template    Update an existing template
+  update ssh-key     Update an existing ssh key
+  cancel maint       [Host] Cancel maint window
+  cleanup machine    [Host] Remove all expired storage instances from the machine, freeing up space
+  delete machine     [Host] Delete machine if the machine is not being used by clients. host jobs on their own machines are disregarded and machine is force deleted.
+  list machine       [Host] list a machine for rent
+  list machines      [Host] list machines for rent
+  remove defjob      [Host] Delete default jobs
+  set defjob         [Host] Create default jobs for a machine
+  set min-bid        [Host] Set the minimum bid/rental price for a machine
+  schedule maint     [Host] Schedule upcoming maint window
+  show machine       [Host] Show hosted machines
+  show machines      [Host] Show hosted machines
+  show maints        [Host] Show maintenance information for host machines
+  unlist machine     [Host] Unlist a listed machine
+  self-test machine  [Host] Perform a self-test on the specified machine
 
 options:
-  -h, --help          show this help message and exit
-  --url URL           server REST api url
-  --retry RETRY       retry limit
-  --raw               output machine-readable json
-  --explain           output verbose explanation of mapping of CLI calls to HTTPS API endpoints
-  --api-key API_KEY   api key. defaults to using the one stored in /root/.config/vastai/vast_api_key
+ -h, --help          show this help message and exit
+ --url URL           server REST api url
+ --retry RETRY       retry limit
+ --raw               output machine-readable json
+ --explain           output verbose explanation of mapping of CLI calls to HTTPS API endpoints
+ --api-key API_KEY   api key. defaults to using the one stored in /root/.config/vastai/vast_api_key
 
-Use 'vast COMMAND --help' for more info about a comman
+Use 'vast COMMAND --help' for more info about a command
 ```
 
 ## Self-Test a Machine (Single Machine)

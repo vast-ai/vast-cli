@@ -232,7 +232,8 @@ def complete_sshkeys(prefix=None, action=None, parser=None, parsed_args=None):
 
 class apwrap(object):
     def __init__(self, *args, **kwargs):
-        kwargs["formatter_class"] = argparse.RawDescriptionHelpFormatter
+        if "formatter_class" not in kwargs:
+            kwargs["formatter_class"] = MyWideHelpFormatter    
         self.parser = argparse.ArgumentParser(*args, **kwargs)
         self.parser.set_defaults(func=self.fail_with_help)
         self.subparsers_ = None
@@ -290,9 +291,9 @@ class apwrap(object):
             for x in aliases:
                 verb, _, obj = x.partition(" ")
                 aliases_transformed.append(self.get_name(verb, obj))
+            if "formatter_class" not in kwargs:
+                kwargs["formatter_class"] = MyWideHelpFormatter
 
-            kwargs["formatter_class"] = argparse.RawDescriptionHelpFormatter
-          
             sp = self.subparsers().add_parser(name, aliases=aliases_transformed, help=help_, **kwargs)
 
             # TODO: Sometimes the parser.command has a help parameter. Ideally
@@ -340,8 +341,14 @@ class apwrap(object):
             func(args)
         return args
 
+class MyWideHelpFormatter(argparse.HelpFormatter):
+    def __init__(self, prog):
+        super().__init__(prog, width=190, max_help_position=28, indent_increment=1)
 
-parser = apwrap(epilog="Use 'vast COMMAND --help' for more info about a command")
+parser = apwrap(
+    epilog="Use 'vast COMMAND --help' for more info about a command",
+    formatter_class=MyWideHelpFormatter
+)
 
 def translate_null_strings_to_blanks(d: Dict) -> Dict:
     """Map over a dict and translate any null string values into ' '.
@@ -5812,7 +5819,7 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
     argument("--retry", help="Retry limit", type=int, default=3),
     argument("--ignore-requirements", action="store_true", help="Ignore the minimum system requirements and run the self test regardless"),
     usage="vastai self-test machine <machine_id> [--debugging] [--explain] [--api_key API_KEY] [--url URL] [--retry RETRY] [--raw] [--ignore-requirements]",
-    help="Perform a self-test on the specified machine",
+    help="[Host] Perform a self-test on the specified machine",
     epilog=deindent("""
         This command tests if a machine meets specific requirements and 
         runs a series of tests to ensure it's functioning correctly.

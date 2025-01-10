@@ -11,11 +11,14 @@ require installing an additional second script called `vast_pdf.py`.
 
 ## Table of Contents
 1. [Quickstart](#quickstart)
-2. [Commands Overview](#commands-overview)
-3. [Self-Test a Machine (Single Machine)](#self-test-a-machine-single-machine)
-4. [Host Machine Testing with `vast_machine_tester.py`](#host-machine-testing-with-vast_machine_testerpy)
-5. [Usage Examples](#usage-examples)
-6. [Tab-Completion](#tab-completion)
+2. [Usage](#Usage)
+3. [Install](#Install)
+4. [Commands](#Commands)
+5. [List of commands and associated help message](#List of commands and associated help message)
+6. [Self-Test a Machine (Single Machine)](#self-test-a-machine-single-machine)
+7. [Host Machine Testing with `vast_machine_tester.py`](#host-machine-testing-with-vast_machine_testerpy)
+8. [Usage Examples](#usage-examples)
+9. [Tab-Completion](#tab-completion)
 
 ## Quickstart
 

@@ -291,6 +291,7 @@ At the end, the test instance is automatically **destroyed**.
 
 ---
 
+
 ## Host Machine Testing with `vast_machine_tester.py`
 
 For **hosts** who want to **test multiple machines automatically**, we provide `vast_machine_tester.py`. It:
@@ -302,30 +303,51 @@ For **hosts** who want to **test multiple machines automatically**, we provide `
    - `passed_machines.txt`
    - `failed_machines.txt`
 5. **Outputs** a summary (including a table of failure reasons).
+6. **(Optional)** Automatically **verifies** machines that pass, if `--auto-verify true`.
 
 ### Usage
-```
-python3 vast_machine_tester.py [--verified {true,false,any}] [--host_id HOST_ID] [--ignore-requirements]
-```
-- **`--verified`**: Filter offers by verification status (`true`, `false`, or `any`). Defaults to `false`.  
-- **`--host_id`**: Filter by a specific host ID. `any` means no filter. Defaults to `any`.  
-- **`--ignore-requirements`**: Passes the `--ignore-requirements` flag to each `self-test machine` call, so any requirement failures are printed but not blocking.
 
-**Examples**:
+```
+python3 vast_machine_tester.py [--verified {true,false,any}] 
+                               [--host_id HOST_ID] 
+                               [--ignore-requirements] 
+                               [--auto-verify {true,false}] {ADMIN API KEYS ONLY}
+```
 
-1. **Test all unverified machines for Host #123456** (the default also set to `verified=false`):
-   ```
+- **`--verified {true,false,any}`**  
+  Which verification status to filter offers by. Defaults to `false`.
+
+- **`--host_id HOST_ID`**  
+  Filter offers by a specific host ID. `any` means no filter. Defaults to `any`.
+
+- **`--ignore-requirements`**  
+  Ignore the minimum system requirements check in each self-test. Requirement failures are logged but not blocking.
+
+- **`--auto-verify {true,false}`**  Only works if admin api key is used. 
+  If `"true"`, any machine that passes the self-test is automatically set to `"verified"`.  
+  If `"false"` (or omitted), you’re prompted whether to verify each machine that passes. Defaults to `false`.
+
+### Examples
+
+1. **Test all unverified machines for a specific Host ID** (default verification filter is `false`):
+   ```bash
    python3 vast_machine_tester.py --host_id 123456
    ```
-   See which machines pass or fail. 
-   
-2. **Test for all machines (verified or unverified)**:
-   ```
+   Saves results to `passed_machines.txt` and `failed_machines.txt`.
+
+2. **Test *any* machines (verified or unverified)**:
+   ```bash
    python3 vast_machine_tester.py --verified any --host_id 123456
    ```
-3. **Ignore system requirements** (but still see them printed):
-   ```
+
+3. **Ignore system requirements** (but still see them in logs):
+   ```bash
    python3 vast_machine_tester.py --host_id 123456 --ignore-requirements
+   ```
+
+4. **Automatically verify machines that pass**:
+   ```bash
+   python3 vast_machine_tester.py --host_id 123456 --auto-verify true
    ```
 
 ### Output Files
@@ -338,9 +360,7 @@ python3 vast_machine_tester.py [--verified {true,false,any}] [--host_id HOST_ID]
 
 ### Failure Summary
 
-A short table is printed showing reasons for failing tests (e.g., “Download speed <= 10 Mb/s; Upload speed <= 10 Mb/s”).
-
----
+When tests finish, a short table is printed summarizing each unique failure reason (e.g., “Download speed <= 10 Mb/s”).
 
 ## Usage Examples
 

@@ -5871,22 +5871,22 @@ def self_test__machine(args):
 
         # Check requirements
         meets_requirements, unmet_reasons = check_requirements(args.machine_id, api_key, args)
-        if not meets_requirements:
-            # Always print the unmet requirements
+        if not meets_requirements and not args.ignore_requirements:
+            # immediately fail
             progress_print(args, f"Machine ID {args.machine_id} does not meet the following requirements:")
             for reason in unmet_reasons:
                 progress_print(args, f"- {reason}")
-
-            if not args.ignore_requirements:
-                # If user did NOT pass --ignore-requirements, fail as before
-                result["reason"] = "; ".join(unmet_reasons)
-                return result  # This ends the function (and prints "Test failed" further down)
-            else:
+            result["reason"] = "; ".join(unmet_reasons)
+            return result
+        if not meets_requirements and args.ignore_requirements:
+            progress_print(args, f"Machine ID {args.machine_id} does not meet the following requirements:")
+            for reason in unmet_reasons:
+                progress_print(args, f"- {reason}")
                 # If user did pass --ignore-requirements, warn and continue
                 progress_print(args, "Continuing despite unmet requirements because --ignore-requirements is set.")
             def search_offers_and_get_top(machine_id):
                 search_args = argparse.Namespace(
-                    query=[f"machine_id={machine_id}", "verified=any", "rentable=any"],
+                    query=[f"machine_id={machine_id}", "verified=any", "rentable=true"],
                     type="on-demand",
                     quiet=False,
                     no_default=False,
@@ -5909,99 +5909,99 @@ def self_test__machine(args):
                 sorted_offers = sorted(offers, key=lambda x: x.get("dlperf", 0), reverse=True)
                 return sorted_offers[0] if sorted_offers else None
 
-            top_offer = search_offers_and_get_top(args.machine_id)
-            if not top_offer:
-                progress_print(args, f"No valid offers found for Machine ID {args.machine_id}")
-                result["reason"] = "No valid offers found."
-            else:
-                ask_contract_id = top_offer["id"]
+        top_offer = search_offers_and_get_top(args.machine_id)
+        if not top_offer:
+            progress_print(args, f"No valid offers found for Machine ID {args.machine_id}")
+            result["reason"] = "No valid offers found."
+        else:
+            ask_contract_id = top_offer["id"]
 
-                # Prepare arguments for instance creation
-                create_args = argparse.Namespace(
-                    id=ask_contract_id,
-                    user=None,
-                    price=None,  # Set bid_price to None
-                    disk=40,  # Match the disk size from the working command
-                    image="vastai/test:selftest",  # Use the same image as the working command
-                    login=None,
-                    label=None,
-                    onstart=None,
-                    onstart_cmd="python3 remote.py",
-                    entrypoint=None,
-                    ssh=False,  # Set ssh to False
-                    jupyter=True,  # Set jupyter to True
-                    direct=True,
-                    jupyter_dir=None,
-                    jupyter_lab=False,
-                    lang_utf8=False,
-                    python_utf8=False,
-                    extra=None,
-                    env="-e TZ=PDT -e XNAME=XX4 -p 5000:5000",
-                    args=None,
-                    force=False,
-                    cancel_unavail=False,
-                    template_hash=None,
-                    raw=True,
-                    explain=args.explain,
-                    api_key=api_key,
-                    url=args.url,
-                    retry=args.retry,
-                    debugging=args.debugging,
-                    bid_price=None,  # Ensure bid_price is None
-                )
+            # Prepare arguments for instance creation
+            create_args = argparse.Namespace(
+                id=ask_contract_id,
+                user=None,
+                price=None,  # Set bid_price to None
+                disk=40,  # Match the disk size from the working command
+                image="vastai/test:selftest",  # Use the same image as the working command
+                login=None,
+                label=None,
+                onstart=None,
+                onstart_cmd="python3 remote.py",
+                entrypoint=None,
+                ssh=False,  # Set ssh to False
+                jupyter=True,  # Set jupyter to True
+                direct=True,
+                jupyter_dir=None,
+                jupyter_lab=False,
+                lang_utf8=False,
+                python_utf8=False,
+                extra=None,
+                env="-e TZ=PDT -e XNAME=XX4 -p 5000:5000",
+                args=None,
+                force=False,
+                cancel_unavail=False,
+                template_hash=None,
+                raw=True,
+                explain=args.explain,
+                api_key=api_key,
+                url=args.url,
+                retry=args.retry,
+                debugging=args.debugging,
+                bid_price=None,  # Ensure bid_price is None
+            )
 
-                # Create instance
-                try:
-                    response = create__instance(create_args)
-                    if isinstance(response, requests.Response):  # Check if it's an HTTP response
-                        if response.status_code == 200:
-                            try:
-                                instance_info = response.json()  # Parse JSON
-                                if args.debugging:
-                                    debug_print(args, "Captured instance_info from create__instance:", instance_info)
-                            except json.JSONDecodeError as e:
-                                progress_print(args, f"Error parsing JSON response: {e}")
-                                debug_print(args, f"Raw response content: {response.text}")
-                                raise Exception("Failed to parse JSON from instance creation response.")
-                        else:
-                            progress_print(args, f"HTTP error during instance creation: {response.status_code}")
-                            debug_print(args, f"Response text: {response.text}")
-                            raise Exception(f"Instance creation failed with status {response.status_code}")
+            # Create instance
+            try:
+                response = create__instance(create_args)
+                if isinstance(response, requests.Response):  # Check if it's an HTTP response
+                    if response.status_code == 200:
+                        try:
+                            instance_info = response.json()  # Parse JSON
+                            if args.debugging:
+                                debug_print(args, "Captured instance_info from create__instance:", instance_info)
+                        except json.JSONDecodeError as e:
+                            progress_print(args, f"Error parsing JSON response: {e}")
+                            debug_print(args, f"Raw response content: {response.text}")
+                            raise Exception("Failed to parse JSON from instance creation response.")
                     else:
-                        raise Exception("Unexpected response type from create__instance.")
-                except Exception as e:
-                    progress_print(args, f"Error creating instance: {e}")
-                    result["reason"] = "Failed to create instance."
-                    return result  # Cleanup handled in finally block
-
-                # Extract instance ID and proceed
-                instance_id = instance_info.get("new_contract")
-                if not instance_id:
-                    progress_print(args, "Instance creation response did not contain 'new_contract'.")
-                    result["reason"] = "Instance creation failed."
+                        progress_print(args, f"HTTP error during instance creation: {response.status_code}")
+                        debug_print(args, f"Response text: {response.text}")
+                        raise Exception(f"Instance creation failed with status {response.status_code}")
                 else:
-                    # Wait for the instance to start
-                    instance_info, wait_reason = wait_for_instance(instance_id, api_key, args, destroy_args)
-                    if not instance_info:
-                        result["reason"] = wait_reason
+                    raise Exception("Unexpected response type from create__instance.")
+            except Exception as e:
+                progress_print(args, f"Error creating instance: {e}")
+                result["reason"] = "Failed to create instance."
+                return result  # Cleanup handled in finally block
+
+            # Extract instance ID and proceed
+            instance_id = instance_info.get("new_contract")
+            if not instance_id:
+                progress_print(args, "Instance creation response did not contain 'new_contract'.")
+                result["reason"] = "Instance creation failed."
+            else:
+                # Wait for the instance to start
+                instance_info, wait_reason = wait_for_instance(instance_id, api_key, args, destroy_args)
+                if not instance_info:
+                    result["reason"] = wait_reason
+                else:
+                    # Proceed with the rest of your code
+                    # Run machine tester
+                    ip_address = instance_info.get("public_ipaddr")
+                    if not ip_address:
+                        result["reason"] = "Failed to retrieve public IP address."
                     else:
-                        # Proceed with the rest of your code
-                        # Run machine tester
-                        ip_address = instance_info.get("public_ipaddr")
-                        if not ip_address:
-                            result["reason"] = "Failed to retrieve public IP address."
+                        port_mappings = instance_info.get("ports", {}).get("5000/tcp", [])
+                        port = port_mappings[0].get("HostPort") if port_mappings else None
+                        if not port:
+                            result["reason"] = "Failed to retrieve mapped port."
                         else:
-                            port_mappings = instance_info.get("ports", {}).get("5000/tcp", [])
-                            port = port_mappings[0].get("HostPort") if port_mappings else None
-                            if not port:
-                                result["reason"] = "Failed to retrieve mapped port."
-                            else:
-                                delay = "15"
-                                success, reason = run_machinetester(
-                                    ip_address, port, str(instance_id), args.machine_id, delay, args, api_key=api_key
-                                )
-                                result["success"] = success
-                                result["reason"] = reason
+                            delay = "15"
+                            success, reason = run_machinetester(
+                                ip_address, port, str(instance_id), args.machine_id, delay, args, api_key=api_key
+                            )
+                            result["success"] = success
+                            result["reason"] = reason
 
     except Exception as e:
         result["success"] = False
@@ -6113,4 +6113,3 @@ if __name__ == "__main__":
         main()
     except (KeyboardInterrupt, BrokenPipeError):
         pass
-

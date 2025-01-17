@@ -8,23 +8,35 @@
 #     selecting the best offers (highest dlperf) for each machine, performing
 #     self-tests on each machine, and saving the test results. When done, it
 #     optionally allows you to verify all machines that passed the self-test by
-#     calling the Vast admin endpoint.
+#     calling the Vast admin endpoint. It also optionally allows you to
+#     deverify all machines that failed self-tests, setting their verification
+#     to 'deverified' and storing the reason in 'error_msg'.
 #
 # Execution:
 #     Ensure that all dependencies are installed and that the './vast' or
 #     './vast.py' commands are available and executable. Run the script using:
-#         python3 vast_machine_tester.py [--verified {true,false,any}] [--host_id HOST_ID]
-#                                        [--ignore-requirements] [--auto-verify <true|false>]
+#         python3 vast_machine_tester.py [--verified {true,false,any}]
+#                                        [--host_id HOST_ID]
+#                                        [--ignore-requirements]
+#                                        [--auto-verify <true|false>]
+#                                        [--auto-deverify <true|false>]
+#                                        [--sample-pct PCT]
+#                                        [-v | -vv | -vvv]
 #
 #     Examples:
 #         python3 vast_machine_tester.py --verified false --ignore-requirements
 #         python3 vast_machine_tester.py --verified false --host_id 12345 --auto-verify true
+#         python3 vast_machine_tester.py --verified false --auto-deverify true
+#         python3 vast_machine_tester.py --verified any --sample-pct 30
 #
 # Results:
 #     - Passed machine IDs are saved to 'passed_machines.txt'
 #     - Failed machine IDs and reasons are saved to 'failed_machines.txt'
 #     - Optionally, user is prompted or (if auto-verify is true) automatically
 #       verifies all machines that passed self-tests.
+#     - Optionally, user is prompted or (if auto-deverify is true) automatically
+#       deverifies all machines that failed self-tests (sets them to 'deverified'
+#       and stores the failure reason in `error_msg`).
 # =============================================================================
 
 import subprocess
@@ -49,10 +61,9 @@ except ImportError:
     logging.warning("Tabulate module not found. Table formatting will be basic.")
 
 
-# -----------------------------------------------------------------------------
+# -----------------------------
 #   USE SAME PATHS AND LOGIC AS vast.py FOR STORING/READING API KEY
-# -----------------------------------------------------------------------------
-
+# -----------------------------
 DIRS = {
     'config': os.path.join(os.path.expanduser('~'), '.config', 'vastai'),
     'temp': os.path.join(os.path.expanduser('~'), '.cache', 'vastai'),
@@ -86,16 +97,29 @@ def load_api_key():
         return None
 
 
-# -----------------------------------------------------------------------------
+# -----------------------------
 #   MAIN SCRIPT FUNCTIONS
-# -----------------------------------------------------------------------------
+# -----------------------------
 
-def setup_logging():
+def setup_logging(verbosity: int):
     """
-    Configures the logging settings.
+    Configures the logging settings based on the verbosity level.
+      0 => WARNING
+      1 => INFO
+      2 => DEBUG
+      3 => also DEBUG
     """
+    if verbosity >= 3:
+        level = logging.DEBUG
+    elif verbosity == 2:
+        level = logging.DEBUG
+    elif verbosity == 1:
+        level = logging.INFO
+    else:
+        level = logging.WARNING
+
     logging.basicConfig(
-        level=logging.INFO,
+        level=level,
         format="%(asctime)s - %(levelname)s - %(message)s",
         handlers=[logging.StreamHandler(sys.stdout)]
     )
@@ -116,37 +140,39 @@ def get_vast_command():
         raise FileNotFoundError("Neither './vast.py' nor './vast' is available as an executable.")
 
 
-def run_vast_search(verified='any', host_id='any'):
+def run_vast_search(verified='any', host_id='any', ignore_requirements=False):
     """
-    Executes the VAST search command to retrieve offers based on verification status and host ID.
-    Implements up to 30 retries if we get a 429 Too Many Requests error.
-
-    Parameters:
-        verified (str): 'true', 'false', or 'any' to filter offers by verification status.
-        host_id (str or int): Specific host ID to filter offers or 'any' for no filtering.
-
-    Returns:
-        list of dict: A list of offer dictionaries.
+    Executes the VAST search command to retrieve offers based on verification status,
+    host ID, and optionally ignoring reliability filter if --ignore-requirements is used.
+    Includes up to 30 retries if we get a 429 Too Many Requests error.
     """
     valid_verified = {'true', 'false', 'any'}
     if verified.lower() not in valid_verified:
         logging.error(f"Invalid value for --verified: '{verified}'. Must be one of {valid_verified}.")
         sys.exit(1)
-    
+
     if host_id != 'any':
         try:
             int(host_id)
         except ValueError:
             logging.error(f"Invalid value for --host_id: '{host_id}'. Must be an integer or 'any'.")
             sys.exit(1)
-    
+
     verified_filter = f"verified={verified.lower()}"
     host_id_filter = f"host_id={host_id}" if host_id != 'any' else "host_id=any"
 
-    cmd = [
-        get_vast_command(), 'search', 'offers', '--limit', '65535',
-        '--disable-bundling', verified_filter, host_id_filter, '--raw'
-    ]
+    if not ignore_requirements:
+        cmd = [
+            get_vast_command(), 'search', 'offers', '--limit', '65535',
+            '--disable-bundling', 'reliability > 0.9',
+            verified_filter, host_id_filter, '--raw'
+        ]
+    else:
+        cmd = [
+            get_vast_command(), 'search', 'offers', '--limit', '65535',
+            '--disable-bundling',
+            verified_filter, host_id_filter, '--raw'
+        ]
 
     max_retries = 30
     for attempt in range(1, max_retries + 1):
@@ -159,7 +185,6 @@ def run_vast_search(verified='any', host_id='any'):
             return offers
 
         except subprocess.CalledProcessError as e:
-            # If we see a 429 or "Too Many Requests", do backoff
             stderr_msg = e.stderr.strip().lower()
             if "429" in stderr_msg or "too many requests" in stderr_msg:
                 if attempt < max_retries:
@@ -178,9 +203,8 @@ def run_vast_search(verified='any', host_id='any'):
                 return []
 
         except json.JSONDecodeError as e:
-            # Could still be a 429 in the output
-            # We'll check the partial output
-            if "429" in str(e) or "too many requests" in (result.stdout.lower() + result.stderr.lower()):
+            all_output_lower = (result.stdout + result.stderr).lower()
+            if "429" in all_output_lower or "too many requests" in all_output_lower:
                 if attempt < max_retries:
                     wait_time = random.randint(2, 20)
                     logging.warning(
@@ -190,7 +214,7 @@ def run_vast_search(verified='any', host_id='any'):
                     time.sleep(wait_time)
                     continue
                 else:
-                    logging.error("Too Many Requests (JSON decode) after max retries in run_vast_search.")
+                    logging.error("Too Many Requests (JSON decode) after max retries.")
                     return []
             else:
                 logging.error(f"Error parsing JSON output from vast search: {e}")
@@ -200,33 +224,21 @@ def run_vast_search(verified='any', host_id='any'):
             logging.exception(f"Unexpected error running vast search: {e}")
             return []
 
-    # If we somehow exhaust all attempts without returning
     logging.error("Exhausted all retries in run_vast_search without success.")
     return []
 
 
 def get_unverified_offers(offers):
     """
-    Filters the list of offers to only unverified offers whose machine IDs are not
-    present in any verified offers.
+    Filters the list of offers to remove any that are 'verified'.
     """
-    verified_machine_ids = {
-        off.get('machine_id') for off in offers if off.get('verification') == 'verified'
-    }
-
-    unverified_offers = [
-        off for off in offers
-        if off.get('verification') == 'unverified'
-           and off.get('machine_id') not in verified_machine_ids
-    ]
-    logging.info(f"Filtered to {len(unverified_offers)} truly unverified offers.")
-    return unverified_offers
+    return [off for off in offers if off.get('verification') != 'verified']
 
 
 def get_best_offers(offers):
     """
-    Selects the best offer for each machine based on the highest deep learning performance (dlperf).
-    Returns a dict mapping machine_id -> best offer.
+    Selects the best offer for each machine based on highest dlperf.
+    Returns a dict machine_id -> best offer.
     """
     best_offers = {}
     for off in offers:
@@ -241,11 +253,8 @@ def get_best_offers(offers):
 def test_machine(machine_id, ignore_requirements=False):
     """
     Performs a self-test on a given machine using 'vast self-test machine <id>'.
-    Adds up to 30 retries if "429" or "Too Many Requests" is encountered.
-
+    Up to 30 retries if "429" or "Too Many Requests".
     Returns: (machine_id, status, reason)
-      status = 'success' or 'failure'
-      reason = if failure, text reason
     """
     cmd = [get_vast_command(), 'self-test', 'machine', str(machine_id), '--raw']
     if ignore_requirements:
@@ -273,18 +282,15 @@ def test_machine(machine_id, ignore_requirements=False):
                 else:
                     return (machine_id, 'failure', "Too Many Requests after 30 retries")
 
-            # Try to parse JSON
+            # Parse JSON
             try:
                 data = json.loads(output)
             except json.JSONDecodeError:
-                # Could still be a leftover 429 type error
+                # Could still be leftover 429 message
                 if "429" in all_output_lower or "too many requests" in all_output_lower:
                     if attempt < max_retries:
                         wait_time = random.randint(2, 20)
-                        logging.warning(
-                            f"429 in JSON output for machine {machine_id}. "
-                            f"Retrying in {wait_time}s... (Attempt {attempt}/{max_retries})"
-                        )
+                        logging.warning(f"429 in JSON output for machine {machine_id}. Retrying...")
                         time.sleep(wait_time)
                         continue
                     else:
@@ -311,17 +317,15 @@ def test_machine(machine_id, ignore_requirements=False):
 
 def process_machine_ids(machine_ids, ignore_requirements=False):
     """
-    Manages concurrent execution of self-tests on multiple machines.
-    Returns (successes, failures), where:
-      successes = list of machine_ids that passed
-      failures = list of (machine_id, reason)
+    Concurrent execution of self-tests on multiple machines.
+    Returns (successes, failures).
     """
     successes = []
     failures = []
     total_machines = len(machine_ids)
     counter = {'processed': 0, 'passed': 0, 'failed': 0}
     lock = threading.Lock()
-    
+
     logging.info(f"Starting self-tests on {total_machines} machine(s)...")
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(test_machine, mid, ignore_requirements): mid for mid in machine_ids}
@@ -335,13 +339,14 @@ def process_machine_ids(machine_ids, ignore_requirements=False):
                 else:
                     failures.append((machine_id, reason))
                     counter['failed'] += 1
-                
+
                 processed = counter['processed']
                 passed = counter['passed']
                 failed = counter['failed']
                 remaining = total_machines - processed
                 logging.info(
-                    f"Processed {processed}/{total_machines} - Passed: {passed}, Failed: {failed}, Remaining: {remaining}"
+                    f"Processed {processed}/{total_machines} - Passed: {passed}, "
+                    f"Failed: {failed}, Remaining: {remaining}"
                 )
     return successes, failures
 
@@ -351,7 +356,7 @@ def save_results(successes, failures):
     Saves test results to 'passed_machines.txt' and 'failed_machines.txt'.
     """
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
+
     # Save passed
     try:
         with open('passed_machines.txt', 'w') as f:
@@ -360,14 +365,14 @@ def save_results(successes, failures):
         logging.info("Saved passed machines to 'passed_machines.txt'.")
     except Exception as e:
         logging.error(f"Error saving passed_machines.txt: {e}")
-    
+
     # Save failed
     try:
         with open('failed_machines.txt', 'w') as f:
             f.write(f"{current_time}\n")
             for mid, reason in failures:
                 f.write(f"{mid}: {reason}\n")
-        logging.info("Saved failed machines to 'failed_machines.txt'.")
+        logging.info("Saved failed_machines to 'failed_machines.txt'.")
     except Exception as e:
         logging.error(f"Error saving failed_machines.txt: {e}")
 
@@ -378,12 +383,12 @@ def print_failure_summary(failures):
     """
     reasons = [reason for _, reason in failures]
     failure_counts = Counter(reasons)
-    
+
     table_data = []
     for reason, count in failure_counts.items():
         table_data.append([count, reason])
     table_data.sort(key=lambda x: x[0], reverse=True)
-    
+
     print("\nFailed Machines by Error Type:")
     if tabulate:
         print(tabulate(table_data, headers=["COUNT", "REASON"], tablefmt="plain"))
@@ -405,6 +410,8 @@ def parse_arguments():
 Example Usage:
     python3 vast_machine_tester.py --verified false --host_id any --ignore-requirements
     python3 vast_machine_tester.py --verified false --auto-verify true
+    python3 vast_machine_tester.py --verified false --auto-deverify true
+    python3 vast_machine_tester.py --verified any -vv
 
 Results are saved to 'passed_machines.txt' and 'failed_machines.txt'.
         """
@@ -425,107 +432,217 @@ Results are saved to 'passed_machines.txt' and 'failed_machines.txt'.
     parser.add_argument(
         '--ignore-requirements',
         action='store_true',
-        help="Ignore the minimum system requirements in 'self-test machine'."
+        help="Ignore the minimum system requirements in 'self-test machine' and do NOT filter by 'reliability > 0.9'."
     )
     parser.add_argument(
         '--auto-verify',
         type=str,
         choices=['true', 'false'],
-        default='false',
-        help="If 'true', automatically verify all machines that pass the self-test. "
-             "If 'false' or not provided, you will be prompted. (Default: 'false')"
+        default=None,
+        help="If 'true', automatically verify all machines that pass the self-test; "
+             "If 'false', skip verification entirely (no prompt). "
+             "If omitted, you will be prompted."
     )
+    parser.add_argument(
+        '--auto-deverify',
+        type=str,
+        choices=['true', 'false'],
+        default=None,
+        help="If 'true', automatically deverify all machines that fail the self-test; "
+             "If 'false', skip deverification entirely (no prompt). "
+             "If omitted, you will be prompted."
+    )
+    parser.add_argument(
+        '--sample-pct',
+        type=float,
+        default=100.0,
+        help="Randomly sample only this percentage of machines to test. E.g., '30' means test ~30%% of them. Default = 100."
+    )
+    parser.add_argument(
+        '-v', '--verbose',
+        action='count',
+        default=0,
+        help="Increase logging verbosity (use -v, -vv, -vvv)"
+    )
+
     return parser.parse_args()
 
 
 def verify_machines(machine_ids):
     """
-    Verifies a list of machine IDs by calling the admin endpoint:
-      POST https://console.vast.ai/api/admin/set_machines_verification_status/
-    Then checks the 'success' field in the JSON response and prints a confirmation.
+    Verifies a list of machine IDs by calling the admin endpoint
+    PUT https://console.vast.ai/api/admin/machines/{machine_id}/
     """
     api_key = load_api_key()
     if not api_key:
         logging.error("No API key found; cannot verify machines.")
         return
 
-    url = "https://console.vast.ai/api/admin/set_machines_verification_status/"
-    payload = {
-        "machine_ids": machine_ids,
-        "verification": "verified"
-    }
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
 
-    try:
-        logging.info(f"Sending POST request to {url} to verify machines {machine_ids}")
-        resp = requests.post(url, json=payload, headers=headers, timeout=30)
-        resp.raise_for_status()  # Raise error if non-2xx
-        result = resp.json()
+    for machine_id in machine_ids:
+        url = f"https://console.vast.ai/api/admin/machines/{machine_id}/"
+        payload = {"verification": "verified", "error_msg": None}
 
-        if result.get("success") is True:
-            msg = f"Successfully verified machines: {machine_ids}"
+        try:
+            logging.info(f"Sending PUT request to {url} to verify machine {machine_id}")
+            resp = requests.put(url, json=payload, headers=headers, timeout=30)
+            resp.raise_for_status()  # If it's not 2xx, raises HTTPError
+
+            msg = f"Successfully verified machine {machine_id} (cleared error_msg)."
             logging.info(msg)
             print(msg)
-        else:
-            # If 'success' is missing or False, log it.
-            msg = f"Could NOT verify machines {machine_ids}. Server response:\n{result}"
-            logging.error(msg)
-            print(msg)
 
-    except requests.exceptions.HTTPError as e:
-        logging.error(f"HTTP Error verifying machines: {e}")
-        print(f"HTTP Error verifying machines: {e}")
-    except Exception as e:
-        logging.error(f"Error verifying machines: {e}")
-        print(f"Error verifying machines: {e}")
+        except requests.exceptions.HTTPError as e:
+            logging.error(f"HTTP Error verifying machine {machine_id}: {e}")
+            print(f"HTTP Error verifying machine {machine_id}: {e}")
+        except Exception as e:
+            logging.error(f"Error verifying machine {machine_id}: {e}")
+            print(f"Error verifying machine {machine_id}: {e}")
 
 
-def prompt_verification(successes, auto_verify='false'):
+def deverify_machines(failures):
     """
-    If there are machines that passed, determines whether to verify them automatically
-    (if --auto-verify true) or prompt the user (if false).
+    Deverifies machines that failed self-tests by calling the admin endpoint
+    PUT https://console.vast.ai/api/admin/machines/{machine_id}/
+    """
+    api_key = load_api_key()
+    if not api_key:
+        logging.error("No API key found; cannot deverify machines.")
+        return
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+
+    for (machine_id, reason) in failures:
+        url = f"https://console.vast.ai/api/admin/machines/{machine_id}/"
+        payload = {
+            "error_msg": reason,
+            "verification": "deverified"
+        }
+        try:
+            logging.info(f"Sending PUT request to {url} to deverify machine {machine_id}")
+            resp = requests.put(url, json=payload, headers=headers, timeout=30)
+            resp.raise_for_status()
+            msg = f"Successfully deverified machine {machine_id} (reason: {reason})."
+            logging.info(msg)
+            print(msg)
+        except requests.exceptions.HTTPError as e:
+            logging.error(f"HTTP Error de-verifying machine {machine_id}: {e}")
+            print(f"HTTP Error de-verifying machine {machine_id}: {e}")
+        except Exception as e:
+            logging.error(f"Error de-verifying machine {machine_id}: {e}")
+            print(f"Error de-verifying machine {machine_id}: {e}")
+
+
+def prompt_verification(successes, auto_verify=None):
+    """
+    Only prompt if auto_verify is None.
+    If auto_verify == 'true', automatically do it.
+    If auto_verify == 'false', skip entirely (no prompt).
     """
     if not successes:
         return
 
-    # If --auto-verify was set to 'true', skip prompt
-    if auto_verify.lower() == 'true':
+    if auto_verify == 'true':
         verify_machines(successes)
         return
+    elif auto_verify == 'false':
+        logging.info("Skipping machine verification entirely (no prompt).")
+        return
 
-    # Otherwise, prompt
+    # If auto_verify was omitted (None), prompt user
     print("\nThe following machines passed all self-tests:\n", successes)
     answer = input("Would you like to mark these machines as 'verified'? (y/n): ").strip().lower()
     if answer == 'y':
         verify_machines(successes)
 
 
+def prompt_deverification(failures, auto_deverify=None):
+    """
+    Only prompt if auto_deverify is None.
+    If auto_deverify == 'true', automatically do it.
+    If auto_deverify == 'false', skip entirely.
+    """
+    if not failures:
+        return
+
+    # filter out "not found or not rentable"
+    filtered_failures = []
+    for (machine_id, reason) in failures:
+        if "not found or not rentable" in reason.lower():
+            logging.info(
+                f"Skipping deverification for machine {machine_id} because reason is: '{reason}'"
+            )
+        else:
+            filtered_failures.append((machine_id, reason))
+
+    if not filtered_failures:
+        return
+
+    if auto_deverify == 'true':
+        deverify_machines(filtered_failures)
+        return
+    elif auto_deverify == 'false':
+        logging.info("Skipping machine deverification entirely (no prompt).")
+        return
+
+    # If auto_deverify was omitted (None), prompt user
+    print("\nThe following machines failed self-tests:\n", filtered_failures)
+    answer = input("Would you like to mark these machines as 'deverified' and set their error messages? (y/n): ").strip().lower()
+    if answer == 'y':
+        deverify_machines(filtered_failures)
+
+
 def main():
-    setup_logging()
     args = parse_arguments()
-    
-    offers = run_vast_search(verified=args.verified, host_id=args.host_id)
+    setup_logging(args.verbose)
+
+    offers = run_vast_search(
+        verified=args.verified,
+        host_id=args.host_id,
+        ignore_requirements=args.ignore_requirements
+    )
     if not offers:
         logging.error("No offers found or an error occurred during the VAST search.")
         return
-    
-    # If user wants 'false' (unverified), filter out machines partially verified
+
+    # If user specifically wants 'false' (unverified), filter out machines that might be partially verified
     if args.verified.lower() == 'false':
         unverified_offers = get_unverified_offers(offers)
         offers_to_process = unverified_offers
-        logging.info(f"Filtered to {len(unverified_offers)} unverified offer(s).")
+        logging.info(f"Filtered to {len(unverified_offers)} non-verified offer(s).")
     else:
         offers_to_process = offers
         logging.info(f"Using all {len(offers)} offer(s).")
-    
+
     best_offers = get_best_offers(offers_to_process)
     machine_ids = list(best_offers.keys())
     logging.info(f"Found {len(machine_ids)} machine ID(s) to self-test.")
+
+    # -----------------------------------------------------------
+    #   RANDOMLY SAMPLE X% OF THEM
+    #   e.g. if user used --sample-pct=30 => test only ~30%
+    # -----------------------------------------------------------
+    if args.sample_pct < 100.0:
+        if args.sample_pct <= 0:
+            logging.warning("--sample-pct <= 0 means 0% => skipping all tests.")
+            machine_ids = []
+        else:
+            random.shuffle(machine_ids)
+            sample_count = int(len(machine_ids) * (args.sample_pct / 100.0))
+            machine_ids = machine_ids[:sample_count]
+            logging.info(
+                f"Randomly sampling {args.sample_pct}% => {sample_count} machine(s) out of total."
+            )
+
     if not machine_ids:
-        logging.warning("No machines to test.")
+        logging.warning("No machines to test after sampling.")
         return
 
     successes, failures = process_machine_ids(machine_ids, ignore_requirements=args.ignore_requirements)
@@ -542,8 +659,11 @@ def main():
 
     logging.info("Results saved to 'passed_machines.txt' and 'failed_machines.txt'.")
 
-    # Attempt to verify passed machines based on user input or --auto-verify
+    # Attempt to verify passed machines
     prompt_verification(successes, auto_verify=args.auto_verify)
+
+    # Attempt to deverify failed machines
+    prompt_deverification(failures, auto_deverify=args.auto_deverify)
 
 
 if __name__ == '__main__':

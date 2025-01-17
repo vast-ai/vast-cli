@@ -142,15 +142,14 @@ def get_vast_command():
 
 def run_vast_search(verified='any', host_id='any', ignore_requirements=False):
     """
-    Executes the VAST search command to retrieve offers based on verification status,
-    host ID, and optionally ignoring reliability filter if --ignore-requirements is used.
+    Executes the VAST search command to retrieve *all* offers, regardless of 
+    'verified' status, so that local filtering can handle it. If 'ignore_requirements'
+    is false, reliability > 0.9 is included in the query. Otherwise it's omitted.
     Includes up to 30 retries if we get a 429 Too Many Requests error.
     """
-    valid_verified = {'true', 'false', 'any'}
-    if verified.lower() not in valid_verified:
-        logging.error(f"Invalid value for --verified: '{verified}'. Must be one of {valid_verified}.")
-        sys.exit(1)
 
+    # We won't use the user-supplied 'verified' for the search 
+    # but we do preserve the user-supplied 'host_id'
     if host_id != 'any':
         try:
             int(host_id)
@@ -158,9 +157,13 @@ def run_vast_search(verified='any', host_id='any', ignore_requirements=False):
             logging.error(f"Invalid value for --host_id: '{host_id}'. Must be an integer or 'any'.")
             sys.exit(1)
 
-    verified_filter = f"verified={verified.lower()}"
+    # Force 'verified=any' in the actual search, so we get all machines
+    verified_filter = "verified=any"
+
+    # Construct the host filter
     host_id_filter = f"host_id={host_id}" if host_id != 'any' else "host_id=any"
 
+    # Build the command
     if not ignore_requirements:
         cmd = [
             get_vast_command(), 'search', 'offers', '--limit', '65535',

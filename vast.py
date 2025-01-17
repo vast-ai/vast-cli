@@ -1416,7 +1416,340 @@ def create__autogroup(args):
         print("The response is not JSON. Content-Type:", r.headers.get('Content-Type'))
         print(r.text)
 
+@parser.command(
+    argument(
+        "--model_id",
+        help="ID of LLM model to run on TGI",
+        type=str,
+        required=True
+    ),
+    argument(
+        "--hf_token",
+        help="Your huggingface API token with access to selected model_name",
+        type=str,
+        required=True
+    ),
+    argument(
+        "--endpoint_name",
+        help="deployment endpoint name (allows multiple autoscale groups to share same deployment endpoint)",
+        type=str,
+        required=True,
+    ),
+    argument(
+        "--max_workers",
+        help="max number of workers your endpoint group can have",
+        type=int,
+        required=True,
+    ),
+    argument(
+        "--cold_workers",
+        help="min number of workers to keep 'cold' when you have no load",
+        type=int,
+        required=True,
+    ),
+    usage="vastai create as-tgi [OPTIONS]",
+    help="Create a new autoscaler with TGI backend",
+    epilog=deindent(
+        """
+        Create an autoscaling group of instances running TGI
 
+        Example: vastai create as-tgi --model_id "meta-llama/Meta-Llama-3-8B-Instruct" --hf_toker $HF_TOKEN --endpoint_name "TGI-Autoscaler" --max_workers 10 --cold_workers 3
+        """
+    ),
+)
+def create__as_tgi(args):
+    DEFAULT_MIN_LOAD = 100
+    DEFAULT_TARGET_UTIL = 0.9
+    DEFAULT_COLD_MULT = 2.5
+    url = apiurl(args, f"/users/0/templates/autoscaler")
+    templates = http_get(args, url).json()
+    template = next(filter(lambda x: x["hash_id"] == "dcd0920ffd9d026b7bb2d42f0d7479ba", templates["recommended"]), None)
+    if not template:
+        print("no autoscaler compatible TGI template available")
+        return
+
+    template = {
+        "image" : template["image"],
+        "tag" : template["tag"],
+        "env" : template["env"].replace("HF_TOKEN=\"\"", f"HF_TOKEN=\"{args.hf_token}\"").replace("MODEL_ID=\"\"", f"MODEL_ID=\"{args.model_id}\""),
+        "onstart" : template["onstart"],
+        "jup_direct" : template["jup_direct"],
+        "ssh_direct" : template["ssh_direct"],
+        "use_jupyter_lab" : template["use_jupyter_lab"],
+        "runtype" : template["runtype"],
+        "use_ssh" : template["use_ssh"],
+        "jupyter_dir" : template["jupyter_dir"],
+        "docker_login_repo" : None,
+        "extra_filters" : json.loads(template["extra_filters"]),
+        "recommended_disk_space" : template["recommended_disk_space"],
+        "created_from_id" : template["id"],
+        "private" : True,
+        "name" : " ".join([ template["name"] , "(private), (created from cli)"]),
+        "cached" : True
+    }
+
+    json_blob = {
+        "templates" : [template]
+    }
+    url = apiurl(args, f"/users/0/templates/")
+    r = http_post(args, url, headers=headers, json=json_blob)
+    r.raise_for_status()
+    try:
+        rj = r.json()
+        if rj["success"]:
+            template_hash = rj['templates'][0]['hash_id']
+            url = apiurl(args, "/autojobs/" )
+            json_blob = {
+                "client_id"    : "me",
+                "min_load"     : DEFAULT_MIN_LOAD,
+                "target_util"  : DEFAULT_TARGET_UTIL,
+                "cold_mult"    : DEFAULT_COLD_MULT,
+                "cold_workers" : args.cold_workers,
+                "max_workers"  : args.max_workers,
+                "endpoint_name": args.endpoint_name,
+                "test_workers" : args.cold_workers,
+                "template_hash": template_hash,
+            }
+            r = http_post(args, url, headers=headers,json=json_blob)
+            r.raise_for_status()
+            print("autogroup create {}".format(r.json()))
+
+        else:
+            print("template creation failed")
+    except requests.exceptions.JSONDecodeError:
+        print("The response is not valid JSON.")
+
+@parser.command(
+    argument(
+        "--model_id",
+        help="ID of LLM model to run on TGI",
+        type=str,
+        required=True
+    ),
+    argument(
+        "--hf_token",
+        help="Your huggingface API token with access to selected model_name",
+        type=str,
+        required=True
+    ),
+    usage="vastai create as-tgi-tmpl [OPTIONS]",
+    help="Create an autoscaler compatible template running TGI ",
+)
+def create__as_tgi_tmpl(args):
+    url = apiurl(args, f"/users/0/templates/autoscaler")
+    templates = http_get(args, url).json()
+    template = next(filter(lambda x: x["hash_id"] == "dcd0920ffd9d026b7bb2d42f0d7479ba", templates["recommended"]), None)
+    if not template:
+        print("no autoscaler compatible TGI template available")
+        return
+
+    template = {
+        "image" : template["image"],
+        "tag" : template["tag"],
+        "env" : template["env"].replace("HF_TOKEN=\"\"", f"HF_TOKEN=\"{args.hf_token}\"").replace("MODEL_ID=\"\"", f"MODEL_ID=\"{args.model_id}\""),
+        "onstart" : template["onstart"],
+        "jup_direct" : template["jup_direct"],
+        "ssh_direct" : template["ssh_direct"],
+        "use_jupyter_lab" : template["use_jupyter_lab"],
+        "runtype" : template["runtype"],
+        "use_ssh" : template["use_ssh"],
+        "jupyter_dir" : template["jupyter_dir"],
+        "docker_login_repo" : None,
+        "extra_filters" : json.loads(template["extra_filters"]),
+        "recommended_disk_space" : template["recommended_disk_space"],
+        "created_from_id" : template["id"],
+        "private" : True,
+        "name" : " ".join([ template["name"] , "(private), (created from cli)"]),
+        "cached" : True
+    }
+
+    json_blob = {
+        "templates" : [template]
+    }
+    url = apiurl(args, f"/users/0/templates/")
+    r = http_post(args, url, headers=headers, json=json_blob)
+    r.raise_for_status()
+    try:
+        rj = r.json()
+        if rj["success"]:
+            template_hash = rj['templates'][0]['hash_id']
+            print(f"template hash: {template_hash}")
+        else:
+            print("template creation failed")
+    except requests.exceptions.JSONDecodeError:
+        print("The response is not valid JSON.")
+
+@parser.command(
+    argument(
+        "--comfy_model",
+        help="Text2Image model",
+        type=str,
+        required=True,
+        choices=["sd3", "flux"]
+    ),
+    argument(
+        "--hf_token",
+        help="Your huggingface API token with access to selected model_name",
+        type=str,
+        required=True
+    ),
+    argument(
+        "--endpoint_name",
+        help="deployment endpoint name (allows multiple autoscale groups to share same deployment endpoint)",
+        type=str,
+        required=True,
+    ),
+    argument(
+        "--max_workers",
+        help="max number of workers your endpoint group can have",
+        type=int,
+        required=True,
+    ),
+    argument(
+        "--cold_workers",
+        help="min number of workers to keep 'cold' when you have no load",
+        type=int,
+        required=True,
+    ),
+    usage="vastai create as-cui [OPTIONS]",
+    help="Create a new autoscaler with ComfyUI backend",
+    epilog=deindent(
+        """
+        Create an autoscaling group of instances running ComfyUI with the selected model
+
+        Example: vastai create as-cui --comfy_model "sd3" --hf_toker $HF_TOKEN --endpoint_name "Comfy-Autoscaler" --max_workers 10 --cold_workers 3
+        """
+    ),
+)
+def create__as_cui(args):
+    DEFAULT_MIN_LOAD = 200
+    DEFAULT_TARGET_UTIL = 0.6
+    DEFAULT_COLD_MULT = 2.5
+    url = apiurl(args, f"/users/0/templates/autoscaler")
+    templates = http_get(args, url).json()
+    template = next(filter(lambda x: x["hash_id"] == "ad72c8bf7cf695c3c9ddf0eaf6da0447", templates["recommended"]), None)
+    if not template:
+        print("no autoscaler compatible ComfyUI template available")
+        return
+
+    template = {
+        "image" : template["image"],
+        "tag" : template["tag"],
+        "env" : template["env"].replace("HF_TOKEN=\"\"", f"HF_TOKEN=\"{args.hf_token}\"").replace("COMFY_MODEL=\"\"", f"COMFY_MODEL=\"{args.comfy_model}\""),
+        "onstart" : template["onstart"],
+        "jup_direct" : template["jup_direct"],
+        "ssh_direct" : template["ssh_direct"],
+        "use_jupyter_lab" : template["use_jupyter_lab"],
+        "runtype" : template["runtype"],
+        "use_ssh" : template["use_ssh"],
+        "jupyter_dir" : template["jupyter_dir"],
+        "docker_login_repo" : None,
+        "extra_filters" : json.loads(template["extra_filters"]),
+        "recommended_disk_space" : template["recommended_disk_space"],
+        "created_from_id" : template["id"],
+        "private" : True,
+        "name" : " ".join([ template["name"] , "(private), (created from cli)"]),
+        "cached" : True
+    }
+
+    json_blob = {
+        "templates" : [template]
+    }
+    url = apiurl(args, f"/users/0/templates/")
+    r = http_post(args, url, headers=headers, json=json_blob)
+    r.raise_for_status()
+    try:
+        rj = r.json()
+        if rj["success"]:
+            template_hash = rj['templates'][0]['hash_id']
+            url = apiurl(args, "/autojobs/" )
+            json_blob = {
+                "client_id"    : "me",
+                "min_load"     : DEFAULT_MIN_LOAD,
+                "target_util"  : DEFAULT_TARGET_UTIL,
+                "cold_mult"    : DEFAULT_COLD_MULT,
+                "cold_workers" : args.cold_workers,
+                "max_workers"  : args.max_workers,
+                "endpoint_name": args.endpoint_name,
+                "test_workers" : args.cold_workers,
+                "template_hash": template_hash,
+            }
+            r = http_post(args, url, headers=headers,json=json_blob)
+            r.raise_for_status()
+            print("autogroup create {}".format(r.json()))
+
+        else:
+            print("template creation failed")
+    except requests.exceptions.JSONDecodeError:
+        print("The response is not valid JSON.")
+
+@parser.command(
+    argument(
+        "--comfy_model",
+        help="Text2Image model",
+        type=str,
+        required=True,
+        choices=["sd3", "flux"]
+    ),
+    argument(
+        "--hf_token",
+        help="Your huggingface API token with access to selected model_name",
+        type=str,
+        required=True
+    ),
+    usage="vastai create as-cui-tmpl [OPTIONS]",
+    help="Create an autoscaler compatible template running ComfyUI",
+    epilog=deindent(
+        """
+        Create an autoscaler compatible template for running ComfyUI with the selected model
+
+        Example: vastai create as-cui-tmpl --comfy_model "sd3" --hf_toker $HF_TOKEN
+        """
+    ),
+)
+def create__as_cui_tmpl(args):
+    url = apiurl(args, f"/users/0/templates/autoscaler")
+    templates = http_get(args, url).json()
+    template = next(filter(lambda x: x["hash_id"] == "ad72c8bf7cf695c3c9ddf0eaf6da0447", templates["recommended"]), None)
+    if not template:
+        print("no autoscaler compatible ComfyUI template available")
+        return
+
+    template = {
+        "image" : template["image"],
+        "tag" : template["tag"],
+        "env" : template["env"].replace("HF_TOKEN=\"\"", f"HF_TOKEN=\"{args.hf_token}\"").replace("COMFY_MODEL=\"\"", f"COMFY_MODEL=\"{args.comfy_model}\""),
+        "onstart" : template["onstart"],
+        "jup_direct" : template["jup_direct"],
+        "ssh_direct" : template["ssh_direct"],
+        "use_jupyter_lab" : template["use_jupyter_lab"],
+        "runtype" : template["runtype"],
+        "use_ssh" : template["use_ssh"],
+        "jupyter_dir" : template["jupyter_dir"],
+        "docker_login_repo" : None,
+        "extra_filters" : json.loads(template["extra_filters"]),
+        "recommended_disk_space" : template["recommended_disk_space"],
+        "created_from_id" : template["id"],
+        "private" : True,
+        "name" : " ".join([ template["name"] , "(private), (created from cli)"]),
+        "cached" : True
+    }
+
+    json_blob = {
+        "templates" : [template]
+    }
+    url = apiurl(args, f"/users/0/templates/")
+    r = http_post(args, url, headers=headers, json=json_blob)
+    r.raise_for_status()
+    try:
+        rj = r.json()
+        if rj["success"]:
+            template_hash = rj['templates'][0]['hash_id']
+            print(f"template hash: {template_hash}")
+        else:
+            print("template creation failed")
+    except requests.exceptions.JSONDecodeError:
+        print("The response is not valid JSON.")
 @parser.command(
     argument("--min_load", help="minimum floor load in perf units/s  (token/s for LLms)", type=float, default=0.0),
     argument("--target_util", help="target capacity utilization (fraction, max 1.0, default 0.9)", type=float, default=0.9),

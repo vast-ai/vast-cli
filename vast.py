@@ -341,7 +341,7 @@ class apwrap(object):
             func(args)
         return args
 
-class MyWideHelpFormatter(argparse.HelpFormatter):
+class MyWideHelpFormatter(argparse.RawTextHelpFormatter):
     def __init__(self, prog):
         super().__init__(prog, width=190, max_help_position=28, indent_increment=1)
 
@@ -5558,13 +5558,13 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
                 if args.debugging:
                     debug_print(args, f"No message received. Incremented no_response_seconds to {no_response_seconds}.")
 
-            if status == 'running' and no_response_seconds >= 60:
+            if status == 'running' and no_response_seconds >= 120:
                 with open("Error_testresults.log", "a") as f:
-                    f.write(f"{machine_id}:{instance_id} No response from port {port} for 60s with running instance\n")
-                progress_print(args, f"No response for 60s with running instance. This may indicate a misconfiguration of ports on the machine.")
+                    f.write(f"{machine_id}:{instance_id} No response from port {port} for 120s with running instance\n")
+                progress_print(args, f"No response for 120s with running instance. This may indicate a misconfiguration of ports on the machine. Network error or system stall or crashed. ")
                 destroy_instance_silent(instance_id, destroy_args)
                 instance_destroyed = True
-                return False, "No response for 60 seconds with running instance"
+                return False, "No response for 120 seconds with running instance. The system might have crashed or stalled during stress test. Use the self-test machine function in vast cli"
 
             if args.debugging:
                 debug_print(args, "Waiting for 20 seconds before the next check.")
@@ -5806,7 +5806,7 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
             time.sleep(interval)
     
     # Timeout reached without instance running
-    reason = f"Instance {instance_id} did not become running within {timeout} seconds."
+    reason = f"Instance did not become running within {timeout} seconds. Verify network configuration. Use the self-test machine function in vast cli"
     progress_print(args, reason)
     return False, reason
 
@@ -5884,6 +5884,7 @@ def self_test__machine(args):
                 progress_print(args, f"- {reason}")
                 # If user did pass --ignore-requirements, warn and continue
                 progress_print(args, "Continuing despite unmet requirements because --ignore-requirements is set.")
+<<<<<<< HEAD
             def search_offers_and_get_top(machine_id):
                 search_args = argparse.Namespace(
                     query=[f"machine_id={machine_id}", "verified=any", "rentable=true"],
@@ -5908,6 +5909,33 @@ def self_test__machine(args):
                     return None
                 sorted_offers = sorted(offers, key=lambda x: x.get("dlperf", 0), reverse=True)
                 return sorted_offers[0] if sorted_offers else None
+=======
+
+        def search_offers_and_get_top(machine_id):
+            search_args = argparse.Namespace(
+                query=[f"machine_id={machine_id}", "verified=any", "rentable=true", "rented=false"],
+                type="on-demand",
+                quiet=False,
+                no_default=False,
+                new=False,
+                limit=None,
+                disable_bundling=False,
+                storage=5.0,
+                order="score-",
+                raw=True,
+                explain=args.explain,
+                api_key=api_key,
+                url=args.url,
+                retry=args.retry,
+                debugging=args.debugging,
+            )
+            offers = search__offers(search_args)
+            if not offers:
+                progress_print(args, f"Machine ID {machine_id} not found or not rentable.")
+                return None
+            sorted_offers = sorted(offers, key=lambda x: x.get("dlperf", 0), reverse=True)
+            return sorted_offers[0] if sorted_offers else None
+>>>>>>> 77f76ad (Update README, vast.py, and vast_machine_tester for new help output)
 
         top_offer = search_offers_and_get_top(args.machine_id)
         if not top_offer:
@@ -5971,7 +5999,7 @@ def self_test__machine(args):
                     raise Exception("Unexpected response type from create__instance.")
             except Exception as e:
                 progress_print(args, f"Error creating instance: {e}")
-                result["reason"] = "Failed to create instance."
+                result["reason"] = "Failed to create instance. Check the docker configuration. Use the self-test machine function in vast cli "
                 return result  # Cleanup handled in finally block
 
             # Extract instance ID and proceed

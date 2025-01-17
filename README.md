@@ -291,63 +291,89 @@ At the end, the test instance is automatically **destroyed**.
 
 ---
 
-
 ## Host Machine Testing with `vast_machine_tester.py`
 
 For **hosts** who want to **test multiple machines automatically**, we provide `vast_machine_tester.py`. It:
 
 1. **Searches** for offers on your host (filters by `--host_id` or `--verified`).  
 2. **Selects** the “best offer” for each machine (highest `dlperf`).  
-3. **Spins up** concurrent self-tests on each machine.  
-4. **Saves** results to:
+3. **Optionally** samples only a percentage of those machines (see `--sample-pct`).  
+4. **Spins up** concurrent self-tests on each machine.  
+5. **Saves** results to:
    - `passed_machines.txt`
    - `failed_machines.txt`
-5. **Outputs** a summary (including a table of failure reasons).
-6. **(Optional)** Automatically **verifies** machines that pass, if `--auto-verify true`.
+6. **Outputs** a summary (including a table of failure reasons).
+7. **(Optional)** Automatically **verifies** machines that pass if `--auto-verify true`.
+8. **(Optional)** Automatically **deverifies** machines that fail if `--auto-deverify true`.
 
 ### Usage
 
 ```
-python3 vast_machine_tester.py [--verified {true,false,any}] 
-                               [--host_id HOST_ID] 
-                               [--ignore-requirements] 
-                               [--auto-verify {true,false}] {ADMIN API KEYS ONLY}
+python3 vast_machine_tester.py 
+    [--verified {true,false,any}]
+    [--host_id HOST_ID]
+    [--ignore-requirements]
+    [--auto-verify {true,false}]
+    [--auto-deverify {true,false}]
+    [--sample-pct PCT]
+    [-v | -vv | -vvv]
 ```
 
 - **`--verified {true,false,any}`**  
-  Which verification status to filter offers by. Defaults to `false`.
+  Which verification status to filter offers by (defaults to `false`).
 
 - **`--host_id HOST_ID`**  
-  Filter offers by a specific host ID. `any` means no filter. Defaults to `any`.
+  Filter offers by a specific host ID (defaults to `any`).
 
 - **`--ignore-requirements`**  
-  Ignore the minimum system requirements check in each self-test. Requirement failures are logged but not blocking.
+  Skip strict requirement checks; log them but proceed with the tests.
 
-- **`--auto-verify {true,false}`**  Only works if admin api key is used. 
-  If `"true"`, any machine that passes the self-test is automatically set to `"verified"`.  
-  If `"false"` (or omitted), you’re prompted whether to verify each machine that passes. Defaults to `false`.
+- **`--auto-verify {true,false}`**  
+  - If `"true"`, any machine that passes is automatically set to `"verified"`.  
+  - If `"false"` (or omitted), you are prompted whether to verify each passing machine.  
+
+- **`--auto-deverify {true,false}`**  
+  - If `"true"`, any failing machine is automatically set to `"deverified"`, with the failure reason stored in `error_msg`.  
+  - If `"false"` (or omitted), you are prompted whether to deverify each failing machine.
+
+- **`--sample-pct PCT`**  
+  - Randomly test only PCT% of the machines that would otherwise be tested. E.g., `--sample-pct 30` tests ~30% of them.  
+  - Default is `100`, meaning test all.
+
+- **`-v | -vv | -vvv`**  
+  - Increase verbosity level (INFO/DEBUG). By default logs are at WARNING level.
 
 ### Examples
 
-1. **Test all unverified machines for a specific Host ID** (default verification filter is `false`):
-   ```bash
+1. **Test all unverified machines** for a specific Host ID (default `verified=false`):  
+   ```
    python3 vast_machine_tester.py --host_id 123456
    ```
    Saves results to `passed_machines.txt` and `failed_machines.txt`.
 
-2. **Test *any* machines (verified or unverified)**:
-   ```bash
+2. **Test *any* machines** (verified or unverified):  
+   ```
    python3 vast_machine_tester.py --verified any --host_id 123456
    ```
 
-3. **Ignore system requirements** (but still see them in logs):
-   ```bash
+3. **Ignore system requirements**:  
+   ```
    python3 vast_machine_tester.py --host_id 123456 --ignore-requirements
    ```
 
-4. **Automatically verify machines that pass**:
-   ```bash
+4. **Automatically verify** machines that pass:  
+   ```
    python3 vast_machine_tester.py --host_id 123456 --auto-verify true
+   ```
+
+5. **Automatically deverify** failing machines:  
+   ```
+   python3 vast_machine_tester.py --host_id 123456 --auto-deverify true
+   ```
+
+6. **Only test 30%** of your machines:  
+   ```
+   python3 vast_machine_tester.py --host_id 123456 --sample-pct 30
    ```
 
 ### Output Files
@@ -359,8 +385,7 @@ python3 vast_machine_tester.py [--verified {true,false,any}]
   Contains a timestamp and lines of the form `<machine_id>: <reason>` for each failure.
 
 ### Failure Summary
-
-When tests finish, a short table is printed summarizing each unique failure reason (e.g., “Download speed <= 10 Mb/s”).
+A short table is printed at the end, summarizing each unique failure reason (e.g., “No response for 60 seconds with running instance”).
 
 ## Usage Examples
 

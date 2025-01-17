@@ -232,7 +232,8 @@ def complete_sshkeys(prefix=None, action=None, parser=None, parsed_args=None):
 
 class apwrap(object):
     def __init__(self, *args, **kwargs):
-        kwargs["formatter_class"] = argparse.RawDescriptionHelpFormatter
+        if "formatter_class" not in kwargs:
+            kwargs["formatter_class"] = MyWideHelpFormatter    
         self.parser = argparse.ArgumentParser(*args, **kwargs)
         self.parser.set_defaults(func=self.fail_with_help)
         self.subparsers_ = None
@@ -290,9 +291,9 @@ class apwrap(object):
             for x in aliases:
                 verb, _, obj = x.partition(" ")
                 aliases_transformed.append(self.get_name(verb, obj))
+            if "formatter_class" not in kwargs:
+                kwargs["formatter_class"] = MyWideHelpFormatter
 
-            kwargs["formatter_class"] = argparse.RawDescriptionHelpFormatter
-          
             sp = self.subparsers().add_parser(name, aliases=aliases_transformed, help=help_, **kwargs)
 
             # TODO: Sometimes the parser.command has a help parameter. Ideally
@@ -340,8 +341,14 @@ class apwrap(object):
             func(args)
         return args
 
+class MyWideHelpFormatter(argparse.RawTextHelpFormatter):
+    def __init__(self, prog):
+        super().__init__(prog, width=190, max_help_position=28, indent_increment=1)
 
-parser = apwrap(epilog="Use 'vast COMMAND --help' for more info about a command")
+parser = apwrap(
+    epilog="Use 'vast COMMAND --help' for more info about a command",
+    formatter_class=MyWideHelpFormatter
+)
 
 def translate_null_strings_to_blanks(d: Dict) -> Dict:
     """Map over a dict and translate any null string values into ' '.
@@ -5184,13 +5191,13 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
                 if args.debugging:
                     debug_print(args, f"No message received. Incremented no_response_seconds to {no_response_seconds}.")
 
-            if status == 'running' and no_response_seconds >= 60:
+            if status == 'running' and no_response_seconds >= 120:
                 with open("Error_testresults.log", "a") as f:
-                    f.write(f"{machine_id}:{instance_id} No response from port {port} for 60s with running instance\n")
-                progress_print(args, f"No response for 60s with running instance. This may indicate a misconfiguration of ports on the machine.")
+                    f.write(f"{machine_id}:{instance_id} No response from port {port} for 120s with running instance\n")
+                progress_print(args, f"No response for 120s with running instance. This may indicate a misconfiguration of ports on the machine. Network error or system stall or crashed. ")
                 destroy_instance_silent(instance_id, destroy_args)
                 instance_destroyed = True
-                return False, "No response for 60 seconds with running instance"
+                return False, "No response for 120 seconds with running instance. The system might have crashed or stalled during stress test. Use the self-test machine function in vast cli"
 
             if args.debugging:
                 debug_print(args, "Waiting for 20 seconds before the next check.")
@@ -5247,7 +5254,7 @@ def check_requirements(machine_id, api_key, args):
 
     # Prepare search arguments to get machine offers
     search_args = argparse.Namespace(
-        query=[f"machine_id={machine_id}", "verified=any", "rentable=true"],
+        query=[f"machine_id={machine_id}", "verified=any", "rentable=any"],
         type="on-demand",
         quiet=False,
         no_default=False,
@@ -5432,7 +5439,7 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
             time.sleep(interval)
     
     # Timeout reached without instance running
-    reason = f"Instance {instance_id} did not become running within {timeout} seconds."
+    reason = f"Instance did not become running within {timeout} seconds. Verify network configuration. Use the self-test machine function in vast cli"
     progress_print(args, reason)
     return False, reason
 
@@ -5443,8 +5450,9 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
     argument("--raw", action="store_true", help="Output machine-readable JSON"), 
     argument("--url", help="Server REST API URL", default="https://console.vast.ai"),
     argument("--retry", help="Retry limit", type=int, default=3),
-    usage="vastai self-test machine <machine_id> [--debugging] [--explain] [--api_key API_KEY] [--url URL] [--retry RETRY] [--raw]",
-    help="Perform a self-test on the specified machine",
+    argument("--ignore-requirements", action="store_true", help="Ignore the minimum system requirements and run the self test regardless"),
+    usage="vastai self-test machine <machine_id> [--debugging] [--explain] [--api_key API_KEY] [--url URL] [--retry RETRY] [--raw] [--ignore-requirements]",
+    help="[Host] Perform a self-test on the specified machine",
     epilog=deindent("""
         This command tests if a machine meets specific requirements and 
         runs a series of tests to ensure it's functioning correctly.
@@ -5496,130 +5504,138 @@ def self_test__machine(args):
 
         # Check requirements
         meets_requirements, unmet_reasons = check_requirements(args.machine_id, api_key, args)
-        if not meets_requirements:
-            progress_print(args, f"Machine ID {args.machine_id} does not meet the requirements:")
+        if not meets_requirements and not args.ignore_requirements:
+            # immediately fail
+            progress_print(args, f"Machine ID {args.machine_id} does not meet the following requirements:")
             for reason in unmet_reasons:
                 progress_print(args, f"- {reason}")
             result["reason"] = "; ".join(unmet_reasons)
+            return result
+        if not meets_requirements and args.ignore_requirements:
+            progress_print(args, f"Machine ID {args.machine_id} does not meet the following requirements:")
+            for reason in unmet_reasons:
+                progress_print(args, f"- {reason}")
+                # If user did pass --ignore-requirements, warn and continue
+                progress_print(args, "Continuing despite unmet requirements because --ignore-requirements is set.")
+
+        def search_offers_and_get_top(machine_id):
+            search_args = argparse.Namespace(
+                query=[f"machine_id={machine_id}", "verified=any", "rentable=true", "rented=false"],
+                type="on-demand",
+                quiet=False,
+                no_default=False,
+                new=False,
+                limit=None,
+                disable_bundling=False,
+                storage=5.0,
+                order="score-",
+                raw=True,
+                explain=args.explain,
+                api_key=api_key,
+                url=args.url,
+                retry=args.retry,
+                debugging=args.debugging,
+            )
+            offers = search__offers(search_args)
+            if not offers:
+                progress_print(args, f"Machine ID {machine_id} not found or not rentable.")
+                return None
+            sorted_offers = sorted(offers, key=lambda x: x.get("dlperf", 0), reverse=True)
+            return sorted_offers[0] if sorted_offers else None
+
+        top_offer = search_offers_and_get_top(args.machine_id)
+        if not top_offer:
+            progress_print(args, f"No valid offers found for Machine ID {args.machine_id}")
+            result["reason"] = "No valid offers found."
         else:
-            # Find the top offer
-            def search_offers_and_get_top(machine_id):
-                search_args = argparse.Namespace(
-                    query=[f"machine_id={machine_id}", "verified=any", "rentable=true"],
-                    type="on-demand",
-                    quiet=False,
-                    no_default=False,
-                    new=False,
-                    limit=None,
-                    disable_bundling=False,
-                    storage=5.0,
-                    order="score-",
-                    raw=True,
-                    explain=args.explain,
-                    api_key=api_key,
-                    url=args.url,
-                    retry=args.retry,
-                    debugging=args.debugging,
-                )
-                offers = search__offers(search_args)
-                if not offers:
-                    progress_print(args, f"Machine ID {machine_id} not found or not rentable.")
-                    return None
-                sorted_offers = sorted(offers, key=lambda x: x.get("dlperf", 0), reverse=True)
-                return sorted_offers[0] if sorted_offers else None
+            ask_contract_id = top_offer["id"]
 
-            top_offer = search_offers_and_get_top(args.machine_id)
-            if not top_offer:
-                progress_print(args, f"No valid offers found for Machine ID {args.machine_id}")
-                result["reason"] = "No valid offers found."
-            else:
-                ask_contract_id = top_offer["id"]
+            # Prepare arguments for instance creation
+            create_args = argparse.Namespace(
+                id=ask_contract_id,
+                user=None,
+                price=None,  # Set bid_price to None
+                disk=40,  # Match the disk size from the working command
+                image="vastai/test:selftest",  # Use the same image as the working command
+                login=None,
+                label=None,
+                onstart=None,
+                onstart_cmd="python3 remote.py",
+                entrypoint=None,
+                ssh=False,  # Set ssh to False
+                jupyter=True,  # Set jupyter to True
+                direct=True,
+                jupyter_dir=None,
+                jupyter_lab=False,
+                lang_utf8=False,
+                python_utf8=False,
+                extra=None,
+                env="-e TZ=PDT -e XNAME=XX4 -p 5000:5000",
+                args=None,
+                force=False,
+                cancel_unavail=False,
+                template_hash=None,
+                raw=True,
+                explain=args.explain,
+                api_key=api_key,
+                url=args.url,
+                retry=args.retry,
+                debugging=args.debugging,
+                bid_price=None,  # Ensure bid_price is None
+            )
 
-                # Prepare arguments for instance creation
-                create_args = argparse.Namespace(
-                    id=ask_contract_id,
-                    price=None,  # Set bid_price to None
-                    disk=40,  # Match the disk size from the working command
-                    image="vastai/test:selftest",  # Use the same image as the working command
-                    login=None,
-                    label=None,
-                    onstart=None,
-                    onstart_cmd="python3 remote.py",
-                    entrypoint=None,
-                    ssh=False,  # Set ssh to False
-                    jupyter=True,  # Set jupyter to True
-                    direct=True,
-                    jupyter_dir=None,
-                    jupyter_lab=False,
-                    lang_utf8=False,
-                    python_utf8=False,
-                    extra=None,
-                    env="-e TZ=PDT -e XNAME=XX4 -p 5000:5000",
-                    args=None,
-                    force=False,
-                    cancel_unavail=False,
-                    template_hash=None,
-                    raw=True,
-                    explain=args.explain,
-                    api_key=api_key,
-                    url=args.url,
-                    retry=args.retry,
-                    debugging=args.debugging,
-                    bid_price=None,  # Ensure bid_price is None
-                )
-
-                # Create instance
-                try:
-                    response = create__instance(create_args)
-                    if isinstance(response, requests.Response):  # Check if it's an HTTP response
-                        if response.status_code == 200:
-                            try:
-                                instance_info = response.json()  # Parse JSON
-                                if args.debugging:
-                                    debug_print(args, "Captured instance_info from create__instance:", instance_info)
-                            except json.JSONDecodeError as e:
-                                progress_print(args, f"Error parsing JSON response: {e}")
-                                debug_print(args, f"Raw response content: {response.text}")
-                                raise Exception("Failed to parse JSON from instance creation response.")
-                        else:
-                            progress_print(args, f"HTTP error during instance creation: {response.status_code}")
-                            debug_print(args, f"Response text: {response.text}")
-                            raise Exception(f"Instance creation failed with status {response.status_code}")
+            # Create instance
+            try:
+                response = create__instance(create_args)
+                if isinstance(response, requests.Response):  # Check if it's an HTTP response
+                    if response.status_code == 200:
+                        try:
+                            instance_info = response.json()  # Parse JSON
+                            if args.debugging:
+                                debug_print(args, "Captured instance_info from create__instance:", instance_info)
+                        except json.JSONDecodeError as e:
+                            progress_print(args, f"Error parsing JSON response: {e}")
+                            debug_print(args, f"Raw response content: {response.text}")
+                            raise Exception("Failed to parse JSON from instance creation response.")
                     else:
-                        raise Exception("Unexpected response type from create__instance.")
-                except Exception as e:
-                    progress_print(args, f"Error creating instance: {e}")
-                    result["reason"] = "Failed to create instance."
-                    return result  # Cleanup handled in finally block
-
-                # Extract instance ID and proceed
-                instance_id = instance_info.get("new_contract")
-                if not instance_id:
-                    progress_print(args, "Instance creation response did not contain 'new_contract'.")
-                    result["reason"] = "Instance creation failed."
+                        progress_print(args, f"HTTP error during instance creation: {response.status_code}")
+                        debug_print(args, f"Response text: {response.text}")
+                        raise Exception(f"Instance creation failed with status {response.status_code}")
                 else:
-                    # Wait for the instance to start
-                    instance_info, wait_reason = wait_for_instance(instance_id, api_key, args, destroy_args)
-                    if not instance_info:
-                        result["reason"] = wait_reason
+                    raise Exception("Unexpected response type from create__instance.")
+            except Exception as e:
+                progress_print(args, f"Error creating instance: {e}")
+                result["reason"] = "Failed to create instance. Check the docker configuration. Use the self-test machine function in vast cli "
+                return result  # Cleanup handled in finally block
+
+            # Extract instance ID and proceed
+            instance_id = instance_info.get("new_contract")
+            if not instance_id:
+                progress_print(args, "Instance creation response did not contain 'new_contract'.")
+                result["reason"] = "Instance creation failed."
+            else:
+                # Wait for the instance to start
+                instance_info, wait_reason = wait_for_instance(instance_id, api_key, args, destroy_args)
+                if not instance_info:
+                    result["reason"] = wait_reason
+                else:
+                    # Proceed with the rest of your code
+                    # Run machine tester
+                    ip_address = instance_info.get("public_ipaddr")
+                    if not ip_address:
+                        result["reason"] = "Failed to retrieve public IP address."
                     else:
-                        # Proceed with the rest of your code
-                        # Run machine tester
-                        ip_address = instance_info.get("public_ipaddr")
-                        if not ip_address:
-                            result["reason"] = "Failed to retrieve public IP address."
+                        port_mappings = instance_info.get("ports", {}).get("5000/tcp", [])
+                        port = port_mappings[0].get("HostPort") if port_mappings else None
+                        if not port:
+                            result["reason"] = "Failed to retrieve mapped port."
                         else:
-                            port_mappings = instance_info.get("ports", {}).get("5000/tcp", [])
-                            port = port_mappings[0].get("HostPort") if port_mappings else None
-                            if not port:
-                                result["reason"] = "Failed to retrieve mapped port."
-                            else:
-                                delay = "15"
-                                success, reason = run_machinetester(
-                                    ip_address, port, str(instance_id), args.machine_id, delay, args, api_key=api_key
-                                )
-                                result["success"] = success
-                                result["reason"] = reason
+                            delay = "15"
+                            success, reason = run_machinetester(
+                                ip_address, port, str(instance_id), args.machine_id, delay, args, api_key=api_key
+                            )
+                            result["success"] = success
+                            result["reason"] = reason
 
     except Exception as e:
         result["success"] = False
@@ -5731,4 +5747,3 @@ if __name__ == "__main__":
         main()
     except (KeyboardInterrupt, BrokenPipeError):
         pass
-

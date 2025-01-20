@@ -303,8 +303,8 @@ For **hosts** who want to **test multiple machines automatically**, we provide `
    - `passed_machines.txt`
    - `failed_machines.txt`
 6. **Outputs** a summary (including a table of failure reasons).
-7. **(Optional)** Automatically **verifies** machines that pass if `--auto-verify true`.
-8. **(Optional)** Automatically **deverifies** machines that fail if `--auto-deverify true`.
+7. **(Optional)** Automatically **verifies** machines that pass if `--auto-verify true`. (Requires admin API key)
+8. **(Optional)** Automatically **deverifies** machines that fail if `--auto-deverify true`. (Requires admin API key)
 
 ### Usage
 

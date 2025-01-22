@@ -5614,7 +5614,7 @@ def check_requirements(machine_id, api_key, args):
 
     # Prepare search arguments to get machine offers
     search_args = argparse.Namespace(
-        query=[f"machine_id={machine_id}", "verified=any", "rentable=true"],
+        query=[f"machine_id={machine_id}", "verified=any", "rentable=any"],
         type="on-demand",
         quiet=False,
         no_default=False,
@@ -5872,7 +5872,7 @@ def self_test__machine(args):
             # Find the top offer
             def search_offers_and_get_top(machine_id):
                 search_args = argparse.Namespace(
-                    query=[f"machine_id={machine_id}", "verified=any", "rentable=true"],
+                    query=[f"machine_id={machine_id}", "verified=any", "rentable=any"],
                     type="on-demand",
                     quiet=False,
                     no_default=False,

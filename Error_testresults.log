@@ -1,0 +1,110 @@
+27921:16223274 ERROR 1: System requirements test failed. No GPUs found.
+15810:16223272 ERROR 1: System requirements test failed. No GPUs found.
+29221:16223325 ERROR 1: System requirements test failed. GPU 1 is not the same model as the first GPU.
+23972:16223273 No response from port 40025 for 120s with running instance
+24836:16223268 No response from port 40313 for 120s with running instance
+22608:16223283 No response from port 15116 for 120s with running instance
+31453:16223492 ERROR 1: System requirements test failed. No GPUs found.
+29069:16223410 No response from port 27095 for 120s with running instance
+31494:16223482 No response from port 46314 for 120s with running instance
+26314:16223667 ERROR 1: System requirements test failed. No GPUs found.
+29748:16223626 No response from port 40022 for 120s with running instance
+30477:16223505 No response from port 42655 for 120s with running instance
+28230:16223868 ERROR 1: System requirements test failed. No GPUs found.
+28158:16223982 No response from port 51841 for 120s with running instance
+12126:16224109 No response from port 11090 for 120s with running instance
+31514:16224301 Instance offline during testing
+10928:16224327 ERROR 3: ECC test failed. Allocating memory on cuda:0...
+31557:16224344 No response from port 22624 for 120s with running instance
+31885:16224331 No response from port 31072 for 120s with running instance
+13310:16224509 Instance offline during testing
+12866:16224648 Instance offline during testing
+30195:16224649 No response from port 46233 for 120s with running instance
+31873:16224720 No response from port 12104 for 120s with running instance
+16316:16224749 ERROR 2: Test All GPU ResNet50 failed. Benchmarking ResNet50 on batch size 128 with 4 GPUs
+30716:16224747 Instance offline during testing
+31860:16224759 No response from port 12444 for 120s with running instance
+10058:16224853 ERROR 1: System requirements test failed. No GPUs found.
+31563:16224887 No response from port 28336 for 120s with running instance
+28827:16224956 No response from port 55730 for 120s with running instance
+30420:16225283 ERROR 2: Test All GPU ResNet50 failed. Failed to execute the model with any batch size
+9977:16225232 ERROR 1: System requirements test failed. No GPUs found.
+27921:16285541 ERROR 1: System requirements test failed. No GPUs found.
+15810:16285539 ERROR 1: System requirements test failed. No GPUs found.
+29221:16285606 ERROR 1: System requirements test failed. GPU 1 is not the same model as the first GPU.
+23972:16285525 No response from port 40048 for 120s with running instance
+24836:16285538 No response from port 40345 for 120s with running instance
+30477:16285694 No response from port 42562 for 120s with running instance
+26314:16286025 ERROR 1: System requirements test failed. No GPUs found.
+20638:16285990 ERROR 1: System requirements test failed. No GPUs found.
+31894:16286119 No response from port 40784 for 120s with running instance
+26189:16286127 No response from port 3025 for 120s with running instance
+31867:16286202 No response from port 40918 for 120s with running instance
+31868:16286279 Instance offline during testing
+29069:16285784 No response from port 27993 for 120s with running instance
+31993:16286721 No response from port 47072 for 120s with running instance
+12126:16286808 No response from port 11092 for 120s with running instance
+30200:16286846 No response from port 3346 for 120s with running instance
+31557:16286931 No response from port 22696 for 120s with running instance
+27118:16286826 No response from port 26188 for 120s with running instance
+13310:16287063 Instance offline during testing
+26362:16287025 No response from port 4026 for 120s with running instance
+32037:16287139 ERROR 1: System requirements test failed. No GPUs found.
+30195:16287216 No response from port 46068 for 120s with running instance
+30420:16287248 ERROR 1: System requirements test failed. No GPUs found.
+30149:16287250 No response from port 22527 for 120s with running instance
+12866:16287353 Instance offline during testing
+31873:16287374 No response from port 12342 for 120s with running instance
+24413:16287415 No response from port 30629 for 120s with running instance
+32038:16287450 No response from port 16390 for 120s with running instance
+31549:16287550 ERROR 3: ECC test failed. Allocating memory on cuda:0...
+31120:16287253 No response from port 49782 for 120s with running instance
+10058:16287856 ERROR 1: System requirements test failed. No GPUs found.
+19434:16287790 ERROR 1: System requirements test failed. No GPUs found.
+32055:16287713 No response from port 16428 for 120s with running instance
+30708:16287551 No response from port 8582 for 120s with running instance
+6951:16287558 No response from port 40010 for 120s with running instance
+31563:16288081 No response from port 28319 for 120s with running instance
+31996:16287997 No response from port 40372 for 120s with running instance
+15621:16288230 No response from port 40526 for 120s with running instance
+31979:16288439 No response from port 40486 for 120s with running instance
+32044:16288562 No response from port 24250 for 120s with running instance
+29488:16288463 No response from port 1144 for 120s with running instance
+31439:16288962 No response from port 17925 for 120s with running instance
+18116:16364961 ERROR 1: System requirements test failed. System total memory is less than the sum of all the GPUs VRAM.
+18681:16364956 ERROR 1: System requirements test failed. System total memory is less than the sum of all the GPUs VRAM.
+18743:16364958 ERROR 1: System requirements test failed. System total memory is less than the sum of all the GPUs VRAM.
+18112:16364952 ERROR 1: System requirements test failed. System total memory is less than the sum of all the GPUs VRAM.
+18551:16364959 ERROR 1: System requirements test failed. System total memory is less than the sum of all the GPUs VRAM.
+19243:16365095 ERROR 1: System requirements test failed. System total memory is less than the sum of all the GPUs VRAM.
+19033:16365111 ERROR 1: System requirements test failed.  Traceback (most recent call last):
+19242:16365157 ERROR 1: System requirements test failed. System total memory is less than the sum of all the GPUs VRAM.
+19775:16365160 ERROR 1: System requirements test failed. System total memory is less than the sum of all the GPUs VRAM.
+18578:16365162 ERROR 1: System requirements test failed.  Traceback (most recent call last):
+19072:16365189 ERROR 1: System requirements test failed.  Traceback (most recent call last):
+18060:16365235 ERROR 1: System requirements test failed.  Traceback (most recent call last):
+17981:16365269 ERROR 1: System requirements test failed.  Traceback (most recent call last):
+19685:16365563 ERROR 1: System requirements test failed.  Traceback (most recent call last):
+20700:16365567 ERROR 1: System requirements test failed.  Traceback (most recent call last):
+20693:16365515 ERROR 1: System requirements test failed.  Traceback (most recent call last):
+18419:16365524 ERROR 1: System requirements test failed.  Traceback (most recent call last):
+19683:16365765 ERROR 1: System requirements test failed.  Traceback (most recent call last):
+19545:16365719 ERROR 1: System requirements test failed.  Traceback (most recent call last):
+19547:16365770 ERROR 1: System requirements test failed.  Traceback (most recent call last):
+20692:16365609 ERROR 1: System requirements test failed.  Traceback (most recent call last):
+17972:16365310 ERROR 1: System requirements test failed.  Traceback (most recent call last):
+21744:16365782 ERROR 1: System requirements test failed.  Traceback (most recent call last):
+20938:16365784 ERROR 1: System requirements test failed.  Traceback (most recent call last):
+20939:16365908 ERROR 1: System requirements test failed.  Traceback (most recent call last):
+21135:16365920 No response from port 53224 for 120s with running instance
+20698:16366002 ERROR 1: System requirements test failed.  Traceback (most recent call last):
+26959:16482060 ERROR 5: gpu-burn test failed.  ./gpu_burn: error while loading shared libraries: libcublas.so.12: cannot open shared object file: No such file or directory
+29039:16485484 ERROR 3: ECC test failed. Allocating memory on cuda:0...
+23517:16485616 No response from port 6952 for 120s with running instance
+28827:16485659 No response from port 55754 for 120s with running instance
+23623:16485998 No response from port 14505 for 120s with running instance
+19565:16486184 Instance offline during testing
+18599:16486170 No response from port 40160 for 120s with running instance
+25168:16486363 No response from port 41830 for 120s with running instance
+26362:16486362 No response from port 4104 for 120s with running instance
+31799:16486547 ERROR 3: ECC test failed. Allocating memory on cuda:0...

@@ -5884,32 +5884,6 @@ def self_test__machine(args):
                 progress_print(args, f"- {reason}")
                 # If user did pass --ignore-requirements, warn and continue
                 progress_print(args, "Continuing despite unmet requirements because --ignore-requirements is set.")
-<<<<<<< HEAD
-            def search_offers_and_get_top(machine_id):
-                search_args = argparse.Namespace(
-                    query=[f"machine_id={machine_id}", "verified=any", "rentable=true"],
-                    type="on-demand",
-                    quiet=False,
-                    no_default=False,
-                    new=False,
-                    limit=None,
-                    disable_bundling=False,
-                    storage=5.0,
-                    order="score-",
-                    raw=True,
-                    explain=args.explain,
-                    api_key=api_key,
-                    url=args.url,
-                    retry=args.retry,
-                    debugging=args.debugging,
-                )
-                offers = search__offers(search_args)
-                if not offers:
-                    progress_print(args, f"Machine ID {machine_id} not found or not rentable.")
-                    return None
-                sorted_offers = sorted(offers, key=lambda x: x.get("dlperf", 0), reverse=True)
-                return sorted_offers[0] if sorted_offers else None
-=======
 
         def search_offers_and_get_top(machine_id):
             search_args = argparse.Namespace(
@@ -5935,7 +5909,6 @@ def self_test__machine(args):
                 return None
             sorted_offers = sorted(offers, key=lambda x: x.get("dlperf", 0), reverse=True)
             return sorted_offers[0] if sorted_offers else None
->>>>>>> 77f76ad (Update README, vast.py, and vast_machine_tester for new help output)
 
         top_offer = search_offers_and_get_top(args.machine_id)
         if not top_offer:

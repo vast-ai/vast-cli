@@ -4,23 +4,23 @@
 # Script Name: vast_machine_tester.py
 # Description:
 #     This Python script automates the process of searching for offers using the
-#     VAST tool, filtering offers based on the --verified and --host_id flags,
+#     VAST tool, filtering offers based on the --verification and --host_id flags,
 #     selecting the best offers (highest dlperf) for each machine, performing
 #     self-tests on each machine, and saving the test results.
 #
 # Execution:
 #     Ensure that all dependencies are installed and that the './vast' or
 #     './vast.py' commands are available and executable. Run the script using:
-#         python3 vast_machine_tester.py [--verified {true,false,any}]
+#         python3 vast_machine_tester.py [--verification {verified,unverified,deverified,any}]
 #                                        [--host_id HOST_ID]
 #                                        [--ignore-requirements]
 #                                        [--sample-pct SAMPLE_PCT]
 #                                        [-v | -vv | -vvv]
 #
 #     Examples:
-#         python3 vast_machine_tester.py --verified false --ignore-requirements
-#         python3 vast_machine_tester.py --verified false --host_id 12345
-#         python3 vast_machine_tester.py --verified any --sample-pct 30
+#         python3 vast_machine_tester.py --verification verified --ignore-requirements
+#         python3 vast_machine_tester.py --verification unverified --host_id 12345
+#         python3 vast_machine_tester.py --verification any --sample-pct 30
 #
 # Results:
 #     - Passed machine IDs are saved to 'passed_machines.txt'
@@ -127,7 +127,7 @@ def get_vast_command():
         raise FileNotFoundError("Neither './vast.py' nor './vast' is available as an executable.")
 
 
-def run_vast_search(verified='any', host_id='any', ignore_requirements=False):
+def run_vast_search(host_id='any', ignore_requirements=False):
     """
     Executes the VAST search command to retrieve *all* offers, regardless of 
     'verified' status, so that local filtering can handle it. If 'ignore_requirements'
@@ -218,11 +218,11 @@ def run_vast_search(verified='any', host_id='any', ignore_requirements=False):
     return []
 
 
-def get_unverified_offers(offers):
+def get_filtered_offers(offers, verification_status):
     """
     Filters the list of offers to remove any that are 'verified'.
     """
-    return [off for off in offers if off.get('verification') != 'verified']
+    return [off for off in offers if off.get('verification') != verification_status]
 
 
 def get_best_offers(offers):
@@ -230,6 +230,7 @@ def get_best_offers(offers):
     Selects the best offer for each machine based on highest dlperf.
     Returns a dict machine_id -> best offer.
     """
+    
     best_offers = {}
     for off in offers:
         machine_id = off.get('machine_id')
@@ -398,18 +399,18 @@ def parse_arguments():
         formatter_class=argparse.RawTextHelpFormatter,
         epilog="""\
 Example Usage:
-    python3 vast_machine_tester.py --verified false --host_id any --ignore-requirements
-    python3 vast_machine_tester.py --verified any -vv
+    python3 vast_machine_tester.py --verification verified --host_id any --ignore-requirements
+    python3 vast_machine_tester.py --verification unverified any -vv
 
 Results are saved to 'passed_machines.txt' and 'failed_machines.txt'.
         """
     )
     parser.add_argument(
-        '--verified',
+        '--verification',
         type=str,
-        choices=['true', 'false', 'any'],
+        choices=['unverified', 'verified', 'deverified', 'any'],
         default='false',
-        help="Which verification status to filter offers by: 'true', 'false', 'any'. (Default: 'false')"
+        help="Which verification status to filter offers by: 'unverifed', 'verified', 'deverified', 'any'. (Default: 'unverified')"
     )
     parser.add_argument(
         '--host_id',
@@ -443,7 +444,6 @@ def main():
     setup_logging(args.verbose)
 
     offers = run_vast_search(
-        verified=args.verified,
         host_id=args.host_id,
         ignore_requirements=args.ignore_requirements
     )
@@ -452,17 +452,16 @@ def main():
         return
 
     # If user specifically wants 'false' (unverified), filter out machines that might be partially verified
-    if args.verified.lower() == 'false':
-        unverified_offers = get_unverified_offers(offers)
-        offers_to_process = unverified_offers
-        logging.info(f"Filtered to {len(unverified_offers)} non-verified offer(s).")
-    else:
+    if args.verification == 'any':
         offers_to_process = offers
-        logging.info(f"Using all {len(offers)} offer(s).")
+    else:
+        filtered_offers = get_filtered_offers(offers, args.verification)
+        offers_to_process = filtered_offers
+        logging.info(f"Filtered to {len(filtered_offers)} {args.verification} offer(s).")
 
     best_offers = get_best_offers(offers_to_process)
     machine_ids = list(best_offers.keys())
-    logging.info(f"Found {len(machine_ids)} machine ID(s) to self-test.")
+    logging.info(f"Found {len(machine_ids)} machine ID(s) to test.")
 
     # -----------------------------------------------------------
     #   RANDOMLY SAMPLE X% OF THEM

@@ -138,18 +138,74 @@ For hosts who want to automatically test multiple machines, the `vast_machine_te
 ```bash
 python3 vast_machine_tester.py [--verified {true,false,any}] [--host_id HOST_ID] [--ignore-requirements] [--sample-pct SAMPLE_PCT] [-v | -vv | -vvv]
 ```
-- **`--verified {true,false,any}`**: Filter offers by verification status (default: `false`).
-- **`--host_id HOST_ID`**: Filter offers for a specific host (default: `any`).
-- **`--ignore-requirements`**: Ignore strict system requirements during the self-test.
-- **`--sample-pct SAMPLE_PCT`**: Test only a percentage of the available machines (default: `100`).
-- **`-v, --verbose`**: Increase logging verbosity.
 
-**Examples:**
-```bash
-python3 vast_machine_tester.py --verified false --host_id any --ignore-requirements
-python3 vast_machine_tester.py --verified any -vv
-```
-Results are saved to `passed_machines.txt` and `failed_machines.txt`.
+- **`--verified {true,false,any}`**  
+  Which verification status to filter offers by (defaults to `false`).
+
+- **`--host_id HOST_ID`**  
+  Filter offers by a specific host ID (defaults to `any`).
+
+- **`--ignore-requirements`**  
+  Skip strict requirement checks; log them but proceed with the tests.
+
+- **`--auto-verify {true,false}`**  
+  - If `"true"`, any machine that passes is automatically set to `"verified"`.  
+  - If `"false"` (or omitted), you are prompted whether to verify each passing machine.  
+
+- **`--auto-deverify {true,false}`**  
+  - If `"true"`, any failing machine is automatically set to `"deverified"`, with the failure reason stored in `error_msg`.  
+  - If `"false"` (or omitted), you are prompted whether to deverify each failing machine.
+
+- **`--sample-pct PCT`**  
+  - Randomly test only PCT% of the machines that would otherwise be tested. E.g., `--sample-pct 30` tests ~30% of them.  
+  - Default is `100`, meaning test all.
+
+- **`-v | -vv | -vvv`**  
+  - Increase verbosity level (INFO/DEBUG). By default logs are at WARNING level.
+
+### Examples
+
+1. **Test all unverified machines** for a specific Host ID (default `verified=false`):  
+   ```
+   python3 vast_machine_tester.py --host_id 123456
+   ```
+   Saves results to `passed_machines.txt` and `failed_machines.txt`.
+
+2. **Test *any* machines** (verified or unverified):  
+   ```
+   python3 vast_machine_tester.py --verified any --host_id 123456
+   ```
+
+3. **Ignore system requirements**:  
+   ```
+   python3 vast_machine_tester.py --host_id 123456 --ignore-requirements
+   ```
+
+4. **Automatically verify** machines that pass:  
+   ```
+   python3 vast_machine_tester.py --host_id 123456 --auto-verify true
+   ```
+
+5. **Automatically deverify** failing machines:  
+   ```
+   python3 vast_machine_tester.py --host_id 123456 --auto-deverify true
+   ```
+
+6. **Only test 30%** of your machines:  
+   ```
+   python3 vast_machine_tester.py --host_id 123456 --sample-pct 30
+   ```
+
+### Output Files
+
+- **`passed_machines.txt`**  
+  Contains a timestamp and a **comma-separated** list of machine IDs that have passed.
+
+- **`failed_machines.txt`**  
+  Contains a timestamp and lines of the form `<machine_id>: <reason>` for each failure.
+
+### Failure Summary
+A short table is printed at the end, summarizing each unique failure reason (e.g., “No response for 60 seconds with running instance”).
 
 ## Usage Examples
 

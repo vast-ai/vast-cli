@@ -4769,7 +4769,7 @@ def list_machine(args, id):
 
     json_blob = {'machine': id, 'price_gpu': args.price_gpu,
                         'price_disk': args.price_disk, 'price_inetu': args.price_inetu, 'price_inetd': args.price_inetd, 'price_min_bid': args.price_min_bid, 
-                        'min_chunk': args.min_chunk, 'end_date': string_to_unix_epoch(args.end_date), 'credit_discount_max': args.discount_rate}
+                        'min_chunk': args.min_chunk, 'end_date': string_to_unix_epoch(args.end_date), 'credit_discount_max': args.discount_rate, 'duration': args.duration}
     if (args.explain):
         print("request json: ")
         print(json_blob)
@@ -4784,10 +4784,11 @@ def list_machine(args, id):
             min_chunk_ = str(args.min_chunk)
             end_date_ = string_to_unix_epoch(args.end_date)
             discount_rate_ = str(args.discount_rate)
+            duration_ = str(args.duration)
             if args.raw:
                 return r
             else:
-                print("offers created/updated for machine {id},  @ ${price_gpu_}/gpu/hr, ${price_inetu_}/GB up, ${price_inetd_}/GB down, {min_chunk_}/min gpus, max discount_rate {discount_rate_}, till {end_date_}".format(**locals()))
+                print("offers created/updated for machine {id},  @ ${price_gpu_}/gpu/hr, ${price_inetu_}/GB up, ${price_inetd_}/GB down, {min_chunk_}/min gpus, max discount_rate {discount_rate_}, till {end_date_}, duration {duration_}".format(**locals()))
                 num_extended = rj.get("extended", 0)
 
                 if num_extended > 0:
@@ -4814,6 +4815,7 @@ def list_machine(args, id):
     argument("-r", "--discount_rate", help="Max long term prepay discount rate fraction, default: 0.4 ", type=float),
     argument("-m", "--min_chunk", help="minimum amount of gpus", type=int),
     argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format)", type=str),
+    argument("-l", "--duration", help="Updates end_date daily to be duration from current date. Cannot be combined with end_date. Format is: `n days`, `n weeks`, `n months`, `n years`, or total intended duration in seconds."),
     usage="vastai list machine ID [options]",
     help="[Host] list a machine for rent",
     epilog=deindent("""
@@ -4843,6 +4845,7 @@ def list__machine(args):
     argument("-r", "--discount_rate", help="Max long term prepay discount rate fraction, default: 0.4 ", type=float),
     argument("-m", "--min_chunk", help="minimum amount of gpus", type=int),
     argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format)", type=str),
+    argument("-l", "--duration", help="Updates end_date daily to be duration from current date. Cannot be combined with end_date. Format is: `n days`, `n weeks`, `n months`, `n years`, or total intended duration in seconds."),
     usage="vastai list machines IDs [options]",
     help="[Host] list machines for rent",
     epilog=deindent("""

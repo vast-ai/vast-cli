@@ -1,8 +1,9 @@
-```markdown
 # Welcome to Vast.ai’s Documentation!
 
 ## Overview
-This repository contains the open source Python command line interface for Vast.ai. This CLI replicates much of the functionality available in the Vast.ai website GUI by using the same underlying REST API. Most of the functionality is contained within the single script file `vast.py`, while additional features (such as PDF invoice generation) are provided by the supplementary script `vast_pdf.py`.
+This repository contains the open source command line interface for Vast.ai. This CLI replicates much of the functionality available in the Vast.ai website GUI by using the same underlying REST API. Most of the functionality is contained within the single script file `vast.py`, while additional features (such as PDF invoice generation) are provided by the supplementary script `vast_pdf.py`. 
+
+Our Python SDK is maintained through a separate repository [vast-ai/vast-sdk](https://github.com/vast-ai/vast-sdk).
 
 [![PyPI version](https://badge.fury.io/py/vastai.svg)](https://badge.fury.io/py/vastai)
 

@@ -101,7 +101,8 @@ CACHE_DURATION = timedelta(hours=24)
 APIKEY_FILE = os.path.join(DIRS['config'], "vast_api_key")
 APIKEY_FILE_HOME = os.path.expanduser("~/.vast_api_key") # Legacy
 
-if os.path.exists(APIKEY_FILE_HOME):
+if not os.path.exists(APIKEY_FILE) and os.path.exists(APIKEY_FILE_HOME):
+  print(f'copying key from {APIKEY_FILE_HOME} -> {APIKEY_FILE}')
   shutil.copyfile(APIKEY_FILE_HOME, APIKEY_FILE)
 
 
@@ -3318,6 +3319,11 @@ def set__api_key(args):
     with open(APIKEY_FILE, "w") as writer:
         writer.write(args.new_api_key)
     print("Your api key has been saved in {}".format(APIKEY_FILE))
+    
+    APIKEY_FILE_HOME = os.path.expanduser("~/.vast_api_key") # Legacy
+    if os.path.exists(APIKEY_FILE_HOME):
+        os.remove(APIKEY_FILE_HOME)
+        print("Your api key has been removed from {}".format(APIKEY_FILE_HOME))
 
 
 
@@ -6076,9 +6082,13 @@ def main():
     parser.add_argument("--api-key", help="api key. defaults to using the one stored in {}".format(APIKEY_FILE), type=str, required=False, default=os.getenv("VAST_API_KEY", api_key_guard))
 
     ARGS = args = parser.parse_args()
-
+    #print(args.api_key)
     if args.api_key is api_key_guard:
+        if args.explain:
+            print(f'checking {APIKEY_FILE}')
         if os.path.exists(APIKEY_FILE):
+            if args.explain:
+                print(f'reading key from {APIKEY_FILE}')
             with open(APIKEY_FILE, "r") as reader:
                 args.api_key = reader.read().strip()
         else:

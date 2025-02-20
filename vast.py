@@ -4469,7 +4469,7 @@ def delete__volume(args: argparse.Namespace):
         Size defaults to the size of the existing volume, but can be increased if there is available space.
     """)
 )
-def copy__volume(args: argparse.Namespace):
+def volume__copy(args: argparse.Namespace):
     json_blob={
         "source" : args.source,
         "dest": args.dest,

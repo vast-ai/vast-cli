@@ -3402,7 +3402,7 @@ def _ssh_url(args, protocol):
 
     # Opening JSON file
     try:
-        with open(f"ssh_{args.id}.json", 'r') as openfile:
+        with open(f"{DIRS['temp']}/ssh_{args.id}.json", 'r') as openfile:
             json_object = json.load(openfile)
     except:
         pass
@@ -3414,7 +3414,7 @@ def _ssh_url(args, protocol):
         ipaddr = json_object["ipaddr"]
         port   = json_object["port"]
 
-    if ipaddr is None:
+    if ipaddr is None or ipaddr.endswith('.vast.ai'):
         req_url = apiurl(args, "/instances", {"owner": "me"});
         r = http_get(args, req_url);
         r.raise_for_status()
@@ -3448,7 +3448,7 @@ def _ssh_url(args, protocol):
    
     # Writing to sample.json
     try:
-        with open(f"ssh_{args.id}.json", "w") as outfile:
+        with open(f"{DIRS['temp']}/ssh_{args.id}.json", "w") as outfile:
             json.dump({"ipaddr":ipaddr, "port":port}, outfile)
     except:
         pass

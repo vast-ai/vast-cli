@@ -1066,6 +1066,55 @@ def cancel__copy(args: argparse.Namespace):
         print(r.text);
         print("failed with error {r.status_code}".format(**locals()));
 
+@parser.command(
+    argument("recipient", help="email (or id) of recipient account", type=str),
+    argument("machine_ids", help="comma-separated list of machine IDs to transfer", type=str),
+    argument("--skip", help="skip confirmation", action="store_true", default=False),
+    usage="vastai transfer machines RECIPIENT MACHINE_IDS",
+    help="Transfer machines to another account",
+    epilog=deindent("""
+        Transfer machines to account with email (recipient).
+        MACHINE_IDS should be comma-separated list of machine IDs.
+    """),
+)
+def transfer__machines(args: argparse.Namespace):
+    url = apiurl(args, "/machines/transfer")
+    
+    # Convert comma-separated string to list of ints
+    try:
+        machine_ids = [int(x.strip()) for x in args.machine_ids.split(",")]
+    except ValueError:
+        print("Error: MACHINE_IDS must be comma-separated list of integers")
+        return
+
+    if not args.skip:
+        print(f"Transfer machines {machine_ids} to account {args.recipient}? This is irreversible.")
+        ok = input("Continue? [y/n] ")
+        if ok.strip().lower() != "y":
+            return
+
+    json_blob = {
+        "machine_ids": machine_ids,
+        "recipient": args.recipient,
+    }
+    
+    if (args.explain):
+        print("request json: ")
+        print(json_blob)
+    
+    r = http_put(args, url, headers=headers, json=json_blob)
+    r.raise_for_status()
+
+    if (r.status_code == 200):
+        rj = r.json()
+        if (rj["success"]):
+            print(f"Transferred machines {machine_ids} to {args.recipient}")
+        else:
+            print(rj["msg"])
+    else:
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
+
 
 @parser.command(
     argument("dst", help="instance_id:/path to target of sync operation", type=str),

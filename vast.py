@@ -171,51 +171,45 @@ class hidden_aliases(object):
     def append(self, x):
         self.l.append(x)
 
-def http_get(args, req_url, headers = None, json = None):
-    t = 0.15
-    for i in range(0, args.retry):
-        r = requests.get(req_url, headers=headers, json=json)
-        if (r.status_code == 429):
+
+def http_method(f, args, req_url, headers, json=None):
+    if json is None:
+        json = {}
+
+    t = 0.3
+    # Convert args.retry to int in case it's a string
+    max_retries = int(args.retry or 5)
+
+    for i in range(max_retries):
+        try:
+            r = f(req_url, headers=headers, json=json)
+            # If the server says "Too Many Requests," back off
+            if r.status_code == 429:
+                time.sleep(t)
+                t *= 1.5
+            else:
+                # Return as soon as we get a valid status (not 429)
+                return r
+
+        except requests.exceptions.ConnectionError as e:
+            print(f"ConnectionError on attempt {i+1}: {e}")
             time.sleep(t)
-            t *= 1.5
-        else:
-            break
-    return r
+            t *= 1.8
+    # If we exhaust retries, raise an exception or return None
+    raise RuntimeError(f"Failed {f} after {max_retries} retries.")
+
+
+def http_get(args, req_url, headers = None, json = None):
+    return http_method(requests.get,args,req_url,headers,json)
 
 def http_put(args, req_url, headers, json):
-    t = 0.3
-    for i in range(0, int(args.retry)):
-        r = requests.put(req_url, headers=headers, json=json)
-        if (r.status_code == 429):
-            time.sleep(t)
-            t *= 1.5
-        else:
-            break
-    return r
+    return http_method(requests.put,args,req_url,headers,json)
 
 def http_post(args, req_url, headers, json={}):
-    t = 0.3
-    for i in range(0, int(args.retry)):
-        #if (args.explain):
-        #    print(req_url)
-        r = requests.post(req_url, headers=headers, json=json)
-        if (r.status_code == 429):
-            time.sleep(t)
-            t *= 1.5
-        else:
-            break
-    return r
+    return http_method(requests.post,args,req_url,headers,json)
 
 def http_del(args, req_url, headers, json={}):
-    t = 0.3
-    for i in range(0, int(args.retry)):
-        r = requests.delete(req_url, headers=headers, json=json)
-        if (r.status_code == 429):
-            time.sleep(t)
-            t *= 1.5
-        else:
-            break
-    return r
+    return http_method(requests.delete,args,req_url,headers,json)
 
 
 def load_permissions_from_file(file_path):
@@ -4015,6 +4009,7 @@ def transfer__credit(args: argparse.Namespace):
         print(r.text);
         print("failed with error {r.status_code}".format(**locals()));
 
+
 @parser.command(
     argument("id", help="id of autoscale group to update", type=int),
     argument("--min_load", help="minimum floor load in perf units/s  (token/s for LLms)", type=float),
@@ -6076,7 +6071,7 @@ except:
 def main():
     global ARGS
     parser.add_argument("--url", help="server REST api url", default=server_url_default)
-    parser.add_argument("--retry", help="retry limit", default=3)
+    parser.add_argument("--retry", help="retry limit", default=5)
     parser.add_argument("--raw", action="store_true", help="output machine-readable json")
     parser.add_argument("--explain", action="store_true", help="output verbose explanation of mapping of CLI calls to HTTPS API endpoints")
     parser.add_argument("--api-key", help="api key. defaults to using the one stored in {}".format(APIKEY_FILE), type=str, required=False, default=os.getenv("VAST_API_KEY", api_key_guard))

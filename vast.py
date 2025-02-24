@@ -4017,6 +4017,58 @@ def transfer__credit(args: argparse.Namespace):
 
 @parser.command(
     argument("recipient", help="email (or id) of recipient account", type=str),
+    argument("machine_id", help="ID of the machine to transfer", type=int),
+    argument("--skip", help="skip confirmation", action="store_true", default=False),
+    usage="vastai transfer machine RECIPIENT MACHINE_ID",
+    help="[Host] Transfer machine ownership to another account",
+    epilog=deindent("""
+        Transfer ownership of a specified machine to account with email (recipient).
+        Example: vastai transfer machine user@example.com 1234
+    """),
+)
+def transfer__machine(args: argparse.Namespace):
+    """
+    Transfer ownership of a single machine to another account.
+    
+    :param argparse.Namespace args: should supply all the command-line options
+    :rtype:
+    """
+    url = apiurl(args, "/machines/transfer_ownership/")
+    
+    # Use a single machine ID
+    machine_ids = [args.machine_id]
+    
+    if not args.skip:
+        print(f"Transfer ownership of machine {args.machine_id} to account {args.recipient}? This is irreversible.")
+        ok = input("Continue? [y/n] ")
+        if ok.strip().lower() != "y":
+            return
+    
+    json_blob = {
+        "recipient": args.recipient,
+        "machine_ids": machine_ids
+    }
+    
+    if (args.explain):
+        print("request json: ")
+        print(json_blob)
+    
+    r = http_post(args, url, headers=headers, json=json_blob)
+    
+    if (r.status_code == 200):
+        rj = r.json()
+        if (rj.get("success", False)):
+            print(f"Successfully transferred machine {args.machine_id} to {args.recipient}")
+            if "transferred_machines" in rj:
+                print(f"Transferred machine: {rj['transferred_machines']}")
+        else:
+            print(rj.get("msg", "Transfer failed with unknown error"))
+    else:
+        print(r.text)
+        print(f"failed with error {r.status_code}")
+
+@parser.command(
+    argument("recipient", help="email (or id) of recipient account", type=str),
     argument("machine_ids", help="comma-separated list of machine IDs to transfer", type=str),
     argument("--skip", help="skip confirmation", action="store_true", default=False),
     usage="vastai transfer machines RECIPIENT MACHINE_IDS",

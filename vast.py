@@ -123,6 +123,49 @@ def strip_strings(value):
         return [strip_strings(item) for item in value]
     return value  # Return as is if not a string, list, or dict
 
+@parser.command(
+    argument("machine_ids", help="comma-separated list of machine IDs to transfer", type=str),
+    argument("recipient", help="email (or id) of recipient account", type=str),
+    argument("--skip", help="skip confirmation", action="store_true", default=False),
+    usage="vastai transfer machines MACHINE_IDS RECIPIENT",
+    help="Transfer machines to another account",
+    epilog=deindent("""
+        Transfer ownership of machines (comma-separated machine_ids) to account with email (recipient).
+        This is irreversible and will transfer all contracts and offers associated with the machines.
+    """),
+)
+def transfer__machines(args: argparse.Namespace):
+    url = apiurl(args, "/machines/transfer/")
+    
+    # Convert comma-separated string to list of integers
+    machine_ids = [int(id.strip()) for id in args.machine_ids.split(",")]
+    
+    if not args.skip:
+        print(f"Transfer machines {machine_ids} to account {args.recipient}?  This is irreversible.")
+        ok = input("Continue? [y/n] ")
+        if ok.strip().lower() != "y":
+            return
+
+    json_blob = {
+        "machine_ids": machine_ids,
+        "recipient": args.recipient,
+    }
+    if (args.explain):
+        print("request json: ")
+        print(json_blob)
+    r = http_put(args, url, headers=headers, json=json_blob)
+    r.raise_for_status()
+
+    if (r.status_code == 200):
+        rj = r.json()
+        if (rj.get("success", False)):
+            print(f"Transferred machines {machine_ids} to {args.recipient}")
+        else:
+            print(rj.get("msg", "Transfer failed without specific error message"))
+    else:
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
+
 def string_to_unix_epoch(date_string):
     if date_string is None:
         return None

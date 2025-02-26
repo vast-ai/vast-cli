@@ -4028,7 +4028,7 @@ def transfer__credit(args: argparse.Namespace):
     """),
 )
 def transfer__machines(args: argparse.Namespace):
-    url = apiurl(args, "/machines/transfer_ownership")
+    url = apiurl(args, "/api/v0/machines/transfer_ownership/")
     
     if not args.skip:
         print(f"Transfer machine {args.machine_id} to account {args.recipient}? This is irreversible.")

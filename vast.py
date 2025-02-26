@@ -4016,6 +4016,49 @@ def transfer__credit(args: argparse.Namespace):
         print("failed with error {r.status_code}".format(**locals()));
 
 @parser.command(
+    argument("machine_id", help="id of machine to transfer", type=int),
+    argument("recipient", help="email (or id) of recipient account", type=str),
+    argument("--skip", help="skip confirmation", action="store_true", default=False),
+    usage="vastai transfer machines MACHINE_ID RECIPIENT",
+    help="Transfer machine ownership to another account",
+    epilog=deindent("""
+        Transfer ownership of a machine to another account.
+        
+        Example: vastai transfer machines 1234 user@example.com
+    """),
+)
+def transfer__machines(args: argparse.Namespace):
+    url = apiurl(args, "/machines/transfer_ownership")
+    
+    if not args.skip:
+        print(f"Transfer machine {args.machine_id} to account {args.recipient}? This is irreversible.")
+        ok = input("Continue? [y/n] ")
+        if ok.strip().lower() != "y":
+            return
+    
+    json_blob = {
+        "machine_id": args.machine_id,
+        "recipient": args.recipient,
+    }
+    
+    if args.explain:
+        print("request json: ")
+        print(json_blob)
+    
+    r = http_post(args, url, headers=headers, json=json_blob)
+    r.raise_for_status()
+    
+    if r.status_code == 200:
+        rj = r.json()
+        if rj["success"]:
+            print(rj["msg"])
+        else:
+            print(rj["msg"])
+    else:
+        print(r.text)
+        print(f"failed with error {r.status_code}")
+
+@parser.command(
     argument("id", help="id of autoscale group to update", type=int),
     argument("--min_load", help="minimum floor load in perf units/s  (token/s for LLms)", type=float),
     argument("--target_util",      help="target capacity utilization (fraction, max 1.0, default 0.9)", type=float),

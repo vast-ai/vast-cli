@@ -4770,6 +4770,57 @@ def delete__machine(args):
         print("failed with error {r.status_code}".format(**locals()));
 
 
+@parser.command(
+    argument("recipient", help="email (or id) of recipient account", type=str),
+    argument("machine_ids", help="ids of machines to transfer", type=int, nargs='+'),
+    argument("--skip", help="skip confirmation", action="store_true", default=False),
+    usage="vastai transfer machines RECIPIENT MACHINE_IDS [--skip]",
+    help="[Host] Transfer ownership of machines to another account",
+    epilog=deindent("""
+        Transfer ownership of specified machines to account with email (recipient).
+        This operation is irreversible. The recipient must be a valid Vast.ai user.
+        
+        Examples:
+         vast transfer machines user@example.com 12345 67890
+         vast transfer machines 54321 12345 --skip
+    """),
+)
+def transfer__machines(args):
+    """
+    Transfers ownership of specified machines to another user account.
+    """
+    url = apiurl(args, "/machines/transfer/")
+    
+    if not args.skip:
+        print(f"Transfer {len(args.machine_ids)} machine(s) {args.machine_ids} to account {args.recipient}?  This is irreversible.")
+        ok = input("Continue? [y/n] ")
+        if ok.strip().lower() != "y":
+            return
+
+    json_blob = {
+        "machine_ids": args.machine_ids,
+        "new_owner_id": args.recipient,
+    }
+    
+    if (args.explain):
+        print("request json: ")
+        print(json_blob)
+    
+    r = http_post(args, url, headers=headers, json=json_blob)
+    
+    if (r.status_code == 200):
+        rj = r.json()
+        if (rj["success"]):
+            print(f"Successfully transferred {len(rj['transferred_machines'])} machines to {args.recipient}")
+            if rj.get("ignored_machines"):
+                print(f"Ignored machines: {rj['ignored_machines']}")
+        else:
+            print(rj["msg"])
+    else:
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
+
+
 def list_machine(args, id):
     req_url = apiurl(args, "/machines/create_asks/")
 

@@ -4016,6 +4016,58 @@ def transfer__credit(args: argparse.Namespace):
         print("failed with error {r.status_code}".format(**locals()));
 
 @parser.command(
+    argument("recipient", help="email (or id) of recipient account", type=str),
+    argument("ids", help="ids of machines to transfer", type=int, nargs='+'),
+    argument("--skip", help="skip confirmation", action="store_true", default=False),
+    usage="vastai transfer machines RECIPIENT IDS [IDS...]",
+    help="[Host] Transfer machine ownership to another account",
+    epilog=deindent("""
+        Transfer ownership of specified machines to account with email or ID (recipient).
+        This will update the owner of the machines and associated contracts.
+        
+        Example: vastai transfer machines user@example.com 1234 5678
+    """),
+)
+def transfer__machines(args: argparse.Namespace):
+    """
+    Transfer ownership of machines to another account.
+    
+    :param argparse.Namespace args: should supply all the command-line options
+    """
+    url = apiurl(args, "/machines/transfer_ownership/")
+    
+    if not args.skip:
+        print(f"Transfer ownership of machines {args.ids} to account {args.recipient}?")
+        print("This will transfer ownership of the machines and all associated contracts.")
+        print("This action is irreversible.")
+        ok = input("Continue? [y/n] ")
+        if ok.strip().lower() != "y":
+            return
+    
+    json_blob = {
+        "machine_ids": args.ids,
+        "new_owner_id": args.recipient if args.recipient.isdigit() else args.recipient,
+    }
+    
+    if args.explain:
+        print("request json: ")
+        print(json_blob)
+    
+    r = http_post(args, url, headers=headers, json=json_blob)
+    
+    if r.status_code == 200:
+        rj = r.json()
+        if rj["success"]:
+            print(f"Successfully transferred machines {args.ids} to {args.recipient}")
+            if "writes" in rj:
+                print(f"Updated: {json.dumps(rj['writes'], indent=2)}")
+        else:
+            print(f"Transfer failed: {rj.get('msg', 'Unknown error')}")
+    else:
+        print(r.text)
+        print(f"Failed with error {r.status_code}")
+
+@parser.command(
     argument("id", help="id of autoscale group to update", type=int),
     argument("--min_load", help="minimum floor load in perf units/s  (token/s for LLms)", type=float),
     argument("--target_util",      help="target capacity utilization (fraction, max 1.0, default 0.9)", type=float),

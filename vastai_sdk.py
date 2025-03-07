@@ -173,8 +173,8 @@ class VastAI(VastAIBase):
                hasDoc = True
                wrapper.__doc__ += f"{doc}\n\n"
 
-        sig = getattr(func, "signature")
-        sig_help = getattr(func, "signature_help")
+        sig = getattr(func, "signature", None)
+        sig_help = getattr(func, "signature_help", None)
         if sig:
             try:
                 wrapper.__signature__, docappend = self.generate_signature_from_argparse(sig)

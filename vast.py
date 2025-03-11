@@ -25,6 +25,7 @@ from contextlib import redirect_stdout, redirect_stderr
 from io import StringIO
 from typing import Optional
 import shutil
+import shlex
 import logging
 import textwrap
 from pathlib import Path
@@ -1144,32 +1145,45 @@ def change__bid(args: argparse.Namespace):
     argument("src", help="instance_id:/path to source of object to copy", type=str),
     argument("dst", help="instance_id:/path to target of copy operation", type=str),
     argument("-i", "--identity", help="Location of ssh private key", type=str),
-    usage="vastai copy SRC DST",
+    # Here's our new explicit --exclude switch
+    argument(
+        "--exclude", 
+        action="append", 
+        default=[], 
+        help="Exclude paths using rsync's --exclude syntax; can be repeated."
+    ),
+    # Any additional arguments for rsync
+    argument("rsync_args", nargs="*", default=[], help="Additional arguments passed verbatim to rsync"),
+    usage="vastai copy SRC DST [--exclude pattern ...] [rsync_args...]",
     help="Copy directories between instances and/or local",
     epilog=deindent("""
-        Copies a directory from a source location to a target location. Each of source and destination
-        directories can be either local or remote, subject to appropriate read and write
-        permissions required to carry out the action. The format for both src and dst is [instance_id:]path.
-                    
-        You should not copy to /root or / as a destination directory, as this can mess up the permissions on your instance ssh folder, breaking future copy operations (as they use ssh authentication)
-        You can see more information about constraints here: https://vast.ai/docs/gpu-instances/data-movement#constraints
-                    
+        Copies a directory from a source location to a target location. Each of
+        source and destination directories can be either local or remote, subject
+        to appropriate read/write permissions. The format is [instance_id:]path.
+
+        You should not copy to /root or / as a destination directory, as this can
+        mess up your instance's ssh folder permissions, breaking future copy ops
+        (since they use ssh). Read more at:
+        https://vast.ai/docs/gpu-instances/data-movement#constraints
+
         Examples:
          vast copy 6003036:/workspace/ 6003038:/workspace/
          vast copy 11824:/data/test data/test
          vast copy data/test 11824:/data/test
-
+         vast copy data/test 11824:/data/test --exclude .git --exclude '__pycache__'
+                    
         The first example copy syncs all files from the absolute directory '/workspace' on instance 6003036 to the directory '/workspace' on instance 6003038.
         The second example copy syncs the relative directory 'data/test' on the local machine from '/data/test' in instance 11824.
         The third example copy syncs the directory '/data/test' in instance 11824 from the relative directory 'data/test' on the local machine.
+        The fourth example copy syncs the directory 'data/test' on the local machine to the directory '/data/test' in instance 11824, excluding the '.git' and '__pycache__' directories.
     """),
 )
 def copy(args: argparse.Namespace):
     """
     Transfer data from one instance to another.
 
-    @param src: Location of data object to be copied.
-    @param dst: Target to copy object to.
+    @param src: Location of data object to be copied (instance_id:/path).
+    @param dst: Target to copy object to (instance_id:/path).
     """
 
     (src_id, src_path) = parse_vast_url(args.src)
@@ -1178,7 +1192,8 @@ def copy(args: argparse.Namespace):
         print("invalid arguments")
         return
 
-    print(f"copying {str(src_id)+':' if src_id else ''}{src_path} {str(dst_id)+':' if dst_id else ''}{dst_path}")
+    print(f"copying {str(src_id)+':' if src_id else ''}{src_path} "
+          f"{str(dst_id)+':' if dst_id else ''}{dst_path}")
 
     req_json = {
         "client_id": "me",
@@ -1194,46 +1209,73 @@ def copy(args: argparse.Namespace):
         url = apiurl(args, f"/commands/rsync/")
     else:
         url = apiurl(args, f"/commands/copy_direct/")
-    r = http_put(args, url,  headers=headers,json=req_json)
+
+    r = http_put(args, url, headers=headers, json=req_json)
     r.raise_for_status()
     if (r.status_code == 200):
         rj = r.json();
         #print(json.dumps(rj, indent=1, sort_keys=True))
         if (rj["success"]) and ((src_id is None) or (dst_id is None)):
             homedir = subprocess.getoutput("echo $HOME")
-            #print(f"homedir: {homedir}")
-            remote_port = None
-            identity = args.identity if (args.identity is not None) else f"{homedir}/.ssh/id_rsa"
+            identity = args.identity if args.identity else f"{homedir}/.ssh/id_rsa"
+
             if (src_id is None):
-                #result = subprocess.run(f"mkdir -p {src_path}", shell=True)
+                # Local -> Remote
                 remote_port = rj["dst_port"]
                 remote_addr = rj["dst_addr"]
-                cmd = f"sudo rsync -arz -v --progress --rsh=ssh -e 'sudo ssh -i {identity} -p {remote_port} -o StrictHostKeyChecking=no' {src_path} vastai_kaalia@{remote_addr}::{dst_id}/{dst_path}"
+
+                # Build excludes and extra args for rsync
+                excludes_str = " ".join(
+                    f"--exclude '{pattern}'" for pattern in args.exclude
+                )
+                extra_args_str = " ".join(args.rsync_args)
+
+                cmd = (
+                    f"rsync -arz -v --progress --rsh=ssh "
+                    f"-e 'ssh -i {identity} -p {remote_port} -o StrictHostKeyChecking=no' "
+                    f"{excludes_str} {extra_args_str} "
+                    f"'{src_path}' "
+                    f"vastai_kaalia@{remote_addr}::{dst_id}/{dst_path}"
+                )
                 print(cmd)
                 result = subprocess.run(cmd, shell=True)
-                #result = subprocess.run(["sudo", "rsync" "-arz", "-v", "--progress", "-rsh=ssh", "-e 'sudo ssh -i {homedir}/.ssh/id_rsa -p {remote_port} -o StrictHostKeyChecking=no'", src_path, "vastai_kaalia@{remote_addr}::{dst_id}"], shell=True)
+
             elif (dst_id is None):
-                result = subprocess.run(f"mkdir -p {dst_path}", shell=True)
+                # Remote -> Local
+                result = subprocess.run(f"mkdir -p '{dst_path}'", shell=True)
                 remote_port = rj["src_port"]
                 remote_addr = rj["src_addr"]
-                cmd = f"sudo rsync -arz -v --progress --rsh=ssh -e 'sudo ssh -i {identity} -p {remote_port} -o StrictHostKeyChecking=no' vastai_kaalia@{remote_addr}::{src_id}/{src_path} {dst_path}"
+
+                excludes_str = " ".join(
+                    f"--exclude '{pattern}'" for pattern in args.exclude
+                )
+                extra_args_str = " ".join(args.rsync_args)
+
+                cmd = (
+                    f"rsync -arz -v --progress --rsh=ssh "
+                    f"-e 'ssh -i {identity} -p {remote_port} -o StrictHostKeyChecking=no' "
+                    f"{excludes_str} {extra_args_str} "
+                    f"vastai_kaalia@{remote_addr}::{src_id}/{src_path} "
+                    f"'{dst_path}'"
+                )
                 print(cmd)
-                result = subprocess.run(cmd, shell=True)
-                #result = subprocess.run(["sudo", "rsync" "-arz", "-v", "--progress", "-rsh=ssh", "-e 'sudo ssh -i {homedir}/.ssh/id_rsa -p {remote_port} -o StrictHostKeyChecking=no'", "vastai_kaalia@{remote_addr}::{src_id}", dst_path], shell=True)
+                subprocess.run(cmd, shell=True)
+
         else:
-            if (rj["success"]):
-                print("Remote to Remote copy initiated - check instance status bar for progress updates (~30 seconds delayed).")
+            # Possibly remote->remote
+            if rj["success"]:
+                print("Remote to Remote copy initiated - check instance status "
+                      "bar for progress updates (~30 seconds delayed).")
             else:
                 if rj["msg"] == "src_path not supported VMs.":
                     print("src instance is a VM, use `vm copy` command for VM to VM copies")
                 elif rj["msg"] == "dst_path not supported for VMs.":
                     print("dst instance is a VM, use `vm copy` command for VM to VM copies")
                 else:
-                    print(rj["msg"]);
+                    print(rj["msg"])
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
-
+        print(r.text)
+        print(f"failed with error {r.status_code}")
 
 
 @parser.command(

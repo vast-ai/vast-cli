@@ -344,7 +344,8 @@ class apwrap(object):
 
 class MyWideHelpFormatter(argparse.RawTextHelpFormatter):
     def __init__(self, prog):
-        super().__init__(prog, width=190, max_help_position=28, indent_increment=1)
+        super().__init__(prog, width=128, max_help_position=50, indent_increment=1)
+
 
 parser = apwrap(
     epilog="Use 'vast COMMAND --help' for more info about a command",
@@ -949,6 +950,7 @@ def parse_vast_url(url_str):
 
     instance_id = None
     path = url_str
+    #print(f'url_str: {url_str}')
     if (":" in url_str):
         url_parts = url_str.split(":", 2)
         if len(url_parts) == 2:
@@ -959,12 +961,20 @@ def parse_vast_url(url_str):
             instance_id = int(instance_id)
         except:
             raise VRLException("Instance id must be an integer.")
+    else:
+        try:
+            instance_id = int(path)
+            path = "/"
+        except:
+            pass
 
     valid_unix_path_regex = re.compile('^(/)?([^/\0]+(/)?)+$')
     # Got this regex from https://stackoverflow.com/questions/537772/what-is-the-most-correct-regular-expression-for-a-unix-file-path
     if (path != "/") and (valid_unix_path_regex.match(path) is None):
         raise VRLException(f"Path component: {path} of VRL is not a valid Unix style path.")
-
+    
+    #print(f'instance_id: {instance_id}')
+    #print(f'path: {path}')
     return (instance_id, path)
 
 def get_ssh_key(argstr):
@@ -1139,6 +1149,41 @@ def change__bid(args: argparse.Namespace):
 
 
 
+@parser.command(
+    argument("source", help="id of volume contract being cloned", type=int),
+    argument("dest", help="id of volume offer volume is being copied to", type=int),
+    argument("-s", "--size", help="Size of new volume contract, in GB. Must be greater than or equal to the source volume, and less than or equal to the destination offer.", type=float),
+    argument("-d", "--disable_compression", action="store_true", help="Do not compress volume data before copying."),
+    usage="vastai copy volume <source_id> <dest_id> [options]",
+    help="Clone an existing volume",
+    epilog=deindent("""
+        Create a new volume with the given offer, by copying the existing volume. 
+        Size defaults to the size of the existing volume, but can be increased if there is available space.
+    """)
+)
+def clone__volume(args: argparse.Namespace):
+    json_blob={
+        "source" : args.source,
+        "dest": args.dest,
+    }
+    if args.size:
+        json_blob["size"] = args.size
+    if args.disable_compression:
+        json_blob["disable_compression"] = True
+
+
+    url = apiurl(args, "/volumes/copy/")
+
+    if (args.explain):
+        print("request json: ")
+        print(json_blob)
+    r = http_post(args, url,  headers=headers,json=json_blob)
+    r.raise_for_status()
+    if args.raw:
+        return r
+    else:
+        print("Created. {}".format(r.json()))
+
 
 @parser.command(
     argument("src", help="instance_id:/path to source of object to copy", type=str),
@@ -1175,8 +1220,9 @@ def copy(args: argparse.Namespace):
     (src_id, src_path) = parse_vast_url(args.src)
     (dst_id, dst_path) = parse_vast_url(args.dst)
     if (src_id is None) and (dst_id is None):
-        print("invalid arguments")
-        return
+        pass
+        #print("invalid arguments")
+        #return
 
     print(f"copying {str(src_id)+':' if src_id else ''}{src_path} {str(dst_id)+':' if dst_id else ''}{dst_path}")
 
@@ -1197,7 +1243,7 @@ def copy(args: argparse.Namespace):
     r = http_put(args, url,  headers=headers,json=req_json)
     r.raise_for_status()
     if (r.status_code == 200):
-        rj = r.json();
+        rj = r.json()
         #print(json.dumps(rj, indent=1, sort_keys=True))
         if (rj["success"]) and ((src_id is None) or (dst_id is None)):
             homedir = subprocess.getoutput("echo $HOME")
@@ -1225,17 +1271,17 @@ def copy(args: argparse.Namespace):
                 print("Remote to Remote copy initiated - check instance status bar for progress updates (~30 seconds delayed).")
             else:
                 if rj["msg"] == "src_path not supported VMs.":
-                    print("src instance is a VM, use `vm copy` command for VM to VM copies")
+                    print("copy between VM instances does not currently support subpaths (only full disk copy)")
                 elif rj["msg"] == "dst_path not supported for VMs.":
-                    print("dst instance is a VM, use `vm copy` command for VM to VM copies")
+                    print("copy between VM instances does not currently support subpaths (only full disk copy)")
                 else:
-                    print(rj["msg"]);
+                    print(rj["msg"])
     else:
-        print(r.text);
+        print(r.text)
         print("failed with error {r.status_code}".format(**locals()));
 
 
-
+'''
 @parser.command(
     argument("src", help="instance_id of source VM.", type=int),
     argument("dst", help="instance_id of destination VM", type=int),
@@ -1287,7 +1333,7 @@ def vm__copy(args: argparse.Namespace):
     else:
         print(r.text);
         print("failed with error {r.status_code}".format(**locals()));
-
+'''
 
 @parser.command(
     argument("--src", help="path to source of object to copy", type=str),
@@ -1845,6 +1891,41 @@ def create__template(args):
 
 
 @parser.command(
+    argument("id", help="id of volume offer", type=int),
+    argument("-s", "--size",
+             help="size in GB of volume. Default 15 GB.", type=float),
+    usage="vastai create volume ID [options]",
+    help="Create a new volume",
+    epilog=deindent("""
+        Creates a volume from an offer ID (which is returned from "search volumes"). Each offer ID can be used to create multiple volumes,
+        provided the size of all volumes does not exceed the size of the offer.
+    """)
+)
+def create__volume(args: argparse.Namespace):
+    
+    size = args.size
+    
+    if not size:
+        size = 15.0
+    json_blob ={
+        "size": size,
+        "id": args.id
+    }
+
+    url = apiurl(args, "/volumes/")
+
+    if (args.explain):
+        print("request json: ")
+        print(json_blob)
+    r = http_put(args, url,  headers=headers,json=json_blob)
+    r.raise_for_status()
+    if args.raw:
+        return r
+    else:
+        print("Created. {}".format(r.json()))
+
+
+@parser.command(
     argument("id", help="id of apikey to remove", type=int),
     usage="vastai delete api-key ID",
     help="Remove an api-key",
@@ -1982,6 +2063,25 @@ def delete__template(args):
     else:
         print("The response is not JSON. Content-Type:", r.headers.get('Content-Type'))
         print(r.text)
+
+
+@parser.command(
+    argument("id", help="id of volume contract", type=int),
+    usage="vastai delete volume ID",
+    help="Delete a volume",
+    epilog=deindent("""
+        Deletes volume with the given ID. All instances using the volume must be destroyed before the volume can be deleted.
+    """)
+)
+def delete__volume(args: argparse.Namespace):
+    url = apiurl(args, "/volumes/", query_args={"id": args.id})
+    r = http_del(args, url, headers=headers)
+    r.raise_for_status()
+    if args.raw:
+        return r
+    else:
+        print("Deleted. {}".format(r.json()))
+
 
 def destroy_instance(id,args):
     url = apiurl(args, "/instances/{id}/".format(id=id))
@@ -2134,23 +2234,30 @@ def get__endpt_logs(args):
     levels = {0 : "info0", 1: "info1", 2: "trace", 3: "debug"}
 
     if (r.status_code == 200):
-        rj = r.json()
+        rj = None
+        try:
+            rj = r.json()
+        except Exception as e:
+            print(str(e))
+            print(r.text)
         if args.raw:
             # sort_keys
-            return rj
+            return rj or r.text
         else:
             dbg_lvl = levels[args.level]
             print(rj[dbg_lvl])
             #print(json.dumps(rj, indent=1, sort_keys=True))
+    else:
+        print(r.text)
 
 
 @parser.command(
     argument("--email", help="email of user to be invited", type=str),
     argument("--role", help="role of user to be invited", type=str),
-    usage="vastai invite team-member --email EMAIL --role ROLE",
+    usage="vastai invite member --email EMAIL --role ROLE",
     help="Invite a team member",
 )
-def invite__team_member(args):
+def invite__member(args):
     url = apiurl(args, "/team/invite/", query_args={"email": args.email, "role": args.role})
     r = http_post(args, url, headers=headers)
     r.raise_for_status()
@@ -2546,10 +2653,10 @@ def recycle__instance(args):
 
 @parser.command(
     argument("id", help="id of user to remove", type=int),
-    usage="vastai remove team-member ID",
+    usage="vastai remove member ID",
     help="Remove a team member",
 )
-def remove__team_member(args):
+def remove__member(args):
     url = apiurl(args, "/team/members/{id}/".format(id=args.id))
     r = http_del(args, url, headers=headers)
     r.raise_for_status()
@@ -3306,6 +3413,119 @@ def search__templates(args):
         print(r.text)
         print("failed with error {r.status_code}".format(**locals()))
 
+@parser.command(
+    argument("-n", "--no-default", action="store_true", help="Disable default query"),
+    argument("--limit", type=int, help=""),
+    argument("--storage", type=float, default=1.0, help="Amount of storage to use for pricing, in GiB. default=1.0GiB"),
+    argument("-o", "--order", type=str, help="Comma-separated list of fields to sort on. postfix field with - to sort desc. ex: -o 'disk_space,inet_up-'.  default='score-'", default='score-'),
+    argument("query", help="Query to search for. default: 'external=false verified=true disk_space>=1', pass -n to ignore default", nargs="*", default=None),
+    usage="vastai search volumes [--help] [--api-key API_KEY] [--raw] <query>",
+    help="Search for volume offers using custom query",
+    epilog=deindent("""
+        Query syntax:
+
+            query = comparison comparison...
+            comparison = field op value
+            field = <name of a field>
+            op = one of: <, <=, ==, !=, >=, >, in, notin
+            value = <bool, int, float, string> | 'any' | [value0, value1, ...]
+            bool: True, False
+
+        note: to pass '>' and '<' on the command line, make sure to use quotes
+        note: to encode a string query value (ie for gpu_name), replace any spaces ' ' with underscore '_'
+
+        Examples:
+
+            # search for volumes with greater than 50GB of available storage and greater than 500 Mb/s upload and download speed
+            vastai search volumes "disk_space>50 inet_up>500 inet_down>500"
+            
+        Available fields:
+
+              Name                  Type       Description
+
+            cpu_arch:               string    host machine cpu architecture (e.g. amd64, arm64)
+            cuda_vers:              float     machine max supported cuda version (based on driver version)
+            datacenter:             bool      show only datacenter offers
+            disk_bw:                float     disk read bandwidth, in MB/s
+            disk_space:             float     disk storage space, in GB
+            driver_version:         string    machine's nvidia/amd driver version as 3 digit string ex. "535.86.05"
+            duration:               float     max rental duration in days
+            geolocation:            string    Two letter country code. Works with operators =, !=, in, notin (e.g. geolocation not in ['XV','XZ'])
+            gpu_arch:               string    host machine gpu architecture (e.g. nvidia, amd)
+            gpu_name:               string    GPU model name (no quotes, replace spaces with underscores, ie: RTX_3090 rather than 'RTX 3090')
+            has_avx:                bool      CPU supports AVX instruction set.
+            id:                     int       volume offer unique ID
+            inet_down:              float     internet download speed in Mb/s
+            inet_up:                float     internet upload speed in Mb/s
+            machine_id:             int       machine id of volume offer
+            pci_gen:                float     PCIE generation
+            pcie_bw:                float     PCIE bandwidth (CPU to GPU)
+            reliability:            float     machine reliability score (see FAQ for explanation)
+            storage_cost:           float     storage cost in $/GB/month
+            static_ip:              bool      is the IP addr static/stable
+            total_flops:            float     total TFLOPs from all GPUs
+            ubuntu_version:         string    host machine ubuntu OS version
+            verified:               bool      is the machine verified
+    """),
+)
+def search__volumes(args: argparse.Namespace):
+    try:
+
+        if args.no_default:
+            query = {}
+        else:
+            query = {"verified": {"eq": True}, "external": {"eq": False}, "disk_space": {"gte": 1}}
+
+        if args.query is not None:
+            query = parse_query(args.query, query, vol_offers_fields, {}, offers_mult)
+
+        order = []
+        for name in args.order.split(","):
+            name = name.strip()
+            if not name: continue
+            direction = "asc"
+            field = name
+            if name.strip("-") != name:
+                direction = "desc"
+                field = name.strip("-")
+            if name.strip("+") != name:
+                direction = "asc"
+                field = name.strip("+")
+            if field in offers_alias:
+                field = offers_alias[field];
+            order.append([field, direction])
+
+        query["order"] = order
+        if (args.limit):
+            query["limit"] = int(args.limit)
+        query["allocated_storage"] = args.storage
+    except ValueError as e:
+        print("Error: ", e)
+        return 1
+
+    json_blob = query
+
+    if (args.explain):
+        print("request json: ")
+        print(json_blob)
+    url = apiurl(args, "/volumes/search/")
+    r = http_post(args, url, headers=headers, json=json_blob)
+
+    r.raise_for_status()
+   
+    if (r.headers.get('Content-Type') != 'application/json'):
+        print(f"invalid return Content-Type: {r.headers.get('Content-Type')}")
+        return   
+
+    rows = r.json()["offers"]
+    
+    if args.raw:
+        return rows
+    else:
+        display_table(rows, vol_displayable_fields)
+
+
+
 
 @parser.command(
     argument("new_api_key", help="Api key to set as currently logged in user"),
@@ -3937,10 +4157,10 @@ def show__subaccounts(args):
         display_table(rows, user_fields)
 
 @parser.command(
-    usage="vastai show team-members",
+    usage="vastai show members",
     help="Show your team members",
 )
-def show__team_members(args):
+def show__members(args):
     url = apiurl(args, "/team/members/")
     r = http_get(args, url, headers=headers)
     r.raise_for_status()
@@ -3974,6 +4194,30 @@ def show__team_roles(args):
         return r
     else:
         print(r.json())
+
+
+@parser.command(
+    usage="vastai show volumes",
+    help="Show stats on owned volumes.",
+    epilog=deindent("""
+        Show stats on owned volumes
+    """)
+)
+def show__volumes(args: argparse.Namespace):
+    req_url = apiurl(args, "/volumes", {"owner": "me"});
+    r = http_get(args, req_url)
+    r.raise_for_status()
+    rows = r.json()["volumes"]
+    processed = []
+    for row in rows:
+        row = {k: strip_strings(v) for k, v in row.items()} 
+        row['duration'] = time.time() - row['start_date']
+        processed.append(row)
+    if args.raw:
+        return processed
+    else:
+        display_table(processed, volume_fields, replace_spaces=False)
+
 
 @parser.command(
     argument("recipient", help="email (or id) of recipient account", type=str),
@@ -4406,224 +4650,6 @@ def filter_invoice_items(args: argparse.Namespace, rows: List) -> Dict:
     return {"rows": rows, "header_text": header_text, "pdf_filename": filename}
 
 
-@parser.command(
-    argument("id", help="id of volume offer", type=int),
-    argument("-s", "--size",
-             help="size in GB of volume. Default 15 GB.", type=float),
-    usage="vastai create volume ID [options]",
-    help="Create a new volume",
-    epilog=deindent("""
-        Creates a volume from an offer ID (which is returned from "search volumes"). Each offer ID can be used to create multiple volumes,
-        provided the size of all volumes does not exceed the size of the offer.
-    """)
-)
-def create__volume(args: argparse.Namespace):
-    
-    size = args.size
-    
-    if not size:
-        size = 15.0
-    json_blob ={
-        "size": size,
-        "id": args.id
-    }
-
-    url = apiurl(args, "/volumes/")
-
-    if (args.explain):
-        print("request json: ")
-        print(json_blob)
-    r = http_put(args, url,  headers=headers,json=json_blob)
-    r.raise_for_status()
-    if args.raw:
-        return r
-    else:
-        print("Created. {}".format(r.json()))
-
-@parser.command(
-    argument("id", help="id of volume contract", type=int),
-    usage="vastai delete volume ID",
-    help="Delete a volume",
-    epilog=deindent("""
-        Deletes volume with the given ID. All instances using the volume must be destroyed before the volume can be deleted.
-    """)
-)
-def delete__volume(args: argparse.Namespace):
-    url = apiurl(args, "/volumes/", query_args={"id": args.id})
-    r = http_del(args, url, headers=headers)
-    r.raise_for_status()
-    if args.raw:
-        return r
-    else:
-        print("Deleted. {}".format(r.json()))
-
-@parser.command(
-    argument("source", help="id of volume contract being copied", type=int),
-    argument("dest", help="id of volume offer volume is being copied to", type=int),
-    argument("-s", "--size", help="Size of new volume contract, in GB. Must be greater than or equal to the source volume, and less than or equal to the destination offer.", type=float),
-    argument("-d", "--disable_compression", action="store_true", help="Do not compress volume data before copying."),
-    usage="vastai copy volume <source_id> <dest_id> [options]",
-    help="Copy an existing volume",
-    epilog=deindent("""
-        Create a new volume with the given offer, by copying the existing volume. 
-        Size defaults to the size of the existing volume, but can be increased if there is available space.
-    """)
-)
-def volume__copy(args: argparse.Namespace):
-    json_blob={
-        "source" : args.source,
-        "dest": args.dest,
-    }
-    if args.size:
-        json_blob["size"] = args.size
-    if args.disable_compression:
-        json_blob["disable_compression"] = True
-
-
-    url = apiurl(args, "/volumes/copy/")
-
-    if (args.explain):
-        print("request json: ")
-        print(json_blob)
-    r = http_post(args, url,  headers=headers,json=json_blob)
-    r.raise_for_status()
-    if args.raw:
-        return r
-    else:
-        print("Created. {}".format(r.json()))
-
-@parser.command(
-    usage="vastai show volumes",
-    help="Show stats on owned volumes.",
-    epilog=deindent("""
-        Show stats on owned volumes
-    """)
-)
-def show__volumes(args: argparse.Namespace):
-    req_url = apiurl(args, "/volumes", {"owner": "me"});
-    r = http_get(args, req_url)
-    r.raise_for_status()
-    rows = r.json()["volumes"]
-    processed = []
-    for row in rows:
-        row = {k: strip_strings(v) for k, v in row.items()} 
-        row['duration'] = time.time() - row['start_date']
-        processed.append(row)
-    if args.raw:
-        return processed
-    else:
-        display_table(processed, volume_fields, replace_spaces=False)
-
-@parser.command(
-    argument("-n", "--no-default", action="store_true", help="Disable default query"),
-    argument("--limit", type=int, help=""),
-    argument("--storage", type=float, default=1.0, help="Amount of storage to use for pricing, in GiB. default=1.0GiB"),
-    argument("-o", "--order", type=str, help="Comma-separated list of fields to sort on. postfix field with - to sort desc. ex: -o 'disk_space,inet_up-'.  default='score-'", default='score-'),
-    argument("query", help="Query to search for. default: 'external=false verified=true disk_space>=1', pass -n to ignore default", nargs="*", default=None),
-    usage="vastai search volumes [--help] [--api-key API_KEY] [--raw] <query>",
-    help="Search for volume offers using custom query",
-    epilog=deindent("""
-        Query syntax:
-
-            query = comparison comparison...
-            comparison = field op value
-            field = <name of a field>
-            op = one of: <, <=, ==, !=, >=, >, in, notin
-            value = <bool, int, float, string> | 'any' | [value0, value1, ...]
-            bool: True, False
-
-        note: to pass '>' and '<' on the command line, make sure to use quotes
-        note: to encode a string query value (ie for gpu_name), replace any spaces ' ' with underscore '_'
-
-        Examples:
-
-            # search for volumes with greater than 50GB of available storage and greater than 500 Mb/s upload and download speed
-            vastai search volumes "disk_space>50 inet_up>500 inet_down>500"
-            
-        Available fields:
-
-              Name                  Type       Description
-
-            cpu_arch:               string    host machine cpu architecture (e.g. amd64, arm64)
-            cuda_vers:              float     machine max supported cuda version (based on driver version)
-            datacenter:             bool      show only datacenter offers
-            disk_bw:                float     disk read bandwidth, in MB/s
-            disk_space:             float     disk storage space, in GB
-            driver_version:         string    machine's nvidia/amd driver version as 3 digit string ex. "535.86.05"
-            duration:               float     max rental duration in days
-            geolocation:            string    Two letter country code. Works with operators =, !=, in, notin (e.g. geolocation not in ['XV','XZ'])
-            gpu_arch:               string    host machine gpu architecture (e.g. nvidia, amd)
-            gpu_name:               string    GPU model name (no quotes, replace spaces with underscores, ie: RTX_3090 rather than 'RTX 3090')
-            has_avx:                bool      CPU supports AVX instruction set.
-            id:                     int       volume offer unique ID
-            inet_down:              float     internet download speed in Mb/s
-            inet_up:                float     internet upload speed in Mb/s
-            machine_id:             int       machine id of volume offer
-            pci_gen:                float     PCIE generation
-            pcie_bw:                float     PCIE bandwidth (CPU to GPU)
-            reliability:            float     machine reliability score (see FAQ for explanation)
-            storage_cost:           float     storage cost in $/GB/month
-            static_ip:              bool      is the IP addr static/stable
-            total_flops:            float     total TFLOPs from all GPUs
-            ubuntu_version:         string    host machine ubuntu OS version
-            verified:               bool      is the machine verified
-    """),
-)
-def search__volumes(args: argparse.Namespace):
-    try:
-
-        if args.no_default:
-            query = {}
-        else:
-            query = {"verified": {"eq": True}, "external": {"eq": False}, "disk_space": {"gte": 1}}
-
-        if args.query is not None:
-            query = parse_query(args.query, query, vol_offers_fields, {}, offers_mult)
-
-        order = []
-        for name in args.order.split(","):
-            name = name.strip()
-            if not name: continue
-            direction = "asc"
-            field = name
-            if name.strip("-") != name:
-                direction = "desc"
-                field = name.strip("-")
-            if name.strip("+") != name:
-                direction = "asc"
-                field = name.strip("+")
-            if field in offers_alias:
-                field = offers_alias[field];
-            order.append([field, direction])
-
-        query["order"] = order
-        if (args.limit):
-            query["limit"] = int(args.limit)
-        query["allocated_storage"] = args.storage
-    except ValueError as e:
-        print("Error: ", e)
-        return 1
-
-    json_blob = query
-
-    if (args.explain):
-        print("request json: ")
-        print(json_blob)
-    url = apiurl(args, "/volumes/search/")
-    r = http_post(args, url, headers=headers, json=json_blob)
-
-    r.raise_for_status()
-   
-    if (r.headers.get('Content-Type') != 'application/json'):
-        print(f"invalid return Content-Type: {r.headers.get('Content-Type')}")
-        return   
-
-    rows = r.json()["offers"]
-    
-    if args.raw:
-        return rows
-    else:
-        display_table(rows, vol_displayable_fields)
 
 
 

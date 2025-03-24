@@ -1021,6 +1021,10 @@ def copy(args: argparse.Namespace):
         print("request json: ")
         print(req_json)
 
+    if (src_id is None) or (dst_id is None):
+        url = apiurl(args, f"/commands/rsync/")
+    else:
+        url = apiurl(args, f"/commands/copy_direct/")
     r = http_put(args, url,  headers=headers,json=req_json)
     r.raise_for_status()
     if (r.status_code == 200):

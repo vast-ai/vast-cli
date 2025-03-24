@@ -72,29 +72,6 @@ def validate_seconds(value):
     except ValueError:
         raise argparse.ArgumentTypeError(f"{value} is not a valid integer.")
 
-
-def validate_frequency_values(day_of_the_week, hour_of_the_day, frequency):
-    # Validate that provided values are within the correct ranges.
-    if day_of_the_week is not None and not (0 <= day_of_the_week <= 6):
-        raise ValueError("day_of_the_week is not an acceptable value (must be between 0 and 6).")
-    if hour_of_the_day is not None and not (0 <= hour_of_the_day <= 23):
-        raise ValueError("hour_of_the_day is not an acceptable value (must be between 0 and 23).")
-    if frequency is not None and not (frequency in ["HOURLY", "DAILY", "WEEKLY"]):
-        raise ValueError("schedule is not an acceptable value (must be HOURLY, DAILY, or WEEKLY).")
-
-    elif frequency == "HOURLY":
-        if day_of_the_week is not None and hour_of_the_day is not None:
-            raise ValueError("Day and hour must be None if schedule is HOURLY.")
-    elif frequency == "DAILY":
-        if day_of_the_week is not None and hour_of_the_day is None:
-            raise ValueError("Day must be None and hour must not be None if schedule is DAILY.")
-    elif frequency == "WEEKLY":
-        if day_of_the_week is not None and hour_of_the_day is not None:
-            raise ValueError("Day must not be None and hour must not be None if schedule is WEEKLY.")
-    else:
-        raise ValueError(f"Frequency is {frequency} but day of the week is {day_of_the_week}, "
-                   f"hour of the day is {hour_of_the_day}.")
-
 def validate_schedule_values(args):
     """Validate start and end times."""
     # Validate start_time and end_time

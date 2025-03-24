@@ -104,9 +104,10 @@ def validate_schedule_values(args):
     if args.start_time >= args.end_time:
         raise ValueError("--start_time must be less than --end_time.")
 
-    # Validate day and hour
-    frequency = args.schedule.upper()
-    validate_frequency_values(args.day, args.hour, frequency)        
+    frequency = args.schedule.upper()    
+
+    args.day = args.day if args.day is not None else None
+    args.hour = args.hour if args.hour is not None else None
 
     return args.start_time, args.end_time, args.day, args.hour, frequency
 
@@ -1177,17 +1178,15 @@ def add_scheduled_job(args, req_json, cli_command, api_endpoint, request_method)
     start_time, end_time, day, hour, frequency = validate_schedule_values(args)
 
     schedule_job_url = apiurl(args, f"/commands/schedule_job/")
-    start_date = millis_to_date(start_time)
-    end_date = millis_to_date(end_time)
+
     request_body = {
                 "start_time": start_time, 
                 "end_time": end_time, 
-                "time_interval": time_interval,  
                 "api_endpoint": api_endpoint,
                 "request_method": request_method,
-                "request_body": req_json
-                "day": day,
-                "hour": hour,
+                "request_body": req_json,
+                "day_of_the_week": day,
+                "hour_of_the_day": hour,
                 "frequency": frequency
             }
                 # Send a POST request
@@ -1200,32 +1199,32 @@ def add_scheduled_job(args, req_json, cli_command, api_endpoint, request_method)
 
         # Handle the response based on the status code
     if response.status_code == 200:
-        time_interval_hours = millis_to_hours(time_interval)
-        print(f"Scheduling job to {cli_command} from {start_date} to {end_date} every {time_interval_hours} hours")
-        print(response.json())
+        print(f"add_scheduled_job insert: success frequency: {frequency} start_time: {start_time} end_time: {end_time}")
+        print(response.text)
     elif response.status_code == 401:
-        print(f"Failed with error {response.status_code}. It could be because you aren't using a valid api_key.")
+        print(f"add_scheduled_job insert: failed status_code: {response.status_code}. It could be because you aren't using a valid api_key.")
     elif response.status_code == 422:
         sleep(4)
-        response = update_scheduled_job(cli_command, time_interval, schedule_job_url, start_date, end_date, request_body) 
+        response = update_scheduled_job(cli_command, schedule_job_url, frequency, start_time, end_time, request_body) 
     else:
             # print(r.text)
-        print(f"Failed with error {response.status_code}. Response body: {response.text}")        
+        print(f"add_scheduled_job insert: failed error: {response.status_code}. Response body: {response.text}")        
 
-def update_scheduled_job(cli_command, time_interval, schedule_job_url, start_date, end_date, request_body):
+def update_scheduled_job(cli_command, schedule_job_url, frequency, start_time, end_time, request_body):
     response = requests.put(schedule_job_url, headers=headers, json=request_body)
 
         # Raise an exception for HTTP errors
     response.raise_for_status()
     if response.status_code == 200:
-        time_interval_hours = millis_to_hours(time_interval)
-        print(f"Scheduling job to {cli_command} from {start_date} to {end_date} every {time_interval_hours} hours")
+        print(f"add_scheduled_job update: success Scheduling {frequency} job to {cli_command} from {start_time} to {end_time}")
         print(response.json())
     elif response.status_code == 401:
-        print(f"Failed with error {response.status_code}. It could be because you aren't using a valid api_key.")
+        print(f"add_scheduled_job update: failed status_code: {response.status_code}. It could be because you aren't using a valid api_key.")
     else:
             # print(r.text)
-        print(f"Failed with error {response.status_code}.")
+        print(f"add_scheduled_job update: failed status_code: {response.status_code}.")
+        print(response.json())
+
     return response
 
 
@@ -4758,8 +4757,8 @@ def main():
     parser.add_argument("--schedule", help="try to schedule a command to run hourly, daily, or monthly. Valid values are HOURLY, DAILY, WEEKLY  For ex. --schedule DAILY")
     parser.add_argument("--start_time", help="the start time for your scheduled job in seconds since unix epoch. Default will be current time. For ex. --start_time 1728510298", default=(time.time()))
     parser.add_argument("--end_time", help="the end time for your scheduled job in seconds since unix epoch. Default will be 7 days from now. For ex. --end_time 1729115232", default=(time.time() + 7 * 24 * 60 * 60))
-    parser.add_argument("--day", help="day of the week you want scheduled job to run on. You can set day to None if you want the job to run everyday. Valid values are 0-6, 0=Sunday, 1=Monday, etc.  For ex. --day 0", default=0)
-    parser.add_argument("--hour", help="hour of the day you want scheduled job to run on. You can set hour to None if you want the job to run everyday. Valid values are 0-6, 0-23, 0=12am UTC, 1=1am UTC, etc. For ex. --hour 16", default=0)
+    parser.add_argument("--day", help="day of the week you want scheduled job to run on. You can set day to None if you want the job to run everyday. Valid values are 0-6, 0=Sunday, 1=Monday, etc. Default will be 0. For ex. --day 0", default=0)
+    parser.add_argument("--hour", help="hour of the day you want scheduled job to run on. You can set day and hour to None if you want the job to run every hour. Valid values are 0-6, 0-23, 0=12am UTC, 1=1am UTC, etc. Default will be 0. For ex. --hour 16", default=0)
     parser.add_argument("--api-key", help="api key. defaults to using the one stored in {}".format(api_key_file_base), type=str, required=False, default=os.getenv("VAST_API_KEY", api_key_guard))
 
 

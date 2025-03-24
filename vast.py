@@ -1192,10 +1192,9 @@ def add_scheduled_job(args, req_json, cli_command, api_endpoint, request_method)
                 # Send a POST request
     response = requests.post(schedule_job_url, headers=headers, json=request_body)
 
-    print(f"url: {schedule_job_url}")
-    print(f"headers: {headers}")
-    print(f"request_body: {request_body}")
-
+    if args.explain:
+        print("request json: ")
+        print(request_body)
 
         # Handle the response based on the status code
     if response.status_code == 200:

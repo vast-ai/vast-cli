@@ -2024,26 +2024,14 @@ def delete__env_var(args):
         print(f"Failed to delete environment variable: {result.get('msg', 'Unknown error')}")
 
 @parser.command(
-    argument("--template-id", help="Template ID of Template to Delete", type=int),
-    argument("--hash-id", help="Hash ID of Template to Delete", type=str),
-    usage="vastai delete template [--template-id <id> | --hash-id <hash_id>]",
+    argument("id", help="Template ID of Template to Delete", type=int),
+    usage="vastai delete template <id>",
     help="Delete a Template",
-    epilog=deindent("""
-        Note: Deleting a template only removes the user's replationship to a template. It does not get destroyed
-        Example: vastai delete template --template-id 12345
-        Example: vastai delete template --hash-id 49c538d097ad6437413b83711c9f61e8
-    """),
 )
 def delete__template(args):
     url = apiurl(args, f"/template/" )
     
-    if args.hash_id:
-        json_blob = { "hash_id": args.hash_id }
-    elif args.template_id:
-        json_blob = { "template_id": args.template_id }
-    else:
-        print('ERROR: Must Specify either Template ID or Hash ID to delete a template')
-        return
+    json_blob = { "template_id": args.id }
     
     if (args.explain):
         print("request json: ")
@@ -2061,7 +2049,8 @@ def delete__template(args):
             print(r)
             print(r.text)  # Print the raw response to help with debugging.
     else:
-        print("The response is not JSON. Content-Type:", r.headers.get('Content-Type'))
+        if args.explain:
+            print("The response is not JSON. Content-Type:", r.headers.get('Content-Type'))
         print(r.text)
 
 

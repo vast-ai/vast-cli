@@ -4,14 +4,14 @@ on:
     tags:
       - v*
 jobs:
-  # test-env:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Retreive test pypi API token
-  #       env:
-  #         TEST_PYPI_API_TOKEN: ${{secrets.TEST_PYPI_API_TOKEN}}
-  #       run: |
-  #         echo "$TEST_PYPI_API_TOKEN"
+  test-env:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Retreive test pypi API token
+        # env:
+        #   TEST_PYPI_API_TOKEN: ${{secrets.TEST_PYPI_API_TOKEN}}
+        run: |
+          echo "$github.ref"
   build_and_publish:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/feature/auto-versioning'

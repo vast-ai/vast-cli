@@ -1,16 +1,22 @@
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
+requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
 build-backend = "poetry_dynamic_versioning.backend"
 
 [project]
 name = "vast-cli-fork"
-version = "0.0.0"
 authors = [
+    {name = "jake cannell", email = "jake@vast.ai"},
     {name = "anthony benjamin", email = "anthony@vast.ai"},
-    {name = "jake cannell", email = "jake@vast.ai"}
+    {name = "chris mckenzie", email = "chris@vast.ai"},
+    {name = "liam weldon", email = "liam@vast.ai"},
+    {name = "edgar lin", email = "edgar@vast.ai"},
+    {name = "nader arbabian", email = "nader@vast.ai"},
+    {name = "marco hernandez", email = "marco@vast.ai"},
+    {name = "karthik pillalamarri", email = "karthik@vast.ai"},
+    {name = "sammy javed", email = "sammy@vast.ai"}
 ]
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.8, <4.0"
 dependencies = [
   "xdg",
   "argcomplete==3.5.1",
@@ -18,9 +24,11 @@ dependencies = [
   "borb==2.0.17",
   "python-dateutil==2.6.1",
   "pytz",
-  "urllib3==2.2.3"
+  "urllib3==2.2.3",
+  "poetry-dynamic-versioning (>=1.8.1,<2.0.0)"
 ]
 license = {text = "MIT"}
+dynamic = ["version"]
 
 [project.scripts]
 vast = "vast:main"
@@ -31,9 +39,10 @@ repository = "https://github.com/vast-ai/vast-cli/"
 
 [tool.poetry]
 packages = [{include = "vast.py"}]
+version = "0.0.0"
 
 [tool.poetry-dynamic-versioning]
 enable = true
-vcs = "git"
-pattern = "^v(?P<base>\\d+\\.\\d+\\.\\d+)$"
-format = "{base}"
+
+[tool.poetry.requires-plugins]
+poetry-dynamic-versioning = { version = ">=1.0.0,<2.0.0", extras = ["plugin"] }

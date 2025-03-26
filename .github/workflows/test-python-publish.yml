@@ -3,8 +3,6 @@ on:
   push:
     tags:
       - v*
-    branches:
-      - feature/auto-versioning
 jobs:
   # test-env:
   #   runs-on: ubuntu-latest
@@ -16,7 +14,7 @@ jobs:
   #         echo "$TEST_PYPI_API_TOKEN"
   build_and_publish:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/feature/auto-versioning'
     steps:
       - name: checkout code
         uses: actions/checkout@v4

@@ -41,7 +41,5 @@ jobs:
         if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
         run: poetry install --no-interaction --no-root
 
-      - name: install project
-        run: poetry install --no-interaction
       # - name: run vast cli 
       #   run: python vast.py

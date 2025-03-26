@@ -4063,6 +4063,9 @@ def show__instances(args = {}, extra = {}):
     :rtype:
     """
     print("Hello World")
+    import sys
+    import json
+    
     req_url = apiurl(args, "/instances", {"owner": "me"});
     #r = http_get(req_url)
     r = http_get(args, req_url)
@@ -4072,17 +4075,21 @@ def show__instances(args = {}, extra = {}):
         row = {k: strip_strings(v) for k, v in row.items()} 
         row['duration'] = time.time() - row['start_date']
         row['extra_env'] = {env_var[0]: env_var[1] for env_var in row['extra_env']}
-    if 'internal' in extra:
-        return [str(row[extra['field']]) for row in rows]
-    elif args.quiet:
-        for row in rows:
-            id = row.get("id", None)
-            if id is not None:
-                print(id)
-    elif args.raw:
-        return rows
+    
+    if args.raw:
+        result = {"message": "Hello World", "data": rows}
+        print(json.dumps(result, indent=1))
     else:
-        display_table(rows, instance_fields)
+        print("Hello World")
+        if 'internal' in extra:
+            return [str(row[extra['field']]) for row in rows]
+        elif args.quiet:
+            for row in rows:
+                id = row.get("id", None)
+                if id is not None:
+                    print(id)
+        else:
+            display_table(rows, instance_fields)
 
 
 

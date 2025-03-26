@@ -47,5 +47,3 @@ jobs:
           poetry config repositories.testpypi https://test.pypi.org/legacy/
           poetry config pypi-token.testpypi $TEST_PYPI_API_TOKEN
           poetry publish -r testpypi
-      # - name: run vast cli 
-      #   run: python vast.py

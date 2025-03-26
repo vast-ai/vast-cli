@@ -4,8 +4,7 @@ on:
     branches:
       - main
     tags:
-      -v*
-
+      - v*
 jobs:
   # test-env:
   #   runs-on: ubuntu-latest
@@ -18,10 +17,13 @@ jobs:
   build_and_publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Install Python
-      - uses: actions/checkout@4
-      - uses: actions/setup-python@v5
+      - name: checkout code
+        uses: actions/checkout@v4
+
+      - name: install python 
+        uses: actions/setup-python@v5
         with:
           python-version: '3.8'
+
+      - name: run vast cli 
         run: python vast.py
-      

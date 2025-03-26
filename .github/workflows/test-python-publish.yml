@@ -25,7 +25,7 @@ jobs:
 
       - name: install poetry
         run: |
-          curl -sSL https://install.python-poetry.org | python3 - --version 1.8.4
+          curl -sSL https://install.python-poetry.org | python3 -
 
       # tries to get cached dependncies (invalidated on lockfile changing)
       - name: load cached venv

@@ -1,4 +1,5 @@
 name: Test PyPi Publish
+on: push
 
 jobs:
   publish-job:

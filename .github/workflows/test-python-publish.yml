@@ -28,8 +28,21 @@ jobs:
       - name: install poetry
         uses: snok/install-poetry@v1
 
-      - name: activate poetry venv
-        run: poetry shell
+      # - name: activate poetry env
+      #   run: poetry env activate
 
+      # tries to get cached dependncies (invalidated on lockfile changing)
+      - name: Load cached venv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
+
+      - name: install dependencies
+        if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
+        run: poetry install --no-interaction --no-root
+
+      - name: install project
+        run: poetry install --no-interaction
       # - name: run vast cli 
       #   run: python vast.py

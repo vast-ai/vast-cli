@@ -1,0 +1,38 @@
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
+build-backend = "poetry_dynamic_versioning.backend"
+
+[project]
+name = "vast-cli"
+version = "0.0.0"
+authors = [
+    {name = "anthony benjamin", email = "anthony@vast.ai"},
+    {name = "jake cannell", email = "jake@vast.ai"}
+]
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+  "xdg",
+  "argcomplete==3.5.1",
+  "requests==2.32.3",
+  "borb==2.0.17",
+  "python-dateutil==2.6.1",
+  "pytz",
+  "urllib3==2.2.3"
+]
+
+[project.scripts]
+vast = "vast:main"
+
+[project.urls]
+homepage = "https://cloud.vast.ai/"
+repository = "https://github.com/vast-ai/vast-cli/"
+
+[tool.poetry]
+packages = [{include = "vast.py"}]
+
+[tool.poetry-dynamic-versioning]
+enable = true
+vcs = "git"
+pattern = "^v(?P<base>\\d+\\.\\d+\\.\\d+)$"
+format = "{base}"

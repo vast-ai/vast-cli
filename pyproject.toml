@@ -3,7 +3,7 @@ requires = ["poetry-core>=2.0.0,<3.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.
 build-backend = "poetry_dynamic_versioning.backend"
 
 [project]
-name = "vast-cli"
+name = "vast-cli-fork"
 version = "0.0.0"
 authors = [
     {name = "anthony benjamin", email = "anthony@vast.ai"},
@@ -20,6 +20,7 @@ dependencies = [
   "pytz",
   "urllib3==2.2.3"
 ]
+license = {text = "MIT"}
 
 [project.scripts]
 vast = "vast:main"

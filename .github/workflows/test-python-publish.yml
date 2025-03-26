@@ -26,7 +26,6 @@ jobs:
       - name: install poetry
         run: |
           curl -sSL https://install.python-poetry.org | python3 -
-        retry: 3
 
       # - name: activate poetry env
       #   run: poetry env activate

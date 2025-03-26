@@ -27,19 +27,25 @@ jobs:
         run: |
           curl -sSL https://install.python-poetry.org | python3 -
 
-      # - name: activate poetry env
-      #   run: poetry env activate
-
       # tries to get cached dependncies (invalidated on lockfile changing)
-      - name: Load cached venv
+      - name: load cached venv
         uses: actions/cache@v4
         with:
-          path: .venv
+          path: ./.venv
           key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
-
+      
       - name: install dependencies
-        if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
         run: poetry install --no-interaction --no-root
-
+      
+      - name: build package
+        run: poetry build
+      
+      - name: publish to TestPyPI
+        env:
+          TEST_PYPI_API_TOKEN: ${{ secrets.TEST_PYPI_API_TOKEN }}
+        run: |
+          poetry config repositories.testpypi https://test.pypi.org/legacy/
+          poetry config pypi-token.testpypi $TEST_PYPI_API_TOKEN
+          poetry publish -r testpypi
       # - name: run vast cli 
       #   run: python vast.py

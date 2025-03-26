@@ -18,14 +18,7 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.8, <4.0"
 license = {text = "MIT"}
-dynamic = ["version", "dependencies"]
-
-[project.scripts]
-vast = "vast:main"
-
-[project.urls]
-homepage = "https://cloud.vast.ai/"
-repository = "https://github.com/vast-ai/vast-cli/"
+dynamic = ["version"]
 
 [tool.poetry]
 packages = [{include = "vast.py"}]
@@ -40,7 +33,14 @@ borb = "2.0.17"
 python-dateutil = "2.6.1"
 pytz = "*"
 urllib3 = ">=2.0.0"
-poetry-dynamic-versioning = {version = ">=1.8.1,<2.0.0", extras = ["plugin"]}
+poetry-dynamic-versioning = ">=1.8.1,<2.0.0"
+
+[project.urls]
+homepage = "https://cloud.vast.ai/"
+repository = "https://github.com/vast-ai/vast-cli/"
 
 [tool.poetry-dynamic-versioning]
 enable = true
+
+[tool.poetry.requires-plugins]
+poetry-dynamic-versioning = { version = ">=1.8.1,<2.0.0", extras = ["plugin"] }

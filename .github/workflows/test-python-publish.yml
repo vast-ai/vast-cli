@@ -16,6 +16,7 @@ jobs:
   #         echo "$TEST_PYPI_API_TOKEN"
   build_and_publish:
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master'
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -27,6 +28,8 @@ jobs:
 
       - name: install poetry
         uses: snok/install-poetry@v1
+        with:
+          installation-arguments: --verbose
 
       # - name: activate poetry env
       #   run: poetry env activate

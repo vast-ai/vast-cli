@@ -24,9 +24,9 @@ jobs:
           python-version: '3.8'
 
       - name: install poetry
-        uses: snok/install-poetry@v1.4.1
-        # with:
-        #   installation-arguments: --verbose
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+        retry: 3
 
       # - name: activate poetry env
       #   run: poetry env activate

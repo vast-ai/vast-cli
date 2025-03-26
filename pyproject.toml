@@ -17,18 +17,23 @@ authors = [
 ]
 readme = "README.md"
 requires-python = ">=3.8, <4.0"
-dependencies = [
-  "xdg",
-  "argcomplete==3.5.1",
-  "requests>=2.28.0",  # Loosened the restriction
-  "borb==2.0.17",
-  "python-dateutil==2.6.1",
-  "pytz",
-  "urllib3>=2.0.0",  # Loosened the restriction
-  "poetry-dynamic-versioning>=1.8.1,<2.0.0"
-]
+
 license = {text = "MIT"}
 dynamic = ["version"]
+
+[tool.poetry]
+version = "0.0.0"
+[tool.poetry.dependencies]
+python = ">=3.8, <4.0"
+xdg = "*"
+argcomplete = "3.5.1"
+requests = ">=2.28.0"
+borb = "2.0.17"
+python-dateutil = "2.6.1"
+pytz = "*"
+urllib3 = ">=2.0.0"
+poetry-dynamic-versioning = ">=1.8.1,<2.0.0"
+
 
 [project.scripts]
 vast = "vast:main"
@@ -39,7 +44,6 @@ repository = "https://github.com/vast-ai/vast-cli/"
 
 [tool.poetry]
 packages = [{include = "vast.py"}]
-version = "0.0.0"
 
 [tool.poetry-dynamic-versioning]
 enable = true

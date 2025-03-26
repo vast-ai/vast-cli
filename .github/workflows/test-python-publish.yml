@@ -14,7 +14,6 @@ jobs:
   #         echo "$github.ref"
   build_and_publish:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/feature/auto-versioning'
     steps:
       - name: checkout code
         uses: actions/checkout@v4

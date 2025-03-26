@@ -7,14 +7,14 @@ on:
       -v*
 
 jobs:
-  test-env:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Retreive test pypi API token
-        env:
-          TEST_PYPI_API_TOKEN: ${{secrets.TEST_PYPI_API_TOKEN}}
-        run: |
-          echo "$TEST_PYPI_API_TOKEN"
+  # test-env:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Retreive test pypi API token
+  #       env:
+  #         TEST_PYPI_API_TOKEN: ${{secrets.TEST_PYPI_API_TOKEN}}
+  #       run: |
+  #         echo "$TEST_PYPI_API_TOKEN"
   build_and_publish:
     runs-on: ubuntu-latest
     steps:
@@ -23,4 +23,5 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.8'
+        run: python vast.py
       

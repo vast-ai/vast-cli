@@ -1,8 +1,13 @@
 name: Test PyPi Publish
-on: push
+on:
+  push:
+    branches:
+      - main
+    tags:
+      -v*
 
 jobs:
-  publish-job:
+  test-env:
     runs-on: ubuntu-latest
     steps:
       - name: Retreive test pypi API token
@@ -10,3 +15,12 @@ jobs:
           TEST_PYPI_API_TOKEN: ${{secrets.TEST_PYPI_API_TOKEN}}
         run: |
           echo "$TEST_PYPI_API_TOKEN"
+  build_and_publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Python
+      - uses: actions/checkout@4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+      

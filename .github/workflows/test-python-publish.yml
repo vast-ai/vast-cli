@@ -27,8 +27,9 @@ jobs:
 
       - name: install poetry
         uses: snok/install-poetry@v1
-        run: |
-          poetry env activate
+
+      - name: activate poetry venv
+        run: poetry shell
 
       # - name: run vast cli 
       #   run: python vast.py

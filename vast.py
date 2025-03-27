@@ -5920,6 +5920,41 @@ def self_test__machine(args):
                 # If user did pass --ignore-requirements, warn and continue
                 progress_print(args, "Continuing despite unmet requirements because --ignore-requirements is set.")
 
+        def cuda_map_to_image(cuda_version):
+            """
+            Maps a CUDA version to a Docker image tag, falling back to the next lower version until failure.
+            """
+            docker_repo = "vastai/test"
+            # Convert float input to string
+            if isinstance(cuda_version, float):
+                cuda_version = str(cuda_version)
+            
+            # Predefined mapping. Tracks PyTorch releases
+            docker_tag_map = {
+                "11.8": "cu118",
+                "12.1": "cu121",
+                "12.4": "cu124",
+                "12.6": "cu126",
+                "12.8": "cu128"
+            }
+            
+            if cuda_version in docker_tag_map:
+                return f"{docker_repo}:self-test-{docker_tag_map[cuda_version]}"
+            
+            # Try to find the next version down
+            cuda_float = float(cuda_version)
+            
+            # Try to decrement the version by 0.1 until we find a match or run out of options
+            next_version = round(cuda_float - 0.1, 1)
+            while next_version >= min(float(v) for v in docker_tag_map.keys()):
+                next_version_str = str(next_version)
+                if next_version_str in docker_tag_map:
+                    return f"{docker_repo}:self-test-{docker_tag_map[next_version_str]}"
+                next_version = round(next_version - 0.1, 1)
+            
+            raise KeyError(f"No CUDA version found for {cuda_version} or any lower version")
+    
+
         def search_offers_and_get_top(machine_id):
             search_args = argparse.Namespace(
                 query=[f"machine_id={machine_id}", "verified=any", "rentable=true", "rented=any"],
@@ -5951,6 +5986,8 @@ def self_test__machine(args):
             result["reason"] = "No valid offers found."
         else:
             ask_contract_id = top_offer["id"]
+            cuda_version = top_offer["cuda_max_good"]
+            docker_image = cuda_map_to_image(cuda_version)
 
             # Prepare arguments for instance creation
             create_args = argparse.Namespace(
@@ -5958,8 +5995,7 @@ def self_test__machine(args):
                 user=None,
                 price=None,  # Set bid_price to None
                 disk=40,  # Match the disk size from the working command
-                image="vastai/test:selftest",  # Use the same image as the working command
-#                image="jjziets/vasttest:latest",  # Use the same image as the working command
+                image=docker_image,
                 login=None,
                 label=None,
                 onstart=None,
@@ -5989,6 +6025,7 @@ def self_test__machine(args):
 
             # Create instance
             try:
+                progress_print(args, f"Starting test with {docker_image}")
                 response = create__instance(create_args)
                 if isinstance(response, requests.Response):  # Check if it's an HTTP response
                     if response.status_code == 200:

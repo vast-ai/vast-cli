@@ -2,41 +2,44 @@
 requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
 build-backend = "poetry_dynamic_versioning.backend"
 
-[tool.poetry]
+[project]
 name = "vast-cli-fork"
-description = "CLI client for Vast.ai"
 authors = [
-    "jake cannell <jake@vast.ai>",
-    "anthony benjamin <anthony@vast.ai>",
-    "chris mckenzie <chris@vast.ai>",
-    "liam weldon <liam@vast.ai>",
-    "edgar lin <edgar@vast.ai>",
-    "nader arbabian <nader@vast.ai>",
-    "marco hernandez <marco@vast.ai>",
-    "karthik pillalamarri <karthik@vast.ai>",
-    "sammy javed <sammy@vast.ai>"
+    {name = "jake cannell", email = "jake@vast.ai"},
+    {name = "anthony benjamin", email = "anthony@vast.ai"},
+    {name = "chris mckenzie", email = "chris@vast.ai"},
+    {name = "liam weldon", email = "liam@vast.ai"},
+    {name = "edgar lin", email = "edgar@vast.ai"},
+    {name = "nader arbabian", email = "nader@vast.ai"},
+    {name = "marco hernandez", email = "marco@vast.ai"},
+    {name = "karthik pillalamarri", email = "karthik@vast.ai"},
+    {name = "sammy javed", email = "sammy@vast.ai"}
 ]
 readme = "README.md"
-license = "MIT"
-packages = [{include = "vast.py"}]
-version = "0.0.0"  # This will be updated by dynamic versioning
-repository = "https://github.com/vast-ai/vast-cli/"
-homepage = "https://cloud.vast.ai/"
+requires-python = ">=3.8, <4.0"
+license = {text = "MIT"}
+dynamic = ["version"]
+dependencies = [
+  "xdg",
+  "argcomplete==3.5.1",
+  "requests==2.32.3",
+  "borb==2.0.17",
+  "python-dateutil==2.6.1",
+  "pytz",
+  "urllib3==2.2.3",
+  "poetry-dynamic-versioning (>=1.8.1,<2.0.0)"
+]
 
-[tool.poetry.dependencies]
-python = ">=3.8, <4.0"
-xdg = "*"
-argcomplete = "3.5.1"
-requests = "2.32.3"
-borb = "2.0.17"
-python-dateutil = "2.6.1"
-pytz = "*"
-urllib3 = "2.2.3"
+[project.urls]
+homepage = "https://cloud.vast.ai/"
+repository = "https://github.com/vast-ai/vast-cli/"
+
+[tool.poetry]
+packages = [{include = "vast.py"}]
+version = "0.0.0"
 
 [tool.poetry-dynamic-versioning]
 enable = true
-vcs = "git"
-style = "semver"
 
-[tool.poetry.plugins."poetry.plugin"]
-dynamic-versioning = "poetry_dynamic_versioning.plugin:DynamicVersioningPlugin"
+[tool.poetry.requires-plugins]
+poetry-dynamic-versioning = { version = ">=1.0.0,<2.0.0", extras = ["plugin"] }

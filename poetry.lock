@@ -500,14 +500,14 @@ xmp = ["defusedxml"]
 
 [[package]]
 name = "poetry-dynamic-versioning"
-version = "1.8.1"
+version = "1.8.2"
 description = "Plugin for Poetry to enable dynamic versioning based on VCS tags"
 optional = false
 python-versions = "<4.0,>=3.7"
 groups = ["main"]
 files = [
-    {file = "poetry_dynamic_versioning-1.8.1-py3-none-any.whl", hash = "sha256:831d940889d37ee50aeee167d07a03e1bd1401e6ff8bd6bd03ea7b0da6c53235"},
-    {file = "poetry_dynamic_versioning-1.8.1.tar.gz", hash = "sha256:35b2148e1d08ba30f38c3dd28518db1e2ff9152391265963af636ce29f987d59"},
+    {file = "poetry_dynamic_versioning-1.8.2-py3-none-any.whl", hash = "sha256:3758a0b12228230ce384fbb303948c5e405e1d33c3bbe1ba71144c15f5e7a8de"},
+    {file = "poetry_dynamic_versioning-1.8.2.tar.gz", hash = "sha256:d14de13d426ac28e98f4519aac7f4aa857e7b97ad9d7a4c72293377033065f44"},
 ]
 
 [package.dependencies]
@@ -675,14 +675,14 @@ files = [
 
 [[package]]
 name = "typing-extensions"
-version = "4.12.2"
+version = "4.13.0"
 description = "Backported and Experimental Type Hints for Python 3.8+"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
 files = [
-    {file = "typing_extensions-4.12.2-py3-none-any.whl", hash = "sha256:04e5ca0351e0f3f85c6853954072df659d0d13fac324d0072316b67d7794700d"},
-    {file = "typing_extensions-4.12.2.tar.gz", hash = "sha256:1a7ead55c7e559dd4dee8856e3a88b41225abfe1ce8df57b7c13915fe121ffb8"},
+    {file = "typing_extensions-4.13.0-py3-none-any.whl", hash = "sha256:c8dd92cc0d6425a97c18fbb9d1954e5ff92c1ca881a309c45f06ebc0b79058e5"},
+    {file = "typing_extensions-4.13.0.tar.gz", hash = "sha256:0a4ac55a5820789d87e297727d229866c9650f6521b64206413c4fbada24d95b"},
 ]
 
 [[package]]
@@ -705,14 +705,14 @@ zstd = ["zstandard (>=0.18.0)"]
 
 [[package]]
 name = "xdg"
-version = "3.0.2"
+version = "6.0.0"
 description = "Variables defined by the XDG Base Directory Specification"
 optional = false
-python-versions = "*"
+python-versions = ">=3.7,<4.0"
 groups = ["main"]
 files = [
-    {file = "xdg-3.0.2-py2.py3-none-any.whl", hash = "sha256:1436ed336bdb9e5bede813eb590dd6a67d21f78b16aba1f5ba646b976225652e"},
-    {file = "xdg-3.0.2.tar.gz", hash = "sha256:7ce9fc52cee0f8e31d0beb0f29e102f23725c0c470aee447d907e1999ffda7b7"},
+    {file = "xdg-6.0.0-py3-none-any.whl", hash = "sha256:df3510755b4395157fc04fc3b02467c777f3b3ca383257397f09ab0d4c16f936"},
+    {file = "xdg-6.0.0.tar.gz", hash = "sha256:24278094f2d45e846d1eb28a2ebb92d7b67fc0cab5249ee3ce88c95f649a1c92"},
 ]
 
 [metadata]

@@ -31,6 +31,9 @@ dependencies = [
   "gitpython (>=3.1.44,<4.0.0)"
 ]
 
+[project.scripts]
+vast-cli-fork = "vast.py:main"
+
 [project.urls]
 homepage = "https://cloud.vast.ai/"
 repository = "https://github.com/vast-ai/vast-cli/"
@@ -41,6 +44,9 @@ version = "0.0.0"
 
 [tool.poetry-dynamic-versioning]
 enable = true
+vcs = "git"
+fix-shallow-repository = true
+style = "semver"
 
 [tool.poetry.requires-plugins]
 poetry-dynamic-versioning = { version = ">=1.0.0,<2.0.0", extras = ["plugin"] }

@@ -16,6 +16,7 @@ def is_git_distribution() -> bool:
     except Exception as e:
         # INFO - at this point we know the package isn't installed from PyPi, we need to check if it's from git now
         repo = Repo(os.path.dirname(distribution.locate_file("")))
+        print("repo:", repo)
         # print("Repo:", Repo.rev_parse)
         # print(f"{distribution.locate_file("")=}")
         # repo = Repo(os.path.dirname(distribution.locate_file("")))

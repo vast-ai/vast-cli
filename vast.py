@@ -30,6 +30,8 @@ import textwrap
 from pathlib import Path
 import warnings
 
+from utils.version_checker import is_git_distribution
+
 ARGS = None
 TABCOMPLETE = False
 try:
@@ -6159,6 +6161,10 @@ def main():
     if args.api_key:
         headers["Authorization"] = "Bearer " + args.api_key
 
+    if is_git_distribution():
+        print("IS GIT DIST")
+    else:
+        print("PIP PACKAGE")
     if TABCOMPLETE:
         myautocc = MyAutocomplete()
         myautocc(parser.parser)

@@ -32,7 +32,7 @@ dependencies = [
 ]
 
 [tool.poetry]
-packages = [{include = "vast.py"}]
+packages = [{include = "vast.py"}, {from "utils", include = "version_checker.py"}]
 version = "0.0.0"
 include = ["vast-cli-fork/DISTRIBUTION_SOURCE"]
 

@@ -29,9 +29,6 @@ jobs:
       - name: install dependencies
         run: poetry install --no-interaction --no-root
 
-      - name: Add PyPi marker
-        run: echo "pypi" > vast-cli-fork/DISTRIBUTION_SOURCE
-
       - name: build and publish to TestPyPI
         env:
           TEST_PYPI_API_TOKEN: ${{ secrets.TEST_PYPI_API_TOKEN }}

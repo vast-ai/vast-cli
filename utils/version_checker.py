@@ -26,13 +26,11 @@ def is_pip_package() -> bool:
 
     return False
 
+
 def get_local_package_version():
     try:
         result = subprocess.run(
-            ["poetry", "version", "--short"],
-            capture_output=True,
-            text=True, 
-            check=True
+            ["poetry", "version", "--short"], capture_output=True, text=True, check=True
         )
 
         version = result.stdout.strip()
@@ -44,6 +42,7 @@ def get_local_package_version():
 
     except Exception as e:
         return f"Unexpected error: {e}"
+
 
 def check_for_update():
     local_package_version = get_local_package_version()
@@ -60,5 +59,19 @@ def check_for_update():
         print("PROMPT UPDATE TO GIT")
     print(f"{local_package_version=}")
     print(f"{pypi_version=}")
+
+
+def get_update_command(distribution: str, stable_version: str, pypi_url: str) -> str:
+    if distribution != "git" and distribution != "pypi":
+        raise Exception("Not a valid distribution")
+
+    if distribution == "git":
+        return f"git checkout {stable_version} && git pull --force"
+
+    if pypi_url.find("test.pypi"):
+        return f"pip install -i {pypi_url} vast-cli-fork --upgrade"
+
+    return f"pip install {pypi_url} vast-cli-fork --upgrade"
+
 
 check_for_update()

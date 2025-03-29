@@ -36,6 +36,10 @@ def get_local_package_version():
         )
 
         version = result.stdout.strip()
+
+        if version.count("-") >= 1:
+            return version.split("-")[0]
+
         return version
 
     except Exception as e:
@@ -51,7 +55,7 @@ def check_for_update():
 
     else:
         print("PROMPT UPDATE TO GIT")
-    # print(f"{local_package_version=}")
-    # print(f"{pypi_version=}")
+    print(f"{local_package_version=}")
+    print(f"{pypi_version=}")
 
 check_for_update()

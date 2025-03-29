@@ -1,53 +1,57 @@
 import sys
 import os
+import subprocess
 
-def is_running_as_package():
-    """
-    Determines if we're running the installed package ('vast-cli-fork' command)
-    or directly via './vast.py'
-    
-    Returns:
-        bool: True if running as installed package, False if running from source
-    """
-    # Get the executable name (without path)
+from utils.pypi_api import get_project_data, get_pypi_version
+
+
+# INFO: This is strictly for propogating the correct update command when prompted
+def is_pip_package() -> bool:
     executable = os.path.basename(sys.argv[0])
-    print(f"[{executable=}]:")
-    
-    # If the executable is 'vast-cli-fork', we're running the installed package
-    if executable == 'vast-cli-fork':
+
+    if executable == "vast-cli-fork":
         return True
-        
-    # If the executable is 'vast.py', we're running from source
-    if executable == 'vast.py':
+
+    if executable == "vast.py":
         return False
-        
+
     # For edge cases (like python -m vast), check the main module's path
     import __main__
-    main_path = getattr(__main__, '__file__', '')
-    
+
+    main_path = getattr(__main__, "__file__", "")
+
     # If main module filename contains 'site-packages', it's likely the installed package
-    if 'site-packages' in main_path:
+    if "site-packages" in main_path:
         return True
-        
+
     return False
 
-def check_for_updates():
-    """
-    Checks if the current version is up-to-date with PyPI and prompts for update if needed.
-    """
-    if not is_running_as_package():
-        # Running from source, no need to check for updates
-        return
-
-    # Get current version
+def get_local_package_version():
     try:
-        import importlib.metadata
-        current_version = importlib.metadata.version('vast-cli-fork')
+        result = subprocess.run(
+            ["poetry", "version", "--short"],
+            capture_output=True,
+            text=True, 
+            check=True
+        )
 
-        # Here you'd check PyPI for latest version and compare
-        # (Code for checking PyPI omitted for brevity)
-        print(f"Current version: {current_version}")
-        print("Running as installed package. Would check for updates here.")
+        version = result.stdout.strip()
+        return version
+
     except Exception as e:
-        print(f"Error checking version: {e}")
+        return f"Unexpected error: {e}"
 
+def check_for_update():
+    local_package_version = get_local_package_version()
+    pypi_version = get_pypi_version(get_project_data("vast-cli-fork"))
+
+    if is_pip_package():
+        # TODO: Prompt input to update using pip update
+        print("PIP PACKAGE")
+
+    else:
+        print("PROMPT UPDATE TO GIT")
+    # print(f"{local_package_version=}")
+    # print(f"{pypi_version=}")
+
+check_for_update()

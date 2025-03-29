@@ -49,6 +49,9 @@ def check_for_update():
     local_package_version = get_local_package_version()
     pypi_version = get_pypi_version(get_project_data("vast-cli-fork"))
 
+    if local_package_version >= pypi_version:
+        return
+
     if is_pip_package():
         # TODO: Prompt input to update using pip update
         print("PIP PACKAGE")

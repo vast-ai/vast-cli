@@ -3,4 +3,4 @@ passed_machines.txt
 failed_machines.txt
 Pass_testresults.log
 dist/
-*__pycache__
+__pycache__/

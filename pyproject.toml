@@ -32,7 +32,9 @@ dependencies = [
 ]
 
 [tool.poetry]
-packages = [{include = "vast.py"}, {from = "utils"}]
+packages = [
+    {include = "utils"}
+]
 version = "0.0.0"
 
 [project.scripts]

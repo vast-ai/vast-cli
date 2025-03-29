@@ -10,10 +10,10 @@ jobs:
       - name: checkout code
         uses: actions/checkout@v4
 
-      - name: install python 
+      - name: install python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: install poetry
         run: |
@@ -25,10 +25,13 @@ jobs:
         with:
           path: ./.venv
           key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
-      
+
       - name: install dependencies
         run: poetry install --no-interaction --no-root
-      
+
+      - name: Add PyPi marker
+        run: echo "pypi" > vast-cli-fork/DISTRIBUTION_SOURCE
+
       - name: build and publish to TestPyPI
         env:
           TEST_PYPI_API_TOKEN: ${{ secrets.TEST_PYPI_API_TOKEN }}

@@ -7460,6 +7460,8 @@ def main():
     # TODO - Implement check for update here
     check_for_update()
 
+    print("TEST")
+
     if TABCOMPLETE:
         myautocc = MyAutocomplete()
         myautocc(parser.parser)

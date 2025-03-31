@@ -161,7 +161,7 @@ def check_for_update():
                     subprocess.run(update_command, check=True, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                     print("Update completed successfully!")
                     print("Please restart the CLI manually to use the new version.")
-                    sys.exit(0)  # Exit cleanly
+                    sys.exit(0)
                 except subprocess.CalledProcessError as e:
                     error_msg = e.stderr.decode('utf-8') if isinstance(e.stderr, bytes) else str(e.stderr)
                     print(f"Update failed: {error_msg}")

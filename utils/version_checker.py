@@ -35,14 +35,14 @@ def get_local_package_version():
             return version("vast-cli-fork")
         except ImportError:
             pass
-            
+
         # Method 2: Using pkg_resources (fallback)
         try:
             import pkg_resources
             return pkg_resources.get_distribution("vast-cli-fork").version
         except (pkg_resources.DistributionNotFound, ImportError):
             pass
-            
+
         # Method 3: If this is a git checkout, try to get version from git
         if not is_pip_package():
             try:
@@ -58,14 +58,14 @@ def get_local_package_version():
                 return version
             except Exception:
                 pass
-                
+
         # Method 4: Last resort - try to import the package and get __version__
         try:
             import vast
             return getattr(vast, "__version__", "unknown")
         except (ImportError, AttributeError):
             pass
-            
+
         return "unknown"
     except Exception as e:
         return f"Unexpected error: {e}"

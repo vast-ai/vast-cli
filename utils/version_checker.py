@@ -94,7 +94,7 @@ def check_for_update():
     local_package_version = get_local_package_version()
     pypi_version = get_pypi_version(get_project_data("vast-cli-fork"))
 
-    if local_package_version >= pypi_version:
+    if local_package_version == pypi_version:
         return
 
     # INFO - If we get to this point (no exception thrown), we know that there's an update available

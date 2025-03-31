@@ -28,21 +28,50 @@ def is_pip_package() -> bool:
 
 
 def get_local_package_version():
+    """
+    Get the version of the installed package, not the version from Poetry.
+    """
     try:
-        result = subprocess.run(
-            ["poetry", "version", "--short"], capture_output=True, text=True, check=True
-        )
-
-        version = result.stdout.strip()
-
-        if version.count("-") >= 1:
-            return version.split("-")[0]
-
-        return version
-
+        # Method 1: Using importlib.metadata (Python 3.8+)
+        try:
+            from importlib.metadata import version
+            return version("vast-cli-fork")
+        except ImportError:
+            pass
+            
+        # Method 2: Using pkg_resources (fallback)
+        try:
+            import pkg_resources
+            return pkg_resources.get_distribution("vast-cli-fork").version
+        except (pkg_resources.DistributionNotFound, ImportError):
+            pass
+            
+        # Method 3: If this is a git checkout, try to get version from git
+        if not is_pip_package():
+            try:
+                result = subprocess.run(
+                    ["poetry", "version", "--short"], 
+                    capture_output=True, 
+                    text=True, 
+                    check=True
+                )
+                version = result.stdout.strip()
+                if version != "0.0.0" and version.count("-") >= 1:
+                    return version.split("-")[0]
+                return version
+            except Exception:
+                pass
+                
+        # Method 4: Last resort - try to import the package and get __version__
+        try:
+            import vast
+            return getattr(vast, "__version__", "unknown")
+        except (ImportError, AttributeError):
+            pass
+            
+        return "unknown"
     except Exception as e:
         return f"Unexpected error: {e}"
-
 
 def get_update_command(distribution: str, stable_version: str) -> str:
     if distribution != "git" and distribution != "pypi":

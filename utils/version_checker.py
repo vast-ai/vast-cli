@@ -1,240 +1,114 @@
 import sys
 import os
 import subprocess
-
 from utils.pypi_api import get_project_data, get_pypi_version, BASE_PATH
 
+def parse_version(version: str) -> tuple:
+    """Parse a version string into a tuple for proper comparison."""
+    parts = version.split('.')
+    while len(parts) < 3:
+        parts.append('0')
+    return tuple(int(part) for part in parts)
 
-# INFO: This is strictly for propogating the correct update command when prompted
-def is_pip_package() -> bool:
-    executable = os.path.basename(sys.argv[0])
-
-    if executable == "vast-cli-fork":
-        return True
-
-    if executable == "vast.py":
-        return False
-
-    # For edge cases (like python -m vast), check the main module's path
-    import __main__
-
-    main_path = getattr(__main__, "__file__", "")
-
-    # If main module filename contains 'site-packages', it's likely the installed package
-    if "site-packages" in main_path:
-        return True
-
-    return False
-
-
-def get_local_package_version():
+def get_git_version():
+    """Get version from git tags."""
     try:
-        # Method 1: Using importlib.metadata (Python 3.8+)
-        try:
-            from importlib.metadata import version
-            return version("vast-cli-fork")
-        except ImportError:
-            pass
+        result = subprocess.run(
+            ["git", "describe", "--tags", "--abbrev=0"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        tag = result.stdout.strip()
+        # Remove 'v' prefix if present
+        return tag[1:] if tag.startswith('v') else tag
+    except Exception:
+        return "0.0.0"
 
-        # Method 2: Using pkg_resources (fallback)
+def get_pip_version():
+    """Get version from pip metadata."""
+    try:
+        import importlib.metadata
+        return importlib.metadata.version("vast-cli-fork")
+    except (ImportError, importlib.metadata.PackageNotFoundError):
         try:
             import pkg_resources
             return pkg_resources.get_distribution("vast-cli-fork").version
-        except (pkg_resources.DistributionNotFound, ImportError):
-            pass
+        except Exception:
+            return "0.0.0"
 
-        # Method 3: If this is a git checkout, try to get version from git
-        if not is_pip_package():
-            try:
-                result = subprocess.run(
-                    ["poetry", "version", "--short"], 
-                    capture_output=True, 
-                    text=True, 
-                    check=True
-                )
-                version = result.stdout.strip()
-                if version != "0.0.0" and version.count("-") >= 1:
-                    return version.split("-")[0]
-                return version
-            except Exception:
-                pass
-
-        # Method 4: Last resort - try to import the package and get __version__
-        try:
-            import vast
-            return getattr(vast, "__version__", "unknown")
-        except (ImportError, AttributeError):
-            pass
-
-        return "unknown"
-    except Exception as e:
-        return f"Unexpected error: {e}"
-
-def get_update_command(distribution: str, stable_version: str) -> str:
-    if distribution != "git" and distribution != "pypi":
-        raise Exception("Not a valid distribution")
-
-    if distribution == "git":
-        return f"git fetch --all --tags --prune && git checkout tags/v{stable_version} -b v{stable_version}"
-
-    if "test.pypi" in BASE_PATH:
-        return f"pip install -i {BASE_PATH} vast-cli-fork --upgrade"
-
-    return f"pip install {BASE_PATH} vast-cli-fork --upgrade"
-
-
-def install_update(update_command: str, stable_version: str):
-    try:
-        _ = subprocess.run(
-            update_command,
-            check=True,
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
-
-        print("Update completed successfully!")
-
-        # INFO - For both pip and git updates, restart the current process to use the new version
-        print("Restarting with new version...")
-
-        # INFO - restart current process
-        os.execv(sys.executable, [sys.executable] + sys.argv)
-
-    except subprocess.CalledProcessError as e:
-        error_msg = e.stderr.decode('utf-8') if isinstance(e.stderr, bytes) else str(e.stderr)
-        
-        # INFO - If the branch already exists locally for whatever reason, we need to just checkout the tagged commit instead
-        if "already exists" in error_msg:
-            update_command = f"git checkout tags/v{stable_version}"
-            try:
-                _ = subprocess.run(update_command, check=True, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                print("Update completed successfully!")
-                os.execv(sys.executable, [sys.executable] + sys.argv)
-            except subprocess.CalledProcessError as e:
-                print(f"Update failed: {e.stderr.decode('utf-8') if isinstance(e.stderr, bytes) else e.stderr}")
-        else:
-            print(f"Update failed: {error_msg}")
-
-    except Exception as e:
-        print(f"Unexpected error during update: {str(e)}")
-
-
-def parse_version(version: str) -> tuple[int, ...]:
-    """
-    Parse a version string into a tuple for proper comparison.
-    Handles versions with different numbers of components by padding
-    with zeros as needed.
-    """
-    # Split the version string and convert parts to integers
-    version_parts = [int(part) for part in version.split('.')]
-    
-    # Ensure we always have at least 3 components (major.minor.patch)
-    while len(version_parts) < 3:
-        version_parts.append(0)
-        
-    return tuple(version_parts)
+def is_pip_package():
+    """Check if running from pip-installed package."""
+    return "site-packages" in sys.prefix
 
 def check_for_update():
-    local_package_version = get_local_package_version()
-    pypi_version = get_pypi_version(get_project_data("vast-cli-fork"))
-    
-    # Add more debugging info to see where the package is installed
+    """Check for updates and perform the update if requested."""
     try:
-        import vast
-        print(f"Package location: {vast.__file__}")
-    except ImportError:
-        print("Cannot import vast module")
-    
-    try:
-        # Try to get pip's understanding of the installed version
-        pip_version_check = subprocess.run(
-            [sys.executable, "-m", "pip", "show", "vast-cli-fork"],
-            capture_output=True,
-            text=True
-        )
-        if pip_version_check.returncode == 0:
-            pip_output = pip_version_check.stdout
-            print("Pip package info:")
-            print(pip_output)
-            # Try to extract version from pip output
-            import re
-            version_match = re.search(r"Version: ([\d\.]+)", pip_output)
-            if version_match:
-                pip_version = version_match.group(1)
-                print(f"Pip detected version: {pip_version}")
-        else:
-            print("Pip could not find the package")
-    except Exception as e:
-        print(f"Error checking pip version: {e}")
-    
-    print(f"{local_package_version=}")
-    print(f"{pypi_version=}")
-
-    # Parse versions into tuples for comparison
-    local_version_tuple = parse_version(local_package_version)
-    pypi_version_tuple = parse_version(pypi_version)
-    
-    print(local_version_tuple)
-    print(pypi_version_tuple)
-    
-    # If local version is greater than or equal to PyPI version, no update needed
-    if local_version_tuple >= pypi_version_tuple:
-        print("You're already using the latest version.")
-        return
-
-    # INFO - If we get to this point, we know that there's an update available
-    user_wants_update = input(
-        f"Update available from {local_package_version} to {pypi_version}. Would you like to update [Y/n]: "
-    ).lower()
-
-    if user_wants_update == "y" or user_wants_update == "":
-        update_command = None
+        # Get PyPI version
+        pypi_data = get_project_data("vast-cli-fork")
+        pypi_version = get_pypi_version(pypi_data)
+        
+        # Get local version based on installation type
         if is_pip_package():
-            # Use a more forceful update command for pip
-            update_command = f"{sys.executable} -m pip install --force-reinstall --no-cache-dir {BASE_PATH} vast-cli-fork"
+            local_version = get_pip_version()
         else:
-            update_command = get_update_command("git", pypi_version)
-
+            local_version = get_git_version()
+        
+        print(f"Local version: {local_version}")
+        print(f"PyPI version: {pypi_version}")
+        
+        # Parse and compare versions
+        local_tuple = parse_version(local_version)
+        pypi_tuple = parse_version(pypi_version)
+        
+        print(f"Parsed local version: {local_tuple}")
+        print(f"Parsed PyPI version: {pypi_tuple}")
+        
+        # Check if update is needed
+        if local_tuple >= pypi_tuple:
+            print("You're using the latest version.")
+            return
+        
+        # Prompt for update
+        user_wants_update = input(
+            f"Update available from {local_version} to {pypi_version}. Would you like to update [Y/n]: "
+        ).lower()
+        
+        if user_wants_update not in ["y", ""]:
+            return
+        
+        # Perform update based on installation type
+        if is_pip_package():
+            update_command = f"{sys.executable} -m pip install --force-reinstall --no-cache-dir vast-cli-fork"
+        else:
+            # For git, use a more direct checkout approach
+            update_command = f"git fetch --all --tags --prune && git checkout tags/v{pypi_version}"
+        
+        print(f"Running update: {update_command}")
+        
+        # Execute the update command
         try:
-            print(f"Running update command: {update_command}")
-            # Run the update command but DON'T restart automatically
             result = subprocess.run(
                 update_command,
-                check=True,
                 shell=True,
+                check=True,
+                text=True,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
+                stderr=subprocess.PIPE
             )
             
-            print("Update output:")
-            print(result.stdout)
-            
-            if result.stderr:
-                print("Errors/warnings:")
-                print(result.stderr)
-            
             print("Update completed successfully!")
-            print("Please completely exit and restart the CLI manually to use the new version.")
-            sys.exit(0)  # Exit cleanly, forcing the user to restart manually
+            
+            # For git updates, one additional step - create a version marker file
+            if not is_pip_package():
+                with open(".current_version", "w") as f:
+                    f.write(pypi_version)
+            
+            print("Please restart the CLI manually to use the new version.")
+            sys.exit(0)
             
         except subprocess.CalledProcessError as e:
-            print(f"Update command failed with code {e.returncode}")
-            print(f"Stdout: {e.stdout}")
-            print(f"Stderr: {e.stderr}")
+            print(f"Update failed: {e.stderr}")
             
-            if "already exists" in e.stderr and not is_pip_package():
-                update_command = f"git checkout tags/v{pypi_version}"
-                try:
-                    subprocess.run(update_command, check=True, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    print("Update completed successfully!")
-                    print("Please completely exit and restart the CLI manually to use the new version.")
-                    sys.exit(0)  # Exit cleanly
-                except subprocess.CalledProcessError as e:
-                    print(f"Update failed: {e.stderr}")
-            else:
-                print(f"Update failed: {e.stderr}")
-
-        except Exception as e:
-            print(f"Unexpected error occurred during update: {e}")
+    except Exception as e:
+        print(f"Error checking for updates: {e}")

@@ -19,13 +19,6 @@ jobs:
         run: |
           curl -sSL https://install.python-poetry.org | python3 -
 
-      # INFO - tries to get cached dependncies (invalidated on lockfile changing)
-      - name: load cached venv
-        uses: actions/cache@v4
-        with:
-          path: ./.venv
-          key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
-
       - name: install dependencies
         run: poetry install --no-interaction --no-root
 

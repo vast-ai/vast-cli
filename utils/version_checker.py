@@ -49,23 +49,46 @@ def get_update_command(distribution: str, stable_version: str) -> str:
         raise Exception("Not a valid distribution")
 
     if distribution == "git":
-        return f"git pull --force && git checkout v{stable_version}"
+        return f"git fetch --all --tags --prune && git checkout tags/v{stable_version} -b v{stable_version}"
 
     if "test.pypi" in BASE_PATH:
         return f"pip install -i {BASE_PATH} vast-cli-fork --upgrade"
 
     return f"pip install {BASE_PATH} vast-cli-fork --upgrade"
 
-def install_update(update_command: str):
-    # try:
-    print(f"Executing update: {update_command}")
-    _ = subprocess.run(
-        update_command.split(" "), 
-        capture_output=True,
-        text=True,
-        check=True
-    )
-    print("Update completed successfully!")
+
+def install_update(update_command: str, stable_version: str):
+    try:
+        _ = subprocess.run(
+            update_command,
+            check=True,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+
+        print("Update completed successfully!")
+
+        # INFO - For both pip and git updates, restart the current process to use the new version
+        print("Restarting with new version...")
+
+        # INFO - restart current process
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
+    except subprocess.CalledProcessError as e:
+
+        # INFO - If the branch already exists locally for whatever reason, we need to just checkout the tagged commit instead
+        if "already exists":
+            update_command = f"git checkout tags/v{stable_version}"
+            try:
+                _ = subprocess.run(update_command, check=True, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            except subprocess.CalledProcessError as e:
+                print(f"Update failed: {e.stderr}")
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+
+    except Exception as e:
+        print(f"Unexpected error during update: {str(e)}")
+
 
 def check_for_update():
     local_package_version = get_local_package_version()
@@ -75,23 +98,21 @@ def check_for_update():
         return
 
     # INFO - If we get to this point (no exception thrown), we know that there's an update available
-    user_wants_update = input(f"Update available from {local_package_version} to {pypi_version}. Would you like to update [Y/n]: ").lower()
-    
+    user_wants_update = input(
+        f"Update available from {local_package_version} to {pypi_version}. Would you like to update [Y/n]: "
+    ).lower()
+
     if user_wants_update == "y" or user_wants_update == "":
-        # TODO - do update here
         update_command = None
         if is_pip_package():
-            # TODO: Prompt input to update using pip update
             update_command = get_update_command("pypi", pypi_version)
-            # print("PIP PACKAGE")
         else:
             update_command = get_update_command("git", pypi_version)
 
         try:
-            install_update(update_command)
+            install_update(update_command, pypi_version)
         except Exception as e:
             print(f"Unexpected error occurred during update: {e}")
 
-
-
-
+        # This line will only be reached if the restart in install_update fails
+        print("Please restart the CLI manually to use the new version.")

@@ -7458,6 +7458,7 @@ def main():
         headers["Authorization"] = "Bearer " + args.api_key
 
     check_for_update()
+    print("NEW VERSION")
 
     if TABCOMPLETE:
         myautocc = MyAutocomplete()

@@ -94,18 +94,40 @@ def install_update(update_command: str, stable_version: str):
         print(f"Unexpected error during update: {str(e)}")
 
 
+def parse_version(version: str) -> tuple[int, ...]:
+    """
+    Parse a version string into a tuple for proper comparison.
+    Handles versions with different numbers of components by padding
+    with zeros as needed.
+    """
+    # Split the version string and convert parts to integers
+    version_parts = [int(part) for part in version.split('.')]
+    
+    # Ensure we always have at least 3 components (major.minor.patch)
+    while len(version_parts) < 3:
+        version_parts.append(0)
+        
+    return tuple(version_parts)
+
 def check_for_update():
     local_package_version = get_local_package_version()
     pypi_version = get_pypi_version(get_project_data("vast-cli-fork"))
     print(f"{local_package_version=}")
     print(f"{pypi_version=}")
 
-    print(parse_version(local_package_version))
-    print(parse_version(pypi_version))
-    if parse_version(local_package_version) >= parse_version(pypi_version):
+    # Parse versions into tuples for comparison
+    local_version_tuple = parse_version(local_package_version)
+    pypi_version_tuple = parse_version(pypi_version)
+    
+    print(local_version_tuple)
+    print(pypi_version_tuple)
+    
+    # If local version is greater than or equal to PyPI version, no update needed
+    if local_version_tuple >= pypi_version_tuple:
+        print("You're already using the latest version.")
         return
 
-    # INFO - If we get to this point (no exception thrown), we know that there's an update available
+    # INFO - If we get to this point, we know that there's an update available
     user_wants_update = input(
         f"Update available from {local_package_version} to {pypi_version}. Would you like to update [Y/n]: "
     ).lower()
@@ -118,18 +140,33 @@ def check_for_update():
             update_command = get_update_command("git", pypi_version)
 
         try:
-            install_update(update_command, pypi_version)
+            subprocess.run(
+                update_command,
+                check=True,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            
+            print("Update completed successfully!")
+            print("Please restart the CLI manually to use the new version.")
+            sys.exit(0)  
+            
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr.decode('utf-8') if isinstance(e.stderr, bytes) else str(e.stderr)
+            
+            if "already exists" in error_msg and not is_pip_package():
+                update_command = f"git checkout tags/v{pypi_version}"
+                try:
+                    subprocess.run(update_command, check=True, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    print("Update completed successfully!")
+                    print("Please restart the CLI manually to use the new version.")
+                    sys.exit(0)  # Exit cleanly
+                except subprocess.CalledProcessError as e:
+                    error_msg = e.stderr.decode('utf-8') if isinstance(e.stderr, bytes) else str(e.stderr)
+                    print(f"Update failed: {error_msg}")
+            else:
+                print(f"Update failed: {error_msg}")
+
         except Exception as e:
             print(f"Unexpected error occurred during update: {e}")
-
-        # This line will only be reached if the restart in install_update fails
-        print("Please restart the CLI manually to use the new version.")
-
-# INFO - returns value of version
-def parse_version(version: str) -> tuple[int, ...]:
-    version_parts = [int(part) for part in version.split('.')]
-
-    while len(version_parts) < 3:
-        version_parts.append(0)
-
-    return tuple(version_parts)

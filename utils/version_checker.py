@@ -136,7 +136,6 @@ def parse_version(version: str) -> tuple[int, ...]:
     return tuple(version_parts)
 
 def check_for_update():
-    # First, let's add more debugging information
     local_package_version = get_local_package_version()
     pypi_version = get_pypi_version(get_project_data("vast-cli-fork"))
     

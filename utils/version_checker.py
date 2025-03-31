@@ -28,9 +28,6 @@ def is_pip_package() -> bool:
 
 
 def get_local_package_version():
-    """
-    Get the version of the installed package, not the version from Poetry.
-    """
     try:
         # Method 1: Using importlib.metadata (Python 3.8+)
         try:

@@ -93,7 +93,11 @@ def install_update(update_command: str, stable_version: str):
 def check_for_update():
     local_package_version = get_local_package_version()
     pypi_version = get_pypi_version(get_project_data("vast-cli-fork"))
+    print(f"{local_package_version=}")
+    print(f"{pypi_version=}")
 
+    print(parse_version(local_package_version))
+    print(parse_version(pypi_version))
     if parse_version(local_package_version) >= parse_version(pypi_version):
         return
 

@@ -136,8 +136,39 @@ def parse_version(version: str) -> tuple[int, ...]:
     return tuple(version_parts)
 
 def check_for_update():
+    # First, let's add more debugging information
     local_package_version = get_local_package_version()
     pypi_version = get_pypi_version(get_project_data("vast-cli-fork"))
+    
+    # Add more debugging info to see where the package is installed
+    try:
+        import vast
+        print(f"Package location: {vast.__file__}")
+    except ImportError:
+        print("Cannot import vast module")
+    
+    try:
+        # Try to get pip's understanding of the installed version
+        pip_version_check = subprocess.run(
+            [sys.executable, "-m", "pip", "show", "vast-cli-fork"],
+            capture_output=True,
+            text=True
+        )
+        if pip_version_check.returncode == 0:
+            pip_output = pip_version_check.stdout
+            print("Pip package info:")
+            print(pip_output)
+            # Try to extract version from pip output
+            import re
+            version_match = re.search(r"Version: ([\d\.]+)", pip_output)
+            if version_match:
+                pip_version = version_match.group(1)
+                print(f"Pip detected version: {pip_version}")
+        else:
+            print("Pip could not find the package")
+    except Exception as e:
+        print(f"Error checking pip version: {e}")
+    
     print(f"{local_package_version=}")
     print(f"{pypi_version=}")
 
@@ -161,38 +192,50 @@ def check_for_update():
     if user_wants_update == "y" or user_wants_update == "":
         update_command = None
         if is_pip_package():
-            update_command = get_update_command("pypi", pypi_version)
+            # Use a more forceful update command for pip
+            update_command = f"{sys.executable} -m pip install --force-reinstall --no-cache-dir {BASE_PATH} vast-cli-fork"
         else:
             update_command = get_update_command("git", pypi_version)
 
         try:
-            subprocess.run(
+            print(f"Running update command: {update_command}")
+            # Run the update command but DON'T restart automatically
+            result = subprocess.run(
                 update_command,
                 check=True,
                 shell=True,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                stderr=subprocess.PIPE,
+                text=True
             )
             
+            print("Update output:")
+            print(result.stdout)
+            
+            if result.stderr:
+                print("Errors/warnings:")
+                print(result.stderr)
+            
             print("Update completed successfully!")
-            print("Please restart the CLI manually to use the new version.")
-            sys.exit(0)  
+            print("Please completely exit and restart the CLI manually to use the new version.")
+            sys.exit(0)  # Exit cleanly, forcing the user to restart manually
             
         except subprocess.CalledProcessError as e:
-            error_msg = e.stderr.decode('utf-8') if isinstance(e.stderr, bytes) else str(e.stderr)
+            print(f"Update command failed with code {e.returncode}")
+            print(f"Stdout: {e.stdout}")
+            print(f"Stderr: {e.stderr}")
             
-            if "already exists" in error_msg and not is_pip_package():
+            if "already exists" in e.stderr and not is_pip_package():
                 update_command = f"git checkout tags/v{pypi_version}"
                 try:
                     subprocess.run(update_command, check=True, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                     print("Update completed successfully!")
-                    print("Please restart the CLI manually to use the new version.")
-                    sys.exit(0)
+                    print("Please completely exit and restart the CLI manually to use the new version.")
+                    sys.exit(0)  # Exit cleanly
                 except subprocess.CalledProcessError as e:
-                    error_msg = e.stderr.decode('utf-8') if isinstance(e.stderr, bytes) else str(e.stderr)
-                    print(f"Update failed: {error_msg}")
+                    print(f"Update failed: {e.stderr}")
             else:
-                print(f"Update failed: {error_msg}")
+                print(f"Update failed: {e.stderr}")
 
         except Exception as e:
             print(f"Unexpected error occurred during update: {e}")

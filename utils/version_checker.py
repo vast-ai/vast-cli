@@ -48,6 +48,17 @@ def is_pip_package():
     return "site-packages" in sys.prefix
 
 
+def get_update_command(stable_version: str) -> str:
+    """Get the appropriate update command based on installation type."""
+    if is_pip_package():
+        if "test.pypi.org" in BASE_PATH:
+            return f"{sys.executable} -m pip install --force-reinstall --no-cache-dir -i {BASE_PATH} vast-cli-fork=={stable_version}"
+        else:
+            return f"{sys.executable} -m pip install --force-reinstall --no-cache-dir vast-cli-fork=={stable_version}"
+    else:
+        return f"git fetch --all --tags --prune && git checkout tags/v{stable_version}"
+
+
 def check_for_update():
     """Check for updates and perform the update if requested."""
     try:
@@ -85,15 +96,7 @@ def check_for_update():
         if user_wants_update not in ["y", ""]:
             return
 
-        # Perform update based on installation type
-        if is_pip_package():
-            update_command = f"{sys.executable} -m pip install --force-reinstall --no-cache-dir vast-cli-fork"
-        else:
-            # For git, use a more direct checkout approach
-            update_command = (
-                f"git fetch --all --tags --prune && git checkout tags/v{pypi_version}"
-            )
-
+        update_command = get_update_command(pypi_version)
         print(f"Running update: {update_command}")
 
         # Execute the update command

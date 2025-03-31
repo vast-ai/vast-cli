@@ -2,7 +2,7 @@ import sys
 import os
 import subprocess
 
-from utils.pypi_api import get_project_data, get_pypi_version
+from utils.pypi_api import get_project_data, get_pypi_version, BASE_PATH
 
 
 # INFO: This is strictly for propogating the correct update command when prompted
@@ -44,6 +44,29 @@ def get_local_package_version():
         return f"Unexpected error: {e}"
 
 
+def get_update_command(distribution: str, stable_version: str) -> str:
+    if distribution != "git" and distribution != "pypi":
+        raise Exception("Not a valid distribution")
+
+    if distribution == "git":
+        return f"git pull --force && git checkout v{stable_version}"
+
+    if "test.pypi" in BASE_PATH:
+        return f"pip install -i {BASE_PATH} vast-cli-fork --upgrade"
+
+    return f"pip install {BASE_PATH} vast-cli-fork --upgrade"
+
+def install_update(update_command: str):
+    # try:
+    print(f"Executing update: {update_command}")
+    _ = subprocess.run(
+        update_command.split(" "), 
+        capture_output=True,
+        text=True,
+        check=True
+    )
+    print("Update completed successfully!")
+
 def check_for_update():
     local_package_version = get_local_package_version()
     pypi_version = get_pypi_version(get_project_data("vast-cli-fork"))
@@ -51,27 +74,24 @@ def check_for_update():
     if local_package_version >= pypi_version:
         return
 
-    if is_pip_package():
-        # TODO: Prompt input to update using pip update
-        print("PIP PACKAGE")
+    # INFO - If we get to this point (no exception thrown), we know that there's an update available
+    user_wants_update = input(f"Update available from {local_package_version} to {pypi_version}. Would you like to update [Y/n]: ").lower()
+    
+    if user_wants_update == "y" or user_wants_update == "":
+        # TODO - do update here
+        update_command = None
+        if is_pip_package():
+            # TODO: Prompt input to update using pip update
+            update_command = get_update_command("pypi", pypi_version)
+            # print("PIP PACKAGE")
+        else:
+            update_command = get_update_command("git", pypi_version)
 
-    else:
-        print("PROMPT UPDATE TO GIT")
-    print(f"{local_package_version=}")
-    print(f"{pypi_version=}")
-
-
-def get_update_command(distribution: str, stable_version: str, pypi_url: str) -> str:
-    if distribution != "git" and distribution != "pypi":
-        raise Exception("Not a valid distribution")
-
-    if distribution == "git":
-        return f"git checkout {stable_version} && git pull --force"
-
-    if pypi_url.find("test.pypi"):
-        return f"pip install -i {pypi_url} vast-cli-fork --upgrade"
-
-    return f"pip install {pypi_url} vast-cli-fork --upgrade"
+        try:
+            install_update(update_command)
+        except Exception as e:
+            print(f"Unexpected error occurred during update: {e}")
 
 
-check_for_update()
+
+

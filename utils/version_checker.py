@@ -76,15 +76,19 @@ def install_update(update_command: str, stable_version: str):
         os.execv(sys.executable, [sys.executable] + sys.argv)
 
     except subprocess.CalledProcessError as e:
-
+        error_msg = e.stderr.decode('utf-8') if isinstance(e.stderr, bytes) else str(e.stderr)
+        
         # INFO - If the branch already exists locally for whatever reason, we need to just checkout the tagged commit instead
-        if "already exists":
+        if "already exists" in error_msg:
             update_command = f"git checkout tags/v{stable_version}"
             try:
                 _ = subprocess.run(update_command, check=True, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                print("Update completed successfully!")
+                os.execv(sys.executable, [sys.executable] + sys.argv)
             except subprocess.CalledProcessError as e:
-                print(f"Update failed: {e.stderr}")
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+                print(f"Update failed: {e.stderr.decode('utf-8') if isinstance(e.stderr, bytes) else e.stderr}")
+        else:
+            print(f"Update failed: {error_msg}")
 
     except Exception as e:
         print(f"Unexpected error during update: {str(e)}")
@@ -122,12 +126,10 @@ def check_for_update():
         print("Please restart the CLI manually to use the new version.")
 
 # INFO - returns value of version
-def parse_version(version: str) -> int:
-    version_value = 0
-    version_parts = version.split(".")
+def parse_version(version: str) -> tuple[int, ...]:
+    version_parts = [int(part) for part in version.split('.')]
 
-    for version_part in version_parts:
-        version_value += int(version_part)
+    while len(version_parts) < 3:
+        version_parts.append(0)
 
-    return version_value
-
+    return tuple(version_parts)

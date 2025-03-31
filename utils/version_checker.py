@@ -94,7 +94,7 @@ def check_for_update():
     local_package_version = get_local_package_version()
     pypi_version = get_pypi_version(get_project_data("vast-cli-fork"))
 
-    if local_package_version == pypi_version:
+    if parse_version(local_package_version) >= parse_version(pypi_version):
         return
 
     # INFO - If we get to this point (no exception thrown), we know that there's an update available
@@ -116,3 +116,14 @@ def check_for_update():
 
         # This line will only be reached if the restart in install_update fails
         print("Please restart the CLI manually to use the new version.")
+
+# INFO - returns value of version
+def parse_version(version: str) -> int:
+    version_value = 0
+    version_parts = version.split(".")
+
+    for version_part in version_parts:
+        version_value += int(version_part)
+
+    return version_value
+

@@ -7457,10 +7457,7 @@ def main():
     if args.api_key:
         headers["Authorization"] = "Bearer " + args.api_key
 
-    # TODO - Implement check for update here
     check_for_update()
-
-    print("TEST")
 
     if TABCOMPLETE:
         myautocc = MyAutocomplete()

@@ -13,7 +13,7 @@ authors = [
     {name = "nader arbabian", email = "nader@vast.ai"},
     {name = "marco hernandez", email = "marco@vast.ai"},
     {name = "karthik pillalamarri", email = "karthik@vast.ai"},
-    {name = "sammy javed", email = "sammy@vast.ai"}
+    {name = "sammy javed", email = "sammy@vast.ai"},
     {name = "rob ballantyne", email = "rob@vast.ai"}
 ]
 readme = "README.md"

@@ -5,7 +5,6 @@ from utils.pypi_api import get_project_data, get_pypi_version, BASE_PATH
 
 
 def parse_version(version: str) -> tuple:
-    """Parse a version string into a tuple for proper comparison."""
     parts = version.split(".")
     while len(parts) < 3:
         parts.append("0")
@@ -13,7 +12,6 @@ def parse_version(version: str) -> tuple:
 
 
 def get_git_version():
-    """Get version from git tags."""
     try:
         result = subprocess.run(
             ["git", "describe", "--tags", "--abbrev=0"],
@@ -29,7 +27,6 @@ def get_git_version():
 
 
 def get_pip_version():
-    """Get version from pip metadata."""
     try:
         import importlib.metadata
 
@@ -44,7 +41,6 @@ def get_pip_version():
 
 
 def is_pip_package():
-    """Check if running from pip-installed package."""
     return "site-packages" in sys.prefix
 
 
@@ -60,31 +56,20 @@ def get_update_command(stable_version: str) -> str:
 
 
 def check_for_update():
-    """Check for updates and perform the update if requested."""
     try:
         pypi_data = get_project_data("vast-cli-fork")
         pypi_version = get_pypi_version(pypi_data)
 
-        # Get local version based on installation type
+        local_version = None
         if is_pip_package():
             local_version = get_pip_version()
         else:
             local_version = get_git_version()
 
-        print("TEST")
-        print(f"Local version: {local_version}")
-        print(f"PyPI version: {pypi_version}")
-
-        # Parse and compare versions
         local_tuple = parse_version(local_version)
         pypi_tuple = parse_version(pypi_version)
 
-        print(f"Parsed local version: {local_tuple}")
-        print(f"Parsed PyPI version: {pypi_tuple}")
-
-        # Check if update is needed
         if local_tuple >= pypi_tuple:
-            print("You're using the latest version.")
             return
 
         # Prompt for update
@@ -110,11 +95,6 @@ def check_for_update():
             )
 
             print("Update completed successfully!")
-
-            # For git updates, one additional step - create a version marker file
-            if not is_pip_package():
-                with open(".current_version", "w") as f:
-                    f.write(pypi_version)
 
             print("Please restart the CLI manually to use the new version.")
             sys.exit(0)

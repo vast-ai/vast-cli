@@ -62,7 +62,6 @@ def get_update_command(stable_version: str) -> str:
 def check_for_update():
     """Check for updates and perform the update if requested."""
     try:
-        # Get PyPI version
         pypi_data = get_project_data("vast-cli-fork")
         pypi_version = get_pypi_version(pypi_data)
 

@@ -78,7 +78,6 @@ def check_for_update():
         if local_tuple >= pypi_tuple:
             return
 
-        # Prompt for update
         user_wants_update = input(
             f"Update available from {local_version} to {pypi_version}. Would you like to update [Y/n]: "
         ).lower()

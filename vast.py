@@ -5999,7 +5999,7 @@ def self_test__machine(args):
                 login=None,
                 label=None,
                 onstart=None,
-                onstart_cmd="python3 remote.py",
+                onstart_cmd="/verification/remote.sh",
                 entrypoint=None,
                 ssh=False,  # Set ssh to False
                 jupyter=True,  # Set jupyter to True

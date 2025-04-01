@@ -48,7 +48,6 @@ def is_pip_package():
 
 
 def get_update_command(stable_version: str) -> str:
-    """Get the appropriate update command based on installation type."""
     if is_pip_package():
         if "test.pypi.org" in BASE_PATH:
             return f"{sys.executable} -m pip install --force-reinstall --no-cache-dir -i {BASE_PATH} vast-cli-fork=={stable_version}"

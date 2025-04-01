@@ -41,6 +41,7 @@ def get_pip_version():
 
 
 def is_pip_package():
+    print("sys.prefix", sys.prefix)
     return "site-packages" in sys.prefix
 
 
@@ -61,6 +62,7 @@ def check_for_update():
         pypi_version = get_pypi_version(pypi_data)
 
         local_version = None
+        print("is_pip_package:", is_pip_package())
         if is_pip_package():
             local_version = get_pip_version()
         else:
@@ -69,6 +71,8 @@ def check_for_update():
         local_tuple = parse_version(local_version)
         pypi_tuple = parse_version(pypi_version)
 
+        print("local_tuple:", local_tuple)
+        print("pypi_tuple:", pypi_tuple)
         if local_tuple >= pypi_tuple:
             return
 
@@ -83,9 +87,8 @@ def check_for_update():
         update_command = get_update_command(pypi_version)
         print(f"Running update: {update_command}")
 
-        # Execute the update command
         try:
-            result = subprocess.run(
+            _ = subprocess.run(
                 update_command,
                 shell=True,
                 check=True,

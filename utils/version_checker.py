@@ -1,10 +1,12 @@
 import sys
 import os
+import importlib.metadata
+import pkg_resources
 import subprocess
 from utils.pypi_api import get_project_data, get_pypi_version, BASE_PATH
 
 
-def parse_version(version: str) -> tuple:
+def parse_version(version: str) -> tuple[int, ...]:
     parts = version.split(".")
     while len(parts) < 3:
         parts.append("0")
@@ -28,13 +30,10 @@ def get_git_version():
 
 def get_pip_version():
     try:
-        import importlib.metadata
 
         return importlib.metadata.version("vast-cli-fork")
     except (ImportError, importlib.metadata.PackageNotFoundError):
         try:
-            import pkg_resources
-
             return pkg_resources.get_distribution("vast-cli-fork").version
         except Exception:
             return "0.0.0"
@@ -94,7 +93,6 @@ def check_for_update():
             )
 
             print("Update completed successfully!")
-
             print("Please restart the CLI manually to use the new version.")
             sys.exit(0)
 

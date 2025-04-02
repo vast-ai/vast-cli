@@ -985,7 +985,7 @@ def change__bid(args: argparse.Namespace):
 
     if (args.schedule):
         cli_command = "change bid"
-        api_endpoint = "/api/v0" + "/instances/bid_price/{id}/".format(id=args.id)
+        api_endpoint = "/api/v0/instances/bid_price/{id}/".format(id=args.id)
         json_blob["instance_id"] = args.id
         add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT") 
 
@@ -1165,7 +1165,7 @@ def cloud__copy(args: argparse.Namespace):
         print("When the operation is finished you should see 'Cloud Cody Operation Finished' in the instance status bar.")  
         if (args.schedule):
             cli_command = "cloud copy"
-            api_endpoint = "/api/v0" + "/commands/rclone/"
+            api_endpoint = "/api/v0/commands/rclone/"
             add_scheduled_job(args, req_json, cli_command, api_endpoint, "POST") 
     else:
         print(r.text);
@@ -1879,7 +1879,7 @@ def execute(args):
                     print(filtered_text)
                     if (args.schedule):
                         cli_command = "execute"
-                        api_endpoint = "/api/v0" + "/instances/command/{id}/".format(id=args.ID)
+                        api_endpoint = "/api/v0/instances/command/{id}/".format(id=args.ID)
                         json_blob["instance_id"] = args.ID
                         add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT")
                     break
@@ -2296,7 +2296,7 @@ def reboot__instance(args):
             print("Rebooting instance {args.ID}.".format(**(locals())));
             if (args.schedule):
                 cli_command = "reboot instance"
-                api_endpoint = "/api/v0" + "/instances/reboot/{id}/".format(id=args.ID)
+                api_endpoint = "/api/v0/instances/reboot/{id}/".format(id=args.ID)
                 json_blob = {"instance_id": args.ID}
                 add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT")
         else:

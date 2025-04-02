@@ -6218,7 +6218,7 @@ def main():
     parser.add_argument("--retry", help="retry limit", default=3)
     parser.add_argument("--raw", action="store_true", help="output machine-readable json")
     parser.add_argument("--explain", action="store_true", help="output verbose explanation of mapping of CLI calls to HTTPS API endpoints")
-    parser.add_argument("--schedule", help="try to schedule a command to run hourly, daily, or monthly. Valid values are HOURLY, DAILY, WEEKLY  For ex. --schedule DAILY")
+    parser.add_argument("--schedule", choices=["HOURLY", "DAILY", "WEEKLY"], help="try to schedule a command to run hourly, daily, or monthly. Valid values are HOURLY, DAILY, WEEKLY  For ex. --schedule DAILY")
     parser.add_argument("--start_time", help="the start time for your scheduled job in seconds since unix epoch. Default will be current time. For ex. --start_time 1728510298", default=(time.time()))
     parser.add_argument("--end_time", help="the end time for your scheduled job in seconds since unix epoch. Default will be 7 days from now. For ex. --end_time 1729115232", default=(time.time() + 7 * 24 * 60 * 60))
     parser.add_argument("--day", help="day of the week you want scheduled job to run on. You can set day to None if you want the job to run everyday. Valid values are 0-6, 0=Sunday, 1=Monday, etc. Default will be 0. For ex. --day 0", default=0)

@@ -1504,6 +1504,7 @@ def add_scheduled_job(args, req_json, cli_command, api_endpoint, request_method)
 
 def update_scheduled_job(cli_command, schedule_job_url, frequency, start_time, end_time, request_body):
     response = requests.put(schedule_job_url, headers=headers, json=request_body)
+    print(f"Updating existing scheduled job...")
 
         # Raise an exception for HTTP errors
     response.raise_for_status()

@@ -1483,15 +1483,18 @@ def add_scheduled_job(args, req_json, cli_command, api_endpoint, request_method)
     elif response.status_code == 401:
         print(f"add_scheduled_job insert: failed status_code: {response.status_code}. It could be because you aren't using a valid api_key.")
     elif response.status_code == 422:
-        sleep(4)
-        response = update_scheduled_job(cli_command, schedule_job_url, frequency, start_time, end_time, request_body) 
+        user_input = input("Existing scheduled job found. Do you want to update it (y|n)? ")
+        if user_input.strip().lower() == "y":
+            sleep(4)
+            response = update_scheduled_job(cli_command, schedule_job_url, frequency, start_time, end_time, request_body)
+        else:
+            print("Job update aborted by the user.")
     else:
             # print(r.text)
         print(f"add_scheduled_job insert: failed error: {response.status_code}. Response body: {response.text}")        
 
 def update_scheduled_job(cli_command, schedule_job_url, frequency, start_time, end_time, request_body):
     response = requests.put(schedule_job_url, headers=headers, json=request_body)
-    print(f"Updating existing scheduled job...")
 
         # Raise an exception for HTTP errors
     response.raise_for_status()

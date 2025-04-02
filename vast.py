@@ -1454,7 +1454,7 @@ def cloud__copy(args: argparse.Namespace):
 
     if (args.schedule):
             cli_command = "cloud copy"
-            api_endpoint = "/api/v0" + "/commands/rclone/"
+            api_endpoint = "/api/v0/commands/rclone/"
             add_scheduled_job(args, req_json, cli_command, api_endpoint, "POST")         
         
     r = http_post(args, url, headers=headers,json=req_json)

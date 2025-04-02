@@ -1185,7 +1185,7 @@ def change__bid(args: argparse.Namespace):
 
     if (args.schedule):
         cli_command = "change bid"
-        api_endpoint = "/api/v0" + "/instances/bid_price/{id}/".format(id=args.id)
+        api_endpoint = "/api/v0/instances/bid_price/{id}/".format(id=args.id)
         json_blob["instance_id"] = args.id
         add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT") 
 
@@ -1462,7 +1462,6 @@ def cloud__copy(args: argparse.Namespace):
     if (r.status_code == 200):
         print("Cloud Copy Started - check instance status bar for progress updates (~30 seconds delayed).")
         print("When the operation is finished you should see 'Cloud Cody Operation Finished' in the instance status bar.")  
-
     else:
         print(r.text);
         print("failed with error {r.status_code}".format(**locals()));
@@ -2303,7 +2302,7 @@ def execute(args):
                     print(filtered_text)
                     if (args.schedule):
                         cli_command = "execute"
-                        api_endpoint = "/api/v0" + "/instances/command/{id}/".format(id=args.ID)
+                        api_endpoint = "/api/v0/instances/command/{id}/".format(id=args.ID)
                         json_blob["instance_id"] = args.ID
                         add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT")
                     break
@@ -2725,7 +2724,7 @@ def reboot__instance(args):
             print("Rebooting instance {args.ID}.".format(**(locals())));
             if (args.schedule):
                 cli_command = "reboot instance"
-                api_endpoint = "/api/v0" + "/instances/reboot/{id}/".format(id=args.ID)
+                api_endpoint = "/api/v0/instances/reboot/{id}/".format(id=args.ID)
                 json_blob = {"instance_id": args.ID}
                 add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT")
         else:

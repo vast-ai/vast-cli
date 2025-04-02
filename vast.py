@@ -134,22 +134,6 @@ def validate_seconds(value):
     except ValueError:
         raise argparse.ArgumentTypeError(f"{value} is not a valid integer.")
 
-def validate_schedule_values(args):
-    """Validate start and end times."""
-    # Validate start_time and end_time
-    args.start_time = validate_seconds(args.start_time)
-    args.end_time = validate_seconds(args.end_time)
-
-    if args.start_time >= args.end_time:
-        raise ValueError("--start_time must be less than --end_time.")
-
-    frequency = args.schedule.upper()    
-
-    args.day = args.day if args.day is not None else None
-    args.hour = args.hour if args.hour is not None else None
-
-    return args.start_time, args.end_time, args.day, args.hour, frequency
-
 def strip_strings(value):
     if isinstance(value, str):
         return value.strip()
@@ -1468,7 +1452,10 @@ def cloud__copy(args: argparse.Namespace):
 
 
 def add_scheduled_job(args, req_json, cli_command, api_endpoint, request_method):
-    start_time, end_time, day, hour, frequency = validate_schedule_values(args)
+    if args.start_time >= args.end_time:
+        raise ValueError("--start_time must be less than --end_time.")
+
+    start_time, end_time, day, hour, frequency = args.start_time, args.end_time, args.day, args.hour, args.schedule
 
     schedule_job_url = apiurl(args, f"/commands/schedule_job/")
 
@@ -6219,8 +6206,8 @@ def main():
     parser.add_argument("--raw", action="store_true", help="output machine-readable json")
     parser.add_argument("--explain", action="store_true", help="output verbose explanation of mapping of CLI calls to HTTPS API endpoints")
     parser.add_argument("--schedule", choices=["HOURLY", "DAILY", "WEEKLY"], help="try to schedule a command to run hourly, daily, or monthly. Valid values are HOURLY, DAILY, WEEKLY  For ex. --schedule DAILY")
-    parser.add_argument("--start_time", help="the start time for your scheduled job in seconds since unix epoch. Default will be current time. For ex. --start_time 1728510298", default=(time.time()))
-    parser.add_argument("--end_time", help="the end time for your scheduled job in seconds since unix epoch. Default will be 7 days from now. For ex. --end_time 1729115232", default=(time.time() + 7 * 24 * 60 * 60))
+    parser.add_argument("--start_time", type=validate_seconds, help="the start time for your scheduled job in integer seconds since unix epoch. Default will be current time. For ex. --start_time 1728510298", default=(int(time.time())))
+    parser.add_argument("--end_time", type=validate_seconds, help="the end time for your scheduled job in integer seconds since unix epoch. Default will be 7 days from now. For ex. --end_time 1729115232", default=(int(time.time() + 7 * 24 * 60 * 60)))
     parser.add_argument("--day", help="day of the week you want scheduled job to run on. You can set day to None if you want the job to run everyday. Valid values are 0-6, 0=Sunday, 1=Monday, etc. Default will be 0. For ex. --day 0", default=0)
     parser.add_argument("--hour", help="hour of the day you want scheduled job to run on. You can set day and hour to None if you want the job to run every hour. Valid values are 0-23, 0=12am UTC, 1=1am UTC, etc. Default will be 0. For ex. --hour 16", default=0)
     parser.add_argument("--api-key", help="api key. defaults to using the one stored in {}".format(APIKEY_FILE), type=str, required=False, default=os.getenv("VAST_API_KEY", api_key_guard))

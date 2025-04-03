@@ -69,7 +69,7 @@ logging.basicConfig(
     format="%(levelname)s - %(message)s"
 )
 
-APP_NAME = "vastai"
+APP_NAME = "vast-cli-fork"
 
 try:
   # Although xdg-base-dirs is the newer name, there's 

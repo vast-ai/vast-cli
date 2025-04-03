@@ -5,20 +5,20 @@ build-backend = "poetry_dynamic_versioning.backend"
 [project]
 name = "vast-cli-fork"
 authors = [
-    {name = "jake cannell", email = "jake@vast.ai"},
-    {name = "chris mckenzie", email = "chris@vast.ai"},
-    {name = "anthony benjamin", email = "anthony@vast.ai"},
-    {name = "liam weldon", email = "liam@vast.ai"},
-    {name = "edgar lin", email = "edgar@vast.ai"},
-    {name = "nader arbabian", email = "nader@vast.ai"},
-    {name = "marco hernandez", email = "marco@vast.ai"},
-    {name = "karthik pillalamarri", email = "karthik@vast.ai"},
-    {name = "sammy javed", email = "sammy@vast.ai"},
-    {name = "rob ballantyne", email = "rob@vast.ai"}
+  { name = "jake cannell", email = "jake@vast.ai" },
+  { name = "chris mckenzie", email = "chris@vast.ai" },
+  { name = "anthony benjamin", email = "anthony@vast.ai" },
+  { name = "liam weldon", email = "liam@vast.ai" },
+  { name = "edgar lin", email = "edgar@vast.ai" },
+  { name = "nader arbabian", email = "nader@vast.ai" },
+  { name = "marco hernandez", email = "marco@vast.ai" },
+  { name = "karthik pillalamarri", email = "karthik@vast.ai" },
+  { name = "sammy javed", email = "sammy@vast.ai" },
+  { name = "rob ballantyne", email = "rob@vast.ai" },
 ]
 readme = "README.md"
 requires-python = ">=3.8, <4.0"
-license = {text = "MIT"}
+license = { text = "MIT" }
 dynamic = ["version"]
 dependencies = [
   "xdg",
@@ -30,14 +30,11 @@ dependencies = [
   "urllib3==2.2.3",
   "poetry-dynamic-versioning (>=1.8.1,<2.0.0)",
   "gitpython (>=3.1.44,<4.0.0)",
-  "toml (>=0.10.2,<0.11.0)"
+  "toml (>=0.10.2,<0.11.0)",
 ]
 
 [tool.poetry]
-packages = [
-    {include = "utils"},
-    {include = "vast.py"},
-]
+packages = [{ include = "utils" }, { include = "vast.py" }]
 version = "0.0.0"
 
 [project.scripts]

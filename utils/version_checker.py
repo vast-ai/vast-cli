@@ -47,6 +47,8 @@ def get_pip_version():
         pass
 
     return "0.0.0"
+
+
 def is_pip_package():
     script_path = sys.argv[0]
     executable_name = os.path.basename(script_path)
@@ -64,17 +66,18 @@ def get_update_command(stable_version: str) -> str:
         return f"git fetch --all --tags --prune && git checkout tags/v{stable_version}"
 
 
+def get_local_version():
+    if is_pip_package():
+        return get_pip_version()
+    return get_git_version()
+
+
 def check_for_update():
     try:
         pypi_data = get_project_data("vast-cli-fork")
         pypi_version = get_pypi_version(pypi_data)
 
-        local_version = None
-        if is_pip_package():
-            local_version = get_pip_version()
-        else:
-            local_version = get_git_version()
-
+        local_version = get_local_version()
         local_tuple = parse_version(local_version)
         pypi_tuple = parse_version(pypi_version)
 

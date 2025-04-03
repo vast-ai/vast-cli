@@ -6197,6 +6197,7 @@ def main():
     if args.api_key:
         headers["Authorization"] = "Bearer " + args.api_key
 
+    # WARNING - will throw error if it can't install update
     check_for_update()
 
     if TABCOMPLETE:

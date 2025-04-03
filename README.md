@@ -63,7 +63,7 @@ In order to get started -
 
 ```bash
 # Install poetry if you don't have it already.
-pipx install poetry
+curl -sSL https://install.python-poetry.org | python3 -
 # Install project dependencies
 poetry install
 # Run vast.py

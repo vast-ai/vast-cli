@@ -621,19 +621,19 @@ use-chardet-on-py3 = ["chardet (>=3.0.2,<6)"]
 
 [[package]]
 name = "setuptools"
-version = "51.1.2"
+version = "51.1.1"
 description = "Easily download, build, install, upgrade, and uninstall Python packages"
 optional = false
 python-versions = ">=3.6"
 groups = ["main"]
 files = [
-    {file = "setuptools-51.1.2-py3-none-any.whl", hash = "sha256:67d8af2fc9f33e48f8f4387321700a79b27090a5cff154e5ce1a8c72c2eea54f"},
-    {file = "setuptools-51.1.2.tar.gz", hash = "sha256:4fa149145ba5dcd4aaa89912ec92393a31170eaf17fe0268b1429538bad1f85a"},
+    {file = "setuptools-51.1.1-py3-none-any.whl", hash = "sha256:6d119767443a0f770bab9738b86ce9c0a699a7759ff4f61af583ee73d2e528a0"},
+    {file = "setuptools-51.1.1.tar.gz", hash = "sha256:0b43d1e0e0ac1467185581c2ceaf86b5c1a1bc408f8f6407687b0856302d1850"},
 ]
 
 [package.extras]
 certs = ["certifi (==2016.9.26)"]
-docs = ["jaraco.packaging (>=8.2)", "pygments-github-lexers (==0.0.5)", "rst.linker (>=1.9)", "sphinx"]
+docs = ["jaraco.packaging (>=6.1)", "pygments-github-lexers (==0.0.5)", "rst.linker (>=1.9)", "sphinx"]
 ssl = ["wincertstore (==0.2) ; sys_platform == \"win32\""]
 testing = ["flake8-2020", "jaraco.envs", "jaraco.test (>=3.2.0)", "mock", "paver", "pip (>=19.1)", "pytest (>=3.5,!=3.7.3)", "pytest-black (>=0.3.7) ; platform_python_implementation != \"PyPy\"", "pytest-checkdocs (>=1.2.3)", "pytest-cov", "pytest-flake8", "pytest-mypy ; platform_python_implementation != \"PyPy\"", "pytest-virtualenv (>=1.2.7)", "virtualenv (>=13.0.0)", "wheel"]
 
@@ -729,5 +729,5 @@ files = [
 
 [metadata]
 lock-version = "2.1"
-python-versions = ">=3.8, <4.0"
-content-hash = "26b307903487dd5369a466030999fe76c10f3f7cb7de69c53b92461380bd542d"
+python-versions = ">=3.9, <4.0"
+content-hash = "d2bf7d517390ff2a51113c271c0f17e754c7cf02230bde1269b6d0bc2853254a"

@@ -30,7 +30,6 @@ def get_git_version():
 
 def get_pip_version():
     try:
-
         return importlib.metadata.version("vast-cli-fork")
     except (ImportError, importlib.metadata.PackageNotFoundError):
         try:

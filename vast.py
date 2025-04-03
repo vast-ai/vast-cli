@@ -69,6 +69,7 @@ logging.basicConfig(
     format="%(levelname)s - %(message)s"
 )
 
+#TODO  - Change this when ready to go to prod
 APP_NAME = "vast-cli-fork"
 
 try:

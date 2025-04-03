@@ -1,7 +1,6 @@
 import sys
 import os
 import importlib.metadata
-import pkg_resources
 import subprocess
 from utils.pypi_api import get_project_data, get_pypi_version, BASE_PATH
 
@@ -31,13 +30,23 @@ def get_git_version():
 def get_pip_version():
     try:
         return importlib.metadata.version("vast-cli-fork")
-    except (ImportError, importlib.metadata.PackageNotFoundError):
-        try:
-            return pkg_resources.get_distribution("vast-cli-fork").version
-        except Exception:
-            return "0.0.0"
+    except Exception:
+        pass
 
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "show", "vast-cli-fork"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                if line.startswith("Version:"):
+                    return line.split(":", 1)[1].strip()
+    except Exception:
+        pass
 
+    return "0.0.0"
 def is_pip_package():
     script_path = sys.argv[0]
     executable_name = os.path.basename(script_path)

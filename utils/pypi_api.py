@@ -1,6 +1,6 @@
 import requests
 
-BASE_PATH = "https://test.pypi.org"
+BASE_PATH = "https://pypi.org"
 def get_project_data(project_name: str) -> dict[str, dict[str, str]]:
     url = BASE_PATH + f"/pypi/{project_name}/json"
     response = requests.get(url, headers={

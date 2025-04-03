@@ -323,7 +323,7 @@ The `vast.py` script supports tab-completion in both Bash and Zsh shells if the 
    eval "$(register-python-argcomplete vast.py)"
    ```
 
-_Note:_ Rapid invocations via tab-completion might trigger API rate limits. If you experience issues, please report them in the project's GitHub issues.
+_Note:_ Rapid invocations via tab-completion might trigger API rate limits. If you experience any issues, please report them in the project's GitHub issues.
 
 ---
 

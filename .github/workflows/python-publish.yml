@@ -10,11 +10,11 @@ jobs:
       - name: checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Important for git history with dynamic versioning
+          fetch-depth: 0 # imporatnt for git history with dynamic versioning
       - name: install python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"  # Changed from 3.12 to avoid compatibility issues
+          python-version: "3.11"
       - name: install poetry and plugins
         run: |
           curl -sSL https://install.python-poetry.org | python3 -

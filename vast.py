@@ -657,6 +657,21 @@ audit_log_fields = (
     ("args", "args", "{}", None, True),
 )
 
+scheduled_jobs_fields = (
+    ("id", "scheduled_job_id", "{}", None, True),
+    ("instance_id", "instance_id", "{}", None, True),
+    ("api_endpoint", "api_endpoint", "{}", None, True),
+    ("status", "status", "{}", None, True),
+    ("last_executed_around", "last_executed_around", "{}", None, True),
+    ("start_time", "start_time", "{}", None, True),
+    ("end_time", "end_time", "{}", None, True),
+    ("day_of_the_week", "day_of_the_week", "{}", None, True),
+    ("hour_of_the_day", "hour_of_the_day", "{}", None, True),
+    ("min_of_the_hour", "min_of_the_hour", "{}", None, True),
+    ("frequency", "frequency", "{}", None, True),
+
+)
+
 invoice_fields = (
     ("description", "Description", "{}", None, True),
     ("quantity", "Quantity", "{}", None, True),
@@ -3821,6 +3836,26 @@ def show__audit_logs(args):
     else:
         display_table(rows, audit_log_fields)
 
+
+@parser.command(
+    usage="vastai show scheduled-jobs [--api-key API_KEY] [--raw]",
+    help="Display the list of scheduled jobs"
+)
+def show__scheduled_jobs(args):
+    """
+    Shows the list of scheduled jobs for the account.
+
+    :param argparse.Namespace args: should supply all the command-line options
+    :rtype:
+    """
+    req_url = apiurl(args, "/commands/schedule_job/")
+    r = http_get(args, req_url)
+    r.raise_for_status()
+    rows = r.json()
+    if args.raw:
+        return rows
+    else:
+        display_table(rows, scheduled_jobs_fields)
 
 @parser.command(
     usage="vastai show ssh-keys",

@@ -6164,8 +6164,10 @@ def main():
     if args.api_key:
         headers["Authorization"] = "Bearer " + args.api_key
 
-    # WARNING - will throw error if it can't install update
-    check_for_update()
+    try:
+        check_for_update()
+    except Exception as e:
+        print(f"Error checking for update: {e}")
 
     if TABCOMPLETE:
         myautocc = MyAutocomplete()

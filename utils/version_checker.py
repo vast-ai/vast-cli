@@ -9,7 +9,7 @@ def parse_version(version: str) -> tuple[int, ...]:
     parts = version.split(".")
 
     if len(parts) < 3:
-        raise Exception(f"Invalid version format: {version}")
+        print(f"Invalid version format: {version}", file=sys.stderr)
 
     return tuple(int(part) for part in parts)
 
@@ -30,25 +30,7 @@ def get_git_version():
 
 
 def get_pip_version():
-    try:
-        return importlib.metadata.version("vast-cli-fork")
-    except Exception:
-        pass
-
-    try:
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "show", "vast-cli-fork"],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0:
-            for line in result.stdout.splitlines():
-                if line.startswith("Version:"):
-                    return line.split(":", 1)[1].strip()
-    except Exception:
-        pass
-
-    return "0.0.0"
+    return importlib.metadata.version("vast-cli-fork")
 
 
 def is_pip_package():
@@ -75,47 +57,36 @@ def get_local_version():
 
 
 def check_for_update():
-    try:
-        pypi_data = get_project_data("vast-cli-fork")
-        pypi_version = get_pypi_version(pypi_data)
+    pypi_data = get_project_data("vast-cli-fork")
+    pypi_version = get_pypi_version(pypi_data)
 
-        local_version = get_local_version()
+    local_version = get_local_version()
 
-        try:
-            local_tuple = parse_version(local_version)
-            pypi_tuple = parse_version(pypi_version)
-        except Exception as e:
-            print(f"Error parsing version: {e}")
-            return
+    local_tuple = parse_version(local_version)
+    pypi_tuple = parse_version(pypi_version)
 
-        if local_tuple >= pypi_tuple:
-            return
+    if local_tuple >= pypi_tuple:
+        return
 
-        user_wants_update = input(
-            f"Update available from {local_version} to {pypi_version}. Would you like to update [Y/n]: "
-        ).lower()
+    user_wants_update = input(
+        f"Update available from {local_version} to {pypi_version}. Would you like to update [Y/n]: "
+    ).lower()
 
-        if user_wants_update not in ["y", ""]:
-            return
+    if user_wants_update not in ["y", ""]:
+        return
 
-        update_command = get_update_command(pypi_version)
+    update_command = get_update_command(pypi_version)
 
-        try:
-            _ = subprocess.run(
-                update_command,
-                shell=True,
-                check=True,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
+    _ = subprocess.run(
+        update_command,
+        shell=True,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
 
-            print("Update completed successfully!")
-            print("Please restart the CLI manually to use the new version.")
-            sys.exit(0)
+    print("Update completed successfully!")
+    print("Please restart the CLI manually to use the new version.")
+    sys.exit(0)
 
-        except subprocess.CalledProcessError as e:
-            print(f"Update failed: {e.stderr}")
-
-    except Exception as e:
-        print(f"Error checking for updates: {e}")

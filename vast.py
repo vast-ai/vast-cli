@@ -1486,6 +1486,8 @@ def add_scheduled_job(args, req_json, cli_command, api_endpoint, request_method)
         user_input = input("Existing scheduled job found. Do you want to update it (y|n)? ")
         if user_input.strip().lower() == "y":
             sleep(4)
+            scheduled_job_id = response.json()["scheduled_job_id"]
+            schedule_job_url = apiurl(args, f"/commands/schedule_job/{scheduled_job_id}/")
             response = update_scheduled_job(cli_command, schedule_job_url, frequency, start_time, end_time, request_body)
         else:
             print("Job update aborted by the user.")

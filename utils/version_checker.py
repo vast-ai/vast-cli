@@ -86,7 +86,6 @@ def check_for_update():
         stderr=subprocess.PIPE,
     )
 
-    print("Update completed successfully!")
-    print("Please restart the CLI manually to use the new version.")
+    print("Update completed successfully!\nAttempt to run your command again!")
     sys.exit(0)
 

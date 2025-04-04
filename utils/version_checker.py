@@ -7,8 +7,10 @@ from utils.pypi_api import get_project_data, get_pypi_version, BASE_PATH
 
 def parse_version(version: str) -> tuple[int, ...]:
     parts = version.split(".")
-    while len(parts) < 3:
-        parts.append("0")
+
+    if len(parts) < 3:
+        raise Exception(f"Invalid version format: {version}")
+
     return tuple(int(part) for part in parts)
 
 
@@ -78,8 +80,13 @@ def check_for_update():
         pypi_version = get_pypi_version(pypi_data)
 
         local_version = get_local_version()
-        local_tuple = parse_version(local_version)
-        pypi_tuple = parse_version(pypi_version)
+
+        try:
+            local_tuple = parse_version(local_version)
+            pypi_tuple = parse_version(pypi_version)
+        except Exception as e:
+            print(f"Error parsing version: {e}")
+            return
 
         if local_tuple >= pypi_tuple:
             return

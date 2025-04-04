@@ -3,7 +3,7 @@ requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
 build-backend = "poetry_dynamic_versioning.backend"
 
 [project]
-name = "vastai"
+name = "vast-cli-fork"
 authors = [
   { name = "jake cannell", email = "jake@vast.ai" },
   { name = "chris mckenzie", email = "chris@vast.ai" },
@@ -38,7 +38,7 @@ packages = [{ include = "utils" }, { include = "vast.py" }]
 version = "0.0.0"
 
 [project.scripts]
-vastai = "vast:main"
+vast-cli-fork = "vast:main"
 
 [project.urls]
 homepage = "https://cloud.vast.ai/"

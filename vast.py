@@ -1178,15 +1178,19 @@ def change__bid(args: argparse.Namespace):
     if (args.explain):
         print("request json: ")
         print(json_blob)
-    r = http_put(args, url, headers=headers, json=json_blob)
-    r.raise_for_status()
-    print("Per gpu bid price changed".format(r.json()))
 
     if (args.schedule):
         cli_command = "change bid"
         api_endpoint = "/api/v0/instances/bid_price/{id}/".format(id=args.id)
         json_blob["instance_id"] = args.id
-        add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT") 
+        add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT")     
+        return
+    
+    r = http_put(args, url, headers=headers, json=json_blob)
+    r.raise_for_status()
+    print("Per gpu bid price changed".format(r.json()))
+
+
 
 
 
@@ -1452,9 +1456,10 @@ def cloud__copy(args: argparse.Namespace):
         print(req_json)
 
     if (args.schedule):
-            cli_command = "cloud copy"
-            api_endpoint = "/api/v0/commands/rclone/"
-            add_scheduled_job(args, req_json, cli_command, api_endpoint, "POST")         
+        cli_command = "cloud copy"
+        api_endpoint = "/api/v0/commands/rclone/"
+        add_scheduled_job(args, req_json, cli_command, api_endpoint, "POST")
+        return
         
     r = http_post(args, url, headers=headers,json=req_json)
     r.raise_for_status()
@@ -2305,6 +2310,13 @@ def execute(args):
     r = http_put(args, url,  headers=headers,json=json_blob )
     r.raise_for_status()
 
+    if (args.schedule):
+        cli_command = "execute"
+        api_endpoint = "/api/v0/instances/command/{id}/".format(id=args.ID)
+        json_blob["instance_id"] = args.ID
+        add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT")
+        return
+
     if (r.status_code == 200):
         rj = r.json()
         if (rj["success"]):
@@ -2320,11 +2332,6 @@ def execute(args):
                 if (r.status_code == 200):
                     filtered_text = r.text.replace(rj["writeable_path"], '');
                     print(filtered_text)
-                    if (args.schedule):
-                        cli_command = "execute"
-                        api_endpoint = "/api/v0/instances/command/{id}/".format(id=args.ID)
-                        json_blob["instance_id"] = args.ID
-                        add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT")
                     break
         else:
             print(rj);
@@ -2738,15 +2745,17 @@ def reboot__instance(args):
     r = http_put(args, url,  headers=headers,json={})
     r.raise_for_status()
 
+    if (args.schedule):
+        cli_command = "reboot instance"
+        api_endpoint = "/api/v0/instances/reboot/{id}/".format(id=args.ID)
+        json_blob = {"instance_id": args.ID}
+        add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT")
+        return
+
     if (r.status_code == 200):
         rj = r.json();
         if (rj["success"]):
             print("Rebooting instance {args.ID}.".format(**(locals())));
-            if (args.schedule):
-                cli_command = "reboot instance"
-                api_endpoint = "/api/v0/instances/reboot/{id}/".format(id=args.ID)
-                json_blob = {"instance_id": args.ID}
-                add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT")
         else:
             print(rj["msg"]);
     else:

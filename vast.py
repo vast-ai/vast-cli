@@ -2056,6 +2056,18 @@ def delete__ssh_key(args):
     print(r.json())
 
 @parser.command(
+    argument("id", help="id of scheduled job to remove", type=int),
+    usage="vastai delete scheduled-job ID",
+    help="Delete a scheduled job",
+)
+def delete__scheduled_job(args):
+    url = apiurl(args, "/commands/schedule_job/{id}/".format(id=args.id))
+    r = http_del(args, url, headers=headers)
+    r.raise_for_status()
+    print(r.json())
+
+
+@parser.command(
     argument("id", help="id of group to delete", type=int),
     usage="vastai delete autogroup ID ",
     help="Delete an autogroup group",

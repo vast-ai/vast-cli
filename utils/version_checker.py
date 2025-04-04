@@ -21,7 +21,7 @@ def get_git_version():
             check=True,
         )
         tag = result.stdout.strip()
-        # Remove 'v' prefix if present
+
         return tag[1:] if tag.startswith("v") else tag
     except Exception:
         return "0.0.0"

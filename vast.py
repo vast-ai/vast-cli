@@ -5959,41 +5959,6 @@ def self_test__machine(args):
             raise KeyError(f"No CUDA version found for {cuda_version} or any lower version")
     
 
-        def cuda_map_to_image(cuda_version):
-            """
-            Maps a CUDA version to a Docker image tag, falling back to the next lower version until failure.
-            """
-            docker_repo = "vastai/test"
-            # Convert float input to string
-            if isinstance(cuda_version, float):
-                cuda_version = str(cuda_version)
-            
-            # Predefined mapping. Tracks PyTorch releases
-            docker_tag_map = {
-                "11.8": "cu118",
-                "12.1": "cu121",
-                "12.4": "cu124",
-                "12.6": "cu126",
-                "12.8": "cu128"
-            }
-            
-            if cuda_version in docker_tag_map:
-                return f"{docker_repo}:self-test-{docker_tag_map[cuda_version]}"
-            
-            # Try to find the next version down
-            cuda_float = float(cuda_version)
-            
-            # Try to decrement the version by 0.1 until we find a match or run out of options
-            next_version = round(cuda_float - 0.1, 1)
-            while next_version >= min(float(v) for v in docker_tag_map.keys()):
-                next_version_str = str(next_version)
-                if next_version_str in docker_tag_map:
-                    return f"{docker_repo}:self-test-{docker_tag_map[next_version_str]}"
-                next_version = round(next_version - 0.1, 1)
-            
-            raise KeyError(f"No CUDA version found for {cuda_version} or any lower version")
-    
-
         def search_offers_and_get_top(machine_id):
             search_args = argparse.Namespace(
                 query=[f"machine_id={machine_id}", "verified=any", "rentable=true", "rented=any"],

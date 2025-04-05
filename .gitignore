@@ -2,3 +2,5 @@ gpu_names_cache.json
 passed_machines.txt
 failed_machines.txt
 Pass_testresults.log
+dist/
+__pycache__/

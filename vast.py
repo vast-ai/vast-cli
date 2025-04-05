@@ -30,6 +30,8 @@ import textwrap
 from pathlib import Path
 import warnings
 
+from utils.version_checker import check_for_update, get_local_version
+
 ARGS = None
 TABCOMPLETE = False
 try:
@@ -67,7 +69,9 @@ logging.basicConfig(
     format="%(levelname)s - %(message)s"
 )
 
-APP_NAME = "vastai"
+#TODO  - Change this when ready to go to prod, yes
+APP_NAME = "vast-cli-fork"
+VERSION = get_local_version()
 
 try:
   # Although xdg-base-dirs is the newer name, there's 
@@ -6143,6 +6147,7 @@ def main():
     parser.add_argument("--raw", action="store_true", help="output machine-readable json")
     parser.add_argument("--explain", action="store_true", help="output verbose explanation of mapping of CLI calls to HTTPS API endpoints")
     parser.add_argument("--api-key", help="api key. defaults to using the one stored in {}".format(APIKEY_FILE), type=str, required=False, default=os.getenv("VAST_API_KEY", api_key_guard))
+    parser.add_argument("--version", help="show version", action="version", version=VERSION)
 
     ARGS = args = parser.parse_args()
     #print(args.api_key)
@@ -6158,6 +6163,11 @@ def main():
             args.api_key = None
     if args.api_key:
         headers["Authorization"] = "Bearer " + args.api_key
+
+    try:
+        check_for_update()
+    except Exception as e:
+        print(f"Error checking for update: {e}")
 
     if TABCOMPLETE:
         myautocc = MyAutocomplete()

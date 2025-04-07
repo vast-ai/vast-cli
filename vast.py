@@ -1183,7 +1183,7 @@ def change__bid(args: argparse.Namespace):
         cli_command = "change bid"
         api_endpoint = "/api/v0/instances/bid_price/{id}/".format(id=args.id)
         json_blob["instance_id"] = args.id
-        add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT")     
+        add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT", instance_id=args.id)     
         return
     
     r = http_put(args, url, headers=headers, json=json_blob)
@@ -1458,7 +1458,7 @@ def cloud__copy(args: argparse.Namespace):
     if (args.schedule):
         cli_command = "cloud copy"
         api_endpoint = "/api/v0/commands/rclone/"
-        add_scheduled_job(args, req_json, cli_command, api_endpoint, "POST")
+        add_scheduled_job(args, req_json, cli_command, api_endpoint, "POST", instance_id=args.instance)
         return
         
     r = http_post(args, url, headers=headers,json=req_json)
@@ -1471,7 +1471,7 @@ def cloud__copy(args: argparse.Namespace):
         print("failed with error {r.status_code}".format(**locals()));
 
 
-def add_scheduled_job(args, req_json, cli_command, api_endpoint, request_method):
+def add_scheduled_job(args, req_json, cli_command, api_endpoint, request_method, instance_id=None):
     if args.start_time >= args.end_time:
         raise ValueError("--start_time must be less than --end_time.")
 
@@ -1487,7 +1487,8 @@ def add_scheduled_job(args, req_json, cli_command, api_endpoint, request_method)
                 "request_body": req_json,
                 "day_of_the_week": day,
                 "hour_of_the_day": hour,
-                "frequency": frequency
+                "frequency": frequency,
+                "instance_id": instance_id
             }
                 # Send a POST request
     response = requests.post(schedule_job_url, headers=headers, json=request_body)
@@ -2314,7 +2315,7 @@ def execute(args):
         cli_command = "execute"
         api_endpoint = "/api/v0/instances/command/{id}/".format(id=args.ID)
         json_blob["instance_id"] = args.ID
-        add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT")
+        add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT", instance_id=args.ID)
         return
 
     if (r.status_code == 200):
@@ -2749,7 +2750,7 @@ def reboot__instance(args):
         cli_command = "reboot instance"
         api_endpoint = "/api/v0/instances/reboot/{id}/".format(id=args.ID)
         json_blob = {"instance_id": args.ID}
-        add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT")
+        add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT", instance_id=args.ID)
         return
 
     if (r.status_code == 200):

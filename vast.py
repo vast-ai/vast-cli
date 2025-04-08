@@ -2328,9 +2328,9 @@ def execute(args):
 
     if (args.schedule):
         cli_command = "execute"
-        api_endpoint = "/api/v0/instances/command/{id}/".format(id=args.ID)
-        json_blob["instance_id"] = args.ID
-        add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT", instance_id=args.ID)
+        api_endpoint = "/api/v0/instances/command/{id}/".format(id=args.id)
+        json_blob["instance_id"] = args.id
+        add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT", instance_id=args.id)
         return
 
     if (r.status_code == 200):
@@ -2768,15 +2768,15 @@ def reboot__instance(args):
 
     if (args.schedule):
         cli_command = "reboot instance"
-        api_endpoint = "/api/v0/instances/reboot/{id}/".format(id=args.ID)
-        json_blob = {"instance_id": args.ID}
-        add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT", instance_id=args.ID)
+        api_endpoint = "/api/v0/instances/reboot/{id}/".format(id=args.id)
+        json_blob = {"instance_id": args.id}
+        add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT", instance_id=args.id)
         return
 
     if (r.status_code == 200):
         rj = r.json();
         if (rj["success"]):
-            print("Rebooting instance {args.ID}.".format(**(locals())));
+            print("Rebooting instance {args.id}.".format(**(locals())));
         else:
             print(rj["msg"]);
     else:
@@ -2785,7 +2785,7 @@ def reboot__instance(args):
 
 
 @parser.command(
-    argument("id", help="id of instance to reboot", type=int),
+    argument("id", help="id of instance to recycle", type=int),
     usage="vastai recycle instance ID [OPTIONS]",
     help="Recycle (destroy/create) an instance",
     epilog=deindent("""

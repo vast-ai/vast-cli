@@ -1415,7 +1415,7 @@ def vm__copy(args: argparse.Namespace):
          1001  test_dir  drive 
          1003  data_dir  drive 
          
-         vastai cloud_copy --src /folder --dst /workspace --instance 6003036 --connection 1001 --transfer "Instance To Cloud"
+         vastai cloud copy --src /folder --dst /workspace --instance 6003036 --connection 1001 --transfer "Instance To Cloud"
 
         The example copies all contents of /folder into /workspace on instance 6003036 from gdrive connection 'test_dir'.
     """),

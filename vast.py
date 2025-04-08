@@ -1159,6 +1159,11 @@ def cancel__sync(args: argparse.Namespace):
 @parser.command(
     argument("id", help="id of instance type to change bid", type=int),
     argument("--price", help="per machine bid price in $/hour", type=float),
+    argument("--schedule", choices=["HOURLY", "DAILY", "WEEKLY"], help="try to schedule a command to run hourly, daily, or monthly. Valid values are HOURLY, DAILY, WEEKLY  For ex. --schedule DAILY"),
+    argument("--start_time", type=validate_seconds, help="the start time for your scheduled job in integer seconds since unix epoch. Default will be current time. For ex. --start_time 1728510298", default=(int(time.time()))),
+    argument("--end_time", type=validate_seconds, help="the end time for your scheduled job in integer seconds since unix epoch. Default will be 7 days from now. For ex. --end_time 1729115232", default=(int(time.time() + 7 * 24 * 60 * 60))),
+    argument("--day", help="day of the week you want scheduled job to run on. You can set day to None if you want the job to run everyday. Valid values are 0-6, 0=Sunday, 1=Monday, etc. Default will be 0. For ex. --day 0", default=0),
+    argument("--hour", help="hour of the day you want scheduled job to run on. You can set day and hour to None if you want the job to run every hour. Valid values are 0-23, 0=12am UTC, 1=1am UTC, etc. Default will be 0. For ex. --hour 16", default=0),
     usage="vastai change bid id [--price PRICE]",
     help="Change the bid price for a spot/interruptible instance",
     epilog=deindent("""
@@ -1391,6 +1396,11 @@ def vm__copy(args: argparse.Namespace):
     argument("--ignore-existing", help="skip all files that exist on destination", action="store_true"),
     argument("--update", help="skip files that are newer on the destination", action="store_true"),
     argument("--delete-excluded", help="delete files on dest excluded from transfer", action="store_true"),
+    argument("--schedule", choices=["HOURLY", "DAILY", "WEEKLY"], help="try to schedule a command to run hourly, daily, or monthly. Valid values are HOURLY, DAILY, WEEKLY  For ex. --schedule DAILY"),
+    argument("--start_time", type=validate_seconds, help="the start time for your scheduled job in integer seconds since unix epoch. Default will be current time. For ex. --start_time 1728510298", default=(int(time.time()))),
+    argument("--end_time", type=validate_seconds, help="the end time for your scheduled job in integer seconds since unix epoch. Default will be 7 days from now. For ex. --end_time 1729115232", default=(int(time.time() + 7 * 24 * 60 * 60))),
+    argument("--day", help="day of the week you want scheduled job to run on. You can set day to None if you want the job to run everyday. Valid values are 0-6, 0=Sunday, 1=Monday, etc. Default will be 0. For ex. --day 0", default=0),
+    argument("--hour", help="hour of the day you want scheduled job to run on. You can set day and hour to None if you want the job to run every hour. Valid values are 0-23, 0=12am UTC, 1=1am UTC, etc. Default will be 0. For ex. --hour 16", default=0),
     usage="vastai cloud copy --src SRC --dst DST --instance INSTANCE_ID -connection CONNECTION_ID --transfer TRANSFER_TYPE",
     help="Copy files/folders to and from cloud providers",
     epilog=deindent("""
@@ -2281,6 +2291,11 @@ def detach__ssh(args):
 @parser.command(
     argument("id", help="id of instance to execute on", type=int),
     argument("COMMAND", help="bash command surrounded by single quotes",  type=str),
+    argument("--schedule", choices=["HOURLY", "DAILY", "WEEKLY"], help="try to schedule a command to run hourly, daily, or monthly. Valid values are HOURLY, DAILY, WEEKLY  For ex. --schedule DAILY"),
+    argument("--start_time", type=validate_seconds, help="the start time for your scheduled job in integer seconds since unix epoch. Default will be current time. For ex. --start_time 1728510298", default=(int(time.time()))),
+    argument("--end_time", type=validate_seconds, help="the end time for your scheduled job in integer seconds since unix epoch. Default will be 7 days from now. For ex. --end_time 1729115232", default=(int(time.time() + 7 * 24 * 60 * 60))),
+    argument("--day", help="day of the week you want scheduled job to run on. You can set day to None if you want the job to run everyday. Valid values are 0-6, 0=Sunday, 1=Monday, etc. Default will be 0. For ex. --day 0", default=0),
+    argument("--hour", help="hour of the day you want scheduled job to run on. You can set day and hour to None if you want the job to run every hour. Valid values are 0-23, 0=12am UTC, 1=1am UTC, etc. Default will be 0. For ex. --hour 16", default=0),
     usage="vastai execute id COMMAND",
     help="Execute a (constrained) remote command on a machine",
     epilog=deindent("""
@@ -2731,6 +2746,11 @@ def prepay__instance(args):
 
 @parser.command(
     argument("id", help="id of instance to reboot", type=int),
+    argument("--schedule", choices=["HOURLY", "DAILY", "WEEKLY"], help="try to schedule a command to run hourly, daily, or monthly. Valid values are HOURLY, DAILY, WEEKLY  For ex. --schedule DAILY"),
+    argument("--start_time", type=validate_seconds, help="the start time for your scheduled job in integer seconds since unix epoch. Default will be current time. For ex. --start_time 1728510298", default=(int(time.time()))),
+    argument("--end_time", type=validate_seconds, help="the end time for your scheduled job in integer seconds since unix epoch. Default will be 7 days from now. For ex. --end_time 1729115232", default=(int(time.time() + 7 * 24 * 60 * 60))),
+    argument("--day", help="day of the week you want scheduled job to run on. You can set day to None if you want the job to run everyday. Valid values are 0-6, 0=Sunday, 1=Monday, etc. Default will be 0. For ex. --day 0", default=0),
+    argument("--hour", help="hour of the day you want scheduled job to run on. You can set day and hour to None if you want the job to run every hour. Valid values are 0-23, 0=12am UTC, 1=1am UTC, etc. Default will be 0. For ex. --hour 16", default=0),
     usage="vastai reboot instance ID [OPTIONS]",
     help="Reboot (stop/start) an instance",
     epilog=deindent("""
@@ -6267,11 +6287,6 @@ def main():
     parser.add_argument("--retry", help="retry limit", default=3)
     parser.add_argument("--raw", action="store_true", help="output machine-readable json")
     parser.add_argument("--explain", action="store_true", help="output verbose explanation of mapping of CLI calls to HTTPS API endpoints")
-    parser.add_argument("--schedule", choices=["HOURLY", "DAILY", "WEEKLY"], help="try to schedule a command to run hourly, daily, or monthly. Valid values are HOURLY, DAILY, WEEKLY  For ex. --schedule DAILY")
-    parser.add_argument("--start_time", type=validate_seconds, help="the start time for your scheduled job in integer seconds since unix epoch. Default will be current time. For ex. --start_time 1728510298", default=(int(time.time())))
-    parser.add_argument("--end_time", type=validate_seconds, help="the end time for your scheduled job in integer seconds since unix epoch. Default will be 7 days from now. For ex. --end_time 1729115232", default=(int(time.time() + 7 * 24 * 60 * 60)))
-    parser.add_argument("--day", help="day of the week you want scheduled job to run on. You can set day to None if you want the job to run everyday. Valid values are 0-6, 0=Sunday, 1=Monday, etc. Default will be 0. For ex. --day 0", default=0)
-    parser.add_argument("--hour", help="hour of the day you want scheduled job to run on. You can set day and hour to None if you want the job to run every hour. Valid values are 0-23, 0=12am UTC, 1=1am UTC, etc. Default will be 0. For ex. --hour 16", default=0)
     parser.add_argument("--api-key", help="api key. defaults to using the one stored in {}".format(APIKEY_FILE), type=str, required=False, default=os.getenv("VAST_API_KEY", api_key_guard))
 
     ARGS = args = parser.parse_args()

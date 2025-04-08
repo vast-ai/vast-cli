@@ -5128,15 +5128,13 @@ def set_ask(args):
 
 @parser.command(
     argument("id", help="id of machine to launch default instance on", type=int),
-    argument("--price_gpu", help="per gpu rental price in $/hour", type=float),
-    argument("--price_inetu", help="price for internet upload bandwidth in $/GB", type=float),
-    argument("--price_inetd", help="price for internet download bandwidth in $/GB", type=float),
     argument("--image", help="docker container image to launch", type=str),
     argument("--args", nargs=argparse.REMAINDER, help="list of arguments passed to container launch"),
-    usage="vastai set defjob id [--api-key API_KEY] [--price_gpu PRICE_GPU] [--price_inetu PRICE_INETU] [--price_inetd PRICE_INETD] [--image IMAGE] [--args ...]",
+    usage="vastai set defjob id [--api-key API_KEY] [--image IMAGE] [--args ...]",
     help="[Host] Create default jobs for a machine",
     epilog=deindent("""
-        Performs the same action as creating a background job at https://cloud.vast.ai/host/create.       
+        Performs the same action as creating a background job at https://cloud.vast.ai/host/create.
+        Image is required.
                     
     """)
     
@@ -5148,7 +5146,7 @@ def set__defjob(args):
     :rtype:
     """
     req_url   = apiurl(args, "/machines/create_bids/");
-    json_blob = {'machine': args.id, 'price_gpu': args.price_gpu, 'price_inetu': args.price_inetu, 'price_inetd': args.price_inetd, 'image': args.image, 'args': args.args}
+    json_blob = {'machine': args.id, 'image': args.image, 'args': args.args}
     if (args.explain):
         print("request json: ")
         print(json_blob)

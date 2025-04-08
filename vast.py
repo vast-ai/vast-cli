@@ -188,7 +188,7 @@ def http_request(verb, args, req_url, headers = None, json = None):
             parts = re.split(r'(?=\s+-\S+)', simple)
             pp = parts[-1].split("'")
             pp[-3] += "\n "
-            parts = [*parts[:-1], *[x.strip() for x in "'".join(pp).split("\n")]]
+            parts = [*parts[:-1], *[x.rstrip() for x in "'".join(pp).split("\n")]]
             print("\n" + ' \\\n  '.join(parts).strip() + "\n")
             sys.exit(0)
         else:

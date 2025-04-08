@@ -40,6 +40,11 @@ except:
     pass
 
 try:
+    import curlify
+except ImportError:
+    pass
+
+try:
     from urllib import quote_plus  # Python 2.X
 except ImportError:
     from urllib.parse import quote_plus  # Python 3+
@@ -171,51 +176,42 @@ class hidden_aliases(object):
     def append(self, x):
         self.l.append(x)
 
-def http_get(args, req_url, headers = None, json = None):
+def http_request(verb, args, req_url, headers = None, json = None):
     t = 0.15
     for i in range(0, args.retry):
-        r = requests.get(req_url, headers=headers, json=json)
+        req = requests.Request(method=verb, url=req_url, headers=headers, json=json)
+        session = requests.Session()
+        prep = session.prepare_request(req)
+        if args.curl:
+            as_curl = curlify.to_curl(prep)
+            simple = re.sub(r" -H '[^']*'", '', as_curl)
+            parts = re.split(r'(?=\s+-\S+)', simple)
+            pp = parts[-1].split("'")
+            pp[-3] += "\n "
+            parts = [*parts[:-1], *[x.strip() for x in "'".join(pp).split("\n")]]
+            print("\n" + ' \\\n  '.join(parts).strip() + "\n")
+            sys.exit(0)
+        else:
+            r = session.send(prep)
+
         if (r.status_code == 429):
             time.sleep(t)
             t *= 1.5
         else:
             break
     return r
+
+def http_get(args, req_url, headers = None, json = None):
+    return http_request('GET', args, req_url, headers, json)
 
 def http_put(args, req_url, headers, json):
-    t = 0.3
-    for i in range(0, int(args.retry)):
-        r = requests.put(req_url, headers=headers, json=json)
-        if (r.status_code == 429):
-            time.sleep(t)
-            t *= 1.5
-        else:
-            break
-    return r
+    return http_request('PUT', args, req_url, headers, json)
 
 def http_post(args, req_url, headers, json={}):
-    t = 0.3
-    for i in range(0, int(args.retry)):
-        #if (args.explain):
-        #    print(req_url)
-        r = requests.post(req_url, headers=headers, json=json)
-        if (r.status_code == 429):
-            time.sleep(t)
-            t *= 1.5
-        else:
-            break
-    return r
+    return http_request('POST', args, req_url, headers, json)
 
 def http_del(args, req_url, headers, json={}):
-    t = 0.3
-    for i in range(0, int(args.retry)):
-        r = requests.delete(req_url, headers=headers, json=json)
-        if (r.status_code == 429):
-            time.sleep(t)
-            t *= 1.5
-        else:
-            break
-    return r
+    return http_request('DELETE', args, req_url, headers, json)
 
 
 def load_permissions_from_file(file_path):
@@ -6142,6 +6138,7 @@ def main():
     parser.add_argument("--retry", help="retry limit", default=3)
     parser.add_argument("--raw", action="store_true", help="output machine-readable json")
     parser.add_argument("--explain", action="store_true", help="output verbose explanation of mapping of CLI calls to HTTPS API endpoints")
+    parser.add_argument("--curl", action="store_true", help="show a curl equivalency to the call")
     parser.add_argument("--api-key", help="api key. defaults to using the one stored in {}".format(APIKEY_FILE), type=str, required=False, default=os.getenv("VAST_API_KEY", api_key_guard))
 
     ARGS = args = parser.parse_args()

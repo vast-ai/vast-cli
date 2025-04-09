@@ -79,7 +79,7 @@ class VastAIBase(ABC):
 
     def create_instance(
         self,
-        ID: int,
+        id: int,
         price: Optional[float] = None,
         disk: Optional[float] = 10,
         image: Optional[str] = None,
@@ -143,16 +143,16 @@ class VastAIBase(ABC):
         """Create a new template."""
         pass
 
-    def delete_api_key(self, ID: int) -> str:
+    def delete_api_key(self, id: int) -> str:
         pass
 
-    def delete_ssh_key(self, ID: int) -> str:
+    def delete_ssh_key(self, id: int) -> str:
         pass
 
-    def delete_autoscaler(self, ID: int) -> str:
+    def delete_autoscaler(self, id: int) -> str:
         pass
 
-    def delete_endpoint(self, ID: int) -> str:
+    def delete_endpoint(self, id: int) -> str:
         pass
 
     def destroy_instance(self, id: int) -> str:
@@ -167,7 +167,7 @@ class VastAIBase(ABC):
     def detach_ssh(self, instance_id: int, ssh_key_id: str) -> str:
         pass
 
-    def execute(self, ID: int, COMMAND: str) -> str:
+    def execute(self, id: int, COMMAND: str) -> str:
         """Execute a command on an instance."""
         pass
 
@@ -222,19 +222,19 @@ class VastAIBase(ABC):
         """Retrieve logs for an instance."""
         pass
 
-    def prepay_instance(self, ID: int, amount: float) -> str:
+    def prepay_instance(self, id: int, amount: float) -> str:
         """Prepay for an instance."""
         pass
 
-    def reboot_instance(self, ID: int) -> str:
+    def reboot_instance(self, id: int) -> str:
         """Reboot an instance."""
         pass
 
-    def recycle_instance(self, ID: int) -> str:
+    def recycle_instance(self, id: int) -> str:
         """Recycle an instance."""
         pass
 
-    def remove_team_member(self, ID: int) -> str:
+    def remove_team_member(self, id: int) -> str:
         """Remove a member from the team."""
         pass
 
@@ -242,7 +242,7 @@ class VastAIBase(ABC):
         """Remove a role from the team."""
         pass
 
-    def reports(self, ID: int) -> str:
+    def reports(self, id: int) -> str:
         """Generate reports for a machine."""
         pass
 
@@ -250,19 +250,19 @@ class VastAIBase(ABC):
         """Reset the API key."""
         pass
 
-    def start_instance(self, ID: int) -> str:
+    def start_instance(self, id: int) -> str:
         """Start an instance."""
         pass
 
-    def start_instances(self, IDs: List[int]) -> str:
+    def start_instances(self, ids: List[int]) -> str:
         """Start multiple instances."""
         pass
 
-    def stop_instance(self, ID: int) -> str:
+    def stop_instance(self, id: int) -> str:
         """Stop an instance."""
         pass
 
-    def stop_instances(self, IDs: List[int]) -> str:
+    def stop_instances(self, ids: List[int]) -> str:
         """Stop multiple instances."""
         pass
 
@@ -332,7 +332,7 @@ class VastAIBase(ABC):
         """Show all connections."""
         pass
 
-    def show_deposit(self, ID: int) -> str:
+    def show_deposit(self, Id: int) -> str:
         """Show deposit details for an instance."""
         pass
 
@@ -396,7 +396,7 @@ class VastAIBase(ABC):
 
     def update_autoscaler(
         self,
-        ID: int,
+        id: int,
         min_load: Optional[float] = None,
         target_util: Optional[float] = None,
         cold_mult: Optional[float] = None,
@@ -413,7 +413,7 @@ class VastAIBase(ABC):
 
     def update_endpoint(
         self,
-        ID: int,
+        id: int,
         min_load: Optional[float] = None,
         target_util: Optional[float] = None,
         cold_mult: Optional[float] = None,
@@ -424,7 +424,7 @@ class VastAIBase(ABC):
         pass
 
     def update_team_role(
-        self, ID: int, name: Optional[str] = None, permissions: Optional[str] = None
+        self, id: int, name: Optional[str] = None, permissions: Optional[str] = None
     ) -> str:
         """Update details of a team role."""
         pass
@@ -444,13 +444,13 @@ class VastAIBase(ABC):
         """Generate PDF invoices based on filters."""
         pass
 
-    def cleanup_machine(self, ID: int) -> str:
+    def cleanup_machine(self, id: int) -> str:
         """Clean up a machine's configuration and resources."""
         pass
 
     def list_machine(
         self,
-        ID: int,
+        id: int,
         price_gpu: Optional[float] = None,
         price_disk: Optional[float] = None,
         price_inetu: Optional[float] = None,
@@ -464,7 +464,7 @@ class VastAIBase(ABC):
 
     def list_machines(
         self,
-        IDs: List[int],
+        ids: List[int],
         price_gpu: Optional[float] = None,
         price_disk: Optional[float] = None,
         price_inetu: Optional[float] = None,

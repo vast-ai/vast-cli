@@ -1,13 +1,16 @@
 import importlib
 import types
 import argparse
-from typing import Optional
+from typing import Optional, Any
 import io
 import contextlib
 import requests
+import inspect
+import re
 
 from .vastai_base import VastAIBase
 from .vast import parser
+from textwrap import dedent
 
 
 class VastAI(VastAIBase):
@@ -18,7 +21,7 @@ class VastAI(VastAIBase):
         api_key,
         server_url="https://console.vast.ai",
         retry=3,
-        raw=False,
+        raw=True,
         explain=False,
         quiet=False,
     ):
@@ -32,6 +35,55 @@ class VastAI(VastAIBase):
         self.quiet = quiet
         self.imported_methods = {}
         self.import_cli_functions()
+
+    def generate_signature_from_argparse(self, parser):
+        parameters = [inspect.Parameter("self", inspect.Parameter.POSITIONAL_OR_KEYWORD)]
+        isFirst = True
+        docstring = ''
+        
+        for action in parser._actions:
+            if action.dest == 'help':  
+                continue
+            
+            # Determine parameter kind
+            kind = inspect.Parameter.POSITIONAL_OR_KEYWORD
+            if action.option_strings:
+                kind = inspect.Parameter.KEYWORD_ONLY
+            
+            # Determine default and annotation
+            default = action.default if action.default != argparse.SUPPRESS else None
+            annotation = action.type if action.type else Any
+
+            # Create the parameter
+            param = inspect.Parameter(
+                action.dest,
+                kind=kind,
+                default=default,
+                annotation=annotation
+            )
+            parameters.append(param)
+            if isFirst:
+                docstring = 'Args:\n'
+                isFirst = False
+
+            param_type = annotation.__name__ if hasattr(annotation, "__name__") else "Any"
+            help_text = f"{action.help or 'No description'}"
+            docstring += f"\t{action.dest} ({param_type}): {help_text}\n"
+            if default is not None:
+                docstring += f"\t\tDefault is {default}.\n"
+
+            #help_text = f"  - {action.dest} ({param_type}): {action.help or 'No description'}"
+            #if default is not None:
+            #    help_text += f" (default: {default})"
+            #docstring += help_text + "\n"
+        
+        # Return a custom Signature object
+        sig = ''
+        try:
+            sig = inspect.Signature(parameters)
+        except:
+            pass
+        return sig, docstring
 
     def import_cli_functions(self):
         """Dynamically import functions from vast.py and bind them as instance methods."""
@@ -99,15 +151,48 @@ class VastAI(VastAIBase):
 
             args = argparse.Namespace(**kwargs)
 
-            with io.StringIO() as buf, contextlib.redirect_stdout(buf):
-                func(args)  # Execute the function, which prints output
-                output = buf.getvalue()  # Capture the output
+            return func(args) 
 
-            return output
+        func_name = func.__name__.replace("__", "_")
+        wrapper.__name__ = func_name
 
-        wrapper.__doc__ = (
-            f"Wrapper for {func.__name__}, dynamically imported from vast.py."
-        )
+        wrapper.__doc__ = ''
+        hasDoc = False
+        # We don't want to be redundant so we look for help in various places and 
+        # if it's not empty after we parse through it then we use it as our
+        # canonical help. So we go in this order:
+        #
+        #   func.__doc__
+        #   sig.epilog
+        #   sig.help
+        #
+
+        if func.__doc__:
+            doc = dedent(re.sub(r'\s(:param|@).*', '', func.__doc__, flags=re.DOTALL)).strip()
+            if doc:
+               hasDoc = True
+               wrapper.__doc__ += f"{doc}\n\n"
+
+        sig = getattr(func, "signature")
+        sig_help = getattr(func, "signature_help")
+        if sig:
+            try:
+                wrapper.__signature__, docappend = self.generate_signature_from_argparse(sig)
+                epi = None
+
+                if sig.epilog:
+                    epi = re.sub('Example.?:.*', '', sig.epilog, flags=re.DOTALL|re.M).strip()
+                    wrapper.__doc__ += epi
+
+                if not (epi or hasDoc) and sig_help:
+                    wrapper.__doc__ += sig_help
+                
+                wrapper.__doc__ = '\n\n'.join([ wrapper.__doc__.rstrip(), docappend ])
+            except Exception as ex:
+                #import traceback
+                #traceback.print_exc()
+                #print("Failure : {} {}".format(func_name, ex))
+                pass
         return wrapper
 
     def __getattr__(self, name):

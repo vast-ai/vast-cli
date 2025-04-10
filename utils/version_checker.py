@@ -73,10 +73,12 @@ def check_for_update():
     ).lower()
 
     if user_wants_update not in ["y", ""]:
+        print("You selected no. If you don't want to check for updates each time, update config.py")
         return
 
     update_command = get_update_command(pypi_version)
 
+    print("Updating...")
     _ = subprocess.run(
         update_command,
         shell=True,
@@ -88,4 +90,3 @@ def check_for_update():
 
     print("Update completed successfully!\nAttempt to run your command again!")
     sys.exit(0)
-

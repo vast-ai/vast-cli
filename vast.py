@@ -29,6 +29,7 @@ import logging
 import textwrap
 from pathlib import Path
 import warnings
+from config import should_check_for_update
 
 from utils.version_checker import check_for_update, get_local_version
 
@@ -6164,10 +6165,11 @@ def main():
     if args.api_key:
         headers["Authorization"] = "Bearer " + args.api_key
 
-    try:
-        check_for_update()
-    except Exception as e:
-        print(f"Error checking for update: {e}")
+    if not args.raw and should_check_for_update:
+        try:
+            check_for_update()
+        except Exception as e:
+            print(f"Error checking for update: {e}")
 
     if TABCOMPLETE:
         myautocc = MyAutocomplete()

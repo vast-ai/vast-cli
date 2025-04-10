@@ -163,6 +163,20 @@ files = [
 ]
 
 [[package]]
+name = "curlify"
+version = "2.2.1"
+description = "Library to convert python requests object to curl command."
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "curlify-2.2.1.tar.gz", hash = "sha256:0d3f02e7235faf952de8ef45ef469845196d30632d5838bcd5aee217726ddd6d"},
+]
+
+[package.dependencies]
+requests = "*"
+
+[[package]]
 name = "dunamai"
 version = "1.23.1"
 description = "Dynamic version generation"
@@ -731,4 +745,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.9, <4.0"
-content-hash = "c47a6c4160553f9d565914b32f600e2582224b4e8ec3c60d80d9eb858c018caf"
+content-hash = "1c26987ae196de133ce97bf8578f7495db87d15c718748769bd5b3360acca24a"

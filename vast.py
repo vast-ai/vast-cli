@@ -76,7 +76,7 @@ logging.basicConfig(
 )
 
 #TODO  - Change this when ready to go to prod, yes
-APP_NAME = "vast-cli-fork"
+APP_NAME = "vastai"
 VERSION = get_local_version()
 
 try:

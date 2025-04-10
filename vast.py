@@ -5964,6 +5964,7 @@ def self_test__machine(args):
                 explain=args.explain,
                 api_key=api_key,
                 url=args.url,
+                curl=args.curl,
                 retry=args.retry,
                 debugging=args.debugging,
             )

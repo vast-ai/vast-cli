@@ -1,0 +1,29 @@
+name: PyPI Publish
+on:
+  push:
+    tags:
+      - v[0-9]+.[0-9]+.[0-9]+
+jobs:
+  build_and_publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # imporatnt for git history with dynamic versioning
+      - name: install python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: install poetry and plugins
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          poetry self add "poetry-dynamic-versioning[plugin]"
+      - name: install dependencies
+        run: poetry install --no-interaction --no-root
+      - name: build and publish to PyPI
+        env:
+          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          poetry config pypi-token.pypi "$PYPI_API_TOKEN"
+          poetry publish --build

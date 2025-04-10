@@ -45,6 +45,18 @@ You can test a search command with:
 ```
 This should display a short list of machine offers.
 
+We also now support Poetry as our dependency manager! If you're having trouble installing external packages, through `requirements.txt`, we recommend to use Poetry which manages this all for you.
+In order to get started -
+
+```bash
+# Install poetry if you don't have it already.
+curl -sSL https://install.python-poetry.org | python3 -
+# Install project dependencies
+poetry install
+# Run vast.py
+python vast.py
+
+```
 ## Usage
 The Vast.ai CLI provides a variety of commands for interacting with the Vast.ai platform. For example, you can search for available machines by running:
 ```bash

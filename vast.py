@@ -29,6 +29,9 @@ import logging
 import textwrap
 from pathlib import Path
 import warnings
+from config import should_check_for_update
+
+from utils.version_checker import check_for_update, get_local_version
 
 ARGS = None
 TABCOMPLETE = False
@@ -73,6 +76,7 @@ logging.basicConfig(
 )
 
 APP_NAME = "vastai"
+VERSION = get_local_version()
 
 try:
   # Although xdg-base-dirs is the newer name, there's 
@@ -6134,6 +6138,7 @@ def main():
     parser.add_argument("--explain", action="store_true", help="output verbose explanation of mapping of CLI calls to HTTPS API endpoints")
     parser.add_argument("--curl", action="store_true", help="show a curl equivalency to the call")
     parser.add_argument("--api-key", help="api key. defaults to using the one stored in {}".format(APIKEY_FILE), type=str, required=False, default=os.getenv("VAST_API_KEY", api_key_guard))
+    parser.add_argument("--version", help="show version", action="version", version=VERSION)
 
     ARGS = args = parser.parse_args()
     #print(args.api_key)
@@ -6149,6 +6154,12 @@ def main():
             args.api_key = None
     if args.api_key:
         headers["Authorization"] = "Bearer " + args.api_key
+
+    if not args.raw and should_check_for_update:
+        try:
+            check_for_update()
+        except Exception as e:
+            print(f"Error checking for update: {e}")
 
     if TABCOMPLETE:
         myautocc = MyAutocomplete()

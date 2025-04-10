@@ -73,7 +73,7 @@ def check_for_update():
     ).lower()
 
     if user_wants_update not in ["y", ""]:
-        print("You selected no. If you don't want to check for updates each time, update config.py")
+        print("You selected no. If you don't want to check for updates each time, update vast_config.py")
         return
 
     update_command = get_update_command(pypi_version)

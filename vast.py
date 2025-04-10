@@ -186,7 +186,7 @@ def http_request(verb, args, req_url, headers = None, json = None):
         req = requests.Request(method=verb, url=req_url, headers=headers, json=json)
         session = requests.Session()
         prep = session.prepare_request(req)
-        if args.curl:
+        if ARGS.curl:
             as_curl = curlify.to_curl(prep)
             simple = re.sub(r" -H '[^']*'", '', as_curl)
             parts = re.split(r'(?=\s+-\S+)', simple)
@@ -5964,6 +5964,7 @@ def self_test__machine(args):
                 explain=args.explain,
                 api_key=api_key,
                 url=args.url,
+                curl=args.curl,
                 retry=args.retry,
                 debugging=args.debugging,
             )

@@ -7,5 +7,5 @@ pytz
 urllib3==2.2.3
 poetry-dynamic-versioning==1.8.1
 gitpython==3.1.44
-toml=0.10.2
+toml==0.10.2
 curlify

@@ -75,7 +75,6 @@ logging.basicConfig(
     format="%(levelname)s - %(message)s"
 )
 
-#TODO  - Change this when ready to go to prod, yes
 APP_NAME = "vastai"
 VERSION = get_local_version()
 

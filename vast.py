@@ -43,6 +43,11 @@ except:
     pass
 
 try:
+    import curlify
+except ImportError:
+    pass
+
+try:
     from urllib import quote_plus  # Python 2.X
 except ImportError:
     from urllib.parse import quote_plus  # Python 3+
@@ -176,51 +181,42 @@ class hidden_aliases(object):
     def append(self, x):
         self.l.append(x)
 
-def http_get(args, req_url, headers = None, json = None):
+def http_request(verb, args, req_url, headers = None, json = None):
     t = 0.15
     for i in range(0, args.retry):
-        r = requests.get(req_url, headers=headers, json=json)
+        req = requests.Request(method=verb, url=req_url, headers=headers, json=json)
+        session = requests.Session()
+        prep = session.prepare_request(req)
+        if args.curl:
+            as_curl = curlify.to_curl(prep)
+            simple = re.sub(r" -H '[^']*'", '', as_curl)
+            parts = re.split(r'(?=\s+-\S+)', simple)
+            pp = parts[-1].split("'")
+            pp[-3] += "\n "
+            parts = [*parts[:-1], *[x.rstrip() for x in "'".join(pp).split("\n")]]
+            print("\n" + ' \\\n  '.join(parts).strip() + "\n")
+            sys.exit(0)
+        else:
+            r = session.send(prep)
+
         if (r.status_code == 429):
             time.sleep(t)
             t *= 1.5
         else:
             break
     return r
+
+def http_get(args, req_url, headers = None, json = None):
+    return http_request('GET', args, req_url, headers, json)
 
 def http_put(args, req_url, headers, json):
-    t = 0.3
-    for i in range(0, int(args.retry)):
-        r = requests.put(req_url, headers=headers, json=json)
-        if (r.status_code == 429):
-            time.sleep(t)
-            t *= 1.5
-        else:
-            break
-    return r
+    return http_request('PUT', args, req_url, headers, json)
 
 def http_post(args, req_url, headers, json={}):
-    t = 0.3
-    for i in range(0, int(args.retry)):
-        #if (args.explain):
-        #    print(req_url)
-        r = requests.post(req_url, headers=headers, json=json)
-        if (r.status_code == 429):
-            time.sleep(t)
-            t *= 1.5
-        else:
-            break
-    return r
+    return http_request('POST', args, req_url, headers, json)
 
 def http_del(args, req_url, headers, json={}):
-    t = 0.3
-    for i in range(0, int(args.retry)):
-        r = requests.delete(req_url, headers=headers, json=json)
-        if (r.status_code == 429):
-            time.sleep(t)
-            t *= 1.5
-        else:
-            break
-    return r
+    return http_request('DELETE', args, req_url, headers, json)
 
 
 def load_permissions_from_file(file_path):
@@ -2195,13 +2191,8 @@ def execute(args):
         if (rj["success"]):
             for i in range(0,30):
                 time.sleep(0.3)
-                url = rj.get("result_url",None)
-                if (url is None):
-                    api_key_id_h = hashlib.md5( (args.api_key + str(args.id)).encode('utf-8') ).hexdigest()
-                    url = "https://s3.amazonaws.com/vast.ai/instance_logs/" + api_key_id_h + "C.log"
-                # print(f"trying {url}")
-                r = requests.get(url) #headers=headers
-                # print(f"got: {r.status_code}")
+                url = rj["result_url"]
+                r = requests.get(url)
                 if (r.status_code == 200):
                     filtered_text = r.text.replace(rj["writeable_path"], '');
                     print(filtered_text)
@@ -2553,8 +2544,7 @@ def logs(args):
         rj = r.json()
         for i in range(0, 30):
             time.sleep(0.3)
-            api_key_id_h = hashlib.md5((args.api_key + str(args.INSTANCE_ID)).encode('utf-8')).hexdigest()
-            url = "https://s3.amazonaws.com/vast.ai/instance_logs/" + api_key_id_h + ".log"
+            url = rj["result_url"]
             print(f"waiting on logs for instance {args.INSTANCE_ID} fetching from {url}")
             r = requests.get(url)
             if r.status_code == 200:
@@ -4275,13 +4265,13 @@ def transfer__credit(args: argparse.Namespace):
     argument("--template_id",   help="template id", type=int),
     argument("--search_params",   help="search param string for search offers    ex: \"gpu_ram>=23 num_gpus=2 gpu_name=RTX_4090 inet_down>200 direct_port_count>2 disk_space>=64\"", type=str),
     argument("-n", "--no-default", action="store_true", help="Disable default search param query args"),
-    argument("--launch_args",   help="launch args  string for create instance  ex: \"--onstart onstart_wget.sh  --env '-e ONSTART_PATH=https://s3.amazonaws.com/vast.ai/onstart_OOBA.sh' --image atinoda/text-generation-webui:default-nightly --disk 64\"", type=str),
+    argument("--launch_args",   help="launch args  string for create instance  ex: \"--onstart onstart_wget.sh  --env '-e ONSTART_PATH=https://s3.amazonaws.com/public.vast.ai/onstart_OOBA.sh' --image atinoda/text-generation-webui:default-nightly --disk 64\"", type=str),
     argument("--endpoint_name",   help="deployment endpoint name (allows multiple autoscale groups to share same deployment endpoint)", type=str),
     argument("--endpoint_id",   help="deployment endpoint id (allows multiple autoscale groups to share same deployment endpoint)", type=int),
     usage="vastai update autogroup ID [OPTIONS]",
     help="Update an existing autoscale group",
     epilog=deindent("""
-        Example: vastai update autogroup 4242 --min_load 100 --target_util 0.9 --cold_mult 2.0 --search_params \"gpu_ram>=23 num_gpus=2 gpu_name=RTX_4090 inet_down>200 direct_port_count>2 disk_space>=64\" --launch_args \"--onstart onstart_wget.sh  --env '-e ONSTART_PATH=https://s3.amazonaws.com/vast.ai/onstart_OOBA.sh' --image atinoda/text-generation-webui:default-nightly --disk 64\" --gpu_ram 32.0 --endpoint_name "LLama" --endpoint_id 2
+        Example: vastai update autogroup 4242 --min_load 100 --target_util 0.9 --cold_mult 2.0 --search_params \"gpu_ram>=23 num_gpus=2 gpu_name=RTX_4090 inet_down>200 direct_port_count>2 disk_space>=64\" --launch_args \"--onstart onstart_wget.sh  --env '-e ONSTART_PATH=https://s3.amazonaws.com/public.vast.ai/onstart_OOBA.sh' --image atinoda/text-generation-webui:default-nightly --disk 64\" --gpu_ram 32.0 --endpoint_name "LLama" --endpoint_id 2
     """),
 )
 def update__autogroup(args):
@@ -6147,6 +6137,7 @@ def main():
     parser.add_argument("--retry", help="retry limit", default=3)
     parser.add_argument("--raw", action="store_true", help="output machine-readable json")
     parser.add_argument("--explain", action="store_true", help="output verbose explanation of mapping of CLI calls to HTTPS API endpoints")
+    parser.add_argument("--curl", action="store_true", help="show a curl equivalency to the call")
     parser.add_argument("--api-key", help="api key. defaults to using the one stored in {}".format(APIKEY_FILE), type=str, required=False, default=os.getenv("VAST_API_KEY", api_key_guard))
     parser.add_argument("--version", help="show version", action="version", version=VERSION)
 

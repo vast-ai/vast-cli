@@ -29,9 +29,9 @@ import logging
 import textwrap
 from pathlib import Path
 import warnings
-from config import should_check_for_update
+from vast_config import should_check_for_update
 
-from utils.version_checker import check_for_update, get_local_version
+from utils.version_checker import check_for_update, get_local_version, is_pip_package
 
 ARGS = None
 TABCOMPLETE = False
@@ -6157,7 +6157,8 @@ def main():
 
     if not args.raw and should_check_for_update:
         try:
-            check_for_update()
+            if is_pip_package():
+                check_for_update()
         except Exception as e:
             print(f"Error checking for update: {e}")
 

@@ -1195,8 +1195,6 @@ def change__bid(args: argparse.Namespace):
 
 
 
-
-
 @parser.command(
     argument("source", help="id of volume contract being cloned", type=int),
     argument("dest", help="id of volume offer volume is being copied to", type=int),
@@ -2079,7 +2077,6 @@ def delete__scheduled_job(args):
     r = http_del(args, url, headers=headers)
     r.raise_for_status()
     print(r.json())
-
 
 @parser.command(
     argument("id", help="id of group to delete", type=int),
@@ -6275,8 +6272,6 @@ try:
       return sorted(pre, key=lambda x: x.startswith('-'))
 except:
   pass
-
-
 
 
 def main():

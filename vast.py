@@ -101,16 +101,17 @@ def get_git_version():
 
 
 def get_pip_version():
-    return importlib.metadata.version("vastai")
+    try:
+        return importlib.metadata.version("vastai")
+    except Exception:
+        return "0.0.0"
 
 
 def is_pip_package():
     script_path = sys.argv[0]
     executable_name = os.path.basename(script_path)
 
-    print("executable_name:", executable_name)
-
-    return executable_name != "vast.py" or executable_name != "vast"
+    return executable_name == "vastai"
 
 
 def get_update_command(stable_version: str) -> str:

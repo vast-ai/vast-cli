@@ -108,6 +108,8 @@ def is_pip_package():
     script_path = sys.argv[0]
     executable_name = os.path.basename(script_path)
 
+    print("executable_name:", executable_name)
+
     return executable_name != "vast.py" or executable_name != "vast"
 
 

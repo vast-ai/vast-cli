@@ -114,9 +114,9 @@ def is_pip_package():
 def get_update_command(stable_version: str) -> str:
     if is_pip_package():
         if "test.pypi.org" in PYPI_BASE_PATH:
-            return f"{sys.executable} -m pip install --force-reinstall --no-cache-dir -i {PYPI_BASE_PATH} vast-cli-fork=={stable_version}"
+            return f"{sys.executable} -m pip install --force-reinstall --no-cache-dir -i {PYPI_BASE_PATH} vastai=={stable_version}"
         else:
-            return f"{sys.executable} -m pip install --force-reinstall --no-cache-dir vast-cli-fork=={stable_version}"
+            return f"{sys.executable} -m pip install --force-reinstall --no-cache-dir vastai=={stable_version}"
     else:
         return f"git fetch --all --tags --prune && git checkout tags/v{stable_version}"
 
@@ -128,7 +128,7 @@ def get_local_version():
 
 
 def check_for_update():
-    pypi_data = get_project_data("vast-cli-fork")
+    pypi_data = get_project_data("vastai")
     pypi_version = get_pypi_version(pypi_data)
 
     local_version = get_local_version()

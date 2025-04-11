@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 import getpass
 import subprocess
+from time import sleep
 from subprocess import PIPE
 import urllib3
 import atexit
@@ -240,6 +241,25 @@ headers = {}
 
 class Object(object):
     pass
+
+def validate_seconds(value):
+    """Validate that the input value is a valid number for seconds between yesterday and Jan 1, 2100."""
+    try:
+        val = int(value)
+        
+        # Calculate min_seconds as the start of yesterday in seconds
+        yesterday = datetime.now() - timedelta(days=1)
+        min_seconds = int(yesterday.timestamp())
+        
+        # Calculate max_seconds for Jan 1st, 2100 in seconds
+        max_date = datetime(2100, 1, 1, 0, 0, 0)
+        max_seconds = int(max_date.timestamp())
+        
+        if not (min_seconds <= val <= max_seconds):
+            raise argparse.ArgumentTypeError(f"{value} is not a valid second timestamp.")
+        return val
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{value} is not a valid integer.")
 
 def strip_strings(value):
     if isinstance(value, str):
@@ -755,6 +775,19 @@ audit_log_fields = (
     ("args", "args", "{}", None, True),
 )
 
+scheduled_jobs_fields = (
+    ("id", "scheduled_job_id", "{}", None, True),
+    ("instance_id", "instance_id", "{}", None, True),
+    ("api_endpoint", "api_endpoint", "{}", None, True),
+    ("start_time", "start_time", "{}", None, True),
+    ("end_time", "end_time", "{}", None, True),
+    ("day_of_the_week", "day_of_the_week", "{}", None, True),
+    ("hour_of_the_day", "hour_of_the_day", "{}", None, True),
+    ("min_of_the_hour", "min_of_the_hour", "{}", None, True),
+    ("frequency", "frequency", "{}", None, True),
+
+)
+
 invoice_fields = (
     ("description", "Description", "{}", None, True),
     ("quantity", "Quantity", "{}", None, True),
@@ -1242,6 +1275,11 @@ def cancel__sync(args: argparse.Namespace):
 @parser.command(
     argument("id", help="id of instance type to change bid", type=int),
     argument("--price", help="per machine bid price in $/hour", type=float),
+    argument("--schedule", choices=["HOURLY", "DAILY", "WEEKLY"], help="try to schedule a command to run hourly, daily, or monthly. Valid values are HOURLY, DAILY, WEEKLY  For ex. --schedule DAILY"),
+    argument("--start_time", type=validate_seconds, help="the start time for your scheduled job in integer seconds since unix epoch. Default will be current time. For ex. --start_time 1728510298", default=(int(time.time()))),
+    argument("--end_time", type=validate_seconds, help="the end time for your scheduled job in integer seconds since unix epoch. Default will be 7 days from now. For ex. --end_time 1729115232", default=(int(time.time() + 7 * 24 * 60 * 60))),
+    argument("--day", help="day of the week you want scheduled job to run on. You can set day to None if you want the job to run everyday. Valid values are 0-6, 0=Sunday, 1=Monday, etc. Default will be 0. For ex. --day 0", default=0),
+    argument("--hour", help="hour of the day you want scheduled job to run on. You can set day and hour to None if you want the job to run every hour. Valid values are 0-23, 0=12am UTC, 1=1am UTC, etc. Default will be 0. For ex. --hour 16", default=0),
     usage="vastai change bid id [--price PRICE]",
     help="Change the bid price for a spot/interruptible instance",
     epilog=deindent("""
@@ -1261,6 +1299,14 @@ def change__bid(args: argparse.Namespace):
     if (args.explain):
         print("request json: ")
         print(json_blob)
+
+    if (args.schedule):
+        cli_command = "change bid"
+        api_endpoint = "/api/v0/instances/bid_price/{id}/".format(id=args.id)
+        json_blob["instance_id"] = args.id
+        add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT", instance_id=args.id)     
+        return
+    
     r = http_put(args, url, headers=headers, json=json_blob)
     r.raise_for_status()
     print("Per gpu bid price changed".format(r.json()))
@@ -1464,6 +1510,11 @@ def vm__copy(args: argparse.Namespace):
     argument("--ignore-existing", help="skip all files that exist on destination", action="store_true"),
     argument("--update", help="skip files that are newer on the destination", action="store_true"),
     argument("--delete-excluded", help="delete files on dest excluded from transfer", action="store_true"),
+    argument("--schedule", choices=["HOURLY", "DAILY", "WEEKLY"], help="try to schedule a command to run hourly, daily, or monthly. Valid values are HOURLY, DAILY, WEEKLY  For ex. --schedule DAILY"),
+    argument("--start_time", type=validate_seconds, help="the start time for your scheduled job in integer seconds since unix epoch. Default will be current time. For ex. --start_time 1728510298", default=(int(time.time()))),
+    argument("--end_time", type=validate_seconds, help="the end time for your scheduled job in integer seconds since unix epoch. Default will be 7 days from now. For ex. --end_time 1729115232", default=(int(time.time() + 7 * 24 * 60 * 60))),
+    argument("--day", help="day of the week you want scheduled job to run on. You can set day to None if you want the job to run everyday. Valid values are 0-6, 0=Sunday, 1=Monday, etc. Default will be 0. For ex. --day 0", default=0),
+    argument("--hour", help="hour of the day you want scheduled job to run on. You can set day and hour to None if you want the job to run every hour. Valid values are 0-23, 0=12am UTC, 1=1am UTC, etc. Default will be 0. For ex. --hour 16", default=0),
     usage="vastai cloud copy --src SRC --dst DST --instance INSTANCE_ID -connection CONNECTION_ID --transfer TRANSFER_TYPE",
     help="Copy files/folders to and from cloud providers",
     epilog=deindent("""
@@ -1478,7 +1529,7 @@ def vm__copy(args: argparse.Namespace):
          1001  test_dir  drive 
          1003  data_dir  drive 
          
-         vastai cloud_copy --src /folder --dst /workspace --instance 6003036 --connection 1001 --transfer "Instance To Cloud"
+         vastai cloud copy --src /folder --dst /workspace --instance 6003036 --connection 1001 --transfer "Instance To Cloud"
 
         The example copies all contents of /folder into /workspace on instance 6003036 from gdrive connection 'test_dir'.
     """),
@@ -1527,7 +1578,13 @@ def cloud__copy(args: argparse.Namespace):
     if (args.explain):
         print("request json: ")
         print(req_json)
-    
+
+    if (args.schedule):
+        cli_command = "cloud copy"
+        api_endpoint = "/api/v0/commands/rclone/"
+        add_scheduled_job(args, req_json, cli_command, api_endpoint, "POST", instance_id=args.instance)
+        return
+        
     r = http_post(args, url, headers=headers,json=req_json)
     r.raise_for_status()
     if (r.status_code == 200):
@@ -1536,6 +1593,69 @@ def cloud__copy(args: argparse.Namespace):
     else:
         print(r.text);
         print("failed with error {r.status_code}".format(**locals()));
+
+
+def add_scheduled_job(args, req_json, cli_command, api_endpoint, request_method, instance_id=None):
+    if args.start_time >= args.end_time:
+        raise ValueError("--start_time must be less than --end_time.")
+
+    start_time, end_time, day, hour, frequency = args.start_time, args.end_time, args.day, args.hour, args.schedule
+
+    schedule_job_url = apiurl(args, f"/commands/schedule_job/")
+
+    request_body = {
+                "start_time": start_time, 
+                "end_time": end_time, 
+                "api_endpoint": api_endpoint,
+                "request_method": request_method,
+                "request_body": req_json,
+                "day_of_the_week": day,
+                "hour_of_the_day": hour,
+                "frequency": frequency,
+                "instance_id": instance_id
+            }
+                # Send a POST request
+    response = requests.post(schedule_job_url, headers=headers, json=request_body)
+
+    if args.explain:
+        print("request json: ")
+        print(request_body)
+
+        # Handle the response based on the status code
+    if response.status_code == 200:
+        print(f"add_scheduled_job insert: success - Scheduling {frequency} job to {cli_command} from {start_time} to {end_time}")
+        print(response.text)
+    elif response.status_code == 401:
+        print(f"add_scheduled_job insert: failed status_code: {response.status_code}. It could be because you aren't using a valid api_key.")
+    elif response.status_code == 422:
+        user_input = input("Existing scheduled job found. Do you want to update it (y|n)? ")
+        if user_input.strip().lower() == "y":
+            sleep(4)
+            scheduled_job_id = response.json()["scheduled_job_id"]
+            schedule_job_url = apiurl(args, f"/commands/schedule_job/{scheduled_job_id}/")
+            response = update_scheduled_job(cli_command, schedule_job_url, frequency, start_time, end_time, request_body)
+        else:
+            print("Job update aborted by the user.")
+    else:
+            # print(r.text)
+        print(f"add_scheduled_job insert: failed error: {response.status_code}. Response body: {response.text}")        
+
+def update_scheduled_job(cli_command, schedule_job_url, frequency, start_time, end_time, request_body):
+    response = requests.put(schedule_job_url, headers=headers, json=request_body)
+
+        # Raise an exception for HTTP errors
+    response.raise_for_status()
+    if response.status_code == 200:
+        print(f"add_scheduled_job update: success - Scheduling {frequency} job to {cli_command} from {start_time} to {end_time}")
+        print(response.json())
+    elif response.status_code == 401:
+        print(f"add_scheduled_job update: failed status_code: {response.status_code}. It could be because you aren't using a valid api_key.")
+    else:
+            # print(r.text)
+        print(f"add_scheduled_job update: failed status_code: {response.status_code}.")
+        print(response.json())
+
+    return response
 
 
 @parser.command(
@@ -2066,6 +2186,17 @@ def delete__ssh_key(args):
     print(r.json())
 
 @parser.command(
+    argument("id", help="id of scheduled job to remove", type=int),
+    usage="vastai delete scheduled-job ID",
+    help="Delete a scheduled job",
+)
+def delete__scheduled_job(args):
+    url = apiurl(args, "/commands/schedule_job/{id}/".format(id=args.id))
+    r = http_del(args, url, headers=headers)
+    r.raise_for_status()
+    print(r.json())
+
+@parser.command(
     argument("id", help="id of group to delete", type=int),
     usage="vastai delete autogroup ID ",
     help="Delete an autogroup group",
@@ -2273,6 +2404,11 @@ def detach__ssh(args):
 @parser.command(
     argument("id", help="id of instance to execute on", type=int),
     argument("COMMAND", help="bash command surrounded by single quotes",  type=str),
+    argument("--schedule", choices=["HOURLY", "DAILY", "WEEKLY"], help="try to schedule a command to run hourly, daily, or monthly. Valid values are HOURLY, DAILY, WEEKLY  For ex. --schedule DAILY"),
+    argument("--start_time", type=validate_seconds, help="the start time for your scheduled job in integer seconds since unix epoch. Default will be current time. For ex. --start_time 1728510298", default=(int(time.time()))),
+    argument("--end_time", type=validate_seconds, help="the end time for your scheduled job in integer seconds since unix epoch. Default will be 7 days from now. For ex. --end_time 1729115232", default=(int(time.time() + 7 * 24 * 60 * 60))),
+    argument("--day", help="day of the week you want scheduled job to run on. You can set day to None if you want the job to run everyday. Valid values are 0-6, 0=Sunday, 1=Monday, etc. Default will be 0. For ex. --day 0", default=0),
+    argument("--hour", help="hour of the day you want scheduled job to run on. You can set day and hour to None if you want the job to run every hour. Valid values are 0-23, 0=12am UTC, 1=1am UTC, etc. Default will be 0. For ex. --hour 16", default=0),
     usage="vastai execute id COMMAND",
     help="Execute a (constrained) remote command on a machine",
     epilog=deindent("""
@@ -2302,6 +2438,13 @@ def execute(args):
         print(json_blob)
     r = http_put(args, url,  headers=headers,json=json_blob )
     r.raise_for_status()
+
+    if (args.schedule):
+        cli_command = "execute"
+        api_endpoint = "/api/v0/instances/command/{id}/".format(id=args.id)
+        json_blob["instance_id"] = args.id
+        add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT", instance_id=args.id)
+        return
 
     if (r.status_code == 200):
         rj = r.json()
@@ -2710,6 +2853,11 @@ def prepay__instance(args):
 
 @parser.command(
     argument("id", help="id of instance to reboot", type=int),
+    argument("--schedule", choices=["HOURLY", "DAILY", "WEEKLY"], help="try to schedule a command to run hourly, daily, or monthly. Valid values are HOURLY, DAILY, WEEKLY  For ex. --schedule DAILY"),
+    argument("--start_time", type=validate_seconds, help="the start time for your scheduled job in integer seconds since unix epoch. Default will be current time. For ex. --start_time 1728510298", default=(int(time.time()))),
+    argument("--end_time", type=validate_seconds, help="the end time for your scheduled job in integer seconds since unix epoch. Default will be 7 days from now. For ex. --end_time 1729115232", default=(int(time.time() + 7 * 24 * 60 * 60))),
+    argument("--day", help="day of the week you want scheduled job to run on. You can set day to None if you want the job to run everyday. Valid values are 0-6, 0=Sunday, 1=Monday, etc. Default will be 0. For ex. --day 0", default=0),
+    argument("--hour", help="hour of the day you want scheduled job to run on. You can set day and hour to None if you want the job to run every hour. Valid values are 0-23, 0=12am UTC, 1=1am UTC, etc. Default will be 0. For ex. --hour 16", default=0),
     usage="vastai reboot instance ID [OPTIONS]",
     help="Reboot (stop/start) an instance",
     epilog=deindent("""
@@ -2725,6 +2873,13 @@ def reboot__instance(args):
     r = http_put(args, url,  headers=headers,json={})
     r.raise_for_status()
 
+    if (args.schedule):
+        cli_command = "reboot instance"
+        api_endpoint = "/api/v0/instances/reboot/{id}/".format(id=args.id)
+        json_blob = {"instance_id": args.id}
+        add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT", instance_id=args.id)
+        return
+
     if (r.status_code == 200):
         rj = r.json();
         if (rj["success"]):
@@ -2737,7 +2892,7 @@ def reboot__instance(args):
 
 
 @parser.command(
-    argument("id", help="id of instance to reboot", type=int),
+    argument("id", help="id of instance to recycle", type=int),
     usage="vastai recycle instance ID [OPTIONS]",
     help="Recycle (destroy/create) an instance",
     epilog=deindent("""
@@ -3830,6 +3985,26 @@ def show__audit_logs(args):
     else:
         display_table(rows, audit_log_fields)
 
+
+@parser.command(
+    usage="vastai show scheduled-jobs [--api-key API_KEY] [--raw]",
+    help="Display the list of scheduled jobs"
+)
+def show__scheduled_jobs(args):
+    """
+    Shows the list of scheduled jobs for the account.
+
+    :param argparse.Namespace args: should supply all the command-line options
+    :rtype:
+    """
+    req_url = apiurl(args, "/commands/schedule_job/")
+    r = http_get(args, req_url)
+    r.raise_for_status()
+    rows = r.json()
+    if args.raw:
+        return rows
+    else:
+        display_table(rows, scheduled_jobs_fields)
 
 @parser.command(
     usage="vastai show ssh-keys",

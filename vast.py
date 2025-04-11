@@ -661,8 +661,6 @@ scheduled_jobs_fields = (
     ("id", "scheduled_job_id", "{}", None, True),
     ("instance_id", "instance_id", "{}", None, True),
     ("api_endpoint", "api_endpoint", "{}", None, True),
-    ("status", "status", "{}", None, True),
-    ("last_executed_around", "last_executed_around", "{}", None, True),
     ("start_time", "start_time", "{}", None, True),
     ("end_time", "end_time", "{}", None, True),
     ("day_of_the_week", "day_of_the_week", "{}", None, True),

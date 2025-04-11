@@ -101,7 +101,7 @@ def get_git_version():
 
 
 def get_pip_version():
-    return importlib.metadata.version("vast-cli-fork")
+    return importlib.metadata.version("vastai")
 
 
 def is_pip_package():

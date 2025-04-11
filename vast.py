@@ -108,7 +108,7 @@ def is_pip_package():
     script_path = sys.argv[0]
     executable_name = os.path.basename(script_path)
 
-    return executable_name != "vast.py"
+    return executable_name != "vast.py" or executable_name != "vast"
 
 
 def get_update_command(stable_version: str) -> str:

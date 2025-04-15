@@ -4328,7 +4328,6 @@ def show__volumes(args: argparse.Namespace):
     if args.raw:
         return processed
     else:
-        print("processed:", processed)
         display_table(processed, volume_fields, replace_spaces=False)
 
 

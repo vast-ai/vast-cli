@@ -1181,7 +1181,7 @@ def parse_hour_cron_style(value):
     """
     val = str(value).strip()
     if val == "*":
-        return "None"
+        return None
     try:
         hour = int(val)
         if 0 <= hour <= 23:

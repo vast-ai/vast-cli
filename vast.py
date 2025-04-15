@@ -657,17 +657,17 @@ audit_log_fields = (
     ("args", "args", "{}", None, True),
 )
 
-scheduled_jobs_fields = (
-    ("id", "scheduled_job_id", "{}", None, True),
-    ("instance_id", "instance_id", "{}", None, True),
-    ("api_endpoint", "api_endpoint", "{}", None, True),
-    ("start_time", "start_time", "{}", None, True),
-    ("end_time", "end_time", "{}", None, True),
-    ("day_of_the_week", "day_of_the_week", "{}", None, True),
-    ("hour_of_the_day", "hour_of_the_day", "{}", None, True),
-    ("min_of_the_hour", "min_of_the_hour", "{}", None, True),
-    ("frequency", "frequency", "{}", None, True),
 
+scheduled_jobs_fields = (
+    ("id", "Scheduled Job ID", "{}", None, True),
+    ("instance_id", "Instance ID", "{}", None, True),
+    ("api_endpoint", "API Endpoint", "{}", None, True),
+    ("start_time", "Start (Date/Time)", "{}", lambda x: datetime.fromtimestamp(x).strftime('%Y-%m-%d/%H:%M'), True),
+    ("end_time", "End (Date/Time)", "{}", lambda x: datetime.fromtimestamp(x).strftime('%Y-%m-%d/%H:%M'), True),
+    ("day_of_the_week", "Day of the Week", "{}", None, True),
+    ("hour_of_the_day", "Hour of the Day", "{}", None, True),
+    ("min_of_the_hour", "Minute of the Hour", "{}", None, True),
+    ("frequency", "Frequency", "{}", None, True),
 )
 
 invoice_fields = (
@@ -3873,6 +3873,38 @@ def show__audit_logs(args):
     else:
         display_table(rows, audit_log_fields)
 
+def normalize_schedule_fields(job):
+    """
+    Mutates the job dict to replace None values with readable scheduling labels.
+    """
+    if job.get("day_of_the_week") is None:
+        job["day_of_the_week"] = "Everyday"
+    else:
+        days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        job["day_of_the_week"] = days[int(job["day_of_the_week"])]
+    
+    if job.get("hour_of_the_day") is None:
+        job["hour_of_the_day"] = "Every hour"
+    else:
+        hour = int(job["hour_of_the_day"])
+        suffix = "AM" if hour < 12 else "PM"
+        hour_12 = hour % 12
+        hour_12 = 12 if hour_12 == 0 else hour_12
+        job["hour_of_the_day"] = f"{hour_12}_{suffix}"
+
+    if job.get("min_of_the_hour") is None:
+        job["min_of_the_hour"] = "Every minute"
+    else:
+        job["min_of_the_hour"] = f"{int(job['min_of_the_hour']):02d}"
+    
+    return job
+
+def normalize_jobs(jobs):
+    """
+    Applies normalization to a list of job dicts.
+    """
+    return [normalize_schedule_fields(job) for job in jobs]
+
 
 @parser.command(
     usage="vastai show scheduled-jobs [--api-key API_KEY] [--raw]",
@@ -3892,6 +3924,7 @@ def show__scheduled_jobs(args):
     if args.raw:
         return rows
     else:
+        rows = normalize_jobs(rows)
         display_table(rows, scheduled_jobs_fields)
 
 @parser.command(

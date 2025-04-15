@@ -2326,8 +2326,8 @@ def detach__ssh(args):
     argument("--schedule", choices=["HOURLY", "DAILY", "WEEKLY"], help="try to schedule a command to run hourly, daily, or monthly. Valid values are HOURLY, DAILY, WEEKLY  For ex. --schedule DAILY"),
     argument("--start_date", type=str, default=default_start_date(), help="Start date/time in format 'YYYY-MM-DD HH:MM:SS PM' (UTC). Default is now."),
     argument("--end_date", type=str, default=default_end_date(), help="End date/time in format 'YYYY-MM-DD HH:MM:SS PM' (UTC). Default is 7 days from now."),
-    argument("--day", help="day of the week you want scheduled job to run on. You can set day to \"*\" if you want the job to run everyday. Other valid values are 0-6, 0=Sunday, 1=Monday, etc. Default will be 0. For ex. --day 0", default=0),
-    argument("--hour", help="hour of the day you want scheduled job to run on. You can set day and hour to \"*\" if you want the job to run every hour. Other valid values are 0-23, 0=12am UTC, 1=1am UTC, etc. Default will be 0. For ex. --hour 16", default=0),
+    argument("--day", type=parse_day_cron_style, help="day of the week you want scheduled job to run on. You can set day to \"*\" if you want the job to run everyday. Other valid values are 0-6, 0=Sunday, 1=Monday, etc. Default will be 0. For ex. --day 0", default=0),
+    argument("--hour", type=parse_hour_cron_style, help="hour of the day you want scheduled job to run on. You can set day and hour to \"*\" if you want the job to run every hour. Other valid values are 0-23, 0=12am UTC, 1=1am UTC, etc. Default will be 0. For ex. --hour 16", default=0),
     usage="vastai execute id COMMAND",
     help="Execute a (constrained) remote command on a machine",
     epilog=deindent("""

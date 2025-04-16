@@ -109,11 +109,10 @@ def get_pip_version():
 
 
 def is_pip_package():
-    script_path = sys.argv[0]
-    executable_name = os.path.basename(script_path)
-
-    return executable_name == "vastai"
-
+    try:
+        return importlib.metadata.metadata("vastai") is not None
+    except Exception:
+        return False
 
 def get_update_command(stable_version: str) -> str:
     if is_pip_package():

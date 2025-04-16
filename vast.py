@@ -1303,6 +1303,73 @@ def cloud__copy(args: argparse.Namespace):
         print(r.text);
         print("failed with error {r.status_code}".format(**locals()));
 
+@parser.command(
+    argument("instance_id",      help="instance_id of the container instance to snapshot",      type=str),
+    argument("--personal_repo",    help="Docker repo to push the snapshot to",     type=str),
+    argument("--docker_login_user",help="Username for Docker registry login",     type=str),
+    argument("--docker_login_pass",help="Password or token for Docker login",     type=str),
+    argument("--scheduled_job_id", help="(Optional) existing scheduled job ID",   type=str),
+    argument("--pause",            help="Pause container during commit (true/false)", type=str),
+    usage="vastai instance take_snapshot INSTANCE_ID "
+          "--personal_repo REPO --docker_login_user USER --docker_login_pass PASS "
+          "[--scheduled_job_id JOB_ID] [--pause true|false]",
+    help="Schedule a snapshot of a running container and push it to your Docker repo",
+    epilog=deindent("""
+        Schedules a snapshot of the running container on the given VM instance,
+        tags it with the instance ID, and pushes it to the specified Docker repository.
+        
+        If you omit JOB_ID, a new job will be created automatically.
+        Use pause=true to pause the container during commit (safer but slower),
+        or pause=false to leave it running (faster but may produce a filesystem-
+// safer snapshot).
+    """),
+)
+def take__snapshot(args: argparse.Namespace):
+    """
+    Schedule a container snapshot and push.
+
+    @param instance_id: VM instance identifier.
+    @param personal_repo: Docker repository for the snapshot.
+    @param docker_login_user: Docker registry username.
+    @param docker_login_pass: Docker registry password/token.
+    @param scheduled_job_id: Optional ID of an existing scheduled job.
+    @param pause: "true" or "false" to pause the container during commit.
+    """
+    instance_id       = args.instance_id
+    repo              = args.personal_repo
+    user              = args.docker_login_user
+    password          = args.docker_login_pass
+    job_id            = args.scheduled_job_id or None
+    pause_flag        = args.pause
+
+    print(f"Scheduling snapshot for instance {instance_id} → repo {repo}")
+    req_json = {
+        "id":               instance_id,
+        "personal_repo":    repo,
+        "docker_login_user":user,
+        "docker_login_pass":password,
+        "scheduled_job_id": job_id,
+        "pause":            pause_flag
+    }
+
+    url = apiurl(args, f"/api/v0/instances/take_snapshot/{instance_id}/")
+    if args.explain:
+        print("Request JSON:")
+        print(json.dumps(req_json, indent=2))
+
+    # POST to the snapshot endpoint
+    r = http_post(args, url, headers=headers, json=req_json)
+    r.raise_for_status()
+
+    if r.status_code == 200:
+        data = r.json()
+        if data.get("success"):
+            print("✅ Snapshot task queued successfully.")
+        else:
+            print("❌", data.get("msg", "Unknown error scheduling snapshot"))
+    else:
+        print(f"❌ HTTP {r.status_code}: {r.text}")
+
 
 @parser.command(
     argument("--name", help="name of the api-key", type=str),

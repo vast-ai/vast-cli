@@ -1498,10 +1498,29 @@ def cloud__copy(args: argparse.Namespace):
         print(req_json)
 
     if (args.schedule):
-        cli_command = "cloud copy"
-        api_endpoint = "/api/v0/commands/rclone/"
-        add_scheduled_job(args, req_json, cli_command, api_endpoint, "POST", instance_id=args.instance)
-        return
+        req_url = apiurl(args, "/instances/{id}/".format(id=args.instance) , {"owner": "me"} )
+        r = http_get(args, req_url)
+        r.raise_for_status()
+        row = r.json()["instances"]
+        
+        if args.transfer.lower() == "instance to cloud":
+            # Get the cost per TB of internet upload
+            up_cost = row.get("internet_up_cost_per_tb", None)
+            if up_cost is not None:
+                confirm = input(
+                    f"Internet upload cost is ${up_cost} per TB. "
+                    "Are you sure you want to schedule a cloud backup? (y/n): "
+                ).strip().lower()
+                if confirm != "y":
+                    print("Cloud backup scheduling aborted.")
+                    return
+            else:
+                print("Warning: Could not retrieve internet upload cost. Proceeding without confirmation. You can use show scheduled-jobs and delete scheduled-job commands to delete scheduled cloud backup job.")
+            
+            cli_command = "cloud copy"
+            api_endpoint = "/api/v0/commands/rclone/"
+            add_scheduled_job(args, req_json, cli_command, api_endpoint, "POST", instance_id=args.instance)
+            return
         
     r = http_post(args, url, headers=headers,json=req_json)
     r.raise_for_status()

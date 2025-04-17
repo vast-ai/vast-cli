@@ -1305,20 +1305,18 @@ def cloud__copy(args: argparse.Namespace):
 
 @parser.command(
     argument("instance_id",      help="instance_id of the container instance to snapshot",      type=str),
+    argument("--container_registry", help="Container registry to push the snapshot to. Default will be docker.io",     type=str),
     argument("--personal_repo",    help="Docker repo to push the snapshot to",     type=str),
-    argument("--docker_login_user",help="Username for Docker registry login",     type=str),
-    argument("--docker_login_pass",help="Password or token for Docker login",     type=str),
-    argument("--scheduled_job_id", help="(Optional) existing scheduled job ID",   type=str),
-    argument("--pause",            help="Pause container during commit (true/false)", type=str),
-    usage="vastai instance take_snapshot INSTANCE_ID "
-          "--personal_repo REPO --docker_login_user USER --docker_login_pass PASS "
-          "[--scheduled_job_id JOB_ID] [--pause true|false]",
+    argument("--docker_login_user",help="Username for container registry with personal repo",     type=str),
+    argument("--docker_login_pass",help="Password or token for container registry with personal repo",     type=str),
+    argument("--pause",            help="Pause container before docker commit (true/false). Default will be true", type=str),
+    usage="vastai take snapshot INSTANCE_ID "
+          "--personal_repo REPO --docker_login_user USER --docker_login_pass PASS"
+          "[--container_registry REGISTRY] [--pause true|false]",
     help="Schedule a snapshot of a running container and push it to your Docker repo",
     epilog=deindent("""
-        Schedules a snapshot of the running container on the given VM instance,
-        tags it with the instance ID, and pushes it to the specified Docker repository.
+        Takes a snapshot of a running container instance and pushes snapshot to the specified repository in container registry.
         
-        If you omit JOB_ID, a new job will be created automatically.
         Use pause=true to pause the container during commit (safer but slower),
         or pause=false to leave it running (faster but may produce a filesystem-
 // safer snapshot).
@@ -1326,29 +1324,29 @@ def cloud__copy(args: argparse.Namespace):
 )
 def take__snapshot(args: argparse.Namespace):
     """
-    Schedule a container snapshot and push.
+    Take a container snapshot and push.
 
-    @param instance_id: VM instance identifier.
+    @param instance_id: instance identifier.
     @param personal_repo: Docker repository for the snapshot.
+    @param container_registry: Container registry
     @param docker_login_user: Docker registry username.
     @param docker_login_pass: Docker registry password/token.
-    @param scheduled_job_id: Optional ID of an existing scheduled job.
     @param pause: "true" or "false" to pause the container during commit.
     """
     instance_id       = args.instance_id
     repo              = args.personal_repo
+    container_registry = args.container_registry
     user              = args.docker_login_user
     password          = args.docker_login_pass
-    job_id            = args.scheduled_job_id or None
     pause_flag        = args.pause
 
-    print(f"Scheduling snapshot for instance {instance_id} → repo {repo}")
+    print(f"Take snapshot for instance {instance_id} → repo {repo}")
     req_json = {
         "id":               instance_id,
+        "container_registry": container_registry,
         "personal_repo":    repo,
         "docker_login_user":user,
         "docker_login_pass":password,
-        "scheduled_job_id": job_id,
         "pause":            pause_flag
     }
 
@@ -1364,11 +1362,12 @@ def take__snapshot(args: argparse.Namespace):
     if r.status_code == 200:
         data = r.json()
         if data.get("success"):
-            print("✅ Snapshot task queued successfully.")
+            print("Snapshot request sent successfully. Please check your repo {repo} in container registry {container_registry}")
         else:
-            print("❌", data.get("msg", "Unknown error scheduling snapshot"))
+            print(data.get("msg", "Unknown error wiht snapshot request"))
     else:
-        print(f"❌ HTTP {r.status_code}: {r.text}")
+        print(r.text);
+        print("failed with error {r.status_code}".format(**locals()));
 
 
 @parser.command(

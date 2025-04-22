@@ -1,0 +1,57 @@
+[build-system]
+requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
+build-backend = "poetry_dynamic_versioning.backend"
+
+[project]
+name = "vastai"
+authors = [
+  { name = "jake cannell", email = "jake@vast.ai" },
+  { name = "chris mckenzie", email = "chris@vast.ai" },
+  { name = "anthony benjamin", email = "anthony@vast.ai" },
+  { name = "liam weldon", email = "liam@vast.ai" },
+  { name = "edgar lin", email = "edgar@vast.ai" },
+  { name = "nader arbabian", email = "nader@vast.ai" },
+  { name = "marco hernandez", email = "marco@vast.ai" },
+  { name = "karthik pillalamarri", email = "karthik@vast.ai" },
+  { name = "sammy javed", email = "sammy@vast.ai" },
+  { name = "rob ballantyne", email = "rob@vast.ai" },
+]
+readme = "README.md"
+requires-python = ">3.9.1, <4.0"
+license = { text = "MIT" }
+dynamic = ["version"]
+dependencies = [
+  "xdg",
+  "argcomplete==3.5.1",
+  "requests",
+  "borb (==2.1.25)",
+  "python-dateutil==2.6.1",
+  "pytz",
+  "urllib3==2.2.3",
+  "poetry-dynamic-versioning (>=1.8.1,<2.0.0)",
+  "gitpython (>=3.1.44,<4.0.0)",
+  "toml (>=0.10.2,<0.11.0)",
+  "curlify (>=2.2.1,<3.0.0)",
+  "setuptools",
+  "cryptography (>=44.0.2,<45.0.0)",
+]
+
+[tool.poetry]
+packages = [{ include = "utils" }, { include = "vast.py" }]
+version = "0.0.0"
+
+[project.scripts]
+vastai = "vast:main"
+
+[project.urls]
+homepage = "https://cloud.vast.ai/"
+repository = "https://github.com/vast-ai/vast-cli/"
+
+[tool.poetry-dynamic-versioning]
+enable = true
+vcs = "git"
+fix-shallow-repository = true
+style = "semver"
+
+[tool.poetry.requires-plugins]
+poetry-dynamic-versioning = { version = ">=1.0.0,<2.0.0", extras = ["plugin"] }

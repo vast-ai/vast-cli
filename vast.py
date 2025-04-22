@@ -29,7 +29,6 @@ import logging
 import textwrap
 from pathlib import Path
 import warnings
-from docker_registry_client import DockerRegistryClient
 from dateutil.parser import parse
 
 ARGS = None

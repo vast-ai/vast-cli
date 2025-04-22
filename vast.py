@@ -1305,44 +1305,44 @@ def cloud__copy(args: argparse.Namespace):
         print(r.text);
         print("failed with error {r.status_code}".format(**locals()));
 
-def get_recent_snapshots_client(registry, repo, username, password, limit=10):
-    """
-    Same goal, but using `docker-registry-client` (pip install docker-registry-client).
-    """
-    # Initialize client
-    client = DockerRegistryClient(f"https://{registry}", username, password)
-    repository = client.repositories.get(repo)  # repo is e.g. "org/image"
+# def get_recent_snapshots_client(registry, repo, username, password, limit=10):
+#     """
+#     Same goal, but using `docker-registry-client` (pip install docker-registry-client).
+#     """
+#     # Initialize client
+#     client = DockerRegistryClient(f"https://{registry}", username, password)
+#     repository = client.repositories.get(repo)  # repo is e.g. "org/image"
 
-    snapshots = []
-    for tag in repository.tags():
-        try:
-            manifest = repository.manifest(tag)
-            cfg = repository.blob(manifest.config.digest).json()
-            created = parse(cfg["created"])
-            snapshots.append((tag, created))
-        except Exception:
-            continue
+#     snapshots = []
+#     for tag in repository.tags():
+#         try:
+#             manifest = repository.manifest(tag)
+#             cfg = repository.blob(manifest.config.digest).json()
+#             created = parse(cfg["created"])
+#             snapshots.append((tag, created))
+#         except Exception:
+#             continue
 
-    snapshots.sort(key=lambda x: x[1], reverse=True)
-    return snapshots[:limit]
+#     snapshots.sort(key=lambda x: x[1], reverse=True)
+#     return snapshots[:limit]
 
-@parser.command(argument("--container_registry", help="Registry host (default: docker.io)", type=str, default="docker.io"), 
-                argument("--personal_repo", help="Repository (e.g. user/image)", type=str), 
-                argument("--docker_login_user", help="Registry username", type=str), 
-                argument("--docker_login_pass", help="Registry password/token", type=str), 
-                argument("--limit", help="Number of recent snapshots to show", type=int, default=10), 
-                usage="vastai list_snapshots --personal_repo REPO --docker_login_user USER --docker_login_pass PASS [--container_registry REG] [--limit N]", help="List most recent snapshot tags in a registry repo")
-def list__snapshots(args: argparse.Namespace):
-    """List up to `limit` most recent snapshot tags for a repo in a container registry."""
-    snaps = get_recent_snapshots_client(
-        registry=args.container_registry,
-        repo=args.personal_repo,
-        username=args.docker_login_user,
-        password=args.docker_login_pass,
-        limit=args.limit
-    )
-    for tag, created in snaps:
-        print(f"{tag}\t{created.isoformat()}")
+# @parser.command(argument("--container_registry", help="Registry host (default: docker.io)", type=str, default="docker.io"), 
+#                 argument("--personal_repo", help="Repository (e.g. user/image)", type=str), 
+#                 argument("--docker_login_user", help="Registry username", type=str), 
+#                 argument("--docker_login_pass", help="Registry password/token", type=str), 
+#                 argument("--limit", help="Number of recent snapshots to show", type=int, default=10), 
+#                 usage="vastai list_snapshots --personal_repo REPO --docker_login_user USER --docker_login_pass PASS [--container_registry REG] [--limit N]", help="List most recent snapshot tags in a registry repo")
+# def list__snapshots(args: argparse.Namespace):
+#     """List up to `limit` most recent snapshot tags for a repo in a container registry."""
+#     snaps = get_recent_snapshots_client(
+#         registry=args.container_registry,
+#         repo=args.personal_repo,
+#         username=args.docker_login_user,
+#         password=args.docker_login_pass,
+#         limit=args.limit
+#     )
+#     for tag, created in snaps:
+#         print(f"{tag}\t{created.isoformat()}")
 
 @parser.command(
     argument("instance_id",      help="instance_id of the container instance to snapshot",      type=str),
@@ -1350,7 +1350,7 @@ def list__snapshots(args: argparse.Namespace):
     argument("--personal_repo",    help="Docker repo to push the snapshot to",     type=str),
     argument("--docker_login_user",help="Username for container registry with personal repo",     type=str),
     argument("--docker_login_pass",help="Password or token for container registry with personal repo",     type=str),
-    argument("--pause",            help="Pause container before docker commit (true/false). Default will be true", type=str),
+    argument("--pause",            help="Pause container before docker commit (true/false). Default will be true", type=str, default="true"),
     usage="vastai take snapshot INSTANCE_ID "
           "--personal_repo REPO --docker_login_user USER --docker_login_pass PASS"
           "[--container_registry REGISTRY] [--pause true|false]",
@@ -1381,7 +1381,7 @@ def take__snapshot(args: argparse.Namespace):
     password          = args.docker_login_pass
     pause_flag        = args.pause
 
-    print(f"Take snapshot for instance {instance_id} → repo {repo}")
+    print(f"Take snapshot for instance {instance_id} and push to repo {repo} in container registry {container_registry}")
     req_json = {
         "id":               instance_id,
         "container_registry": container_registry,
@@ -1403,7 +1403,7 @@ def take__snapshot(args: argparse.Namespace):
     if r.status_code == 200:
         data = r.json()
         if data.get("success"):
-            print("Snapshot request sent successfully. Please check your repo {repo} in container registry {container_registry}")
+            print(f"Snapshot request sent successfully. Please check your repo {repo} in container registry {container_registry}")
         else:
             print(data.get("msg", "Unknown error wiht snapshot request"))
     else:

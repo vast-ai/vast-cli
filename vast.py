@@ -29,7 +29,6 @@ import logging
 import textwrap
 from pathlib import Path
 import warnings
-from dateutil.parser import parse
 
 ARGS = None
 TABCOMPLETE = False

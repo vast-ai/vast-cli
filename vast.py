@@ -662,10 +662,10 @@ scheduled_jobs_fields = (
     ("id", "Scheduled Job ID", "{}", None, True),
     ("instance_id", "Instance ID", "{}", None, True),
     ("api_endpoint", "API Endpoint", "{}", None, True),
-    ("start_time", "Start (Date/Time)", "{}", lambda x: datetime.fromtimestamp(x).strftime('%Y-%m-%d/%H:%M'), True),
-    ("end_time", "End (Date/Time)", "{}", lambda x: datetime.fromtimestamp(x).strftime('%Y-%m-%d/%H:%M'), True),
+    ("start_time", "Start (Date/Time in UTC)", "{}", lambda x: datetime.fromtimestamp(x).strftime('%Y-%m-%d/%H:%M'), True),
+    ("end_time", "End (Date/Time in UTC)", "{}", lambda x: datetime.fromtimestamp(x).strftime('%Y-%m-%d/%H:%M'), True),
     ("day_of_the_week", "Day of the Week", "{}", None, True),
-    ("hour_of_the_day", "Hour of the Day", "{}", None, True),
+    ("hour_of_the_day", "Hour of the Day in UTC", "{}", None, True),
     ("min_of_the_hour", "Minute of the Hour", "{}", None, True),
     ("frequency", "Frequency", "{}", None, True),
 )

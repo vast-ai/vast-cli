@@ -5008,9 +5008,9 @@ def list__machines(args):
 @parser.command(
     argument("id", help="id of machine to list", type=int),
     argument("-p", "--price_disk",
-             help="storage price in $/GB/month, default: $0.15/GB/month", default=.15, type=float),
+             help="storage price in $/GB/month, default: $0.10/GB/month", type=float),
     argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format), default 1 month", type=str),
-    argument("-s", "--size", help="size of disk space allocated to offer in GB, default 15 GB", default=15),
+    argument("-s", "--size", help="size of disk space allocated to offer in GB, default 5 GB"),
     usage="vastai list volume ID [options]",
     help="[Host] list disk space for rent as a volume on a machine",
     epilog=deindent("""
@@ -5019,19 +5019,18 @@ def list__machines(args):
 )
 def list__volume(args):        
     size = args.size
-    if not size:
-        size = 15.0
     price_disk = args.price_disk
-    if not price_disk:
-        price_disk = .15
-
     json_blob ={
-        "size": int(size),
-        "machine": int(args.id)
+        "machine": int(args.id),
     }
     if args.end_date:
         json_blob["end_date"] = string_to_unix_epoch(args.end_date)
 
+    
+    if size:
+        json_blob["size"] = float(size)
+    if price_disk:
+        json_blob["price_disk"] = float(price_disk)
 
     url = apiurl(args, "/volumes/")
 
@@ -5060,20 +5059,19 @@ def list__volume(args):
 )
 def list__volumes(args):
     size = args.size
-    if not size:
-        size = 15.0
     price_disk = args.price_disk
-    if not price_disk:
-        price_disk = .15
 
     json_blob ={
-        "size": int(size),
-        "machine": [int(id) for id in args.ids]
+        "machine": [int(id) for id in args.ids],
     }
     if args.end_date:
         json_blob["end_date"] = string_to_unix_epoch(args.end_date)
-
-
+    
+    
+    if size:
+        json_blob["size"] = float(size)
+    if price_disk:
+        json_blob["price_disk"] = float(price_disk)
     url = apiurl(args, "/volumes/")
 
     if (args.explain):
@@ -5085,7 +5083,6 @@ def list__volumes(args):
         return r
     else:
         print("Created. {}".format(r.json()))
-
 
 
 @parser.command(

@@ -1563,7 +1563,6 @@ def add_scheduled_job(args, req_json, cli_command, api_endpoint, request_method,
         # Handle the response based on the status code
     if response.status_code == 200:
         print(f"add_scheduled_job insert: success - Scheduling {frequency} job to {cli_command} from {args.start_date} to {args.end_date}")
-        print(response.text)
     elif response.status_code == 401:
         print(f"add_scheduled_job insert: failed status_code: {response.status_code}. It could be because you aren't using a valid api_key.")
     elif response.status_code == 422:

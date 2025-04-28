@@ -1598,7 +1598,7 @@ def take__snapshot(args: argparse.Namespace):
         if data.get("success"):
             print(f"Snapshot request sent successfully. Please check your repo {repo} in container registry {container_registry} in 5-10 mins")
         else:
-            print(data.get("msg", "Unknown error wiht snapshot request"))
+            print(data.get("msg", "Unknown error with snapshot request"))
     else:
         print(r.text);
         print("failed with error {r.status_code}".format(**locals()));

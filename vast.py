@@ -1540,12 +1540,12 @@ def cloud__copy(args: argparse.Namespace):
 @parser.command(
     argument("instance_id",      help="instance_id of the container instance to snapshot",      type=str),
     argument("--container_registry", help="Container registry to push the snapshot to. Default will be docker.io", type=str, default="docker.io"),
-    argument("--personal_repo",    help="Docker repo to push the snapshot to",     type=str),
-    argument("--docker_login_user",help="Username for container registry with personal repo",     type=str),
-    argument("--docker_login_pass",help="Password or token for container registry with personal repo",     type=str),
+    argument("--repo",    help="Docker repo to push the snapshot to",     type=str),
+    argument("--docker_login_user",help="Username for container registry with repo",     type=str),
+    argument("--docker_login_pass",help="Password or token for container registry with repo",     type=str),
     argument("--pause",            help="Pause container's processes being executed by the CPU before docker commit (true/false). Default will be true", type=str, default="true"),
     usage="vastai take snapshot INSTANCE_ID "
-          "--personal_repo REPO --docker_login_user USER --docker_login_pass PASS"
+          "--repo REPO --docker_login_user USER --docker_login_pass PASS"
           "[--container_registry REGISTRY] [--pause true|false]",
     help="Schedule a snapshot of a running container and push it to your Docker repo",
     epilog=deindent("""
@@ -1561,14 +1561,14 @@ def take__snapshot(args: argparse.Namespace):
     Take a container snapshot and push.
 
     @param instance_id: instance identifier.
-    @param personal_repo: Docker repository for the snapshot.
+    @param repo: Docker repository for the snapshot.
     @param container_registry: Container registry
     @param docker_login_user: Docker registry username.
     @param docker_login_pass: Docker registry password/token.
     @param pause: "true" or "false" to pause the container during commit.
     """
     instance_id       = args.instance_id
-    repo              = args.personal_repo
+    repo              = args.repo
     container_registry = args.container_registry
     user              = args.docker_login_user
     password          = args.docker_login_pass

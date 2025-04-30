@@ -1540,7 +1540,7 @@ def cloud__copy(args: argparse.Namespace):
 @parser.command(
     argument("instance_id",      help="instance_id of the container instance to snapshot",      type=str),
     argument("--container_registry", help="Container registry to push the snapshot to. Default will be docker.io", type=str, default="docker.io"),
-    argument("--repo",    help="Docker repo to push the snapshot to",     type=str),
+    argument("--repo",    help="repo to push the snapshot to",     type=str),
     argument("--docker_login_user",help="Username for container registry with repo",     type=str),
     argument("--docker_login_pass",help="Password or token for container registry with repo",     type=str),
     argument("--pause",            help="Pause container's processes being executed by the CPU before docker commit (true/false). Default will be true", type=str, default="true"),

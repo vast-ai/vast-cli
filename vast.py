@@ -1543,7 +1543,7 @@ def cloud__copy(args: argparse.Namespace):
     argument("--repo",    help="repo to push the snapshot to",     type=str),
     argument("--docker_login_user",help="Username for container registry with repo",     type=str),
     argument("--docker_login_pass",help="Password or token for container registry with repo",     type=str),
-    argument("--pause",            help="Pause container's processes being executed by the CPU before docker commit (true/false). Default will be true", type=str, default="true"),
+    argument("--pause",            help="Pause container's processes being executed by the CPU to take snapshot (true/false). Default will be true", type=str, default="true"),
     usage="vastai take snapshot INSTANCE_ID "
           "--repo REPO --docker_login_user USER --docker_login_pass PASS"
           "[--container_registry REGISTRY] [--pause true|false]",

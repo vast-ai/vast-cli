@@ -1596,7 +1596,7 @@ def take__snapshot(args: argparse.Namespace):
     if r.status_code == 200:
         data = r.json()
         if data.get("success"):
-            print(f"Snapshot request sent successfully. Please check your repo {repo} in container registry {container_registry} in 5-10 mins")
+            print(f"Snapshot request sent successfully. Please check your repo {repo} in container registry {container_registry} in 5-10 mins. It can take longer than 5-10 mins to push your snapshot image to your repo depending on the size of your image.")
         else:
             print(data.get("msg", "Unknown error with snapshot request"))
     else:

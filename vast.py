@@ -1219,6 +1219,7 @@ def change__bid(args: argparse.Namespace):
         print(json_blob)
 
     if (args.schedule):
+        validate_frequency_values(args.day, args.hour, args.schedule)
         cli_command = "change bid"
         api_endpoint = "/api/v0/instances/bid_price/{id}/".format(id=args.id)
         json_blob["instance_id"] = args.id
@@ -1498,29 +1499,34 @@ def cloud__copy(args: argparse.Namespace):
         print(req_json)
 
     if (args.schedule):
+        validate_frequency_values(args.day, args.hour, args.schedule)
         req_url = apiurl(args, "/instances/{id}/".format(id=args.instance) , {"owner": "me"} )
         r = http_get(args, req_url)
         r.raise_for_status()
         row = r.json()["instances"]
         
         if args.transfer.lower() == "instance to cloud":
-            # Get the cost per TB of internet upload
-            up_cost = row.get("internet_up_cost_per_tb", None)
-            if up_cost is not None:
-                confirm = input(
-                    f"Internet upload cost is ${up_cost} per TB. "
-                    "Are you sure you want to schedule a cloud backup? (y/n): "
-                ).strip().lower()
-                if confirm != "y":
-                    print("Cloud backup scheduling aborted.")
-                    return
+            if row: 
+                # Get the cost per TB of internet upload
+                up_cost = row.get("internet_up_cost_per_tb", None)
+                if up_cost is not None:
+                    confirm = input(
+                        f"Internet upload cost is ${up_cost} per TB. "
+                        "Are you sure you want to schedule a cloud backup? (y/n): "
+                    ).strip().lower()
+                    if confirm != "y":
+                        print("Cloud backup scheduling aborted.")
+                        return
+                else:
+                    print("Warning: Could not retrieve internet upload cost. Proceeding without confirmation. You can use show scheduled-jobs and delete scheduled-job commands to delete scheduled cloud backup job.")
+                
+                cli_command = "cloud copy"
+                api_endpoint = "/api/v0/commands/rclone/"
+                add_scheduled_job(args, req_json, cli_command, api_endpoint, "POST", instance_id=args.instance)
+                return
             else:
-                print("Warning: Could not retrieve internet upload cost. Proceeding without confirmation. You can use show scheduled-jobs and delete scheduled-job commands to delete scheduled cloud backup job.")
-            
-            cli_command = "cloud copy"
-            api_endpoint = "/api/v0/commands/rclone/"
-            add_scheduled_job(args, req_json, cli_command, api_endpoint, "POST", instance_id=args.instance)
-            return
+                print("Instance not found. Please check the instance ID.")
+                return
         
     r = http_post(args, url, headers=headers,json=req_json)
     r.raise_for_status()
@@ -1530,6 +1536,29 @@ def cloud__copy(args: argparse.Namespace):
     else:
         print(r.text);
         print("failed with error {r.status_code}".format(**locals()));
+
+def validate_frequency_values(day_of_the_week, hour_of_the_day, frequency):
+
+    # Helper to raise an error with a consistent message.
+    def raise_frequency_error():
+        msg = ""
+        if frequency == "HOURLY":
+            msg += "For HOURLY jobs, day and hour must both be \"*\"."
+        elif frequency == "DAILY":
+            msg += "For DAILY jobs, day must be \"*\" and hour must have a value between 0-23."
+        elif frequency == "WEEKLY":
+            msg += "For WEEKLY jobs, day must have a value between 0-6 and hour must have a value between 0-23."
+        sys.exit(msg)
+
+    if frequency == "HOURLY":
+        if not (day_of_the_week is None and hour_of_the_day is None):
+            raise_frequency_error()
+    if frequency == "DAILY":
+        if not (day_of_the_week is None and hour_of_the_day is not None):
+            raise_frequency_error()
+    if frequency == "WEEKLY":
+        if not (day_of_the_week is not None and hour_of_the_day is not None):
+            raise_frequency_error()
 
 
 def add_scheduled_job(args, req_json, cli_command, api_endpoint, request_method, instance_id=None):
@@ -1562,7 +1591,7 @@ def add_scheduled_job(args, req_json, cli_command, api_endpoint, request_method,
 
         # Handle the response based on the status code
     if response.status_code == 200:
-        print(f"add_scheduled_job insert: success - Scheduling {frequency} job to {cli_command} from {args.start_date} to {args.end_date}")
+        print(f"add_scheduled_job insert: success - Scheduling {frequency} job to {cli_command} from {args.start_date} UTC to {args.end_date} UTC")
     elif response.status_code == 401:
         print(f"add_scheduled_job insert: failed status_code: {response.status_code}. It could be because you aren't using a valid api_key.")
     elif response.status_code == 422:
@@ -1570,20 +1599,20 @@ def add_scheduled_job(args, req_json, cli_command, api_endpoint, request_method,
         if user_input.strip().lower() == "y":
             scheduled_job_id = response.json()["scheduled_job_id"]
             schedule_job_url = apiurl(args, f"/commands/schedule_job/{scheduled_job_id}/")
-            response = update_scheduled_job(cli_command, schedule_job_url, frequency, start_timestamp, end_timestamp, request_body)
+            response = update_scheduled_job(cli_command, schedule_job_url, frequency, args.start_date, args.end_date, request_body)
         else:
             print("Job update aborted by the user.")
     else:
             # print(r.text)
         print(f"add_scheduled_job insert: failed error: {response.status_code}. Response body: {response.text}")        
 
-def update_scheduled_job(cli_command, schedule_job_url, frequency, start_time, end_time, request_body):
+def update_scheduled_job(cli_command, schedule_job_url, frequency, start_date, end_date, request_body):
     response = requests.put(schedule_job_url, headers=headers, json=request_body)
 
         # Raise an exception for HTTP errors
     response.raise_for_status()
     if response.status_code == 200:
-        print(f"add_scheduled_job update: success - Scheduling {frequency} job to {cli_command} from {start_time} to {end_time}")
+        print(f"add_scheduled_job update: success - Scheduling {frequency} job to {cli_command} from {start_date} UTC to {end_date} UTC")
         print(response.json())
     elif response.status_code == 401:
         print(f"add_scheduled_job update: failed status_code: {response.status_code}. It could be because you aren't using a valid api_key.")
@@ -2377,6 +2406,7 @@ def execute(args):
     r.raise_for_status()
 
     if (args.schedule):
+        validate_frequency_values(args.day, args.hour, args.schedule)
         cli_command = "execute"
         api_endpoint = "/api/v0/instances/command/{id}/".format(id=args.id)
         json_blob["instance_id"] = args.id
@@ -2817,6 +2847,7 @@ def reboot__instance(args):
     r.raise_for_status()
 
     if (args.schedule):
+        validate_frequency_values(args.day, args.hour, args.schedule)
         cli_command = "reboot instance"
         api_endpoint = "/api/v0/instances/reboot/{id}/".format(id=args.id)
         json_blob = {"instance_id": args.id}

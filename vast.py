@@ -1603,6 +1603,60 @@ def take__snapshot(args: argparse.Namespace):
         print(r.text);
         print("failed with error {r.status_code}".format(**locals()));
 
+def safe_int(value, default=-1):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+@parser.command(
+    argument("snapshot_id",help="ID of the container snapshot to restore from",type=str),
+    argument("offer_id",help="Offer ID to use when creating the new instance",type=str),
+    usage="vastai restore from snapshot SNAPSHOT_ID OFFER_ID",
+    help="Restore from a container snapshot and create a new instance",
+    epilog="""
+Restores from a container snapshot and creates a new instance.  
+You must supply the snapshot ID and the offer ID you wish to use for the new instance.
+"""
+)
+def restore__snapshot(args: argparse.Namespace):
+    """
+    Restore a container instance from a snapshot.
+
+    @param snapshot_id: snapshot identifier.
+    @param offer_id: offer identifier for the new instance.
+    """
+    snapshot_id = safe_int(args.snapshot_id)
+    offer_id    = safe_int(args.offer_id)
+    if snapshot_id is None or offer_id is None:
+        print("Error: both snapshot_id and offer_id must be integers")
+        return 1
+
+    print(f"Restoring new instance from snapshot {snapshot_id} using offer {offer_id}")
+
+    # build request payload
+    req_json = {"snapshot_id": snapshot_id}
+
+    url = apiurl(args, "/asks/restore_from_snapshot/{id}/".format(id=offer_id))
+
+    if args.explain:
+        print("Request URL:")
+        print(url)
+        print("Request JSON:")
+        print(json.dumps(req_json, indent=2))
+
+    # POST to the restore endpoint
+    r = http_put(args, url, headers=headers, json=req_json)
+    r.raise_for_status()
+
+    if r.status_code == 200:
+        if args.raw:
+            return r
+        else:
+            print("Restored from snapshot successfully. {}".format(r.json()))
+    else:
+        print(r.text);
+        print("failed with error {r.status_code}".format(**locals()));
 
 @parser.command(
     argument("--name", help="name of the api-key", type=str),

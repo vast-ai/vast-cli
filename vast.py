@@ -755,6 +755,19 @@ audit_log_fields = (
     ("args", "args", "{}", None, True),
 )
 
+snapshot_fields = (
+    ("id",                  "id",                  "{}",    None, True),
+    ("user_id",             "user_id",             "{}",    None, True),
+    ("image",               "image",          "     {}",    None, True),
+    ("instance_id",         "instance_id",         "{}",    None, True),
+    ("execution_time",      "execution_time",      "{}",    None, True),
+    ("template_id",         "template_id",         "{}",    None, True),
+    ("container_registry",  "container_registry",  "{}",    None, True),
+    ("repo",                "repo",                "{}",    None, True),
+    ("username",            "username",            "{}",    None, True),
+    ("status",              "status",              "{}",    None, True),
+)
+
 invoice_fields = (
     ("description", "Description", "{}", None, True),
     ("quantity", "Quantity", "{}", None, True),
@@ -1584,7 +1597,7 @@ def take__snapshot(args: argparse.Namespace):
         "pause":            pause_flag
     }
 
-    url = apiurl(args, f"/instances/take_snapshot/{instance_id}/")
+    url = apiurl(args, f"/snapshot/take/")
     if args.explain:
         print("Request JSON:")
         print(json.dumps(req_json, indent=2))
@@ -1635,9 +1648,9 @@ def restore__snapshot(args: argparse.Namespace):
     print(f"Restoring new instance from snapshot {snapshot_id} using offer {offer_id}")
 
     # build request payload
-    req_json = {"snapshot_id": snapshot_id}
+    req_json = {"snapshot_id": snapshot_id, "offer_id": offer_id}
 
-    url = apiurl(args, "/asks/restore_from_snapshot/{id}/".format(id=offer_id))
+    url = apiurl(args, "/snapshot/restore/")
 
     if args.explain:
         print("Request URL:")
@@ -1657,6 +1670,26 @@ def restore__snapshot(args: argparse.Namespace):
     else:
         print(r.text);
         print("failed with error {r.status_code}".format(**locals()));
+
+@parser.command(
+    usage="vastai show snapshots [--api-key API_KEY] [--raw]",
+    help="Show container snapshots"
+)
+def show__snapshots(args):
+    """
+    Shows the history of ip address accesses to console.vast.ai endpoints
+
+    :param argparse.Namespace args: should supply all the command-line options
+    :rtype:
+    """
+    req_url = apiurl(args, "/snapshot/show/")
+    r = http_get(args, req_url)
+    r.raise_for_status()
+    rows = r.json()
+    if args.raw:
+        return rows
+    else:
+        display_table(rows, snapshot_fields)
 
 @parser.command(
     argument("--name", help="name of the api-key", type=str),

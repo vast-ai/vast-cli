@@ -1547,7 +1547,7 @@ def cloud__copy(args: argparse.Namespace):
     usage="vastai take snapshot INSTANCE_ID "
           "--repo REPO --docker_login_user USER --docker_login_pass PASS"
           "[--container_registry REGISTRY] [--pause true|false]",
-    help="Schedule a snapshot of a running container and push it to your Docker repo",
+    help="Schedule a snapshot of a running container and push it to your repo in a container registry",
     epilog=deindent("""
         Takes a snapshot of a running container instance and pushes snapshot to the specified repository in container registry.
         
@@ -1574,7 +1574,7 @@ def take__snapshot(args: argparse.Namespace):
     password          = args.docker_login_pass
     pause_flag        = args.pause
 
-    print(f"Take snapshot for instance {instance_id} and push to repo {repo} in container registry {container_registry}")
+    print(f"Taking snapshot for instance {instance_id} and pushing to repo {repo} in container registry {container_registry}")
     req_json = {
         "id":               instance_id,
         "container_registry": container_registry,

@@ -1153,10 +1153,14 @@ def cancel__sync(args: argparse.Namespace):
         print("failed with error {r.status_code}".format(**locals()));
 
 def default_start_date():
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %I:%M:%S %p")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 def default_end_date():
-    return (datetime.now(timezone.utc) + timedelta(days=7)).strftime("%Y-%m-%d %I:%M:%S %p")
+    return (datetime.now(timezone.utc) + timedelta(days=7)).strftime("%Y-%m-%d")
+
+def convert_timestamp_to_date(unix_timestamp):
+    utc_datetime = datetime.fromtimestamp(unix_timestamp, tz=timezone.utc)
+    return utc_datetime.strftime("%Y-%m-%d")
 
 def parse_day_cron_style(value):
     """
@@ -1431,7 +1435,7 @@ def vm__copy(args: argparse.Namespace):
     argument("--delete-excluded", help="delete files on dest excluded from transfer", action="store_true"),
     argument("--schedule", choices=["HOURLY", "DAILY", "WEEKLY"], help="try to schedule a command to run hourly, daily, or monthly. Valid values are HOURLY, DAILY, WEEKLY  For ex. --schedule DAILY"),
     argument("--start_date", type=str, default=default_start_date(), help="Start date/time in format 'YYYY-MM-DD HH:MM:SS PM' (UTC). Default is now. (optional)"),
-    argument("--end_date", type=str, default=default_end_date(), help="End date/time in format 'YYYY-MM-DD HH:MM:SS PM' (UTC). Default is 7 days from now. (optional)"),
+    argument("--end_date", type=str, help="End date/time in format 'YYYY-MM-DD HH:MM:SS PM' (UTC). Default is contract's end. (optional)"),
     argument("--day", type=parse_day_cron_style, help="Day of week you want scheduled job to run on (0-6, where 0=Sunday) or \"*\". Default will be 0. For ex. --day 0", default=0),
     argument("--hour", type=parse_hour_cron_style, help="Hour of day you want scheduled job to run on (0-23) or \"*\" (UTC). Default will be 0. For ex. --hour 16", default=0),
     usage="vastai cloud copy --src SRC --dst DST --instance INSTANCE_ID -connection CONNECTION_ID --transfer TRANSFER_TYPE",
@@ -1522,7 +1526,8 @@ def cloud__copy(args: argparse.Namespace):
                 
                 cli_command = "cloud copy"
                 api_endpoint = "/api/v0/commands/rclone/"
-                add_scheduled_job(args, req_json, cli_command, api_endpoint, "POST", instance_id=args.instance)
+                contract_end_date = row.get("end_date", None)
+                add_scheduled_job(args, req_json, cli_command, api_endpoint, "POST", instance_id=args.instance, contract_end_date=contract_end_date)
                 return
             else:
                 print("Instance not found. Please check the instance ID.")
@@ -1532,7 +1537,7 @@ def cloud__copy(args: argparse.Namespace):
     r.raise_for_status()
     if (r.status_code == 200):
         print("Cloud Copy Started - check instance status bar for progress updates (~30 seconds delayed).")
-        print("When the operation is finished you should see 'Cloud Cody Operation Finished' in the instance status bar.")  
+        print("When the operation is finished you should see 'Cloud Copy Operation Finished' in the instance status bar.")  
     else:
         print(r.text);
         print("failed with error {r.status_code}".format(**locals()));
@@ -1561,8 +1566,11 @@ def validate_frequency_values(day_of_the_week, hour_of_the_day, frequency):
             raise_frequency_error()
 
 
-def add_scheduled_job(args, req_json, cli_command, api_endpoint, request_method, instance_id=None):
+def add_scheduled_job(args, req_json, cli_command, api_endpoint, request_method, instance_id, contract_end_date):
     start_timestamp, end_timestamp = convert_dates_to_timestamps(args)
+    if args.end_date is None:
+        end_timestamp=contract_end_date
+        args.end_date = convert_timestamp_to_date(contract_end_date)
 
     if start_timestamp >= end_timestamp:
         raise ValueError("--start_date must be less than --end_date.")

@@ -757,15 +757,11 @@ audit_log_fields = (
 
 snapshot_fields = (
     ("id",                  "id",                  "{}",    None, True),
-    ("user_id",             "user_id",             "{}",    None, True),
-    ("image",               "image",          "     {}",    None, True),
-    ("instance_id",         "instance_id",         "{}",    None, True),
+    ("image",               "snapshot_image",          "     {}",    None, True),
+    ("status",              "status",              "{}",    None, True),
     ("execution_time",      "execution_time",      "{}",    None, True),
-    ("template_id",         "template_id",         "{}",    None, True),
     ("container_registry",  "container_registry",  "{}",    None, True),
     ("repo",                "repo",                "{}",    None, True),
-    ("username",            "username",            "{}",    None, True),
-    ("status",              "status",              "{}",    None, True),
 )
 
 invoice_fields = (

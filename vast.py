@@ -1678,7 +1678,7 @@ def show__snapshots(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, "/snapshot/show/")
+    req_url = apiurl(args, "/snapshot/")
     r = http_get(args, req_url)
     r.raise_for_status()
     rows = r.json()

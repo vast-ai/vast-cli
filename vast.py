@@ -757,7 +757,7 @@ audit_log_fields = (
 
 snapshot_fields = (
     ("id",                  "id",                  "{}",    None, True),
-    ("image",               "snapshot_image",          "     {}",    None, True),
+    ("image",               "snapshot_image",      "{}",    None, True),
     ("status",              "status",              "{}",    None, True),
     ("execution_time",      "execution_time",      "{}",    None, True),
     ("container_registry",  "container_registry",  "{}",    None, True),

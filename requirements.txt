@@ -2,7 +2,7 @@ xdg
 argcomplete==3.5.1
 requests==2.32.3
 borb==2.0.17
-python-dateutil==2.6.1
+python-dateutil==2.9.0
 pytz
 urllib3==2.2.3
 poetry-dynamic-versioning==1.8.1

@@ -5279,9 +5279,20 @@ def delete__machine(args):
 def list_machine(args, id):
     req_url = apiurl(args, "/machines/create_asks/")
 
-    json_blob = {'machine': id, 'price_gpu': args.price_gpu,
-                        'price_disk': args.price_disk, 'price_inetu': args.price_inetu, 'price_inetd': args.price_inetd, 'price_min_bid': args.price_min_bid, 
-                        'min_chunk': args.min_chunk, 'end_date': string_to_unix_epoch(args.end_date), 'credit_discount_max': args.discount_rate, 'duration': args.duration}
+    json_blob = {
+        'machine': id,
+        'price_gpu': args.price_gpu,
+        'price_disk': args.price_disk,
+        'price_inetu': args.price_inetu,
+        'price_inetd': args.price_inetd,
+        'price_min_bid': args.price_min_bid,
+        'min_chunk': args.min_chunk,
+        'end_date': string_to_unix_epoch(args.end_date),
+        'credit_discount_max': args.discount_rate,
+        'duration': args.duration,
+        'vol_size': args.vol_size,
+        'vol_price': args.vol_price
+    }
     if (args.explain):
         print("request json: ")
         print(json_blob)
@@ -5320,7 +5331,7 @@ def list_machine(args, id):
     argument("id", help="id of machine to list", type=int),
     argument("-g", "--price_gpu", help="per gpu rental price in $/hour  (price for active instances)", type=float),
     argument("-s", "--price_disk",
-             help="storage price in $/GB/month (price for inactive instances), default: $0.15/GB/month", type=float),
+             help="storage price in $/GB/month (price for inactive instances), default: $0.10/GB/month", type=float),
     argument("-u", "--price_inetu", help="price for internet upload bandwidth in $/GB", type=float),
     argument("-d", "--price_inetd", help="price for internet download bandwidth in $/GB", type=float),
     argument("-b", "--price_min_bid", help="per gpu minimum bid price floor in $/hour", type=float),
@@ -5328,6 +5339,8 @@ def list_machine(args, id):
     argument("-m", "--min_chunk", help="minimum amount of gpus", type=int),
     argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format)", type=str),
     argument("-l", "--duration", help="Updates end_date daily to be duration from current date. Cannot be combined with end_date. Format is: `n days`, `n weeks`, `n months`, `n years`, or total intended duration in seconds."),
+    argument("-v", "--vol_size", help="Size for volume contract offer. Defaults to half of available disk. Set 0 to not create a volume contract offer.", type=int),
+    argument("-z", "--vol_price", help="Price for disk on volume contract offer. Defaults to price_disk. Invalid if vol_size is 0.", type=float),
     usage="vastai list machine ID [options]",
     help="[Host] list a machine for rent",
     epilog=deindent("""
@@ -5350,7 +5363,7 @@ def list__machine(args):
     argument("ids", help="ids of instance to list", type=int, nargs='+'),
     argument("-g", "--price_gpu", help="per gpu on-demand rental price in $/hour (base price for active instances)", type=float),
     argument("-s", "--price_disk",
-             help="storage price in $/GB/month (price for inactive instances), default: $0.15/GB/month", type=float),
+             help="storage price in $/GB/month (price for inactive instances), default: $0.10/GB/month", type=float),
     argument("-u", "--price_inetu", help="price for internet upload bandwidth in $/GB", type=float),
     argument("-d", "--price_inetd", help="price for internet download bandwidth in $/GB", type=float),
     argument("-b", "--price_min_bid", help="per gpu minimum bid price floor in $/hour", type=float),
@@ -5358,6 +5371,8 @@ def list__machine(args):
     argument("-m", "--min_chunk", help="minimum amount of gpus", type=int),
     argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format)", type=str),
     argument("-l", "--duration", help="Updates end_date daily to be duration from current date. Cannot be combined with end_date. Format is: `n days`, `n weeks`, `n months`, `n years`, or total intended duration in seconds."),
+    argument("-v", "--vol_size", help="Size for volume contract offer. Defaults to half of available disk. Set 0 to not create a volume contract offer.", type=int),
+    argument("-z", "--vol_price", help="Price for disk on volume contract offer. Defaults to price_disk. Invalid if vol_size is 0.", type=float),
     usage="vastai list machines IDs [options]",
     help="[Host] list machines for rent",
     epilog=deindent("""
@@ -5376,9 +5391,9 @@ def list__machines(args):
 @parser.command(
     argument("id", help="id of machine to list", type=int),
     argument("-p", "--price_disk",
-             help="storage price in $/GB/month, default: $0.15/GB/month", default=.15, type=float),
-    argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format), default 1 month", type=str),
-    argument("-s", "--size", help="size of disk space allocated to offer in GB, default 15 GB", default=15),
+             help="storage price in $/GB/month, default: $%(default).2f/GB/month", default=.10, type=float),
+    argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format), default 3 months", type=str),
+    argument("-s", "--size", help="size of disk space allocated to offer in GB, default %(default)s GB", default=15),
     usage="vastai list volume ID [options]",
     help="[Host] list disk space for rent as a volume on a machine",
     epilog=deindent("""
@@ -5386,16 +5401,10 @@ def list__machines(args):
     """)
 )
 def list__volume(args):        
-    size = args.size
-    if not size:
-        size = 15.0
-    price_disk = args.price_disk
-    if not price_disk:
-        price_disk = .15
-
     json_blob ={
-        "size": int(size),
-        "machine": int(args.id)
+        "size": int(args.size),
+        "machine": int(args.id),
+        "price_disk": float(args.price_disk)
     }
     if args.end_date:
         json_blob["end_date"] = string_to_unix_epoch(args.end_date)
@@ -5416,10 +5425,10 @@ def list__volume(args):
 
 @parser.command(
     argument("ids", help="id of machines list", type=int, nargs='+'),
-    argument("-s", "--price_disk",
-             help="storage price in $/GB/month, default: $0.10/GB/month", type=float),
-    argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format)", type=str),
-    argument("-n", "--size", help="size of disk space allocated to offer in GB, default 5 GB"),
+    argument("-p", "--price_disk",
+             help="storage price in $/GB/month, default: $%(default).2f/GB/month", default=.10, type=float),
+    argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format), default 3 months", type=str),
+    argument("-s", "--size", help="size of disk space allocated to offer in GB, default %(default)s GB", default=15),
     usage="vastai list volume IDs [options]",
     help="[Host] list disk space for rent as a volume on machines",
     epilog=deindent("""
@@ -5427,16 +5436,10 @@ def list__volume(args):
     """)
 )
 def list__volumes(args):
-    size = args.size
-    if not size:
-        size = 15.0
-    price_disk = args.price_disk
-    if not price_disk:
-        price_disk = .15
-
     json_blob ={
-        "size": int(size),
-        "machine": [int(id) for id in args.ids]
+        "size": int(args.size),
+        "machine": [int(id) for id in args.ids],
+        "price_disk": float(args.price_disk)
     }
     if args.end_date:
         json_blob["end_date"] = string_to_unix_epoch(args.end_date)

@@ -1659,6 +1659,73 @@ def cloud__copy(args: argparse.Namespace):
         print(r.text);
         print("failed with error {r.status_code}".format(**locals()));
 
+
+@parser.command(
+    argument("instance_id",      help="instance_id of the container instance to snapshot",      type=str),
+    argument("--container_registry", help="Container registry to push the snapshot to. Default will be docker.io", type=str, default="docker.io"),
+    argument("--repo",    help="repo to push the snapshot to",     type=str),
+    argument("--docker_login_user",help="Username for container registry with repo",     type=str),
+    argument("--docker_login_pass",help="Password or token for container registry with repo",     type=str),
+    argument("--pause",            help="Pause container's processes being executed by the CPU to take snapshot (true/false). Default will be true", type=str, default="true"),
+    usage="vastai take snapshot INSTANCE_ID "
+          "--repo REPO --docker_login_user USER --docker_login_pass PASS"
+          "[--container_registry REGISTRY] [--pause true|false]",
+    help="Schedule a snapshot of a running container and push it to your repo in a container registry",
+    epilog=deindent("""
+        Takes a snapshot of a running container instance and pushes snapshot to the specified repository in container registry.
+        
+        Use pause=true to pause the container during commit (safer but slower),
+        or pause=false to leave it running (faster but may produce a filesystem-
+// safer snapshot).
+    """),
+)
+def take__snapshot(args: argparse.Namespace):
+    """
+    Take a container snapshot and push.
+
+    @param instance_id: instance identifier.
+    @param repo: Docker repository for the snapshot.
+    @param container_registry: Container registry
+    @param docker_login_user: Docker registry username.
+    @param docker_login_pass: Docker registry password/token.
+    @param pause: "true" or "false" to pause the container during commit.
+    """
+    instance_id       = args.instance_id
+    repo              = args.repo
+    container_registry = args.container_registry
+    user              = args.docker_login_user
+    password          = args.docker_login_pass
+    pause_flag        = args.pause
+
+    print(f"Taking snapshot for instance {instance_id} and pushing to repo {repo} in container registry {container_registry}")
+    req_json = {
+        "id":               instance_id,
+        "container_registry": container_registry,
+        "personal_repo":    repo,
+        "docker_login_user":user,
+        "docker_login_pass":password,
+        "pause":            pause_flag
+    }
+
+    url = apiurl(args, f"/instances/take_snapshot/{instance_id}/")
+    if args.explain:
+        print("Request JSON:")
+        print(json.dumps(req_json, indent=2))
+
+    # POST to the snapshot endpoint
+    r = http_post(args, url, headers=headers, json=req_json)
+    r.raise_for_status()
+
+    if r.status_code == 200:
+        data = r.json()
+        if data.get("success"):
+            print(f"Snapshot request sent successfully. Please check your repo {repo} in container registry {container_registry} in 5-10 mins. It can take longer than 5-10 mins to push your snapshot image to your repo depending on the size of your image.")
+        else:
+            print(data.get("msg", "Unknown error with snapshot request"))
+    else:
+        print(r.text);
+        print("failed with error {r.status_code}".format(**locals()));
+
 def validate_frequency_values(day_of_the_week, hour_of_the_day, frequency):
 
     # Helper to raise an error with a consistent message.

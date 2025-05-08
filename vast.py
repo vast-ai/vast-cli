@@ -713,6 +713,7 @@ instance_fields = (
 
 volume_fields = (
     ("id", "ID", "{}", None, True),
+    ("label", "Name", "{}", None, True),
     ("disk_space", "Disk", "{:.0f}", None, True),
     ("status", "status", "{}", None, True),
     ("disk_name", "Disk Name", "{}", None, True),
@@ -2289,7 +2290,8 @@ def create__template(args):
 @parser.command(
     argument("id", help="id of volume offer", type=int),
     argument("-s", "--size",
-             help="size in GB of volume. Default 15 GB.", type=float),
+             help="size in GB of volume. Default %(default)s GB.", default=15, type=float),
+    argument("-n", "--name", help="Optional name of volume.", type=str),
     usage="vastai create volume ID [options]",
     help="Create a new volume",
     epilog=deindent("""
@@ -2299,14 +2301,12 @@ def create__template(args):
 )
 def create__volume(args: argparse.Namespace):
     
-    size = args.size
-    
-    if not size:
-        size = 15.0
     json_blob ={
-        "size": size,
-        "id": args.id
+        "size": int(args.size),
+        "id": int(args.id)
     }
+    if args.name:
+        json_blob["name"] = args.name
 
     url = apiurl(args, "/volumes/")
 

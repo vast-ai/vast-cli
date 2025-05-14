@@ -5457,6 +5457,30 @@ def list__volumes(args):
     else:
         print("Created. {}".format(r.json()))
 
+@parser.command(
+    argument("id", help="volume ID you want to unlist", type=int),
+    usage="vastai unlist volume ID",
+    help="[Host] unlist volume offer"
+)
+def unlist__volume(args):
+    id = args.id
+
+    json_blob = {
+        "id": id
+    }
+
+    url = apiurl(args, "/volumes/unlist")
+
+    if args.explain:
+        print("request json:", json_blob)
+
+    r = http_post(args, url, headers, json_blob)
+    r.raise_for_status()
+    if args.raw:
+        return r
+    else:
+        print(r.json()["msg"])
+
 
 
 @parser.command(

@@ -194,7 +194,6 @@ def check_for_update():
     sys.exit(0)
 
 APP_NAME = "vastai"
-GIT_VERSION = "0.3.0-git"
 VERSION = get_local_version()
 
 

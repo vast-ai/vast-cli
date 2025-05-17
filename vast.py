@@ -6672,7 +6672,6 @@ def main():
 
     if not args.raw and should_check_for_update:
         try:
-            print("GETS EHRE:")
             if is_pip_package():
                 check_for_update()
         except Exception as e:

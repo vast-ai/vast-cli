@@ -99,14 +99,14 @@ def get_git_version():
 
         return tag[1:] if tag.startswith("v") else tag
     except Exception:
-        return "0.0.0"
+        return "0.0.0-git"
 
 
 def get_pip_version():
     try:
         return importlib.metadata.version("vastai")
     except Exception:
-        return "0.0.0"
+        return "0.0.0-pip"
 
 
 def is_pip_package():
@@ -157,6 +157,7 @@ def get_pypi_version(project_data: dict[str, dict[str, str]]) -> str:
     version_data: str = str(info_data.get("version"))
 
     return str(version_data)
+
 def check_for_update():
     pypi_data = get_project_data("vastai")
     pypi_version = get_pypi_version(pypi_data)
@@ -193,6 +194,7 @@ def check_for_update():
     sys.exit(0)
 
 APP_NAME = "vastai"
+GIT_VERSION = "0.3.0-git"
 VERSION = get_local_version()
 
 
@@ -6671,6 +6673,7 @@ def main():
 
     if not args.raw and should_check_for_update:
         try:
+            print("GETS EHRE:")
             if is_pip_package():
                 check_for_update()
         except Exception as e:

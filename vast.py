@@ -35,7 +35,7 @@ import importlib.metadata
 
 PYPI_BASE_PATH = "https://pypi.org"
 # INFO - Change to False if you don't want to check for update each run.
-should_check_for_update = True
+should_check_for_update = False
 ARGS = None
 TABCOMPLETE = False
 try:

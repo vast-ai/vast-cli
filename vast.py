@@ -3826,7 +3826,7 @@ def search__templates(args):
         print("Error: ", e)
         return 1  
     url = apiurl(args, "/template/", {"select_cols" : ['*'], "select_filters" : query})
-    r = requests.get(url, headers=headers)
+    r = http_get(args, url, headers=headers)
     if r.status_code != 200:
         print(r.text)
         r.raise_for_status()

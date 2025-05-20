@@ -466,22 +466,11 @@ class apwrap(object):
         return inner
 
     def parse_args(self, argv=None, *a, **kw):
-        if argv is None:
-            argv = sys.argv[1:]
-        argv_ = []
-        for x in argv:
-            if argv_ and argv_[-1] in self.verbs:
-                argv_[-1] += " " + x
-            else:
-                argv_.append(x)
-        args = self.parser.parse_args(argv_, *a, **kw)
-        for func in self.post_setup:
-            func(args)
-        return args
+        raise Exception("All commands are disabled")
 
-class MyWideHelpFormatter(argparse.RawTextHelpFormatter):
-    def __init__(self, prog):
-        super().__init__(prog, width=128, max_help_position=50, indent_increment=1)
+    class MyWideHelpFormatter(argparse.RawTextHelpFormatter):
+        def __init__(self, prog):
+            super().__init__(prog, width=128, max_help_position=50, indent_increment=1)
 
 
 parser = apwrap(

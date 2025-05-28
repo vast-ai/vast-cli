@@ -229,7 +229,7 @@ APIKEY_FILE = os.path.join(DIRS['config'], "vast_api_key")
 APIKEY_FILE_HOME = os.path.expanduser("~/.vast_api_key") # Legacy
 
 if not os.path.exists(APIKEY_FILE) and os.path.exists(APIKEY_FILE_HOME):
-  print(f'copying key from {APIKEY_FILE_HOME} -> {APIKEY_FILE}')
+  #print(f'copying key from {APIKEY_FILE_HOME} -> {APIKEY_FILE}')
   shutil.copyfile(APIKEY_FILE_HOME, APIKEY_FILE)
 
 

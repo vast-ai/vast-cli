@@ -67,7 +67,7 @@ except NameError:
 
 
 #server_url_default = "https://vast.ai"
-server_url_default = "https://console.vast.ai"
+server_url_default = os.getenv("VAST_URL") or "https://console.vast.ai"
 # server_url_default = "http://localhost:5002"
 #server_url_default = "host.docker.internal"
 #server_url_default = "http://localhost:5002"

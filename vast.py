@@ -698,7 +698,6 @@ cluster_fields = (
     ("node_count", "Nodes", "{}", None, True),
     ("manager_id", "Manager ID", "{}", None, True),
     ("manager_ip", "Manager IP", "{}", None, True),
-    ("worker_token", "Token", "{}", None, True),
     ("machine_ids", "Machine ID's", "{}", None, True)
 )
 
@@ -4369,7 +4368,6 @@ def show__clusters(args: argparse.Namespace):
             'machine_ids': str(machine_ids),
             'manager_id': str(manager_node['machine_id']),
             'manager_ip': manager_node['local_ip'],
-            'worker_token': cluster_data['worker_token']
         }
 
         rows.append(row_data)

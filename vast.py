@@ -711,6 +711,15 @@ instance_fields = (
     ("uptime_mins", "uptime(mins)", "{:0.2f}",  None, True),
 )
 
+cluster_fields = (
+    ("id", "ID", "{}", None, True),
+    ("subnet", "Subnet", "{}", None, True),
+    ("node_count", "Nodes", "{}", None, True),
+    ("manager_id", "Manager ID", "{}", None, True),
+    ("manager_ip", "Manager IP", "{}", None, True),
+    ("machine_ids", "Machine ID's", "{}", None, True)
+)
+
 volume_fields = (
     ("id", "ID", "{}", None, True),
     ("label", "Name", "{}", None, True),
@@ -4698,6 +4707,40 @@ def show__volumes(args: argparse.Namespace):
     else:
         display_table(processed, volume_fields, replace_spaces=False)
 
+@parser.command(
+    usage="vastai show clusters",
+    help="Show clusters associated with your account.",
+    epilog=deindent("""
+        Show clusters associated with your account.
+    """)
+)
+def show__clusters(args: argparse.Namespace):
+    req_url = apiurl(args, "/clusters/")
+    r = http_get(args, req_url)
+    r.raise_for_status()
+    response_data = r.json()
+
+    if args.raw:
+        return response_data
+
+    rows = []
+    for cluster_id, cluster_data in response_data['clusters'].items():
+        machine_ids = [ node["machine_id"] for node in cluster_data["nodes"]]
+
+        manager_node = next(node for node in cluster_data['nodes'] if node['is_cluster_manager'])
+
+        row_data = {
+            'id': cluster_id,
+            'subnet': cluster_data['subnet'],
+            'node_count': len(cluster_data['nodes']),
+            'machine_ids': str(machine_ids),
+            'manager_id': str(manager_node['machine_id']),
+            'manager_ip': manager_node['local_ip'],
+        }
+
+        rows.append(row_data)
+
+    display_table(rows, cluster_fields, replace_spaces=False)
 
 @parser.command(
     argument("recipient", help="email (or id) of recipient account", type=str),

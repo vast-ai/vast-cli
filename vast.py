@@ -317,7 +317,7 @@ class hidden_aliases(object):
     def append(self, x):
         self.l.append(x)
 
-def http_request(verb, args, req_url, headers = None, json = None):
+def http_request(verb, args, req_url, headers: dict[str, str] | None = None, json = None):
     t = 0.15
     for i in range(0, args.retry):
         req = requests.Request(method=verb, url=req_url, headers=headers, json=json)
@@ -345,13 +345,13 @@ def http_request(verb, args, req_url, headers = None, json = None):
 def http_get(args, req_url, headers = None, json = None):
     return http_request('GET', args, req_url, headers, json)
 
-def http_put(args, req_url, headers, json):
+def http_put(args, req_url, headers = None, json = {}):
     return http_request('PUT', args, req_url, headers, json)
 
-def http_post(args, req_url, headers, json={}):
+def http_post(args, req_url, headers = None, json={}):
     return http_request('POST', args, req_url, headers, json)
 
-def http_del(args, req_url, headers, json={}):
+def http_del(args, req_url, headers = None, json={}):
     return http_request('DELETE', args, req_url, headers, json)
 
 
@@ -720,6 +720,14 @@ cluster_fields = (
     ("machine_ids", "Machine ID's", "{}", None, True)
 )
 
+overlay_fields = (
+    ("overlay_id", "Overlay ID", "{}", None, True),
+    ("name", "Name", "{}", None, True),
+    ("subnet", "Subnet", "{}", None, True),
+    ("cluster_id", "Cluster ID", "{}", None, True),
+    ("instance_count", "Instances", "{}", None, True),
+    ("instances", "Instance IDs", "{}", None, True),
+)
 volume_fields = (
     ("id", "ID", "{}", None, True),
     ("label", "Name", "{}", None, True),
@@ -4706,6 +4714,217 @@ def show__volumes(args: argparse.Namespace):
         return processed
     else:
         display_table(processed, volume_fields, replace_spaces=False)
+
+
+@parser.command(
+    argument("subnet", help="local subnet for cluster, ex: '0.0.0.0/24'", type=str),
+    argument("manager_id", help="Machine ID of manager node in cluster. Must exist already.", type=int),
+    usage="vastai create cluster",
+    help="Create Vast cluster",
+    epilog=deindent("""
+        Create Vast Cluster by defining a local subnet and manager id.""")
+)
+def create__cluster(args: argparse.Namespace):
+
+    json_blob = {
+        "subnet": args.subnet,
+        "manager_id": args.manager_id
+    }
+
+    #TODO: this should happen at the decorator level for all CLI commands to reduce boilerplate
+    if args.explain:
+        print("request json: ")
+        print(json_blob)
+
+    req_url = apiurl(args, "/cluster/")
+    r  = http_post(args, req_url, json=json_blob)
+    r.raise_for_status()
+
+    if args.raw:
+        return r
+
+    print(r.json()["msg"])
+
+@parser.command(
+    argument("cluster_id", help="ID of cluster to add machine to", type=int),
+    argument("machine_ids", help="machine id(s) to join cluster", type=int, nargs="+"),
+    usage="vastai join cluster CLUSTER_ID MACHINE_IDS",
+    help="Join Machine to Cluster",
+    epilog=deindent("""
+        Join's Machine to Vast Cluster
+    """)
+)
+def join__cluster(args: argparse.Namespace):
+    json_blob = {
+        "cluster_id": args.cluster_id,
+        "machine_ids": args.machine_ids
+    }
+
+    if args.explain:
+        print("request json:", json_blob)
+
+    req_url = apiurl(args, "/cluster/")
+    r = http_put(args, req_url, json=json_blob)
+    r.raise_for_status()
+
+    if args.raw:
+        return r
+
+    print(r.json()["msg"])
+
+@parser.command(
+    argument("cluster_id", help="ID of cluster to delete", type=int),
+    usage="vastai delete cluster CLUSTER_ID",
+    help="Delete Cluster",
+    epilog=deindent("""
+        Delete Vast Cluster""")
+)
+def delete__cluster(args: argparse.Namespace):
+    json_blob = {
+        "cluster_id": args.cluster_id
+    }
+
+    if args.explain:
+        print("request json:", json_blob)
+
+    req_url = apiurl(args, "/cluster/")
+    r = http_del(args, req_url, json=json_blob)
+    r.raise_for_status()
+
+    if args.raw:
+        return r
+
+    print(r.json()["msg"])
+
+@parser.command(
+    argument("cluster_id", help="ID of cluster you want to remove machine from.", type=int),
+    argument("machine_id", help="ID of machine to remove from cluster.", type=int),
+    argument("new_manager_id", help="ID of machine to promote to manager. Must already be in cluster", type=int),
+    usage="vastai remove-machine-from-cluster",
+    help="Removes machine from cluster",
+    epilog=deindent("""Removes machine from cluster and also reassigns manager ID, 
+    if we're removing the manager node""")
+)
+def remove_machine_from_cluster(args: argparse.Namespace):
+    json_blob = {
+        "cluster_id": args.cluster_id,
+        "machine_id": args.machine_id,
+        "new_manager_id": args.new_manager_id
+    }
+
+    if args.explain:
+        print("request json:", json_blob)
+
+    req_url = apiurl(args, "/cluster/remove_machine/")
+    r = http_del(args, req_url, json=json_blob)
+    r.raise_for_status()
+
+    if args.raw:
+        return r
+
+    print(r.json()["msg"])
+
+@parser.command(
+    usage="vastai show overlays",
+    help="Show overlays associated with your account.",
+    epilog=deindent("""
+        Show overlays associated with your account.
+    """)
+)
+def show__overlays(args: argparse.Namespace):
+    req_url = apiurl(args, "/overlay/")
+    r = http_get(args, req_url)
+    r.raise_for_status()
+    response_data = r.json()
+    if args.raw:
+        return response_data
+    rows = []
+    for overlay in response_data:
+        row_data = {
+            'overlay_id': overlay['overlay_id'],
+            'name': overlay['name'],
+            'subnet': overlay['internal_subnet'] if overlay['internal_subnet'] else 'N/A',
+            'cluster_id': overlay['cluster_id'],
+            'instance_count': len(overlay['instances']),
+            'instances': str(overlay['instances']),
+        }
+        rows.append(row_data)
+    display_table(rows, overlay_fields, replace_spaces=False)
+
+@parser.command(
+    argument("cluster_id", help="ID of cluster to create overlay on top of", type=int),
+    argument("name", help="overlay network name"),
+    usage="vastai create overlay CLUSTER_ID OVERLAY_NAME",
+    help="Creates overlay network on top of a physical cluster",
+    epilog=deindent("""
+    Creates an overlay network to allow rental of specific machines on a physical cluster""")
+)
+def create__overlay(args: argparse.Namespace):
+    json_blob = {
+        "cluster_id": args.cluster_id,
+        "name": args.name
+    }
+
+    if args.explain:
+        print("request json:", json_blob)
+
+    req_url = apiurl(args, "/overlay/")
+    r = http_post(args, req_url, json=json_blob)
+    r.raise_for_status()
+
+    if args.raw:
+        return r
+
+    print(r.json()["msg"])
+
+@parser.command(
+    argument("name", help="Overlay network name to join instance to.", type=str),
+    argument("instance_id", help="Instance ID to add to overlay.", type=int),
+    usage="vastai join overlay OVERLAY_NAME INSTANCE_ID",
+    help="Adds instance to an overlay network",
+    epilog=deindent("""
+    Adds an instance to a compatible overlay network.""")
+)
+def join__overlay(args: argparse.Namespace):
+    json_blob = {
+        "name": args.name,
+        "instance_id": args.instance_id
+    }
+
+    if args.explain:
+        print("request json:", json_blob)
+
+    req_url = apiurl(args, "/overlay/")
+    r = http_put(args, req_url, json=json_blob)
+    r.raise_for_status()
+
+    if args.raw:
+        return r
+
+    print(r.json()["msg"])
+
+@parser.command(
+    argument("overlay_id", help="ID of overlay to delete"),
+    usage="vastai delete overlay OVERLAY_ID",
+    help="Delete's overlay and removes all of it's associated instance's"
+)
+def delete__overlay(args: argparse.Namespace):
+    json_blob = {
+        "overlay_id": args.overlay_id,
+    }
+
+    if args.explain:
+        print("request json:", json_blob)
+
+    req_url = apiurl(args, "/overlay/")
+    r = http_del(args, req_url, json=json_blob)
+    r.raise_for_status()
+
+    if args.raw:
+        return r
+
+    print(r.json()["msg"])
+
 
 @parser.command(
     usage="vastai show clusters",

@@ -1,6 +1,6 @@
 xdg
 argcomplete==3.5.1
-requests==2.32.3
+requests==2.32.4
 borb==2.0.17
 python-dateutil==2.9.0
 pytz

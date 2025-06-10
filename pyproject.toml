@@ -23,7 +23,7 @@ dynamic = ["version"]
 dependencies = [
   "xdg",
   "argcomplete==3.5.1",
-  "requests",
+  "requests (>=2.32.4)",
   "borb (==2.1.25)",
   "python-dateutil==2.6.1",
   "pytz",

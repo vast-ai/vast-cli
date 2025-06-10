@@ -4800,7 +4800,7 @@ def delete__cluster(args: argparse.Namespace):
     argument("cluster_id", help="ID of cluster you want to remove machine from.", type=int),
     argument("machine_id", help="ID of machine to remove from cluster.", type=int),
     argument("new_manager_id", help="ID of machine to promote to manager. Must already be in cluster", type=int),
-    usage="vastai remove-machine-from-cluster",
+    usage="vastai remove-machine-from-cluster CLUSTER_ID MACHINE_ID NEW_MANAGER_ID",
     help="Removes machine from cluster",
     epilog=deindent("""Removes machine from cluster and also reassigns manager ID, 
     if we're removing the manager node""")

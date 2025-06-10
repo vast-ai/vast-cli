@@ -4719,7 +4719,7 @@ def show__volumes(args: argparse.Namespace):
 @parser.command(
     argument("subnet", help="local subnet for cluster, ex: '0.0.0.0/24'", type=str),
     argument("manager_id", help="Machine ID of manager node in cluster. Must exist already.", type=int),
-    usage="vastai create cluster",
+    usage="vastai create cluster SUBNET MANAGER_ID",
     help="Create Vast cluster",
     epilog=deindent("""
         Create Vast Cluster by defining a local subnet and manager id.""")

@@ -4906,7 +4906,7 @@ def join__overlay(args: argparse.Namespace):
 @parser.command(
     argument("overlay_id", help="ID of overlay to delete"),
     usage="vastai delete overlay OVERLAY_ID",
-    help="Delete's overlay and removes all of it's associated instance's"
+    help="Deletes overlay and removes all of its associated instances"
 )
 def delete__overlay(args: argparse.Namespace):
     json_blob = {

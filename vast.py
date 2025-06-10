@@ -4857,7 +4857,7 @@ def show__overlays(args: argparse.Namespace):
     usage="vastai create overlay CLUSTER_ID OVERLAY_NAME",
     help="Creates overlay network on top of a physical cluster",
     epilog=deindent("""
-    Creates an overlay network to allow rental of specific machines on a physical cluster""")
+    Creates an overlay network to allow local networking between instances on a physical cluster""")
 )
 def create__overlay(args: argparse.Namespace):
     json_blob = {

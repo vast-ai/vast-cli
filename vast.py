@@ -5853,7 +5853,7 @@ def parse_env(envs):
     prev = None
     for e in env:
         if (prev is None):
-          if (e in {"-e", "-p", "-h", "-v"}):
+          if (e in {"-e", "-p", "-h", "-v", "-n"}):
               prev = e
           else:
             pass
@@ -5875,6 +5875,9 @@ def parse_env(envs):
           elif (prev == "-v"):
             if (set(e).issubset(set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:./_"))):
                 result["-v " + e] = "1" 
+          elif (prev == "-n"):
+            if (set(e).issubset(set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"))):
+                result["-n " + e] = "1"
           else:
               result[prev] = e
           prev = None

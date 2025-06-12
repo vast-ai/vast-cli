@@ -2004,6 +2004,30 @@ def get_runtype(args):
 
     return runtype
 
+def validate_volume_params(args):
+    if args.volume_size and not args.create_volume:
+        raise argparse.ArgumentTypeError("Error: --volume-size can only be used with --create-volume. Please specify a volume ask ID to create a new volume of that size.")
+    if (args.create_volume or args.link_volume) and not args.mount_path:
+        raise argparse.ArgumentTypeError("Error: --mount-path is required when creating or linking a volume.")
+
+    # This regex matches absolute or relative Linux file paths (no null bytes)
+    valid_linux_path_regex = re.compile(r'^(/)?([^/\0]+(/)?)+$')
+    if not valid_linux_path_regex.match(args.mount_path):
+        raise argparse.ArgumentTypeError(f"Error: --mount-path '{args.mount_path}' is not a valid Linux file path.")
+    
+    volume_info = {
+        "mount_path": args.mount_path,
+        "create_new": True if args.create_volume else False,
+        "volume_id": args.create_volume if args.create_volume else args.link_volume
+    }
+    if args.volume_label:
+        volume_info["name"] = args.volume_label
+    if args.volume_size:
+        volume_info["size"] = args.volume_size
+    elif args.create_volume:  # If creating a new volume and size is not passed in, default size is 15GB
+        volume_info["size"] = 15
+
+    return volume_info
 
 @parser.command(
     argument("id", help="id of instance type to launch (returned from search offers)", type=int),
@@ -2030,6 +2054,12 @@ def get_runtype(args):
     argument("--force", help="Skip sanity checks when creating from an existing instance", action="store_true"),
     argument("--cancel-unavail", help="Return error if scheduling fails (rather than creating a stopped instance)", action="store_true"),
     argument("--bid_price", help="(OPTIONAL) create an INTERRUPTIBLE instance with per machine bid price in $/hour", type=float),
+    argument("--create-volume", metavar="VOLUME_ASK_ID", help="Create a new local volume using an ID returned from the \"search volumes\" command and link it to the new instance", type=int),
+    argument("--link-volume", metavar="EXISTING_VOLUME_ID", help="ID of an existing rented volume to link to the instance during creation. (returned from \"show volumes\" cmd)", type=int),
+    argument("--volume-size", help="Size of the volume to create in GB. Only usable with --create-volume (default 15GB)", type=int),
+    argument("--mount-path", help="The path to the volume from within the new instance container. e.g. /root/volume", type=str),
+    argument("--volume-label", help="(optional) A name to give the new volume. Only usable with --create-volume", type=str),
+    
     usage="vastai create instance ID [OPTIONS] [--args ...]",
     help="Create a new instance",
     epilog=deindent("""
@@ -2098,6 +2128,9 @@ def create__instance(args: argparse.Namespace):
         "user": args.user
     }
 
+    if args.create_volume or args.link_volume:
+        volume_info = validate_volume_params(args)
+        json_blob["volume_info"] = volume_info
 
     if args.template_hash is None:
         runtype = get_runtype(args)
@@ -5303,7 +5336,6 @@ def filter_invoice_items(args: argparse.Namespace, rows: List) -> Dict:
         #import vast_pdf
         import dateutil
         from dateutil import parser
-
     except ImportError:
         print("""\nWARNING: The 'vast_pdf' library is not present. This library is used to print invoices in PDF format. If
         you do not need this feature you can ignore this message. To get the library you should download the vast-python

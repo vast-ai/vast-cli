@@ -6826,6 +6826,8 @@ def self_test__machine(args):
                 retry=args.retry,
                 debugging=args.debugging,
                 bid_price=None,  # Ensure bid_price is None
+                create_volume=None,
+                link_volume=None,
             )
 
             # Create instance

@@ -4752,7 +4752,7 @@ def show__volumes(args: argparse.Namespace):
 @parser.command(
     argument("subnet", help="local subnet for cluster, ex: '0.0.0.0/24'", type=str),
     argument("manager_id", help="Machine ID of manager node in cluster. Must exist already.", type=int),
-    usage="vastai create cluster",
+    usage="vastai create cluster SUBNET MANAGER_ID",
     help="Create Vast cluster",
     epilog=deindent("""
         Create Vast Cluster by defining a local subnet and manager id.""")
@@ -4833,7 +4833,7 @@ def delete__cluster(args: argparse.Namespace):
     argument("cluster_id", help="ID of cluster you want to remove machine from.", type=int),
     argument("machine_id", help="ID of machine to remove from cluster.", type=int),
     argument("new_manager_id", help="ID of machine to promote to manager. Must already be in cluster", type=int),
-    usage="vastai remove-machine-from-cluster",
+    usage="vastai remove-machine-from-cluster CLUSTER_ID MACHINE_ID NEW_MANAGER_ID",
     help="Removes machine from cluster",
     epilog=deindent("""Removes machine from cluster and also reassigns manager ID, 
     if we're removing the manager node""")
@@ -4890,7 +4890,7 @@ def show__overlays(args: argparse.Namespace):
     usage="vastai create overlay CLUSTER_ID OVERLAY_NAME",
     help="Creates overlay network on top of a physical cluster",
     epilog=deindent("""
-    Creates an overlay network to allow rental of specific machines on a physical cluster""")
+    Creates an overlay network to allow local networking between instances on a physical cluster""")
 )
 def create__overlay(args: argparse.Namespace):
     json_blob = {
@@ -4939,7 +4939,7 @@ def join__overlay(args: argparse.Namespace):
 @parser.command(
     argument("overlay_id", help="ID of overlay to delete"),
     usage="vastai delete overlay OVERLAY_ID",
-    help="Delete's overlay and removes all of it's associated instance's"
+    help="Deletes overlay and removes all of its associated instances"
 )
 def delete__overlay(args: argparse.Namespace):
     json_blob = {

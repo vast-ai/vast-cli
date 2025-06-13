@@ -923,7 +923,8 @@ offers_fields = {
     "verification",
     "verified",
     "vms_enabled",
-    "geolocation"
+    "geolocation",
+    "cluster_id"
 }
 
 offers_alias = {
@@ -4832,7 +4833,7 @@ def delete__cluster(args: argparse.Namespace):
 @parser.command(
     argument("cluster_id", help="ID of cluster you want to remove machine from.", type=int),
     argument("machine_id", help="ID of machine to remove from cluster.", type=int),
-    argument("new_manager_id", help="ID of machine to promote to manager. Must already be in cluster", type=int),
+    argument("new_manager_id", help="ID of machine to promote to manager. Must already be in cluster", type=int, nargs="?"),
     usage="vastai remove-machine-from-cluster CLUSTER_ID MACHINE_ID NEW_MANAGER_ID",
     help="Removes machine from cluster",
     epilog=deindent("""Removes machine from cluster and also reassigns manager ID, 
@@ -4842,9 +4843,10 @@ def remove_machine_from_cluster(args: argparse.Namespace):
     json_blob = {
         "cluster_id": args.cluster_id,
         "machine_id": args.machine_id,
-        "new_manager_id": args.new_manager_id
     }
 
+    if args.new_manager_id:
+        json_blob["new_manager_id"] = args.new_manager_id
     if args.explain:
         print("request json:", json_blob)
 

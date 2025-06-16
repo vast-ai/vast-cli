@@ -4937,14 +4937,21 @@ def join__overlay(args: argparse.Namespace):
     print(r.json()["msg"])
 
 @parser.command(
-    argument("overlay_id", help="ID of overlay to delete"),
-    usage="vastai delete overlay OVERLAY_ID",
+    argument("overlay_identifier", help="ID (int) or name (str) of overlay to delete", nargs="?"),
+    usage="vastai delete overlay OVERLAY_IDENTIFIER",
     help="Deletes overlay and removes all of its associated instances"
 )
 def delete__overlay(args: argparse.Namespace):
-    json_blob = {
-        "overlay_id": args.overlay_id,
-    }
+    identifier = args.overlay_identifier
+    try:
+        overlay_id = int(identifier)
+        json_blob = {
+            "overlay_id": overlay_id
+        }
+    except (ValueError, TypeError):
+        json_blob = {
+            "overlay_name": identifier
+        }
 
     if args.explain:
         print("request json:", json_blob)
@@ -4957,7 +4964,6 @@ def delete__overlay(args: argparse.Namespace):
         return r
 
     print(r.json()["msg"])
-
 
 @parser.command(
     usage="vastai show clusters",

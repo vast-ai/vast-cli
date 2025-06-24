@@ -683,6 +683,19 @@ vol_displayable_fields = (
     ("geolocation", "country", "{}", None, True),
 )
 
+nw_vol_displayable_fields = (
+    ("id", "ID", "{}", None, True),
+    ("disk_space", "Disk", "{:.0f}", None, True),
+    ("storage_cost", "$/Gb/Month", "{:.2f}", None, True),
+    ("inet_up", "Net_up", "{:0.1f}", None, True),
+    ("inet_down", "Net_down", "{:0.1f}", None, True),
+    ("reliability", "R", "{:0.1f}", lambda x: x * 100, True),
+    ("duration", "Max_Days", "{:0.1f}", lambda x: x / (24.0 * 60.0 * 60.0), True),
+    ("verification", "status", "{}", None, True),
+    ("host_id", "host_id", "{}", None, True),
+    ("cluster_id", "cluster_id", "{}", None, True),
+    ("geolocation", "country", "{}", None, True),
+)
 # Need to add bw_nvlink, machine_id, direct_port_count to output.
 
 
@@ -2372,6 +2385,39 @@ def create__volume(args: argparse.Namespace):
 
 
 @parser.command(
+    argument("id", help="id of network volume offer", type=int),
+    argument("-s", "--size",
+             help="size in GB of network volume. Default %(default)s GB.", default=15, type=float),
+    argument("-n", "--name", help="Optional name of network volume.", type=str),
+    usage="vastai create network volume ID [options]",
+    help="Create a new network volume",
+    epilog=deindent("""
+        Creates a network volume from an offer ID (which is returned from "search network volumes"). Each offer ID can be used to create multiple volumes,
+        provided the size of all volumes does not exceed the size of the offer.
+    """)
+)
+def create__network_volume(args: argparse.Namespace):
+    
+    json_blob ={
+        "size": int(args.size),
+        "id": int(args.id)
+    }
+    if args.name:
+        json_blob["name"] = args.name
+
+    url = apiurl(args, "/network_volumes/")
+
+    if (args.explain):
+        print("request json: ")
+        print(json_blob)
+    r = http_put(args, url,  headers=headers,json=json_blob)
+    r.raise_for_status()
+    if args.raw:
+        return r
+    else:
+        print("Created. {}".format(r.json()))
+
+@parser.command(
     argument("id", help="id of apikey to remove", type=int),
     usage="vastai delete api-key ID",
     help="Remove an api-key",
@@ -4002,6 +4048,101 @@ def search__volumes(args: argparse.Namespace):
         display_table(rows, vol_displayable_fields)
 
 
+
+@parser.command(
+    argument("-n", "--no-default", action="store_true", help="Disable default query"),
+    argument("--limit", type=int, help=""),
+    argument("--storage", type=float, default=1.0, help="Amount of storage to use for pricing, in GiB. default=1.0GiB"),
+    argument("-o", "--order", type=str, help="Comma-separated list of fields to sort on. postfix field with - to sort desc. ex: -o 'disk_space,inet_up-'.  default='score-'", default='score-'),
+    argument("query", help="Query to search for. default: 'external=false verified=true disk_space>=1', pass -n to ignore default", nargs="*", default=None),
+    usage="vastai search network volumes [--help] [--api-key API_KEY] [--raw] <query>",
+    help="Search for network volume offers using custom query",
+    epilog=deindent("""
+        Query syntax:
+
+            query = comparison comparison...
+            comparison = field op value
+            field = <name of a field>
+            op = one of: <, <=, ==, !=, >=, >, in, notin
+            value = <bool, int, float, string> | 'any' | [value0, value1, ...]
+            bool: True, False
+
+        note: to pass '>' and '<' on the command line, make sure to use quotes
+        note: to encode a string query value (ie for gpu_name), replace any spaces ' ' with underscore '_'
+
+        Examples:
+
+            # search for volumes with greater than 50GB of available storage and greater than 500 Mb/s upload and download speed
+            vastai search volumes "disk_space>50 inet_up>500 inet_down>500"
+            
+        Available fields:
+
+              Name                  Type       Description
+            duration:               float     max rental duration in days
+            geolocation:            string    Two letter country code. Works with operators =, !=, in, notin (e.g. geolocation not in ['XV','XZ'])
+            id:                     int       volume offer unique ID
+            inet_down:              float     internet download speed in Mb/s
+            inet_up:                float     internet upload speed in Mb/s
+            reliability:            float     machine reliability score (see FAQ for explanation)
+            storage_cost:           float     storage cost in $/GB/month
+            verified:               bool      is the machine verified
+    """),
+)
+def search__network_volumes(args: argparse.Namespace):
+    try:
+
+        if args.no_default:
+            query = {}
+        else:
+            query = {"verified": {"eq": True}, "external": {"eq": False}, "disk_space": {"gte": 1}}
+
+        if args.query is not None:
+            query = parse_query(args.query, query, vol_offers_fields, {}, offers_mult)
+
+        order = []
+        for name in args.order.split(","):
+            name = name.strip()
+            if not name: continue
+            direction = "asc"
+            field = name
+            if name.strip("-") != name:
+                direction = "desc"
+                field = name.strip("-")
+            if name.strip("+") != name:
+                direction = "asc"
+                field = name.strip("+")
+            if field in offers_alias:
+                field = offers_alias[field];
+            order.append([field, direction])
+
+        query["order"] = order
+        if (args.limit):
+            query["limit"] = int(args.limit)
+        query["allocated_storage"] = args.storage
+    except ValueError as e:
+        print("Error: ", e)
+        return 1
+
+    json_blob = query
+
+    if (args.explain):
+        print("request json: ")
+        print(json_blob)
+    url = apiurl(args, "/network_volumes/search/")
+    r = http_post(args, url, headers=headers, json=json_blob)
+
+    r.raise_for_status()
+   
+    if (r.headers.get('Content-Type') != 'application/json'):
+        print(f"invalid return Content-Type: {r.headers.get('Content-Type')}")
+        return   
+
+    rows = r.json()["offers"]
+    
+    if args.raw:
+        return rows
+    else:
+        display_table(rows, nw_vol_displayable_fields)
 
 
 @parser.command(

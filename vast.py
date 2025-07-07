@@ -4868,14 +4868,21 @@ def show__team_roles(args):
 
 
 @parser.command(
-    usage="vastai show volumes",
+    argument("-t", "--type", help="volume type to display. Default to all. Possible values are \"local\", \"all\", \"network\"", type=str, default="all"),
+    usage="vastai show volumes [OPTIONS]",
     help="Show stats on owned volumes.",
     epilog=deindent("""
         Show stats on owned volumes
     """)
 )
 def show__volumes(args: argparse.Namespace):
-    req_url = apiurl(args, "/volumes", {"owner": "me"});
+    types = {
+        "local": "local_volume",
+        "network": "network_volume",
+        "all": "all_volume"
+    }
+    type = types.get(args.type, "all")
+    req_url = apiurl(args, "/volumes", {"owner": "me", "type" : type});
     r = http_get(args, req_url)
     r.raise_for_status()
     rows = r.json()["volumes"]

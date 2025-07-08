@@ -5839,30 +5839,29 @@ def list__machines(args):
 @parser.command(
     argument("machines", help="ids of machines to add disk to, that is networked to be on the same LAN as machine", type=int, nargs='+'),
     argument("mount_point", help="mount path of disk to add", type=str),
-    argument("disk_id", help="id of network volume to attach to machines in the cluster ", type=int, nargs="?"),
-    usage="vastai add network disk [MACHINES] MOUNT_PATH [DISK_ID]",
+    argument("disk_id", help="id of network volume to attach to machines in the cluster", type=int, nargs='?'),
+    usage="vastai add network-disk MACHINES MOUNT_POINT [DISK_ID]",
 )
-def add__network__disk(args):
+def add__network_disk(args):
     json_blob = {
         "machines": [int(id) for id in args.machines],
         "mount_point": args.mount_point,
         "disk_id": args.disk_id,
     }
-
+    
     url = apiurl(args, "/network_disk/")
-
+    
     if args.explain:
         print("request json: ")
         print(json_blob)
-
+    
     r = http_post(args, url, headers=headers, json=json_blob)
     r.raise_for_status()
-
+    
     if args.raw:
         return r
-
-    print("Attached network disk to machines. Disk id: " + r.json()["disk_id"])
-
+    
+    print("Attached network disk to machines. Disk id: " + str(r.json()["disk_id"]))
 
 @parser.command(
     argument("--disk_id", help="id of network disk to list", type=int, required=True),

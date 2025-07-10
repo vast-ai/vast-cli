@@ -5836,7 +5836,6 @@ def list__machines(args):
     return [list_machine(args, id) for id in args.ids]
     return res
 
-#TODO: Need to fix the parsing here, it's awful
 @parser.command(
     argument("machines", help="ids of machines to add disk to, that is networked to be on the same LAN as machine", type=int),
     argument("mount_point", help="mount path of disk to add", type=str),

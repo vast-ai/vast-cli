@@ -5837,7 +5837,7 @@ def list__machines(args):
     return res
 
 @parser.command(
-    argument("machines", help="ids of machines to add disk to, that is networked to be on the same LAN as machine", type=int),
+    argument("machines", help="ids of machines to add disk to, that is networked to be on the same LAN as machine", type=int, nargs='?'),
     argument("mount_point", help="mount path of disk to add", type=str),
     argument("-d", "--disk_id", help="id of network disk to attach to machines in the cluster", type=int, nargs='?'),
     usage="vastai add network-disk MACHINES MOUNT_PATH [DISK_ID]",

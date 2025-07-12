@@ -1872,6 +1872,36 @@ def create__api_key(args):
     except Exception as e:
         print("An unexpected error occurred:", e)
 
+
+@parser.command(
+    argument("subnet", help="local subnet for cluster, ex: '0.0.0.0/24'", type=str),
+    argument("manager_id", help="Machine ID of manager node in cluster. Must exist already.", type=int),
+    usage="vastai create cluster SUBNET MANAGER_ID",
+    help="Create Vast cluster",
+    epilog=deindent("""
+        Create Vast Cluster by defining a local subnet and manager id.""")
+)
+def create__cluster(args: argparse.Namespace):
+
+    json_blob = {
+        "subnet": args.subnet,
+        "manager_id": args.manager_id
+    }
+
+    #TODO: this should happen at the decorator level for all CLI commands to reduce boilerplate
+    if args.explain:
+        print("request json: ")
+        print(json_blob)
+
+    req_url = apiurl(args, "/cluster/")
+    r  = http_post(args, req_url, json=json_blob)
+    r.raise_for_status()
+
+    if args.raw:
+        return r
+
+    print(r.json()["msg"])
+
 @parser.command(
     argument("name", help="Environment variable name", type=str),
     argument("value", help="Environment variable value", type=str),
@@ -1920,6 +1950,7 @@ def create__ssh_key(args):
     argument("--min_load", help="[NOTE: this field isn't currently used at the autojob level] minimum floor load in perf units/s  (token/s for LLms)", type=float),
     argument("--target_util", help="[NOTE: this field isn't currently used at the autojob level] target capacity utilization (fraction, max 1.0, default 0.9)", type=float),
     argument("--cold_mult",   help="[NOTE: this field isn't currently used at the autojob level]cold/stopped instance capacity target as multiple of hot capacity target (default 2.0)", type=float),
+    argument("--auto_instance", help="unused", type=str),
     usage="vastai autogroup create [OPTIONS]",
     help="Create a new autoscale group",
     epilog=deindent("""
@@ -1941,8 +1972,8 @@ def create__autogroup(args):
         #query = {"verified": {"eq": True}, "external": {"eq": False}, "rentable": {"eq": True}, "rented": {"eq": False}}
     search_params = (args.search_params if args.search_params is not None else "" + query).strip()
 
-    json_blob = {"client_id": "me", "min_load": args.min_load, "target_util": args.target_util, "cold_mult": args.cold_mult, "test_workers" : args.test_workers, "template_hash": args.template_hash, "template_id": args.template_id, "search_params": search_params, "launch_args": args.launch_args, "gpu_ram": args.gpu_ram, "endpoint_name": args.endpoint_name, "endpoint_id": args.endpoint_id}
-    
+    json_blob = {"client_id": "me", "min_load": args.min_load, "target_util": args.target_util, "cold_mult": args.cold_mult, "test_workers" : args.test_workers, "template_hash": args.template_hash, "template_id": args.template_id, "search_params": search_params, "launch_args": args.launch_args, "gpu_ram": args.gpu_ram, "endpoint_name": args.endpoint_name, "endpoint_id": args.endpoint_id, "autoscaler_instance": args.auto_instance}
+
     if (args.explain):
         print("request json: ")
         print(json_blob)
@@ -1967,6 +1998,7 @@ def create__autogroup(args):
     argument("--cold_workers", help="min number of workers to keep 'cold' when you have no load (default 5)", type=int, default=5),
     argument("--max_workers", help="max number of workers your endpoint group can have (default 20)", type=int, default=20),
     argument("--endpoint_name", help="deployment endpoint name (allows multiple autoscale groups to share same deployment endpoint)", type=str),
+    argument("--auto_instance", help="unused", type=str),
     usage="vastai create endpoint [OPTIONS]",
     help="Create a new endpoint group",
     epilog=deindent("""
@@ -1978,8 +2010,8 @@ def create__autogroup(args):
 def create__endpoint(args):
     url = apiurl(args, "/endptjobs/" )
 
-    json_blob = {"client_id": "me", "min_load": args.min_load, "target_util": args.target_util, "cold_mult": args.cold_mult, "cold_workers" : args.cold_workers, "max_workers" : args.max_workers, "endpoint_name": args.endpoint_name}
-    
+    json_blob = {"client_id": "me", "min_load": args.min_load, "target_util": args.target_util, "cold_mult": args.cold_mult, "cold_workers" : args.cold_workers, "max_workers" : args.max_workers, "endpoint_name": args.endpoint_name, "autoscaler_instance": args.auto_instance}
+
     if (args.explain):
         print("request json: ")
         print(json_blob)
@@ -2418,6 +2450,32 @@ def create__network_volume(args: argparse.Namespace):
         print("Created. {}".format(r.json()))
 
 @parser.command(
+    argument("cluster_id", help="ID of cluster to create overlay on top of", type=int),
+    argument("name", help="overlay network name"),
+    usage="vastai create overlay CLUSTER_ID OVERLAY_NAME",
+    help="Creates overlay network on top of a physical cluster",
+    epilog=deindent("""
+    Creates an overlay network to allow local networking between instances on a physical cluster""")
+)
+def create__overlay(args: argparse.Namespace):
+    json_blob = {
+        "cluster_id": args.cluster_id,
+        "name": args.name
+    }
+
+    if args.explain:
+        print("request json:", json_blob)
+
+    req_url = apiurl(args, "/overlay/")
+    r = http_post(args, req_url, json=json_blob)
+    r.raise_for_status()
+
+    if args.raw:
+        return r
+
+    print(r.json()["msg"])
+
+@parser.command(
     argument("id", help="id of apikey to remove", type=int),
     usage="vastai delete api-key ID",
     help="Remove an api-key",
@@ -2449,6 +2507,33 @@ def delete__scheduled_job(args):
     r = http_del(args, url, headers=headers)
     r.raise_for_status()
     print(r.json())
+
+
+
+@parser.command(
+    argument("cluster_id", help="ID of cluster to delete", type=int),
+    usage="vastai delete cluster CLUSTER_ID",
+    help="Delete Cluster",
+    epilog=deindent("""
+        Delete Vast Cluster""")
+)
+def delete__cluster(args: argparse.Namespace):
+    json_blob = {
+        "cluster_id": args.cluster_id
+    }
+
+    if args.explain:
+        print("request json:", json_blob)
+
+    req_url = apiurl(args, "/cluster/")
+    r = http_del(args, req_url, json=json_blob)
+    r.raise_for_status()
+
+    if args.raw:
+        return r
+
+    print(r.json()["msg"])
+
 
 @parser.command(
     argument("id", help="id of group to delete", type=int),
@@ -2525,6 +2610,35 @@ def delete__env_var(args):
         print(result.get("msg", "Environment variable deleted successfully."))
     else:
         print(f"Failed to delete environment variable: {result.get('msg', 'Unknown error')}")
+
+@parser.command(
+    argument("overlay_identifier", help="ID (int) or name (str) of overlay to delete", nargs="?"),
+    usage="vastai delete overlay OVERLAY_IDENTIFIER",
+    help="Deletes overlay and removes all of its associated instances"
+)
+def delete__overlay(args: argparse.Namespace):
+    identifier = args.overlay_identifier
+    try:
+        overlay_id = int(identifier)
+        json_blob = {
+            "overlay_id": overlay_id
+        }
+    except (ValueError, TypeError):
+        json_blob = {
+            "overlay_name": identifier
+        }
+
+    if args.explain:
+        print("request json:", json_blob)
+
+    req_url = apiurl(args, "/overlay/")
+    r = http_del(args, req_url, json=json_blob)
+    r.raise_for_status()
+
+    if args.raw:
+        return r
+
+    print(r.json()["msg"])
 
 @parser.command(
     argument("--template-id", help="Template ID of Template to Delete", type=int),
@@ -2719,8 +2833,9 @@ def execute(args):
         print("failed with error {r.status_code}".format(**locals()));
 
 
+
 @parser.command(
-    argument("id", help="id of instance to execute on", type=int),
+    argument("id", help="id of endpoint group to fetch logs from", type=int),
     argument("--level", help="log detail level (0 to 3)", type=int, default=1),
     usage="vastai get endpt-logs ID [--api-key API_KEY]",
     help="Fetch logs for a specific serverless endpoint group",
@@ -2730,18 +2845,16 @@ def execute(args):
 )
 def get__endpt_logs(args):
     #url = apiurl(args, "/endptjobs/" )
-    url = "https://run.vast.ai/get_endpoint_logs/"
+    if args.url == server_url_default:
+        args.url = None
+    url = (args.url or "https://run.vast.ai") + "/get_endpoint_logs/"
     json_blob = {"id": args.id, "api_key": args.api_key}
     if (args.explain):
         print(f"{url} with request json: ")
         print(json_blob)
 
-    #response = requests.post(f"{server_addr}/route/", headers={"Content-Type": "application/json"}, data=json.dumps(route_payload), timeout=4)
-    #response.raise_for_status()  # Raises HTTPError for bad responses
-
     r = http_post(args, url, headers=headers,json=json_blob)
     r.raise_for_status()
-    #print("autogroup list ".format(r.json()))
     levels = {0 : "info0", 1: "info1", 2: "trace", 3: "debug"}
 
     if (r.status_code == 200):
@@ -2756,11 +2869,50 @@ def get__endpt_logs(args):
             return rj or r.text
         else:
             dbg_lvl = levels[args.level]
-            print(rj[dbg_lvl])
+            if rj and dbg_lvl: print(rj[dbg_lvl])
             #print(json.dumps(rj, indent=1, sort_keys=True))
     else:
         print(r.text)
 
+@parser.command(
+    argument("id", help="id of endpoint group to fetch logs from", type=int),
+    argument("--level", help="log detail level (0 to 3)", type=int, default=1),
+    usage="vastai get wrkgrp-logs ID [--api-key API_KEY]",
+    help="Fetch logs for a specific serverless worker group group",
+    epilog=deindent("""
+        Example: vastai get endpt-logs 382
+    """),
+)
+def get__wrkgrp_logs(args):
+    #url = apiurl(args, "/endptjobs/" )
+    if args.url == server_url_default:
+        args.url = None
+    url = (args.url or "https://run.vast.ai") + "/get_autogroup_logs/"
+    json_blob = {"id": args.id, "api_key": args.api_key}
+    if (args.explain):
+        print(f"{url} with request json: ")
+        print(json_blob)
+
+    r = http_post(args, url, headers=headers,json=json_blob)
+    r.raise_for_status()
+    levels = {0 : "info0", 1: "info1", 2: "trace", 3: "debug"}
+
+    if (r.status_code == 200):
+        rj = None
+        try:
+            rj = r.json()
+        except Exception as e:
+            print(str(e))
+            print(r.text)
+        if args.raw:
+            # sort_keys
+            return rj or r.text
+        else:
+            dbg_lvl = levels[args.level]
+            if rj and dbg_lvl: print(rj[dbg_lvl])
+            #print(json.dumps(rj, indent=1, sort_keys=True))
+    else:
+        print(r.text)
 
 @parser.command(
     argument("--email", help="email of user to be invited", type=str),
@@ -2777,6 +2929,62 @@ def invite__member(args):
     else:
         print(r.text);
         print(f"failed with error {r.status_code}")
+
+
+@parser.command(
+    argument("cluster_id", help="ID of cluster to add machine to", type=int),
+    argument("machine_ids", help="machine id(s) to join cluster", type=int, nargs="+"),
+    usage="vastai join cluster CLUSTER_ID MACHINE_IDS",
+    help="Join Machine to Cluster",
+    epilog=deindent("""
+        Join's Machine to Vast Cluster
+    """)
+)
+def join__cluster(args: argparse.Namespace):
+    json_blob = {
+        "cluster_id": args.cluster_id,
+        "machine_ids": args.machine_ids
+    }
+
+    if args.explain:
+        print("request json:", json_blob)
+
+    req_url = apiurl(args, "/cluster/")
+    r = http_put(args, req_url, json=json_blob)
+    r.raise_for_status()
+
+    if args.raw:
+        return r
+
+    print(r.json()["msg"])
+
+
+@parser.command(
+    argument("name", help="Overlay network name to join instance to.", type=str),
+    argument("instance_id", help="Instance ID to add to overlay.", type=int),
+    usage="vastai join overlay OVERLAY_NAME INSTANCE_ID",
+    help="Adds instance to an overlay network",
+    epilog=deindent("""
+    Adds an instance to a compatible overlay network.""")
+)
+def join__overlay(args: argparse.Namespace):
+    json_blob = {
+        "name": args.name,
+        "instance_id": args.instance_id
+    }
+
+    if args.explain:
+        print("request json:", json_blob)
+
+    req_url = apiurl(args, "/overlay/")
+    r = http_put(args, req_url, json=json_blob)
+    r.raise_for_status()
+
+    if args.raw:
+        return r
+
+    print(r.json()["msg"])
+
 
 
 @parser.command(
@@ -4779,32 +4987,71 @@ def show__ipaddrs(args):
         display_table(rows, ipaddr_fields)
 
 
-
 @parser.command(
-    argument("-q", "--quiet", action="store_true", help="display information about user"),
-    usage="vastai show user [OPTIONS]",
-    help="Get current user data",
+    usage="vastai show clusters",
+    help="Show clusters associated with your account.",
     epilog=deindent("""
-        Shows stats for logged-in user. These include user balance, email, and ssh key. Does not show API key.
+        Show clusters associated with your account.
     """)
 )
-def show__user(args):
-    """
-    Shows stats for logged-in user. Does not show API key.
-
-    :param argparse.Namespace args: should supply all the command-line options
-    :rtype:
-    """
-    req_url = apiurl(args, "/users/current", {"owner": "me"});
-    r = http_get(args, req_url);
+def show__clusters(args: argparse.Namespace):
+    req_url = apiurl(args, "/clusters/")
+    r = http_get(args, req_url)
     r.raise_for_status()
-    user_blob = r.json()
-    user_blob.pop("api_key")
+    response_data = r.json()
 
     if args.raw:
-        return user_blob
-    else:
-        display_table([user_blob], user_fields)
+        return response_data
+
+    rows = []
+    for cluster_id, cluster_data in response_data['clusters'].items():
+        machine_ids = [ node["machine_id"] for node in cluster_data["nodes"]]
+
+        manager_node = next(node for node in cluster_data['nodes'] if node['is_cluster_manager'])
+
+        row_data = {
+            'id': cluster_id,
+            'subnet': cluster_data['subnet'],
+            'node_count': len(cluster_data['nodes']),
+            'machine_ids': str(machine_ids),
+            'manager_id': str(manager_node['machine_id']),
+            'manager_ip': manager_node['local_ip'],
+        }
+
+        rows.append(row_data)
+
+    display_table(rows, cluster_fields, replace_spaces=False)
+
+
+@parser.command(
+    usage="vastai show overlays",
+    help="Show overlays associated with your account.",
+    epilog=deindent("""
+        Show overlays associated with your account.
+    """)
+)
+def show__overlays(args: argparse.Namespace):
+    req_url = apiurl(args, "/overlay/")
+    r = http_get(args, req_url)
+    r.raise_for_status()
+    response_data = r.json()
+    if args.raw:
+        return response_data
+    rows = []
+    for overlay in response_data:
+        row_data = {
+            'overlay_id': overlay['overlay_id'],
+            'name': overlay['name'],
+            'subnet': overlay['internal_subnet'] if overlay['internal_subnet'] else 'N/A',
+            'cluster_id': overlay['cluster_id'],
+            'instance_count': len(overlay['instances']),
+            'instances': str(overlay['instances']),
+        }
+        rows.append(row_data)
+    display_table(rows, overlay_fields, replace_spaces=False)
+
+
+
 
 @parser.command(
     argument("-q", "--quiet", action="store_true", help="display subaccounts from current user"),
@@ -4866,6 +5113,31 @@ def show__team_roles(args):
     else:
         print(r.json())
 
+@parser.command(
+    argument("-q", "--quiet", action="store_true", help="display information about user"),
+    usage="vastai show user [OPTIONS]",
+    help="Get current user data",
+    epilog=deindent("""
+        Shows stats for logged-in user. These include user balance, email, and ssh key. Does not show API key.
+    """)
+)
+def show__user(args):
+    """
+    Shows stats for logged-in user. Does not show API key.
+
+    :param argparse.Namespace args: should supply all the command-line options
+    :rtype:
+    """
+    req_url = apiurl(args, "/users/current", {"owner": "me"});
+    r = http_get(args, req_url);
+    r.raise_for_status()
+    user_blob = r.json()
+    user_blob.pop("api_key")
+
+    if args.raw:
+        return user_blob
+    else:
+        display_table([user_blob], user_fields)
 
 @parser.command(
     argument("-t", "--type", help="volume type to display. Default to all. Possible values are \"local\", \"all\", \"network\"", type=str, default="all"),
@@ -4898,86 +5170,6 @@ def show__volumes(args: argparse.Namespace):
 
 
 @parser.command(
-    argument("subnet", help="local subnet for cluster, ex: '0.0.0.0/24'", type=str),
-    argument("manager_id", help="Machine ID of manager node in cluster. Must exist already.", type=int),
-    usage="vastai create cluster SUBNET MANAGER_ID",
-    help="Create Vast cluster",
-    epilog=deindent("""
-        Create Vast Cluster by defining a local subnet and manager id.""")
-)
-def create__cluster(args: argparse.Namespace):
-
-    json_blob = {
-        "subnet": args.subnet,
-        "manager_id": args.manager_id
-    }
-
-    #TODO: this should happen at the decorator level for all CLI commands to reduce boilerplate
-    if args.explain:
-        print("request json: ")
-        print(json_blob)
-
-    req_url = apiurl(args, "/cluster/")
-    r  = http_post(args, req_url, json=json_blob)
-    r.raise_for_status()
-
-    if args.raw:
-        return r
-
-    print(r.json()["msg"])
-
-@parser.command(
-    argument("cluster_id", help="ID of cluster to add machine to", type=int),
-    argument("machine_ids", help="machine id(s) to join cluster", type=int, nargs="+"),
-    usage="vastai join cluster CLUSTER_ID MACHINE_IDS",
-    help="Join Machine to Cluster",
-    epilog=deindent("""
-        Join's Machine to Vast Cluster
-    """)
-)
-def join__cluster(args: argparse.Namespace):
-    json_blob = {
-        "cluster_id": args.cluster_id,
-        "machine_ids": args.machine_ids
-    }
-
-    if args.explain:
-        print("request json:", json_blob)
-
-    req_url = apiurl(args, "/cluster/")
-    r = http_put(args, req_url, json=json_blob)
-    r.raise_for_status()
-
-    if args.raw:
-        return r
-
-    print(r.json()["msg"])
-
-@parser.command(
-    argument("cluster_id", help="ID of cluster to delete", type=int),
-    usage="vastai delete cluster CLUSTER_ID",
-    help="Delete Cluster",
-    epilog=deindent("""
-        Delete Vast Cluster""")
-)
-def delete__cluster(args: argparse.Namespace):
-    json_blob = {
-        "cluster_id": args.cluster_id
-    }
-
-    if args.explain:
-        print("request json:", json_blob)
-
-    req_url = apiurl(args, "/cluster/")
-    r = http_del(args, req_url, json=json_blob)
-    r.raise_for_status()
-
-    if args.raw:
-        return r
-
-    print(r.json()["msg"])
-
-@parser.command(
     argument("cluster_id", help="ID of cluster you want to remove machine from.", type=int),
     argument("machine_id", help="ID of machine to remove from cluster.", type=int),
     argument("new_manager_id", help="ID of machine to promote to manager. Must already be in cluster", type=int, nargs="?"),
@@ -5006,148 +5198,14 @@ def remove_machine_from_cluster(args: argparse.Namespace):
 
     print(r.json()["msg"])
 
-@parser.command(
-    usage="vastai show overlays",
-    help="Show overlays associated with your account.",
-    epilog=deindent("""
-        Show overlays associated with your account.
-    """)
-)
-def show__overlays(args: argparse.Namespace):
-    req_url = apiurl(args, "/overlay/")
-    r = http_get(args, req_url)
-    r.raise_for_status()
-    response_data = r.json()
-    if args.raw:
-        return response_data
-    rows = []
-    for overlay in response_data:
-        row_data = {
-            'overlay_id': overlay['overlay_id'],
-            'name': overlay['name'],
-            'subnet': overlay['internal_subnet'] if overlay['internal_subnet'] else 'N/A',
-            'cluster_id': overlay['cluster_id'],
-            'instance_count': len(overlay['instances']),
-            'instances': str(overlay['instances']),
-        }
-        rows.append(row_data)
-    display_table(rows, overlay_fields, replace_spaces=False)
 
-@parser.command(
-    argument("cluster_id", help="ID of cluster to create overlay on top of", type=int),
-    argument("name", help="overlay network name"),
-    usage="vastai create overlay CLUSTER_ID OVERLAY_NAME",
-    help="Creates overlay network on top of a physical cluster",
-    epilog=deindent("""
-    Creates an overlay network to allow local networking between instances on a physical cluster""")
-)
-def create__overlay(args: argparse.Namespace):
-    json_blob = {
-        "cluster_id": args.cluster_id,
-        "name": args.name
-    }
 
-    if args.explain:
-        print("request json:", json_blob)
 
-    req_url = apiurl(args, "/overlay/")
-    r = http_post(args, req_url, json=json_blob)
-    r.raise_for_status()
 
-    if args.raw:
-        return r
 
-    print(r.json()["msg"])
 
-@parser.command(
-    argument("name", help="Overlay network name to join instance to.", type=str),
-    argument("instance_id", help="Instance ID to add to overlay.", type=int),
-    usage="vastai join overlay OVERLAY_NAME INSTANCE_ID",
-    help="Adds instance to an overlay network",
-    epilog=deindent("""
-    Adds an instance to a compatible overlay network.""")
-)
-def join__overlay(args: argparse.Namespace):
-    json_blob = {
-        "name": args.name,
-        "instance_id": args.instance_id
-    }
 
-    if args.explain:
-        print("request json:", json_blob)
 
-    req_url = apiurl(args, "/overlay/")
-    r = http_put(args, req_url, json=json_blob)
-    r.raise_for_status()
-
-    if args.raw:
-        return r
-
-    print(r.json()["msg"])
-
-@parser.command(
-    argument("overlay_identifier", help="ID (int) or name (str) of overlay to delete", nargs="?"),
-    usage="vastai delete overlay OVERLAY_IDENTIFIER",
-    help="Deletes overlay and removes all of its associated instances"
-)
-def delete__overlay(args: argparse.Namespace):
-    identifier = args.overlay_identifier
-    try:
-        overlay_id = int(identifier)
-        json_blob = {
-            "overlay_id": overlay_id
-        }
-    except (ValueError, TypeError):
-        json_blob = {
-            "overlay_name": identifier
-        }
-
-    if args.explain:
-        print("request json:", json_blob)
-
-    req_url = apiurl(args, "/overlay/")
-    r = http_del(args, req_url, json=json_blob)
-    r.raise_for_status()
-
-    if args.raw:
-        return r
-
-    print(r.json()["msg"])
-
-@parser.command(
-    usage="vastai show clusters",
-    help="Show clusters associated with your account.",
-    epilog=deindent("""
-        Show clusters associated with your account.
-    """)
-)
-def show__clusters(args: argparse.Namespace):
-    req_url = apiurl(args, "/clusters/")
-    r = http_get(args, req_url)
-    r.raise_for_status()
-    response_data = r.json()
-
-    if args.raw:
-        return response_data
-
-    rows = []
-    for cluster_id, cluster_data in response_data['clusters'].items():
-        machine_ids = [ node["machine_id"] for node in cluster_data["nodes"]]
-
-        manager_node = next(node for node in cluster_data['nodes'] if node['is_cluster_manager'])
-
-        row_data = {
-            'id': cluster_id,
-            'subnet': cluster_data['subnet'],
-            'node_count': len(cluster_data['nodes']),
-            'machine_ids': str(machine_ids),
-            'manager_id': str(manager_node['machine_id']),
-            'manager_ip': manager_node['local_ip'],
-        }
-
-        rows.append(row_data)
-
-    display_table(rows, cluster_fields, replace_spaces=False)
 
 @parser.command(
     argument("recipient", help="email (or id) of recipient account", type=str),

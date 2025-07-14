@@ -1,0 +1,280 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Instance Creation API
+  description: API endpoint for creating new instances by accepting provider offers
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/asks/{id}/:
+    put:
+      summary: create instance
+      description: 'Creates a new instance by accepting an "ask" contract from a provider.
+        This is the main endpoint for launching new instances on Vast.ai.
+
+        CLI Usage: vast create instance <offer_id> [options]'
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: ID of the offer to accept
+      - name: api_key
+        in: query
+        required: true
+        schema:
+          type: string
+        description: API key for authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                template_id:
+                  type: integer
+                  description: Optional template ID to use for instance configuration
+                  example: 89
+                template_hash_id:
+                  type: string
+                  description: Optional template hash ID to use for instance configuration
+                  example: abc123def456
+                image:
+                  type: string
+                  description: Docker image to use for the instance
+                  example: tensorflow/tensorflow:latest-gpu
+                  maxLength: 1024
+                disk:
+                  type: number
+                  description: Storage space in GB
+                  minimum: 8.0
+                  default: 10.0
+                  example: 32.0
+                extra_env:
+                  type: object
+                  description: Environment variables to set in the container
+                  example:
+                    JUPYTER_TOKEN: abc123
+                  maxLength: 256
+                runtype:
+                  type: string
+                  description: Instance run type (ssh, jupyter, etc)
+                  enum:
+                  - ssh
+                  - jupyter
+                  - args
+                  example: jupyter
+                onstart:
+                  type: string
+                  description: Commands to run when instance starts
+                  maxLength: 4096
+                  example: pip install -r requirements.txt
+                label:
+                  type: string
+                  description: User-defined label for the instance
+                  maxLength: 256
+                  example: training-job-1
+                image_login:
+                  type: string
+                  description: Docker registry credentials if needed
+                  example: -u username -p password docker.io
+                price:
+                  type: number
+                  description: Bid price per hour for interruptible instances
+                  minimum: 0.001
+                  maximum: 128.0
+                  example: 0.4
+                target_state:
+                  type: string
+                  description: Desired initial state of the instance
+                  enum:
+                  - running
+                  - stopped
+                  default: running
+                  example: running
+                cancel_unavail:
+                  type: boolean
+                  description: Whether to cancel if instance cannot start immediately
+                  example: true
+                vm:
+                  type: boolean
+                  description: Whether this is a VM instance
+                  default: false
+                client_id:
+                  type: string
+                  description: Client identifier (usually "me")
+                  example: me
+                apikey_id:
+                  type: string
+                  description: Optional API key identifier for audit logging
+      responses:
+        '200':
+          description: Instance created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  new_contract:
+                    type: integer
+                    description: ID of the newly created instance contract
+                    example: 1234568
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    enum:
+                    - invalid_args
+                    - invalid_price
+                    - no_ssh_key_for_vm
+                  msg:
+                    type: string
+                    example: Please set a bid price >= 0.001 and <= 128.0
+                  ask_id:
+                    type: integer
+                    example: 1234567
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: not_allowed
+                  msg:
+                    type: string
+                    example: Hosts can only rent their own machines
+                  ask_id:
+                    type: integer
+                    example: 1234567
+        '404':
+          description: Offer not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: no_such_ask
+                  msg:
+                    type: string
+                    example: Instance type by id 1234567 is not available
+                  ask_id:
+                    type: integer
+                    example: 1234567
+        '410':
+          description: Offer no longer available
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: no_such_ask
+                  msg:
+                    type: string
+                    example: Instance type 1234567 is no longer available
+                  ask_id:
+                    type: integer
+                    example: 1234567
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=4.5
+      tags:
+      - Instances
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: query
+      name: api_key
+      description: API key must be provided as a query parameter
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 4.5
+  penalty: 12
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-input-validation:
+  image:
+    max_length: 1024
+    description: Docker image name
+  args:
+    max_length: 4096
+    description: Combined length of args, args_str and onstart
+  label:
+    max_length: 256
+    description: Instance label
+  env:
+    max_length: 256
+    max_total_length: 32768
+    description: Environment variables
+  price:
+    min: 0.001
+    max: 128.0
+    description: Min/max bid price for interruptible instances
+  disk:
+    min: 8.0
+    default: 10.0
+    description: Minimum storage space in GB
+x-cli-commands:
+- name: create instance
+  description: Create a new instance from an offer
+  endpoint: /api/v0/asks/{id}/
+  method: PUT
+  examples:
+  - vast create instance 1234567 --image tensorflow/tensorflow:latest-gpu --disk 32
+  - vast create instance 1234567 --template abc123def456
+  - vast create instance 1234567 --price 0.4 --disk 100 --env JUPYTER_TOKEN=abc123

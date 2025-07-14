@@ -1,0 +1,102 @@
+openapi: 3.0.0
+info:
+  title: Create Team Role API
+  description: Creates a new role for a team
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/team/role:
+    post:
+      summary: create team role
+      description: 'Creates a new role within a team. Only team owners or managers
+        with the appropriate permissions can perform this operation.
+
+
+        CLI Usage: vast create team role --name <role_name> --permissions <permissions_json>
+
+        '
+      security:
+      - BearerAuth: []
+      tags:
+      - Team
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - name
+              - permissions
+              properties:
+                name:
+                  type: string
+                  description: Name for the new role
+                  example: developer
+                permissions:
+                  type: object
+                  description: JSON object containing permission definitions
+                  example:
+                    api:
+                      user_read: {}
+                      instance_write: {}
+      responses:
+        '200':
+          description: Role created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  msg:
+                    type: string
+                    example: Role Successfully Created!
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: invalid_role_name
+                  msg:
+                    type: string
+                    example: Role name is invalid
+        '401':
+          description: Unauthorized - Invalid or missing API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden - User lacks permission
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: unauthorized
+        msg:
+          type: string
+          example: Unauthorized access

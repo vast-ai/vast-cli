@@ -1,0 +1,90 @@
+openapi: 3.0.0
+info:
+  title: Machine Reports API
+  description: API endpoint to retrieve reports for a specific machine
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/machines/{machine_id}/reports:
+    get:
+      summary: show reports
+      description: 'Retrieves a list of the most recent reports for a given machine.
+        Each report includes details such as the problem identified, a message describing
+        the issue, and the timestamp when the report was created.
+
+
+        CLI Usage: vastai reports <machine_id>
+
+        '
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: machine_id
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: The unique identifier of the machine.
+      responses:
+        '200':
+          description: An array of reports for the specified machine.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    problem:
+                      type: string
+                      description: The type of problem reported.
+                    message:
+                      type: string
+                      description: Detailed message describing the problem.
+                    created_at:
+                      type: string
+                      format: date-time
+                      description: Timestamp when the report was created.
+        '404':
+          description: Machine not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      tags:
+      - Machines
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 1.2
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: reports
+  description: Get the user reports for a given machine
+  endpoint: /api/v0/machines/{machine_id}/reports
+  method: GET
+  example: vastai reports 1234

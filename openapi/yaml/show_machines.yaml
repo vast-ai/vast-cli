@@ -1,0 +1,51 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API
+  version: 1.0.0
+paths:
+  /api/v0/machines/:
+    get:
+      summary: show machines
+      description: Fetches data for multiple machines associated with the authenticated
+        user.
+      operationId: getMachines
+      parameters:
+      - name: user_id
+        in: query
+        required: true
+        description: The ID of the user whose machines are being requested.
+        schema:
+          type: string
+      responses:
+        '200':
+          description: A list of machines
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  machines:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          description: The unique identifier for the machine.
+                        name:
+                          type: string
+                          description: The name of the machine.
+        '401':
+          description: Unauthorized - User authentication failed
+        '429':
+          description: Too Many Requests - Rate limit exceeded
+      security:
+      - apiKeyAuth: []
+      tags:
+      - Machines
+components:
+  securitySchemes:
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization

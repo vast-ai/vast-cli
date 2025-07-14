@@ -1,0 +1,83 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API
+  description: API documentation for Vast.ai services.
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/team/roles/{id}/:
+    get:
+      summary: show team role
+      description: 'Retrieve details of a specific team role by its name.
+
+
+        CLI Usage: vastai show team-role NAME
+
+        '
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: Name of the team role
+        schema:
+          type: string
+        example: admin
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    description: Role ID
+                    example: 1
+                  name:
+                    type: string
+                    description: Name of the role
+                    example: admin
+                  permissions:
+                    type: array
+                    description: Permissions associated with the role
+                    items:
+                      type: string
+                    example:
+                    - read
+                    - write
+        '404':
+          description: Role not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      tags:
+      - Accounts
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-cli-commands:
+- name: show team-role
+  description: Show your team role
+  endpoint: /api/v0/team/roles/{id}/
+  method: get
+  example: vastai show team-role admin

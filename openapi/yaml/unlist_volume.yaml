@@ -1,0 +1,89 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Volume Unlist API
+  description: API to unlist (remove from marketplace) a volume listing on Vast.ai.
+  version: 1.0.0
+servers:
+- url: https://cloud.vast.ai
+  description: Production server
+paths:
+  /api/v0/volumes/unlist:
+    post:
+      summary: unlist volume
+      description: 'Remove a volume listing from the marketplace.
+        CLI Usage: vastai unlist volume VOLUME_ID'
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - id
+              properties:
+                id:
+                  type: integer
+                  description: ID of the volume listing to unlist
+                  example: 2029
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  msg:
+                    type: string
+                    description: Success message
+                    example: "Unlisted Volume 2029."
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  msg:
+                    type: string
+                    enum:
+                    - "You must pass in `id` in the body of the request"
+                    - "Volume listing does not exist"
+                    - "Unable to delete active volume listing"
+                    - "Unable to delete volume listing."
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=5.0
+      tags:
+      - Volumes
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+x-input-validation:
+  id:
+    type: integer
+    description: Must be a valid volume listing ID
+x-cli-commands:
+- name: unlist__volume
+  description: Remove a volume listing from the marketplace
+  endpoint: /api/v0/volumes/unlist
+  method: post
+  example: vastai unlist volume 2029

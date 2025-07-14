@@ -1,0 +1,189 @@
+openapi: 3.0.0
+info:
+  title: Create User/Subaccount API
+  description: Creates a new user account or subaccount under a parent account
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/users/:
+    post:
+      summary: create subaccount
+      description: 'Creates either a standalone user account or a subaccount under
+        a parent account.
+
+        Subaccounts can be restricted to host-only functionality.
+
+
+        CLI Usage: vastai create subaccount --email EMAIL --username USERNAME --password
+        PASSWORD --type host
+
+        '
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - email
+              - username
+              - password
+              properties:
+                email:
+                  type: string
+                  description: User's email address
+                  maxLength: 64
+                  example: user@example.com
+                  pattern: ^(?!.*@vast)[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$
+                username:
+                  type: string
+                  description: Desired username
+                  maxLength: 64
+                  example: testuser123
+                password:
+                  type: string
+                  description: Account password
+                  maxLength: 256
+                  example: securepass123
+                host_only:
+                  type: boolean
+                  description: If true, account is restricted to host functionality
+                    only
+                  example: true
+                parent_id:
+                  type: string
+                  description: Parent account ID for subaccounts. Use "me" for current
+                    user.
+                  example: me
+                ssh_key:
+                  type: string
+                  description: Optional SSH public key
+                  maxLength: 4096
+                captcha:
+                  type: string
+                  description: Captcha token (required for non-subaccounts)
+                  maxLength: 8192
+      responses:
+        '200':
+          description: Account created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    description: User ID
+                  username:
+                    type: string
+                  email:
+                    type: string
+                  api_key:
+                    type: string
+                    description: API key for the new account
+                example:
+                  id: 12345
+                  username: testuser
+                  email: user@example.com
+                  api_key: abc123def456
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    enum:
+                    - invalid_email
+                    - invalid_request
+                    - missing_auth_value
+                  msg:
+                    type: string
+                example:
+                  error: invalid_email
+                  msg: Email address not allowed
+        '403':
+          description: Forbidden - billing blacklisted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: User already exists
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    enum:
+                    - user_exists
+                  msg:
+                    type: string
+                example:
+                  error: user_exists
+                  msg: user already exists.
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=3.0
+      tags:
+      - Accounts
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key required in Authorization header for creating subaccounts
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 3
+  per: request
+  description: Maximum 3 requests per IP address
+x-input-validation:
+  email:
+    max_length: 64
+    pattern: ^(?!.*@vast)[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$
+    description: Cannot contain @vast, must be valid email format
+  username:
+    max_length: 64
+    description: Alphanumeric username
+  password:
+    max_length: 256
+    description: Account password
+  ssh_key:
+    max_length: 4096
+    description: Optional SSH public key
+  captcha:
+    max_length: 8192
+    description: Required for non-subaccount creation
+x-cli-commands:
+- name: create subaccount
+  description: Creates a new subaccount under the current user
+  endpoint: /api/v0/users/
+  method: POST
+  example: vastai create subaccount --email vast@gmail.com --username vast --password
+    password --type host

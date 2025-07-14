@@ -1,0 +1,97 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API - Show Deposit
+  description: API endpoint to show deposit details for an instance.
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/instances/balance/{id}/:
+    get:
+      summary: show deposit
+      description: 'Retrieves the deposit details for a specified instance.
+
+
+        CLI Usage: vast show deposit {ID}
+
+        '
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: The ID of the instance.
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  refundable_deposit:
+                    type: number
+                    description: The refundable deposit amount.
+                    example: 100.0
+                  total_discount:
+                    type: number
+                    description: The total discount applied.
+                    example: 10.0
+                  discount_months:
+                    type: integer
+                    description: The number of months the discount applies.
+                    example: 3
+        '404':
+          description: Instance Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=3.0
+      tags:
+      - Billing
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: no_such_instance
+        msg:
+          type: string
+          example: Instance {id} not found.
+x-rate-limit:
+  threshold: 3.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: show_deposit
+  description: Show deposit details for an instance.
+  endpoint: /api/v0/instances/balance/{id}/
+  method: get
+  example: vast show deposit 123

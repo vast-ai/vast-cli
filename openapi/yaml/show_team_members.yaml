@@ -1,0 +1,88 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API
+  version: 1.0.0
+  description: API documentation for Vast.ai services.
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/team/members/:
+    get:
+      summary: show team members
+      description: 'Retrieve a list of team members associated with the authenticated
+        user''s team.
+
+
+        CLI Usage: vastai show team-members
+
+        '
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                      description: User ID
+                      example: 123
+                    username:
+                      type: string
+                      description: Username of the team member
+                      example: johndoe
+                    email:
+                      type: string
+                      description: Email of the team member
+                      example: johndoe@example.com
+                    roles:
+                      type: array
+                      description: Roles assigned to the team member
+                      items:
+                        type: string
+                      example:
+                      - admin
+                      - member
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      tags:
+      - Team
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-cli-commands:
+- name: show team-members
+  description: Show your team members
+  endpoint: /api/v0/team/members/
+  method: get
+  example: vastai show team-members

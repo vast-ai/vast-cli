@@ -1,0 +1,81 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API - Destroy Team
+  description: API endpoint to destroy/delete a team and all associated data
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/team/:
+    delete:
+      summary: destroy team
+      description: "Deletes a team and all associated data including API keys, rights,\
+        \ invitations, \nmemberships and metadata. The team owner's master API key\
+        \ is converted to a normal client key.\n\nCLI Usage: vast-ai destroy team\n"
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Team successfully deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  msg:
+                    type: string
+                    example: Team Successfully Deleted!
+        '401':
+          description: Unauthorized - Invalid or missing API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden - User is blacklisted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Not Found - Team does not exist
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Error'
+                - type: object
+                  properties:
+                    error:
+                      type: string
+                      enum:
+                      - no_such_user
+                    msg:
+                      type: string
+                      example: No such user.
+      tags:
+      - Team
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-cli-commands:
+- name: destroy team
+  description: Destroy your team and all associated data
+  endpoint: /api/v0/team/
+  method: DELETE
+  example: vast-ai destroy team

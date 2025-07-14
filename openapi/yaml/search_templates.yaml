@@ -1,0 +1,128 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API - Search Templates
+  description: API endpoint for searching and retrieving templates based on various
+    criteria.
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/template/:
+    get:
+      summary: search templates
+      description: 'Searches for templates based on query parameters and retrieves
+        matching templates.
+
+
+        CLI Usage: vast search templates
+
+        '
+      parameters:
+      - name: query
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Search query string to match against template fields.
+      - name: select_filters
+        in: query
+        required: false
+        schema:
+          type: object
+        description: Filters to apply on the search results.
+      - name: order_by
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Column to order the results by.
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Successfully retrieved templates
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - templates_found
+                - templates
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  templates_found:
+                    type: integer
+                    description: Number of templates found.
+                    example: 5
+                  templates:
+                    type: array
+                    description: List of templates matching the search criteria.
+                    items:
+                      $ref: '#/components/schemas/Template'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=3.0
+      tags:
+      - Search
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Template:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Template ID
+        name:
+          type: string
+          description: Template name
+        image:
+          type: string
+          description: Docker image name
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 3.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: search templates
+  description: Search for templates based on various criteria.
+  endpoint: /api/v0/template/
+  method: get
+  example: vast search templates --query "mars"

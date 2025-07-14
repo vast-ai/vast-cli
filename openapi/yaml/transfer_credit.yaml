@@ -1,0 +1,143 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Transfer Credit API
+  description: API endpoint for transferring credits between Vast.ai users
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/commands/transfer_credit/:
+    put:
+      summary: transfer credit
+      description: 'Transfers specified amount of credits from the authenticated user''s
+        account to another user''s account.
+
+        The recipient can be specified by either email address or user ID.
+
+
+        CLI Usage: vast.py transfer credit <recipient_email> <amount>'
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - name: api_key
+        in: query
+        required: true
+        schema:
+          type: string
+        description: API key for authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - recipient
+              - amount
+              properties:
+                recipient:
+                  type: string
+                  description: Email address or user ID of the recipient
+                  example: user@example.com
+                amount:
+                  type: number
+                  format: float
+                  description: Amount of credits to transfer (must be positive)
+                  minimum: 0.01
+                  example: 100.0
+                client_id:
+                  type: string
+                  description: Client identifier (usually "me")
+                  example: me
+                apikey_id:
+                  type: string
+                  description: Optional API key identifier for audit logging
+      responses:
+        '200':
+          description: Transfer completed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    enum:
+                    - invalid_args
+                    - invalid_params
+                    - invalid_recipient
+                    - insufficient_balance
+                  msg:
+                    type: string
+                    example: Invalid amount
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=2.5
+      tags:
+      - Accounts
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: query
+      name: api_key
+      description: API key must be provided as a query parameter
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 2.5
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-input-validation:
+  amount:
+    min_value: 0.01
+    description: Must be a positive number
+  recipient:
+    description: Must be either a valid email address or numeric user ID
+    validation_rules: '- Must be an existing user
+
+      - Cannot be the same as sender
+
+      - Must be either valid email format or numeric ID'
+x-cli-commands:
+- name: transfer credit
+  description: Transfer credits to another user
+  endpoint: /api/v0/commands/transfer_credit/
+  method: PUT
+  example: vast.py transfer credit user@example.com 100.00

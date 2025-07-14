@@ -1,0 +1,116 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API - Update Autogroup
+  description: API endpoint to update an existing autoscale group.
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/autojobs/{id}/:
+    put:
+      summary: update autogroup
+      description: 'Updates the properties of an existing autoscale group based on
+        the provided parameters.
+
+
+        CLI Usage: vastai update autogroup <ID> [OPTIONS]
+
+        '
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: The ID of the autogroup to update.
+        schema:
+          type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                min_load:
+                  type: number
+                  description: Minimum load for the autogroup.
+                target_util:
+                  type: number
+                  description: Target utilization for the autogroup.
+                cold_mult:
+                  type: number
+                  description: Cold multiplier for the autogroup.
+                test_workers:
+                  type: integer
+                  description: Number of test workers for performance estimation.
+                template_hash:
+                  type: string
+                  description: Template hash for the autogroup.
+                template_id:
+                  type: integer
+                  description: Template ID for the autogroup.
+                search_params:
+                  type: string
+                  description: Search parameters for offers.
+                launch_args:
+                  type: string
+                  description: Launch arguments for creating instances.
+                gpu_ram:
+                  type: number
+                  description: Estimated GPU RAM requirement.
+                endpoint_name:
+                  type: string
+                  description: Deployment endpoint name.
+                endpoint_id:
+                  type: integer
+                  description: Deployment endpoint ID.
+      responses:
+        '200':
+          description: Successfully updated the autogroup.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      tags:
+      - Autoscaler
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string

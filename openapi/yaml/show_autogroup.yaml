@@ -1,0 +1,119 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API - Show Autogroups
+  description: Retrieve the list of autojob groups for the authenticated user.
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/autojobs:
+    get:
+      summary: show autogroup
+      description: 'Retrieves the list of autojob groups associated with the authenticated
+        user.
+
+
+        CLI Usage: vastai show autogroups
+
+        '
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        min_load:
+                          type: number
+                        target_util:
+                          type: number
+                        cold_mult:
+                          type: number
+                        test_workers:
+                          type: integer
+                        template_hash:
+                          type: string
+                        template_id:
+                          type: integer
+                        search_params:
+                          type: string
+                        search_query:
+                          type: string
+                        launch_args:
+                          type: string
+                        gpu_ram:
+                          type: number
+                        endpoint_name:
+                          type: string
+                        endpoint_id:
+                          type: integer
+                        api_key:
+                          type: string
+                        created_at:
+                          type: string
+                          format: date-time
+                        user_id:
+                          type: integer
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=2.0
+      tags:
+      - Autoscaler
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 2.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: show autogroups
+  description: Retrieve the list of autojob groups for the authenticated user.
+  endpoint: /api/autojobs
+  method: GET
+  example: vastai show autogroups

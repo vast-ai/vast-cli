@@ -1,0 +1,82 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API
+  description: API documentation for Vast.ai services.
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/team/roles-full/:
+    get:
+      summary: show team roles
+      description: 'Retrieve a list of all roles for a team, excluding the ''team_owner''
+        role.
+
+
+        CLI Usage: vastai show team-roles
+
+        '
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                      description: Role ID
+                      example: 1
+                    name:
+                      type: string
+                      description: Name of the role
+                      example: admin
+                    permissions:
+                      type: array
+                      description: Permissions associated with the role
+                      items:
+                        type: string
+                      example:
+                      - read
+                      - write
+                    identifier:
+                      type: string
+                      description: Unique identifier for the role
+                      example: admin_role
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      tags:
+      - Team
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-cli-commands:
+- name: show team-roles
+  description: Show roles for a team
+  endpoint: /api/v0/team/roles-full/
+  method: get
+  example: vastai show team-roles

@@ -1,0 +1,219 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Volume Search API
+  description: API to search for available volumes on Vast.ai.
+  version: 1.0.0
+servers:
+- url: https://cloud.vast.ai
+  description: Production server
+paths:
+  /api/v0/volumes/search/:
+    post:
+      summary: search volumes
+      description: 'Search for available volumes based on specified criteria.
+        CLI Usage: vastai search volumes <query> [OPTIONS]'
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: object
+          properties:
+            limit:
+              type: integer
+              description: Maximum number of results to return
+              default: 64
+              example: 100
+        description: Query parameters for filtering volume search results
+        example: {"limit": 100}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limit:
+                  type: integer
+                  description: Maximum number of results to return
+                  default: 64
+                  example: 100
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  offers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/VolumeOffer'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    enum:
+                    - invalid_args
+                    - invalid_request
+                  msg:
+                    type: string
+                    example: "Invalid query: {query}, must be dict of conditions"
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=5.5
+      tags:
+      - Volumes
+components:
+  schemas:
+    VolumeOffer:
+      type: object
+      properties:
+        ask_contract_id:
+          type: integer
+          description: Contract ID for the ask
+        bundle_id:
+          type: integer
+          description: Bundle ID
+        cpu_arch:
+          type: string
+          description: CPU architecture
+          example: "amd64"
+        cpu_ghz:
+          type: number
+          description: CPU clock speed in GHz
+        cpu_name:
+          type: string
+          description: CPU model name
+          example: "AMD EPYC 7K62 48-Core Processor"
+        cuda_max_good:
+          type: number
+          description: Maximum CUDA version supported
+          example: 12.8
+        disk_bw:
+          type: number
+          description: Disk bandwidth
+        disk_name:
+          type: string
+          description: Disk model name
+          example: "FIKWOT FN955 4TB"
+        disk_space:
+          type: number
+          description: Available disk space in GB
+          example: 10.0
+        driver_vers:
+          type: string
+          description: Driver version (deprecated)
+        driver_version:
+          type: string
+          description: NVIDIA driver version
+          example: "570.124.04"
+        duration:
+          type: number
+          description: Duration of the contract
+        end_date:
+          type: number
+          description: End date as Unix timestamp
+        external:
+          type: boolean
+          description: Whether the volume is external
+        geolocation:
+          type: string
+          description: Geographic location
+        geolocode:
+          type: string
+          description: Geographic location code
+        gpu_arch:
+          type: string
+          description: GPU architecture
+        host_id:
+          type: integer
+          description: Host ID
+          example: 166946
+        id:
+          type: integer
+          description: Unique identifier for the volume offer
+        inet_down:
+          type: number
+          description: Download internet speed in Mbps
+          example: 654.6
+        inet_up:
+          type: number
+          description: Upload internet speed in Mbps
+          example: 78.9
+        machine_id:
+          type: integer
+          description: Machine ID
+          example: 36683
+        mobo_name:
+          type: string
+          description: Motherboard model name
+          example: "ROME2D32GM-2T"
+        reliability:
+          type: number
+          description: Reliability score
+        reliability2:
+          type: number
+          description: Alternative reliability score
+          example: 0.9649497
+        reliability_mult:
+          type: number
+          description: Reliability multiplier
+        start_date:
+          type: number
+          description: Start date as Unix timestamp
+          example: 1747341046.4320989
+        static_ip:
+          type: boolean
+          description: Whether the machine has a static IP
+          example: true
+        storage_cost:
+          type: number
+          description: Storage cost
+        storage_total_cost:
+          type: number
+          description: Total storage cost
+          example: 0.0005555555555555557
+        vericode:
+          type: string
+          description: Verification code
+        verification:
+          type: string
+          description: Verification status
+          example: "verified"
+        vms_enabled:
+          type: boolean
+          description: Whether VMs are enabled
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+x-input-validation:
+  q:
+    type: object
+    description: Query must be a dictionary of conditions
+x-cli-commands:
+- name: search__volumes
+  description: Search for available volumes based on specified criteria
+  endpoint: /api/v0/volumes/search/
+  method: get
+  example: vastai search volumes --limit 100

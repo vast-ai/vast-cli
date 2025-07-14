@@ -1,0 +1,119 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Machine Cleanup API
+  description: API endpoint to remove expired contracts on a machine.
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/machines/{machine_id}/cleanup:
+    put:
+      summary: cleanup machine
+      description: 'This endpoint removes expired contracts on a specified machine,
+        freeing up space.
+
+
+        CLI Usage: vast-ai cleanup machine {machine_id}
+
+        '
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: machine_id
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: The ID of the machine to clean up.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: An empty JSON object is expected.
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  ctime:
+                    type: number
+                    format: float
+                    example: 1633036800.0
+                  machine_id:
+                    type: integer
+                    example: 123
+                  user_id:
+                    type: integer
+                    example: 456
+                  num_deleted:
+                    type: integer
+                    example: 5
+                  msg:
+                    type: string
+                    example: deleted 5 expired contracts on machine 123
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=8
+      tags:
+      - Machines
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 8
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: cleanup machine
+  description: Remove all expired storage instances from the machine, freeing up space.
+  endpoint: /api/v0/machines/{machine_id}/cleanup
+  method: put
+  example: vast-ai cleanup machine 123

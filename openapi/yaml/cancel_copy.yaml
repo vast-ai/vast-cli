@@ -1,0 +1,72 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API
+  version: 1.0.0
+  description: API documentation for Vast.ai's remote copy cancellation endpoint.
+paths:
+  /api/v0/commands/copy_direct/:
+    delete:
+      summary: cancel copy
+      description: Cancel a remote copy operation specified by the destination ID
+        (dst_id).
+      operationId: cancelRemoteRsync
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dst_id:
+                  type: string
+                  description: ID of the copy instance target to cancel.
+              required:
+              - dst_id
+      responses:
+        '200':
+          description: Remote copy canceled successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '400':
+          description: Invalid arguments provided.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: invalid_args
+                  msg:
+                    type: string
+                    example: Invalid dst_id.
+        '404':
+          description: Destination ID not found or access denied.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: no_such_user
+                  msg:
+                    type: string
+                    example: No such user.
+      security:
+      - BearerAuth: []
+      x-rateLimit: 3.5
+      tags:
+      - Instances

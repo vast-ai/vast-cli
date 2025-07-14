@@ -1,0 +1,96 @@
+openapi: 3.0.0
+info:
+  title: Delete Endpoint API
+  description: API endpoint to delete an endpoint group
+  version: 1.0.0
+paths:
+  /api/v0/endptjobs/{id}:
+    delete:
+      summary: delete endpoint
+      description: 'Deletes an endpoint group by ID. This will soft delete the endpoint
+        group by setting a deleted_at timestamp.
+
+        Associated autoscale jobs will also be soft deleted.
+
+
+        CLI Usage: vast delete endpoint [options]
+
+        '
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+        description: ID of the endpoint group to delete
+        example: 4242
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                client_id:
+                  type: string
+                  description: Client identifier, should be "me"
+                  example: me
+                endptjob_id:
+                  type: integer
+                  description: ID of endpoint group to delete
+                  example: 4242
+              required:
+              - client_id
+              - endptjob_id
+      responses:
+        '200':
+          description: Endpoint group successfully deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                    description: Whether the deletion was successful
+        '404':
+          description: Endpoint group not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: no_such_endptjob
+                  msg:
+                    type: string
+                    example: No endptjob by that id is available.
+                  id:
+                    type: integer
+                    example: 4242
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+      security:
+      - ApiKeyAuth: []
+      tags:
+      - Autoscaler
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: API key authentication

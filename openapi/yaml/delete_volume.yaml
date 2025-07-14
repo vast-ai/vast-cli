@@ -1,0 +1,102 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Volume Delete API
+  description: API to delete a volume on Vast.ai.
+  version: 1.0.0
+servers:
+- url: https://cloud.vast.ai
+  description: Production server
+paths:
+  /api/v0/volumes:
+    delete:
+      summary: delete volume
+      description: 'Delete a volume by its ID.
+        CLI Usage: vastai delete volume VOLUME_ID'
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - id
+              properties:
+                id:
+                  type: integer
+                  description: ID of the volume to delete
+                  example: 100
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    enum:
+                    - invalid_args
+                  msg:
+                    type: string
+                    example: Please provide a valid volume ID.
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    enum:
+                    - no_such_volume
+                  msg:
+                    type: string
+                    example: Volume with that ID does not exist.
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=5.5
+      tags:
+      - Volumes
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+x-input-validation:
+  id:
+    type: integer
+    description: Must be a valid volume ID
+x-cli-commands:
+- name: delete__volume
+  description: Delete a volume by its ID
+  endpoint: /api/v0/volumes
+  method: delete
+  example: vastai delete volume 100

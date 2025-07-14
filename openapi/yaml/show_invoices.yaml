@@ -1,0 +1,206 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API - Show Invoices
+  description: Retrieve billing history reports for the authenticated user, including
+    charges and credits.
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/users/{user_id}/invoices/:
+    get:
+      summary: show invoices
+      description: 'This endpoint retrieves billing history reports for the authenticated
+        user, including charges and credits.
+
+
+        CLI Usage: vast-ai show invoices
+
+        '
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: The ID of the user whose invoices are being retrieved.
+        example: me
+      - name: inc_charges
+        in: query
+        required: false
+        schema:
+          type: boolean
+        description: Include charge items in the report.
+        example: true
+      - name: only_payouts
+        in: query
+        required: false
+        schema:
+          type: boolean
+        description: Show only payout items.
+        example: false
+      - name: no_payouts
+        in: query
+        required: false
+        schema:
+          type: boolean
+        description: Exclude payout items.
+        example: false
+      - name: sdate
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Start date and time for the report.
+        example: '2023-01-01T00:00:00Z'
+      - name: edate
+        in: query
+        required: false
+        schema:
+          type: string
+        description: End date and time for the report.
+        example: '2023-12-31T23:59:59Z'
+      responses:
+        '200':
+          description: Success response with billing history reports
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invoices:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                          example: 123
+                        type:
+                          type: string
+                          example: payment
+                        service:
+                          type: string
+                          example: stripe
+                        amount:
+                          type: number
+                          format: float
+                          example: 100.0
+                        timestamp:
+                          type: integer
+                          example: 1672531199
+                  username:
+                    type: string
+                    example: user@example.com
+                  bill_to:
+                    type: string
+                    example: 'John Doe
+
+                      123 Main St
+
+                      City, ZIP
+
+                      Country'
+                  email:
+                    type: string
+                    example: user@example.com
+                  fullname:
+                    type: string
+                    example: John Doe
+                  address1:
+                    type: string
+                    example: 123 Main St
+                  address2:
+                    type: string
+                    example: Apt 4B
+                  city:
+                    type: string
+                    example: City
+                  zip:
+                    type: string
+                    example: '12345'
+                  country:
+                    type: string
+                    example: Country
+                  taxinfo:
+                    type: string
+                    example: Tax Info
+                  current:
+                    type: object
+                    properties:
+                      charges:
+                        type: number
+                        format: float
+                        example: 150.0
+                      service_fee:
+                        type: number
+                        format: float
+                        example: 15.0
+                      total:
+                        type: number
+                        format: float
+                        example: 165.0
+                      credit:
+                        type: number
+                        format: float
+                        example: 50.0
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=2.0
+      tags:
+      - Billing
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 2.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: show invoices
+  description: Retrieve billing history reports for the authenticated user.
+  endpoint: /api/v0/users/{user_id}/invoices/
+  method: GET
+  example: vast-ai show invoices

@@ -1,0 +1,174 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Instance Launch API
+  description: |
+    API endpoint to launch an instance based on specified parameters.
+    
+    Supports advanced querying with operators:
+    - Equality: `field=value` or `field eq value`
+    - Inequality: `field!=value` or `field neq value`
+    - Greater than: `field>value` or `field gt value`
+    - Less than: `field<value` or `field lt value`
+    - Greater/equal: `field>=value` or `field gte value`
+    - Less/equal: `field<=value` or `field lte value`
+    - In list: `field in [val1,val2,...]`
+    - Not in list: `field nin [val1,val2,...]`
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/launch_instance/:
+    put:
+      summary: launch instance
+      description: |
+        This endpoint launches an instance based on the specified parameters,
+        selecting the first available offer that meets the criteria.
+
+        CLI Usage: vast-ai launch instance {parameters}
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - num_gpus
+              - image
+              - disk
+              properties:
+                q:
+                  type: object
+                  description: |
+                    Search query parameters to filter offers using operators.
+                  properties:
+                    gpu_name:
+                      type: object
+                      description: GPU model filter
+                      example:
+                        eq: "RTX_3090"
+                    num_gpus:
+                      type: object
+                      description: Number of GPUs filter
+                      example:
+                        gte: 4
+                    geolocation:
+                      type: object
+                      description: Region filter
+                      example:
+                        in: ["us-west"]
+                    allocated_storage:
+                      type: object
+                      description: Disk space in GB
+                      example:
+                        gte: 32
+                num_gpus:
+                  type: integer
+                  description: Number of GPUs required.
+                  example: 4
+                image:
+                  type: string
+                  description: Docker image name.
+                  example: vastai/tensorflow
+                disk:
+                  type: integer
+                  description: |
+                    Disk space in GB.
+                    NOTE: This parameter is NOT used for filtering. For filtering by disk space, use q.allocated_storage instead.
+                  example: 32
+                env:
+                  type: string
+                  description: Environment variables and port mappings.
+                  example: VAR1=value1,VAR2=value2
+                args:
+                  type: array
+                  items:
+                    type: string
+                  description: Arguments for the container's ENTRYPOINT.
+                  example:
+                  - --arg1
+                  - --arg2
+            examples:
+              basicSearch:
+                summary: Basic query example
+                value:
+                  q:
+                    gpu_name:
+                      eq: "RTX_3090"
+                    num_gpus:
+                      gte: 4
+                    geolocation:
+                      in: ["us-west"]
+                  image: "vastai/tensorflow"
+                  disk: 32
+      responses:
+        '200':
+          description: Instance launched successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  new_contract:
+                    type: string
+                    example: contract_id_12345
+        '400':
+          description: Bad request due to invalid input.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: No offers found or offer not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          description: Unexpected error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      tags:
+      - Instances
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      required:
+      - success
+      - error
+      - msg
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          description: Error code
+          example: invalid_query
+        msg:
+          type: string
+          description: Human readable error message
+          example: Invalid query parameters
+x-rate-limit:
+  threshold: 5
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: launch instance
+  description: Launch an instance with specified parameters.
+  endpoint: /api/v0/launch_instance/
+  method: put
+  example: vast-ai launch instance --q.gpu_name.eq RTX_3090 --q.num_gpus.gte 4 --q.geolocation.in us-west --image vastai/tensorflow --disk 32

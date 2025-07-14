@@ -1,0 +1,83 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API - User Information
+  description: Retrieve information about the current authenticated user.
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/users/current/:
+    get:
+      summary: show user
+      description: 'Retrieve information about the current authenticated user, excluding
+        the API key.
+
+
+        CLI Usage: vastai show user
+
+        '
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Success response with user information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    description: The unique identifier of the user.
+                  email:
+                    type: string
+                    description: The email address of the user.
+                  balance:
+                    type: number
+                    format: float
+                    description: The current balance of the user.
+                  ssh_key:
+                    type: string
+                    description: The SSH key associated with the user.
+                  sid:
+                    type: string
+                    description: Server ID.
+        '401':
+          description: Unauthorized access due to invalid or missing authentication
+            token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      tags:
+      - Accounts
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-cli-commands:
+- name: show user
+  description: Retrieve current user information.
+  endpoint: /api/v0/users/current/
+  method: GET
+  example: vastai show user

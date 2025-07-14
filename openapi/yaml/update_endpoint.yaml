@@ -1,0 +1,130 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Endpoint Update API
+  description: API for updating an existing endpoint group.
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/endptjobs/{id}/:
+    put:
+      summary: update endpoint
+      description: 'Updates the specified endpoint group with the provided parameters.
+
+
+        CLI Usage: vastai update endpoint ID [OPTIONS]
+
+        '
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: ID of the endpoint group to update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                min_load:
+                  type: number
+                  description: Minimum floor load in perf units/s (token/s for LLms)
+                  example: 100.0
+                target_util:
+                  type: number
+                  description: Target capacity utilization (fraction, max 1.0, default
+                    0.9)
+                  example: 0.9
+                cold_mult:
+                  type: number
+                  description: Cold/stopped instance capacity target as multiple of
+                    hot capacity target (default 2.5)
+                  example: 2.0
+                cold_workers:
+                  type: integer
+                  description: Min number of workers to keep 'cold' when you have
+                    no load (default 5)
+                  example: 5
+                max_workers:
+                  type: integer
+                  description: Max number of workers your endpoint group can have
+                    (default 20)
+                  example: 20
+                endpoint_name:
+                  type: string
+                  description: Deployment endpoint name
+                  example: LLama
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=2.0
+      tags:
+      - Autoscaler
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        msg:
+          type: string
+          example: Operation completed successfully
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 2.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: update endpoint
+  description: Update an existing endpoint group
+  endpoint: /api/v0/endptjobs/{id}/
+  method: put
+  example: vastai update endpoint 4242 --min_load 100 --target_util 0.9 --cold_mult
+    2.0 --endpoint_name "LLama"

@@ -1,0 +1,112 @@
+openapi: 3.0.0
+info:
+  title: Create Team API
+  description: Creates a new team with the authenticated user as owner
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/team:
+    post:
+      summary: create team
+      description: "Creates a new team with the authenticated user as the owner. The\
+        \ user's existing API key \nbecomes the owner key for the team. The user cannot\
+        \ already be a team or be a member of another team.\n\nThe operation:\n1.\
+        \ Converts the user into a team\n2. Creates default team roles (member, manager,\
+        \ owner)\n3. Converts user's API key into the owner key\n4. Adds the creating\
+        \ user as a team member\n\nCLI Usage: vast create team --name <team_name>\n"
+      security:
+      - BearerAuth: []
+      tags:
+      - Team
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - team_name
+              - permissions
+              properties:
+                team_name:
+                  type: string
+                  description: Name for the new team
+                  example: my-awesome-team
+                permissions:
+                  type: object
+                  description: JSON object containing role and permission definitions.
+                    https://vast.ai/docs/cli/roles-and-permissions
+                  example:
+                    api:
+                      misc: {}
+                      user_read: {}
+                      instance_read: {}
+                      instance_write: {}
+                      billing_read: {}
+                      billing_write: {}
+      responses:
+        '200':
+          description: Team created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  msg:
+                    type: string
+                    example: Team Successfully Created!
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    enum:
+                    - already_team
+                    - team_member
+                  msg:
+                    type: string
+                    example: Cannot create a team within a team
+        '401':
+          description: Unauthorized - Invalid or missing API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden - User is blacklisted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: User's master API key not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string

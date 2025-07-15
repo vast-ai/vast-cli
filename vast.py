@@ -743,6 +743,7 @@ overlay_fields = (
 )
 volume_fields = (
     ("id", "ID", "{}", None, True),
+    ("cluster_id", "Cluster ID", "{}", None, True),
     ("label", "Name", "{}", None, True),
     ("disk_space", "Disk", "{:.0f}", None, True),
     ("status", "status", "{}", None, True),
@@ -5840,7 +5841,16 @@ def list__machines(args):
     argument("machines", help="ids of machines to add disk to, that is networked to be on the same LAN as machine", type=int, nargs='+'),
     argument("mount_point", help="mount path of disk to add", type=str),
     argument("-d", "--disk_id", help="id of network disk to attach to machines in the cluster", type=int, nargs='?'),
-    usage="vastai add network-disk MACHINES MOUNT_PATH [DISK_ID]",
+    usage="vastai add network-disk MACHINES MOUNT_PATH [options]",
+    help="[Host] Add Network Disk to Physical Cluster.",
+    epilog=deindent("""
+        This variant can be used to add a network disk to a physical cluster.
+        When you add a network disk for the first time, you just need to specify the machine(s) and mount_path.
+        When you add a network disk for the second time, you need to specify the disk_id.
+        Example:
+        vastai add network-disk 1 /mnt/disk1
+        vastai add network-disk 1 /mnt/disk1 -d 12345
+    """)
 )
 def add__network_disk(args):
     json_blob = {

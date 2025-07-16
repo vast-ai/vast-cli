@@ -1,0 +1,146 @@
+openapi: 3.0.0
+info:
+  title: Add User Environment Variable API
+  description: 'Creates a new encrypted environment variable/secret for the authenticated
+    user.
+
+    Environment variables can be used to store sensitive configuration values that
+
+    can be securely accessed by instances.
+
+    '
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/secrets/:
+    post:
+      summary: create env-var
+      description: 'Creates a new encrypted environment variable for the authenticated
+        user.
+
+        Keys are automatically converted to uppercase. Values are encrypted before
+        storage.
+
+        There is a limit on the total number of environment variables per user.
+
+
+        CLI Usage: vast create env-var KEY VALUE
+
+        '
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - key
+              - value
+              properties:
+                key:
+                  type: string
+                  description: Environment variable key name (will be converted to
+                    uppercase)
+                  example: API_TOKEN
+                value:
+                  type: string
+                  description: Secret value to be encrypted and stored
+                  pattern: ^[a-zA-Z0-9_\-\.]+$
+                  example: abc123xyz
+      responses:
+        '200':
+          description: Environment variable created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  msg:
+                    type: string
+                    example: Environment variable added successfully
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    enum:
+                    - missing_input
+                    - max_secrets
+                    - existing_key
+                  msg:
+                    type: string
+                    example: Both 'key' and 'value' are required.
+        '401':
+          description: Unauthorized - Invalid or missing API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden - User is blacklisted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=3.0
+      tags:
+      - Accounts
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 3.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-input-validation:
+  key:
+    max_length: MAX_SECRET_KEY_INPUT_LENGTH
+    description: Must be a valid environment variable name, will be converted to uppercase
+  value:
+    max_length: MAX_SECRET_VALUE_INPUT_LENGTH
+    pattern: ^[a-zA-Z0-9_\-\.]+$
+    description: Must contain only alphanumeric characters, underscores, hyphens and
+      dots
+x-cli-commands:
+- name: create env-var
+  description: Create a new environment variable
+  endpoint: /api/secrets
+  method: POST
+  example: vast create env-var API_TOKEN abc123xyz

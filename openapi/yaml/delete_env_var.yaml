@@ -1,0 +1,129 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API - Delete Environment Variable
+  description: 'API endpoint to delete a user environment variable.
+
+    This endpoint allows users to remove previously set environment variables from
+    their account.
+
+    '
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/secrets/:
+    delete:
+      summary: delete env var
+      description: 'Deletes an environment variable associated with the authenticated
+        user.
+
+        The variable must exist and belong to the requesting user.
+
+
+        CLI Usage: vastai delete env-var <name>
+
+        '
+      operationId: deleteUserSecret
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - key
+              properties:
+                key:
+                  type: string
+                  description: Name of the environment variable to delete
+                  example: MY_API_KEY
+      responses:
+        '200':
+          description: Environment variable deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Bad request - missing or invalid input
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Error'
+                - type: object
+                  properties:
+                    error:
+                      type: string
+                      enum:
+                      - missing_input
+                      - nonexistent_key
+                      example: missing_input
+        '401':
+          description: Unauthorized - Invalid or missing API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden - User is blacklisted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too many requests - rate limit exceeded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=3.0
+      tags:
+      - Accounts
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        msg:
+          type: string
+          example: Environment variable deleted successfully
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 3.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-input-validation:
+  key:
+    max_length: 255
+    sanitization: Uppercase conversion and character validation
+    description: Environment variable name must be valid and previously existing
+x-cli-commands:
+- name: delete env-var
+  description: Delete a user environment variable
+  endpoint: /api/v0/secrets/
+  method: DELETE
+  example: vastai delete env-var MY_API_KEY

@@ -1,0 +1,122 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Start Instances API
+  description: API endpoint to start a list of instances on Vast.ai.
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/instances/start:
+    post:
+      summary: start instances
+      description: 'Start a list of instances specified by their IDs.
+
+
+        CLI Usage: vast-ai start instances [OPTIONS] ID0 ID1 ID2...
+
+        '
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - IDs
+              properties:
+                IDs:
+                  type: array
+                  items:
+                    type: integer
+                  description: List of instance IDs to start.
+                  example:
+                  - 123
+                  - 456
+                  - 789
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    type: string
+                    enum:
+                    - missing_input
+                    - empty_input
+                    - invalid_instance_id
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=2.0
+      tags:
+      - Instances
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        msg:
+          type: string
+          example: Instances started successfully
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 2.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-input-validation:
+  IDs:
+    description: List of instance IDs to start.
+    max_length: 100
+    pattern: ^\d+$
+x-cli-commands:
+- name: start instances
+  description: Start a list of instances by their IDs.
+  endpoint: /api/v0/instances/start
+  method: post
+  example: vast-ai start instances 123 456 789

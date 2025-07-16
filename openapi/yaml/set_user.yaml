@@ -1,0 +1,122 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API - Update User
+  description: API endpoint to update user data.
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/users/:
+    put:
+      summary: set user
+      description: 'Updates the user data for the authenticated user.
+
+
+        CLI Usage: vast set user --file {file_path}
+
+        '
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                normalized_email:
+                  type: string
+                  description: Normalized email address.
+                  example: user@example.com
+                username:
+                  type: string
+                  description: Username of the user.
+                  example: johndoe
+                fullname:
+                  type: string
+                  description: Full name of the user.
+                  example: John Doe
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Error'
+                properties:
+                  error:
+                    type: string
+                    enum:
+                    - missing_input
+                    - empty_input
+                    - input_too_long
+                    - invalid_characters
+                    - nonexistent_key
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=5.0
+      tags:
+      - Accounts
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        msg:
+          type: string
+          example: Operation completed successfully
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 5
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: set user
+  description: Update user data from a JSON file.
+  endpoint: /api/v0/users/
+  method: PUT
+  example: vast set user --file user_data.json

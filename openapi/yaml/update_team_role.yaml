@@ -1,0 +1,56 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API
+  version: 1.0.0
+paths:
+  /api/v0/team/roles/{id}/:
+    put:
+      summary: update team role
+      description: Update an existing team role with new name and permissions.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: ID of the role to update.
+        schema:
+          type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: New name for the role.
+                permissions:
+                  type: object
+                  description: JSON encoded permissions for the role.
+              required:
+              - name
+              - permissions
+      responses:
+        '200':
+          description: Successfully updated team role.
+          content:
+            application/json:
+              schema:
+                type: string
+                example: Successfully Updated Team Role For <role_name>
+        '400':
+          description: Bad Request - Missing or invalid parameters.
+        '403':
+          description: Forbidden - User does not have permission to update this role.
+        '404':
+          description: Not Found - API key not found.
+      security:
+      - apiKeyAuth: []
+      tags:
+      - Team
+components:
+  securitySchemes:
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization

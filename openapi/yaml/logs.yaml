@@ -1,0 +1,97 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Instance Logs API
+  description: API endpoint for retrieving logs from instances
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/instances/request_logs/{id}:
+    put:
+      summary: show logs
+      description: "Request logs from a specific instance. The logs will be uploaded\
+        \ to S3 and \ncan be retrieved from a generated URL. Supports both container\
+        \ logs and daemon\nsystem logs.\n\nCLI Usage: vast logs INSTANCE_ID [--tail\
+        \ LINES] [--filter GREP] [--daemon-logs]\n"
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: ID of the instance to get logs from
+        schema:
+          type: integer
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tail:
+                  type: string
+                  description: Number of lines to show from end of logs
+                  example: '1000'
+                filter:
+                  type: string
+                  description: Grep filter to apply to log entries
+                daemon_logs:
+                  type: string
+                  enum:
+                  - 'true'
+                  description: If "true", fetch daemon system logs instead of container
+                    logs
+      responses:
+        '200':
+          description: Success response with S3 URL for log retrieval
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result_url:
+                    type: string
+                    description: S3 URL where logs can be downloaded
+                    example: https://s3.amazonaws.com/vast.ai/instance_logs/{hash}.log
+                  msg:
+                    type: string
+                    description: Status message
+        '404':
+          description: Instance not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: invalid_id
+                  msg:
+                    type: string
+                    example: Invalid instance id.
+        '403':
+          description: Not authorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: not_authorized
+                  msg:
+                    type: string
+                    example: Not authorized to view logs for this instance
+      tags:
+      - Instances
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header

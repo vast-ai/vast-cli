@@ -1,0 +1,67 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Volume Rental API
+  description: API to rent/create a new volume on Vast.ai.
+  version: 1.0.0
+servers:
+- url: https://cloud.vast.ai
+  description: Production server
+paths:
+  /api/v0/volumes/:
+    put:
+      summary: rent volume
+      description: 'Rent/create a new volume with specified parameters.
+        CLI Usage: vastai create volume ID --size SIZE_GB'
+      security:
+      - ApiKeyQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - id
+              properties:
+                id:
+                  type: integer
+                  description: ID for the volume
+                  example: 420
+                size:
+                  type: integer
+                  description: Size in GB (Defaults to 15)
+                  example: 15
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  volume_name:
+                    type: string
+                    description: Name of the created/resized volume
+                    example: "V.20118481"
+      tags:
+      - Volumes
+components:
+  securitySchemes:
+    ApiKeyQuery:
+      type: apiKey
+      in: query
+      name: api_key
+      description: API key must be provided as a query parameter
+x-rate-limit:
+  threshold: 5.5
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: create__volume
+  description: Create a new volume with specified size
+  endpoint: /api/v0/volumes/
+  method: put
+  example: vastai create volume ID --size 15

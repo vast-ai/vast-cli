@@ -1,0 +1,85 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API - Show Cloud Connections
+  description: Retrieve the list of cloud connections for the authenticated user.
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/users/cloud_integrations/:
+    get:
+      summary: show connections
+      description: 'Retrieves the list of cloud connections associated with the authenticated
+        user.
+
+
+        CLI Usage: vastai show connections
+
+        '
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                      description: Unique identifier for the cloud connection.
+                    cloud_type:
+                      type: string
+                      description: Type of cloud service.
+                    name:
+                      type: string
+                      description: User-given name for the cloud connection.
+        '401':
+          description: Unauthorized - Invalid or missing authentication
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=2.9
+      tags:
+      - Accounts
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 2.9
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: show connections
+  description: Retrieve the list of cloud connections for the authenticated user.
+  endpoint: /api/v0/users/cloud_integrations/
+  method: GET
+  example: vastai show connections

@@ -1,0 +1,87 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Instance Management API
+  version: 1.0.0
+paths:
+  /api/v0/instances/{id}/:
+    put:
+      summary: start instance
+      description: Change the state of an instance to "running".
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: The ID of the instance to start.
+        schema:
+          type: integer
+      - name: api_key
+        in: query
+        required: true
+        description: The API key for authentication.
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                state:
+                  type: string
+                  enum:
+                  - running
+                  description: The desired state of the instance.
+      responses:
+        '200':
+          description: Instance successfully started.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  msg:
+                    type: string
+        '400':
+          description: Bad request due to invalid input.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  error:
+                    type: string
+                  msg:
+                    type: string
+        '404':
+          description: Instance not found.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  error:
+                    type: string
+                  msg:
+                    type: string
+        default:
+          description: Unexpected error.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  error:
+                    type: string
+                  msg:
+                    type: string
+      tags:
+      - Instances

@@ -1,0 +1,77 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API - SSH Keys
+  description: Retrieve SSH keys associated with a specific instance.
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/instances/{instance_id}/ssh/:
+    get:
+      summary: show ssh-keys
+      description: 'Retrieves the SSH keys associated with a specific instance.'
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: instance_id
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: The ID of the instance to retrieve SSH keys for.
+        example: 17816188
+      responses:
+        '200':
+          description: Success response with SSH keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  ssh_keys:
+                    type: string
+                    description: JSON string containing array of SSH key objects
+                    example: '[{"id": 1, "name": "my-key", "public_key": "ssh-rsa AAAA..."}]'
+        '400':
+          description: Bad Request - Invalid instance ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized - Invalid or missing authentication
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Instance not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      tags:
+      - Instances
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: "no_such_instance"
+        msg:
+          type: string
+          example: "Instance not found."

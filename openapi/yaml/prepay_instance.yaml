@@ -1,0 +1,133 @@
+openapi: 3.0.0
+info:
+  title: Instance Prepayment API
+  version: 1.0.0
+  description: "API endpoint for prepaying an instance to receive discounted rates.\
+    \ \nThe discount rate is calculated based on the prepayment amount and instance\
+    \ usage cost.\nLarger prepayments relative to monthly costs result in higher discount\
+    \ rates.\n"
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/instances/prepay/{id}/:
+    put:
+      summary: prepay instance
+      description: 'Deposit credits into a reserved instance to receive usage discounts.
+
+        The discount rate is calculated based on how many months of usage the prepaid
+        amount covers.
+
+        Maximum discount is typically 40%.
+
+
+        CLI Usage: vastai prepay instance <ID> <AMOUNT>
+
+        Example: vastai prepay instance 1234 500.0
+
+        '
+      security:
+      - BearerAuth: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+        description: ID of the instance to prepay for
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - amount
+              properties:
+                amount:
+                  type: number
+                  format: float
+                  description: Amount of credits to prepay
+                  example: 500.0
+      responses:
+        '200':
+          description: Successfully applied prepayment
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  timescale:
+                    type: number
+                    format: float
+                    description: Number of months the prepayment will cover
+                    example: 3.5
+                  discount_rate:
+                    type: number
+                    format: float
+                    description: Applied discount rate (0.0-0.4)
+                    example: 0.3
+        '400':
+          description: Invalid instance ID
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  msg:
+                    type: string
+                    example: No such instance
+        '411':
+          description: Insufficient credit balance
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  msg:
+                    type: string
+                    example: Insufficient credit
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=2.0
+      tags:
+      - Instances
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+x-rate-limit:
+  threshold: 2.0
+  per: request
+  description: Maximum request frequency per IP address
+x-cli-commands:
+- name: prepay instance
+  description: Deposit credits into reserved instance
+  endpoint: /api/v0/instances/prepay/{id}/
+  method: PUT
+  example: vastai prepay instance 1234 500.0
+  help: 'Prepay for instance usage to receive discounts:
+
+    - Default discount is 0.2 (20%) for 1 month prepayment
+
+    - Up to 0.3 (30%) for 3 months prepayment
+
+    - Maximum discount of 0.4 (40%)'

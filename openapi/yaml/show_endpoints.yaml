@@ -1,0 +1,83 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API
+  version: 1.0.0
+  description: API documentation for Vast.ai's endpoint jobs retrieval.
+paths:
+  /api/v0/endptjobs/:
+    get:
+      summary: show endpoints
+      description: Retrieve a list of endpoint jobs for the authenticated user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                client_id:
+                  type: string
+                  example: me
+                api_key:
+                  type: string
+                  description: API key for authentication
+                  example: your_api_key_here
+      responses:
+        '200':
+          description: A list of endpoint jobs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                          example: 123
+                        min_load:
+                          type: number
+                          example: 0.5
+                        target_util:
+                          type: number
+                          example: 0.8
+                        cold_mult:
+                          type: number
+                          example: 1.2
+                        cold_workers:
+                          type: integer
+                          example: 2
+                        max_workers:
+                          type: integer
+                          example: 10
+                        endpoint_name:
+                          type: string
+                          example: example_endpoint
+                        api_key:
+                          type: string
+                          example: your_api_key_here
+                        user_id:
+                          type: integer
+                          example: 456
+                        created_at:
+                          type: string
+                          format: date-time
+                          example: '2023-10-01T12:00:00Z'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+      tags:
+      - Autoscaler

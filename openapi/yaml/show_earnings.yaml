@@ -1,0 +1,172 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API - Show Earnings
+  description: Retrieve earnings history for a specified time range and optionally
+    per machine.
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/users/{user_id}/machine-earnings/:
+    get:
+      summary: show earnings
+      description: 'Retrieves the earnings history for a specified time range and
+        optionally per machine.
+
+
+        CLI Usage: vastai show earnings [OPTIONS]
+
+        '
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: The ID of the user.
+      - name: sday
+        in: query
+        schema:
+          type: integer
+        description: Start day for the earnings report.
+      - name: eday
+        in: query
+        schema:
+          type: integer
+        description: End day for the earnings report.
+      - name: machid
+        in: query
+        schema:
+          type: integer
+        description: Optional machine ID to filter earnings.
+      - name: last_days
+        in: query
+        schema:
+          type: integer
+        description: Number of days to look back from today.
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary:
+                    type: object
+                    properties:
+                      total_gpu:
+                        type: number
+                      total_stor:
+                        type: number
+                      total_bwu:
+                        type: number
+                      total_bwd:
+                        type: number
+                  username:
+                    type: string
+                  email:
+                    type: string
+                  fullname:
+                    type: string
+                  address1:
+                    type: string
+                  address2:
+                    type: string
+                  city:
+                    type: string
+                  zip:
+                    type: string
+                  country:
+                    type: string
+                  taxinfo:
+                    type: string
+                  current:
+                    type: object
+                    properties:
+                      balance:
+                        type: number
+                      service_fee:
+                        type: number
+                      total:
+                        type: number
+                      credit:
+                        type: number
+                  per_machine:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        machine_id:
+                          type: integer
+                        gpu_earn:
+                          type: number
+                        sto_earn:
+                          type: number
+                        bwu_earn:
+                          type: number
+                        bwd_earn:
+                          type: number
+                  per_day:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        day:
+                          type: integer
+                        gpu_earn:
+                          type: number
+                        sto_earn:
+                          type: number
+                        bwu_earn:
+                          type: number
+                        bwd_earn:
+                          type: number
+        '400':
+          description: Bad Request - Invalid input syntax
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=2.0
+      tags:
+      - Billing
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 2.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: show earnings
+  description: Retrieve earnings history for a specified time range and optionally
+    per machine.
+  endpoint: /api/v0/users/{user_id}/machine-earnings/
+  method: GET
+  example: vastai show earnings --start_date 2023-01-01 --end_date 2023-01-31 --machine_id
+    123

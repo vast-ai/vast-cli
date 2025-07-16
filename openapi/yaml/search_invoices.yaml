@@ -1,0 +1,122 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Invoices API
+  description: API endpoint to search and retrieve invoices for a user.
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/invoices:
+    get:
+      summary: search invoices
+      description: 'This endpoint allows users to search and retrieve invoices based
+        on specified filters.
+
+
+        CLI Usage: vast-ai search invoices
+
+        '
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: select_filters
+        in: query
+        required: false
+        schema:
+          type: object
+        description: Filters to apply to the invoice selection.
+      - name: type
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Type of invoices to retrieve (e.g., charge).
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                      example: charge
+                    description:
+                      type: string
+                      example: 'Instance 123 GPU charge: hours * $/hr'
+                    timestamp:
+                      type: integer
+                      example: 1633036800
+                    quantity:
+                      type: string
+                      example: '10.000'
+                    rate:
+                      type: string
+                      example: '0.1000'
+                    amount:
+                      type: string
+                      example: '1.000'
+                    instance_id:
+                      type: integer
+                      example: 123
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=3.0
+      tags:
+      - Billing
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 3.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: search invoices
+  description: Search and retrieve invoices based on specified filters.
+  endpoint: /api/v0/invoices
+  method: get
+  example: vast-ai search invoices

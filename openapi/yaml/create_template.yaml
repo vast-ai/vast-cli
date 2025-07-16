@@ -1,0 +1,123 @@
+openapi: 3.0.0
+info:
+  title: Create Template API
+  description: API endpoint for creating new instance templates
+  version: 1.0.0
+paths:
+  /api/v0/template/:
+    post:
+      summary: create template
+      description: 'Creates a new template for launching instances. If an identical
+        template already exists,
+
+        returns the existing template instead of creating a duplicate.
+
+
+        CLI Usage: vast create template [options]
+
+        '
+      tags:
+      - Templates
+      security:
+      - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                  description: Docker image path
+                  example: ghcr.io/huggingface/text-generation-inference:1.0.3
+                tag:
+                  type: string
+                  description: Docker image tag
+                env:
+                  type: string
+                  description: Docker environment variables and run arguments
+                  example: -p 3000:3000 -e MODEL_ARGS='--model-id TheBloke/Llama-2-7B-chat-GPTQ'
+                onstart:
+                  type: string
+                  description: Command to run on instance startup
+                jup_direct:
+                  type: boolean
+                  description: Enable direct Jupyter connection
+                ssh_direct:
+                  type: boolean
+                  description: Enable direct SSH connection
+                use_jupyter_lab:
+                  type: boolean
+                  description: Use JupyterLab instead of Jupyter Notebook
+                runtype:
+                  type: string
+                  enum:
+                  - jupyter
+                  - ssh
+                  - args
+                  description: Type of instance runtime
+                use_ssh:
+                  type: boolean
+                  description: Enable SSH access
+                jupyter_dir:
+                  type: string
+                  description: Jupyter notebook directory
+                docker_login_repo:
+                  type: string
+                  description: Docker repository requiring authentication
+                extra_filters:
+                  type: object
+                  description: Additional machine search filters
+                recommended_disk_space:
+                  type: number
+                  description: Recommended disk space in GB
+              required:
+              - image
+      responses:
+        '200':
+          description: Template created or existing template found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    description: Whether operation was successful
+                  msg:
+                    type: string
+                    description: Status message
+                  template:
+                    type: object
+                    description: Template details
+                    properties:
+                      id:
+                        type: integer
+                        description: Template ID
+                      hash_id:
+                        type: string
+                        description: Template hash identifier
+        '400':
+          description: Bad request - invalid parameters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  msg:
+                    type: string
+                    example: Template Failed to be Created
+        '429':
+          description: Rate limit exceeded
+        '401':
+          description: Unauthorized - invalid or missing API key
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization

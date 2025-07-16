@@ -1,0 +1,109 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API - Show IP Addresses
+  description: Retrieve the history of IP address accesses for the authenticated user.
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/users/{user_id}/ipaddrs/:
+    get:
+      summary: show ipaddrs
+      description: 'This endpoint retrieves the history of IP address accesses for
+        the authenticated user.
+
+
+        CLI Usage: vast-ai show ipaddrs
+
+        '
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: The ID of the user whose IP address history is being retrieved.
+        example: me
+      responses:
+        '200':
+          description: Success response with IP address history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                          example: 123
+                        user_id:
+                          type: integer
+                          example: 456
+                        ip_address:
+                          type: string
+                          example: 192.168.1.1
+                        timestamp:
+                          type: string
+                          format: date-time
+                          example: '2023-10-01T12:00:00Z'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=2.9
+      tags:
+      - Accounts
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 2.9
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: show ipaddrs
+  description: Show user's IP address history
+  endpoint: /api/v0/users/{user_id}/ipaddrs/
+  method: GET
+  example: vast-ai show ipaddrs

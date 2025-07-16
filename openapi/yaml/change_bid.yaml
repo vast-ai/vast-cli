@@ -1,0 +1,126 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Change Bid API
+  description: API to change the bid price for a spot/interruptible instance.
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/instances/bid_price/{id}/:
+    put:
+      summary: change bid
+      description: 'Change the current bid price of an instance to a specified price.
+
+        CLI Usage: vastai change bid id [--price PRICE]'
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: Instance ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - client_id
+              - price
+              properties:
+                client_id:
+                  type: string
+                  description: Client identifier (usually "me")
+                  example: me
+                price:
+                  type: number
+                  description: Bid price in $/hour
+                  minimum: 0.001
+                  maximum: 32.0
+                  example: 0.17
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    enum:
+                    - invalid_args
+                  msg:
+                    type: string
+                    example: Please set a bid price >= 0.001.
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    enum:
+                    - no_such_instance
+                  msg:
+                    type: string
+                    example: Instance with that ID does not exist.
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=5.5
+      tags:
+      - Instances
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+x-rate-limit:
+  threshold: 5.5
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-input-validation:
+  id:
+    type: integer
+    description: Must be a valid instance ID
+  price:
+    type: number
+    minimum: 0.001
+    maximum: 32.0
+    description: Bid price must be >= 0.001 and <= 32.0 * number of GPUs
+x-cli-commands:
+- name: change__bid
+  description: Change the bid price for a spot/interruptible instance
+  endpoint: /api/v0/instances/bid_price/{id}/
+  method: put
+  example: vastai change bid 15488486 --price 0.17

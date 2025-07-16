@@ -1,0 +1,79 @@
+openapi: 3.0.0
+info:
+  title: Delete SSH Key API
+  description: API endpoint to delete an SSH key from a user account
+  version: 1.0.0
+paths:
+  /api/v0/ssh/{id}/:
+    delete:
+      summary: delete ssh key
+      description: 'Removes an SSH key from the authenticated user''s account
+
+        CLI Usage: vastai delete ssh-key <id>`
+
+        '
+      operationId: deleteSshKey
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: ID of the SSH key to delete
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: SSH key successfully deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                required:
+                - success
+              example:
+                success: true
+        '400':
+          description: Invalid request or SSH key not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: no_ssh_key
+                  msg:
+                    type: string
+                    example: No ssh key provided
+                required:
+                - success
+                - error
+                - msg
+              examples:
+                not_found:
+                  value:
+                    success: false
+                    error: no_ssh_key
+                    msg: No ssh key provided
+                invalid:
+                  value:
+                    success: false
+                    error: invalid_request
+                    msg: Invalid request parameters
+      tags:
+      - Accounts
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization

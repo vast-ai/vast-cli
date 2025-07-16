@@ -1,0 +1,63 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API
+  version: 1.0.0
+  description: API documentation for Vast.ai services.
+paths:
+  /api/v0/ssh/:
+    get:
+      summary: show ssh keys
+      description: Retrieve a list of SSH keys associated with the authenticated user's
+        account.
+      operationId: getSshKeysUser
+      parameters:
+      - name: Authorization
+        in: header
+        required: true
+        description: Bearer token for user authentication.
+        schema:
+          type: string
+      responses:
+        '200':
+          description: A list of SSH keys.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                      description: The unique identifier of the SSH key.
+                    user_id:
+                      type: integer
+                      description: The ID of the user to whom the SSH key belongs.
+                    key:
+                      type: string
+                      description: The SSH public key.
+                    created_at:
+                      type: string
+                      format: date-time
+                      description: The timestamp when the SSH key was created.
+                    deleted_at:
+                      type: string
+                      format: date-time
+                      nullable: true
+                      description: The timestamp when the SSH key was deleted, if
+                        applicable.
+        '401':
+          description: Unauthorized access due to invalid or missing authentication
+            token.
+        '404':
+          description: No SSH keys found for the user.
+      security:
+      - bearerAuth: []
+      tags:
+      - Accounts
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

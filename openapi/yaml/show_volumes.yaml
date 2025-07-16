@@ -1,0 +1,136 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Volumes API
+  description: API to retrieve information about rented volumes.
+  version: 1.0.0
+servers:
+- url: https://cloud.vast.ai
+  description: Production server
+paths:
+  /api/v0/volumes/:
+    get:
+      summary: list volumes
+      description: 'Retrieve information about all volumes rented by you.
+        CLI Usage: vastai show volumes'
+      security:
+      - BearerAuth: []
+      parameters: []
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  volumes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Volume'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: Authentication credentials were not provided.
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=5.5
+      tags:
+      - Volumes
+components:
+  schemas:
+    Volume:
+      type: object
+      properties:
+        instances:
+          type: array
+          description: List of instances using this volume
+          items:
+            type: object
+        driver_version:
+          type: string
+          description: NVIDIA driver version
+        cuda_max_good:
+          type: number
+          description: Maximum CUDA version supported
+        machine_id:
+          type: integer
+          description: Unique identifier for the machine
+        public_ipaddr:
+          type: string
+          description: Public IP address
+        reliability2:
+          type: number
+          description: Reliability score of the host
+        host_id:
+          type: integer
+          description: Unique identifier for the host
+        cpu_name:
+          type: string
+          description: Name/model of the CPU
+        mobo_name:
+          type: string
+          description: Name/model of the motherboard
+        disk_space:
+          type: number
+          description: Disk space in GB
+        disk_name:
+          type: string
+          description: Name/model of the disk
+        inet_up:
+          type: number
+          description: Upload internet speed in Mbps
+        inet_down:
+          type: number
+          description: Download internet speed in Mbps
+        storage_total_cost:
+          type: number
+          description: Total cost for storage
+        os_version:
+          type: string
+          description: Operating system version
+        verification:
+          type: string
+          description: Verification status
+        static_ip:
+          type: boolean
+          description: Whether the machine has a static IP
+        cpu_arch:
+          type: string
+          description: CPU architecture
+        start_date:
+          type: number
+          description: Start date as Unix timestamp
+        id:
+          type: integer
+          description: Unique identifier for the volume
+        status:
+          type: string
+          description: Current status of the volume
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+x-rate-limit:
+  threshold: 5.5
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: show__volumes
+  description: Show all volumes rented by the user
+  endpoint: /api/v0/volumes/
+  method: get
+  example: vastai show volumes

@@ -1,0 +1,88 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API
+  version: 1.0.0
+  description: API documentation for Vast.ai's user secrets retrieval.
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/secrets/:
+    get:
+      summary: show env vars
+      description: 'Retrieve a list of environment variables (secrets) for the authenticated
+        user.
+
+
+        CLI Usage: vast-ai show env-vars [-s]
+
+        '
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Success response with user secrets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  secrets:
+                    type: object
+                    additionalProperties:
+                      type: string
+                      example: '*****'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=5.0
+      tags:
+      - Accounts
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 5.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: show env-vars
+  description: Show user environment variables
+  endpoint: /api/v0/secrets/
+  method: GET
+  example: vast-ai show env-vars [-s]

@@ -1,0 +1,76 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API
+  version: 1.0.0
+paths:
+  /api/v0/commands/rclone/:
+    delete:
+      summary: cancel sync
+      description: 'Cancels an in-progress remote sync operation identified by the
+        destination instance ID.
+
+        This operation cannot be resumed once canceled and must be restarted if needed.
+
+        '
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dst_id:
+                  type: integer
+                  description: The destination instance ID of the sync operation to
+                    cancel.
+              required:
+              - dst_id
+      responses:
+        '200':
+          description: Sync operation canceled successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  msg:
+                    type: string
+                    example: Remote copy canceled - check instance status bar for
+                      progress updates (~30 seconds delayed).
+        '400':
+          description: Invalid request due to missing or incorrect parameters.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: invalid_args
+                  msg:
+                    type: string
+                    example: Invalid dst_id.
+        '404':
+          description: Instance not found.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: no_such_instance
+                  msg:
+                    type: string
+                    example: No such instance.
+      tags:
+      - Instances

@@ -1960,7 +1960,7 @@ def create__ssh_key(args):
     # Only show success status from the response
     response_data = r.json()
     success_status = response_data.get('success', True)
-    print(f"ssh-key created {{'success': {success_status}}} \nNote: you may need to add the new public key to pre-existing instances to connect.")
+    print(f"ssh-key created {{'success': {success_status}}} \nNote: You may need to add the new public key to pre-existing instances to connect.")
 
 
 def generate_ssh_key():
@@ -2029,7 +2029,7 @@ def generate_ssh_key():
             '-b', '4096',          # 4096-bit key size
             '-f', str(private_key_path),  # Output file path
             '-N', '',              # Empty passphrase
-            '-C', f'{os.getenv("USER", "user")}-vast.ai'  # Comment
+            '-C', f'{os.getenv("USER", "user")}-vast.ai'  # User
         ]
         
         result = subprocess.run(

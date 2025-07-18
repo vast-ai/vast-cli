@@ -21,6 +21,7 @@ The API documentation is maintained as separate YAML files that are combined int
 2. Ensure request format matches the expected structure
 3. Validate consistency across API documentation, CLI, Postman, and console website
 
+<<<<<<< HEAD
 ### 3. Validation and Testing Process
 
 #### 3.1 YAML Structure Validation
@@ -45,10 +46,18 @@ The API documentation is maintained as separate YAML files that are combined int
 3. Verify all endpoints function correctly with real authentication
 4. Validate response formats match the documented schemas
 5. Test edge cases and error scenarios
+=======
+### 3. Validation Process
+1. Use [Swagger Editor](https://editor.swagger.io/) to validate YAML structure
+2. Ensure adherence to OpenAPI standards
+3. Compare with CLI implementation for consistency
+4. Test the API request format
+>>>>>>> e42daf7 (Add tests, readme, util scripts for vast api docs)
 
 ### 4. Generating Combined Documentation
 Run the combination script:
 ```bash
+<<<<<<< HEAD
 python3 combine_api_yamls.py
 ```
 This generates `combined_api.yaml` which is deployed to docs.vast.ai/api
@@ -60,6 +69,14 @@ This generates `combined_api.yaml` which is deployed to docs.vast.ai/api
 2. Include test results and validation screenshots in your PR description
 3. Create a Pull Request to the [vast-cli GitHub repository](https://github.com/vast-ai/vast-cli) with your changes for review
 4. Document any breaking changes or new features in the PR description
+=======
+python combine_api_yamls.py
+```
+This generates `combined_api.yaml` which is deployed to docs.vast.ai/api
+
+### 5. Submitting Changes
+Create a Pull Request to the [vast-cli GitHub repository](https://github.com/vast-ai/vast-cli) with your changes for review.
+>>>>>>> e42daf7 (Add tests, readme, util scripts for vast api docs)
 
 ### 6. Deployment
 After PR approval and merge, the combined YAML file is released to production at docs.vast.ai/api by a Vast developer.

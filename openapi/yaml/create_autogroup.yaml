@@ -21,13 +21,11 @@ paths:
       security:
       - BearerAuth: []
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
               type: object
-              required:
-              - endpoint_name
               properties:
                 endpoint_name:
                   type: string
@@ -49,7 +47,12 @@ paths:
                   type: string
                   description: Search query for finding worker instances (alternative
                     to template)
+                  default: '{"verified": {"eq": true}, "rentable": {"eq": true}, "rented": {"eq": false}}'
                   example: gpu_name=RTX_3090 rentable=true
+                launch_args:
+                  type: string
+                  description: Additional launch arguments for worker instances
+                  example: "--env VAR=value"
                 min_load:
                   type: number
                   description: Minimum load threshold for scaling
@@ -113,9 +116,7 @@ paths:
                   error:
                     type: string
                     enum:
-                    - invalid_search_params
-                    - no_endpoint_info
-                    - invalid_endpoint_identifier
+                    - invalid_args
                   msg:
                     type: string
                     example: Please assign your autogroup to a valid endpoint identifier

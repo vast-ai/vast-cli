@@ -12,7 +12,7 @@ servers:
 - url: https://console.vast.ai
   description: Production server
 paths:
-  /endptjobs/:
+  /api/v0/endptjobs/:
     post:
       summary: create endpoint
       description: 'This endpoint creates a new job processing endpoint with specified
@@ -25,55 +25,57 @@ paths:
       security:
       - BearerAuth: []
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
               type: object
-              required:
-              - client_id
-              - min_load
-              - target_util
-              - cold_mult
-              - cold_workers
-              - max_workers
-              - endpoint_name
               properties:
-                client_id:
-                  type: string
-                  description: The ID of the client.
-                  example: me
                 min_load:
                   type: number
                   description: Minimum load for the endpoint.
-                  example: 0.5
+                  default: 10.0
+                  example: 50.0
                 target_util:
                   type: number
                   description: Target utilization for the endpoint.
+                  default: 0.9
                   example: 0.75
                 cold_mult:
                   type: number
                   description: Multiplier for cold start.
-                  example: 1.0
+                  default: 2.5
+                  example: 2.0
                 cold_workers:
-                  type: number
+                  type: integer
                   description: Number of cold workers.
-                  example: 2
+                  default: 5
+                  example: 5
                 max_workers:
-                  type: number
+                  type: integer
                   description: Maximum number of workers.
-                  example: 10
+                  default: 20
+                  example: 20
                 endpoint_name:
                   type: string
                   description: Name of the endpoint.
-                  example: my_endpoint
+                  default: "default-endpoint"
+                  example: "my_endpoint"
       responses:
         '200':
           description: Success response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SuccessResponse'
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: integer
+                    description: The ID of the created endpoint
+                    example: 12345
         '400':
           description: Bad Request
           content:
@@ -85,11 +87,7 @@ paths:
                     error:
                       type: string
                       enum:
-                      - missing_input
-                      - empty_input
-                      - input_too_long
-                      - invalid_characters
-                      - nonexistent_key
+                      - invalid_args
         '401':
           description: Unauthorized
           content:
@@ -111,7 +109,7 @@ paths:
                 properties:
                   detail:
                     type: string
-                    example: API requests too frequent endpoint threshold=3.0
+                    example: API requests too frequent endpoint threshold=4.0
       tags:
       - Autoscaler
 components:
@@ -121,15 +119,6 @@ components:
       scheme: bearer
       description: API key must be provided in the Authorization header
   schemas:
-    SuccessResponse:
-      type: object
-      properties:
-        success:
-          type: boolean
-          example: true
-        msg:
-          type: string
-          example: Operation completed successfully
     Error:
       type: object
       properties:
@@ -141,14 +130,10 @@ components:
         msg:
           type: string
 x-rate-limit:
-  threshold: 3
+  threshold: 4
   per: request
   description: Maximum request frequency per IP address for this endpoint
 x-input-validation:
-  client_id:
-    max_length: 255
-    pattern: ^[a-zA-Z0-9_-]+$
-    description: Must be a valid client identifier.
   min_load:
     max_length: 10
     pattern: ^[0-9]*\.?[0-9]+$
@@ -176,7 +161,7 @@ x-input-validation:
 x-cli-commands:
 - name: Create Endpoint
   description: Create a new endpoint for job processing.
-  endpoint: /endptjobs/
+  endpoint: /api/v0/endptjobs/
   method: POST
   example: vast-ai create endpoint --min_load 0.5 --target_util 0.75 --cold_mult 1.0
     --cold_workers 2 --max_workers 10 --endpoint_name my_endpoint

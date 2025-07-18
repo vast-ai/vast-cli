@@ -23,24 +23,6 @@ paths:
         schema:
           type: integer
           example: 4242
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-              - client_id
-              - autojob_id
-              properties:
-                client_id:
-                  type: string
-                  description: Client identifier, should be "me" for CLI usage
-                  example: me
-                autojob_id:
-                  type: integer
-                  description: ID of the autogroup to delete
-                  example: 4242
       responses:
         '200':
           description: Autogroup deleted successfully
@@ -52,6 +34,38 @@ paths:
                   success:
                     type: boolean
                     example: true
+                  deleted_workers:
+                    type: array
+                    description: List of worker instances that were deleted
+                    items:
+                      type: integer
+                    example: [1001, 1002]
+                  failed_workers:
+                    type: array
+                    description: List of worker instances that failed to delete
+                    items:
+                      type: integer
+                    example: []
+                  msg:
+                    type: string
+                    description: Additional information about the deletion
+                    example: "Deleted autojob and 2 workers"
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: invalid_args
+                  msg:
+                    type: string
+                    example: Invalid autojob ID
         '404':
           description: Autogroup not found
           content:
@@ -71,8 +85,8 @@ paths:
                   id:
                     type: integer
                     example: 4242
-        '400':
-          description: Bad request
+        '401':
+          description: Unauthorized
           content:
             application/json:
               schema:
@@ -81,6 +95,20 @@ paths:
                   success:
                     type: boolean
                     example: false
+                  error:
+                    type: string
+                  msg:
+                    type: string
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=3.0
       tags:
       - Autoscaler
 components:

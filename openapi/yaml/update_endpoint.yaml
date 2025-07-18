@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
-  title: Vast.ai Endpoint Update API
-  description: API for updating an existing endpoint group.
+  title: Update Endpoint API
+  description: API for updating an existing endpoint group
   version: 1.0.0
 servers:
 - url: https://console.vast.ai
@@ -22,11 +22,12 @@ paths:
       - name: id
         in: path
         required: true
+        description: ID of the endpoint group to update
         schema:
           type: integer
-        description: ID of the endpoint group to update
+          example: 4242
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
@@ -34,51 +35,69 @@ paths:
               properties:
                 min_load:
                   type: number
-                  description: Minimum floor load in perf units/s (token/s for LLms)
-                  example: 100.0
+                  description: Minimum floor load in perf units/s (token/s for LLMs)
+                  example: 0.0
                 target_util:
                   type: number
-                  description: Target capacity utilization (fraction, max 1.0, default
-                    0.9)
+                  description: Target capacity utilization (fraction, max 1.0)
                   example: 0.9
                 cold_mult:
                   type: number
-                  description: Cold/stopped instance capacity target as multiple of
-                    hot capacity target (default 2.5)
-                  example: 2.0
+                  description: Cold/stopped instance capacity target as multiple of hot capacity target
+                  example: 2.5
                 cold_workers:
                   type: integer
-                  description: Min number of workers to keep 'cold' when you have
-                    no load (default 5)
+                  description: Min number of workers to keep 'cold' when you have no load
                   example: 5
                 max_workers:
                   type: integer
                   description: Max number of workers your endpoint group can have
-                    (default 20)
                   example: 20
                 endpoint_name:
                   type: string
                   description: Deployment endpoint name
-                  example: LLama
+                  example: my_endpoint
       responses:
         '200':
           description: Success response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SuccessResponse'
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
         '400':
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '404':
-          description: Not Found
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: invalid_args
+                  msg:
+                    type: string
+                    example: "Routegroup not found for user"
+        '401':
+          description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                  msg:
+                    type: string
         '429':
           description: Too Many Requests
           content:
@@ -97,26 +116,6 @@ components:
       type: http
       scheme: bearer
       description: API key must be provided in the Authorization header
-  schemas:
-    SuccessResponse:
-      type: object
-      properties:
-        success:
-          type: boolean
-          example: true
-        msg:
-          type: string
-          example: Operation completed successfully
-    Error:
-      type: object
-      properties:
-        success:
-          type: boolean
-          example: false
-        error:
-          type: string
-        msg:
-          type: string
 x-rate-limit:
   threshold: 2.0
   per: request
@@ -125,6 +124,5 @@ x-cli-commands:
 - name: update endpoint
   description: Update an existing endpoint group
   endpoint: /api/v0/endptjobs/{id}/
-  method: put
-  example: vastai update endpoint 4242 --min_load 100 --target_util 0.9 --cold_mult
-    2.0 --endpoint_name "LLama"
+  method: PUT
+  example: vastai update endpoint 4242 --min_load 100 --target_util 0.9 --cold_mult 2.0 --endpoint_name "my_endpoint"

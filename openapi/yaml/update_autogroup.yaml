@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
-  title: Vast.ai API - Update Autogroup
-  description: API endpoint to update an existing autoscale group.
+  title: Update Autogroup API
+  description: API endpoint to update an existing autoscale group
   version: 1.0.0
 servers:
 - url: https://console.vast.ai
@@ -26,8 +26,9 @@ paths:
         description: The ID of the autogroup to update.
         schema:
           type: integer
+          example: 4242
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
@@ -36,36 +37,49 @@ paths:
                 min_load:
                   type: number
                   description: Minimum load for the autogroup.
+                  example: 1.0
                 target_util:
                   type: number
                   description: Target utilization for the autogroup.
+                  example: 0.9
                 cold_mult:
                   type: number
                   description: Cold multiplier for the autogroup.
+                  example: 3.0
                 test_workers:
                   type: integer
                   description: Number of test workers for performance estimation.
+                  default: 3
+                  example: 3
                 template_hash:
                   type: string
                   description: Template hash for the autogroup.
+                  example: abc123def456
                 template_id:
                   type: integer
                   description: Template ID for the autogroup.
+                  example: 456
                 search_params:
                   type: string
-                  description: Search parameters for offers.
+                  description: Search parameters for offers (JSON object or query string).
+                  default: '{"verified": {"eq": true}, "rentable": {"eq": true}, "rented": {"eq": false}}'
+                  example: gpu_name=RTX_3090 rentable=true
                 launch_args:
                   type: string
                   description: Launch arguments for creating instances.
+                  example: "--env VAR=value"
                 gpu_ram:
                   type: number
                   description: Estimated GPU RAM requirement.
+                  example: 24
                 endpoint_name:
                   type: string
                   description: Deployment endpoint name.
+                  example: my_endpoint
                 endpoint_id:
                   type: integer
                   description: Deployment endpoint ID.
+                  example: 123
       responses:
         '200':
           description: Successfully updated the autogroup.
@@ -82,19 +96,41 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '404':
-          description: Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: invalid_args
+                  msg:
+                    type: string
+                    example: Workgroup not found for user
         '401':
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                  msg:
+                    type: string
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=2.0
       tags:
       - Autoscaler
 components:
@@ -103,14 +139,13 @@ components:
       type: http
       scheme: bearer
       description: API key must be provided in the Authorization header
-  schemas:
-    Error:
-      type: object
-      properties:
-        success:
-          type: boolean
-          example: false
-        error:
-          type: string
-        msg:
-          type: string
+x-rate-limit:
+  threshold: 2.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: update autogroup
+  description: Update an autogroup
+  endpoint: /api/v0/autojobs/{id}/
+  method: PUT
+  example: vastai update autogroup 4242 --min_load 1.5 --target_util 0.8

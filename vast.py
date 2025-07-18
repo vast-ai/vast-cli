@@ -1922,20 +1922,148 @@ def create__env_var(args):
         print(f"Failed to create environment variable: {result.get('msg', 'Unknown error')}")
 
 @parser.command(
-    argument("ssh_key", help="add the public key of your ssh key to your account (form the .pub file)", type=str),
-    usage="vastai create ssh-key ssh_key",
+    argument("ssh_key", help="add your existing ssh public key to your account (from the .pub file). If no public key is provided, a new key pair will be generated.", type=str, nargs='?'),
+    usage="vastai create ssh-key [ssh_public_key]",
     help="Create a new ssh-key",
     epilog=deindent("""
-        Use this command to create a new ssh key for your account. 
-        All ssh keys are stored in your account and can be used to connect to instances they've been added to
-        All ssh keys should be added in rsa format
+        You may use this command to add an existing public key, or create a new ssh key pair and add that public key, to your Vast account. 
+        
+        If you provide an ssh_public_key.pub argument, that public key will be added to your Vast account. All ssh public keys should be in OpenSSH format.
+        
+                Example: $vastai create ssh-key 'ssh_public_key.pub'
+        
+        If you don't provide an ssh_public_key.pub argument, a new Ed25519 key pair will be generated.
+            
+                Example: $vastai create ssh-key
+                    
+        The generated keys are saved as ~/.ssh/id_ed25519 (private) and ~/.ssh/id_ed25519.pub (public). Any existing id_ed25519 keys are backed up as .backup_<timestamp>.
+        The public key will be added to your Vast account.
+        
+        All ssh public keys are stored in your Vast account and can be used to connect to instances they've been added to.
     """)
 )
+
 def create__ssh_key(args):
+    ssh_key_content = args.ssh_key
+    
+    # If no SSH key provided, generate one
+    if not ssh_key_content:
+        ssh_key_content = generate_ssh_key()
+    else:
+        print("Adding provided SSH public key to account...")
+    
+    # Send the SSH key to the API
     url = apiurl(args, "/ssh/")
-    r = http_post(args, url, headers=headers, json={"ssh_key": args.ssh_key})
+    r = http_post(args, url, headers=headers, json={"ssh_key": ssh_key_content})
     r.raise_for_status()
-    print("ssh-key created {}".format(r.json()))
+    
+    # Only show success status from the response
+    response_data = r.json()
+    success_status = response_data.get('success', True)
+    print(f"ssh-key created {{'success': {success_status}}} \nNote: You may need to add the new public key to pre-existing instances to connect.")
+
+
+def generate_ssh_key():
+    """
+    Generate a new SSH key pair using ssh-keygen and return the public key content.
+    
+    Returns:
+        str: The content of the generated public key
+        
+    Raises:
+        SystemExit: If ssh-keygen is not available or key generation fails
+    """
+    
+    print("No SSH key provided. Generating a new SSH key pair and adding public key to account...")
+    
+    # Define paths
+    ssh_dir = Path.home() / '.ssh'
+    private_key_path = ssh_dir / 'id_ed25519'
+    public_key_path = ssh_dir / 'id_ed25519.pub'
+    
+    # Create .ssh directory if it doesn't exist
+    try:
+        ssh_dir.mkdir(mode=0o700, exist_ok=True)
+    except OSError as e:
+        print(f"Error creating .ssh directory: {e}", file=sys.stderr)
+        sys.exit(1)
+    
+    # Check if any part of the key pair already exists and backup if needed
+    if private_key_path.exists() or public_key_path.exists():
+        print(f"SSH key pair 'id_ed25519' already exists in {ssh_dir}")
+        
+        # Generate timestamp for backup
+        timestamp = int(time.time())
+        backup_private_path = ssh_dir / f'id_ed25519.backup_{timestamp}'
+        backup_public_path = ssh_dir / f'id_ed25519.pub.backup_{timestamp}'
+        
+        try:
+            # Backup existing private key if it exists
+            if private_key_path.exists():
+                private_key_path.rename(backup_private_path)
+                print(f"Backed up existing private key to: {backup_private_path}")
+            
+            # Backup existing public key if it exists
+            if public_key_path.exists():
+                public_key_path.rename(backup_public_path)
+                print(f"Backed up existing public key to: {backup_public_path}")
+                
+        except OSError as e:
+            print(f"Error backing up existing SSH keys: {e}", file=sys.stderr)
+            sys.exit(1)
+        
+        print("Generating new SSH key pair and adding public key to account...")
+    
+    # Check if ssh-keygen is available
+    try:
+        subprocess.run(['ssh-keygen', '--help'], capture_output=True, check=False)
+    except FileNotFoundError:
+        print("Error: ssh-keygen not found. Please install OpenSSH client tools.", file=sys.stderr)
+        sys.exit(1)
+    
+    # Generate the SSH key pair
+    try:
+        cmd = [
+            'ssh-keygen',
+            '-t', 'ed25519',       # Ed25519 key type
+            '-f', str(private_key_path),  # Output file path
+            '-N', '',              # Empty passphrase
+            '-C', f'{os.getenv("USER") or os.getenv("USERNAME", "user")}-vast.ai'  # User
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            input='y\n',           # Automatically answer 'yes' to overwrite prompts
+            check=True
+        )
+        
+    except subprocess.CalledProcessError as e:
+        print(f"Error generating SSH key: {e}", file=sys.stderr)
+        if e.stderr:
+            print(f"ssh-keygen error: {e.stderr}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Unexpected error during key generation: {e}", file=sys.stderr)
+        sys.exit(1)
+    
+    # Set proper permissions for the private key
+    try:
+        private_key_path.chmod(0o600)  # Read/write for owner only
+    except OSError as e:
+        print(f"Warning: Could not set permissions for private key: {e}", file=sys.stderr)
+    
+    # Read and return the public key content
+    try:
+        with open(public_key_path, 'r') as f:
+            public_key_content = f.read().strip()
+        
+        return public_key_content
+        
+    except IOError as e:
+        print(f"Error reading generated public key: {e}", file=sys.stderr)
+        sys.exit(1)
 
 @parser.command(
     argument("--template_hash", help="template hash (required, but **Note**: if you use this field, you can skip search_params, as they are automatically inferred from the template)", type=str),

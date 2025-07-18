@@ -1932,11 +1932,11 @@ def create__env_var(args):
         
                 Example: $vastai create ssh-key 'ssh_public_key.pub'
         
-        If you don't provide an ssh_public_key.pub argument, a new RSA key pair will be generated.
+        If you don't provide an ssh_public_key.pub argument, a new Ed25519 key pair will be generated.
             
                 Example: $vastai create ssh-key
                     
-        The generated keys are saved as ~/.ssh/id_rsa (private) and ~/.ssh/id_rsa.pub (public). Any existing id_rsa keys are backed up as .backup_<timestamp>.
+        The generated keys are saved as ~/.ssh/id_ed25519 (private) and ~/.ssh/id_ed25519.pub (public). Any existing id_ed25519 keys are backed up as .backup_<timestamp>.
         The public key will be added to your Vast account.
         
         All ssh public keys are stored in your Vast account and can be used to connect to instances they've been added to.
@@ -1978,8 +1978,8 @@ def generate_ssh_key():
     
     # Define paths
     ssh_dir = Path.home() / '.ssh'
-    private_key_path = ssh_dir / 'id_rsa'
-    public_key_path = ssh_dir / 'id_rsa.pub'
+    private_key_path = ssh_dir / 'id_ed25519'
+    public_key_path = ssh_dir / 'id_ed25519.pub'
     
     # Create .ssh directory if it doesn't exist
     try:
@@ -1990,12 +1990,12 @@ def generate_ssh_key():
     
     # Check if any part of the key pair already exists and backup if needed
     if private_key_path.exists() or public_key_path.exists():
-        print(f"SSH key pair 'id_rsa' already exists in {ssh_dir}")
+        print(f"SSH key pair 'id_ed25519' already exists in {ssh_dir}")
         
         # Generate timestamp for backup
         timestamp = int(time.time())
-        backup_private_path = ssh_dir / f'id_rsa.backup_{timestamp}'
-        backup_public_path = ssh_dir / f'id_rsa.pub.backup_{timestamp}'
+        backup_private_path = ssh_dir / f'id_ed25519.backup_{timestamp}'
+        backup_public_path = ssh_dir / f'id_ed25519.pub.backup_{timestamp}'
         
         try:
             # Backup existing private key if it exists
@@ -2025,11 +2025,10 @@ def generate_ssh_key():
     try:
         cmd = [
             'ssh-keygen',
-            '-t', 'rsa',           # RSA key type
-            '-b', '4096',          # 4096-bit key size
+            '-t', 'ed25519',       # Ed25519 key type
             '-f', str(private_key_path),  # Output file path
             '-N', '',              # Empty passphrase
-            '-C', f'{os.getenv("USER", "user")}-vast.ai'  # User
+            '-C', f'{os.getenv("USER") or os.getenv("USERNAME", "user")}-vast.ai'  # User
         ]
         
         result = subprocess.run(

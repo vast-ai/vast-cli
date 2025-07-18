@@ -1926,23 +1926,23 @@ def create__env_var(args):
     usage="vastai create ssh-key [ssh_public_key]",
     help="Create a new ssh-key",
     epilog=deindent("""
-        You may use this command to add your existing public key to your Vast account.
-        You may also use this to command create a new ssh key pair and automatically add that public key to your Vast account. 
+        You may use this command to add an existing public key, or create a new ssh key pair and add that public key, to your Vast account. 
         
-        If you provide an ssh_public_key.pub argument, that public key will be added to your Vast account. Public keys provided should be in OpenSSH format.
+        If you provide an ssh_public_key.pub argument, that public key will be added to your Vast account. All ssh public keys should be in OpenSSH format.
         
                 Example: $vastai create ssh-key 'ssh_public_key.pub'
         
-        If you don't provide an ssh_public_key argument, a new RSA key pair will be generated.
+        If you don't provide an ssh_public_key.pub argument, a new RSA key pair will be generated.
             
                 Example: $vastai create ssh-key
                     
-        The generated keys are saved as ~/.ssh/id_rsa (private) and ~/.ssh/id_rsa.pub (public).
-        The public key will also be added to your Vast account.
+        The generated keys are saved as ~/.ssh/id_rsa (private) and ~/.ssh/id_rsa.pub (public). Any existing id_rsa keys are backed up as .backup_<timestamp>.
+        The public key will be added to your Vast account.
         
         All ssh public keys are stored in your Vast account and can be used to connect to instances they've been added to.
     """)
 )
+
 def create__ssh_key(args):
     ssh_key_content = args.ssh_key
     
@@ -1960,7 +1960,7 @@ def create__ssh_key(args):
     # Only show success status from the response
     response_data = r.json()
     success_status = response_data.get('success', True)
-    print(f"ssh-key created {{'success': {success_status}}} \nNote: You may need to add the new public key to pre-existing instances to connect.")
+    print(f"ssh-key created {{'success': {success_status}}} \nNote: you may need to add the new public key to pre-existing instances to connect.")
 
 
 def generate_ssh_key():
@@ -1988,14 +1988,31 @@ def generate_ssh_key():
         print(f"Error creating .ssh directory: {e}", file=sys.stderr)
         sys.exit(1)
     
-    # Check if any part of the key pair already exists
+    # Check if any part of the key pair already exists and backup if needed
     if private_key_path.exists() or public_key_path.exists():
         print(f"SSH key pair 'id_rsa' already exists in {ssh_dir}")
-        response = input("Would you like to generate a new key pair? THIS WILL REPLACE YOUR EXISTING KEY. [y/N]: ").lower()
-        if response not in ['y', 'yes']:
-            print("Aborted. No new key generated.")
-            sys.exit(0)
-        print("Replacing existing SSH key files and adding public key to account...")
+        
+        # Generate timestamp for backup
+        timestamp = int(time.time())
+        backup_private_path = ssh_dir / f'id_rsa.backup_{timestamp}'
+        backup_public_path = ssh_dir / f'id_rsa.pub.backup_{timestamp}'
+        
+        try:
+            # Backup existing private key if it exists
+            if private_key_path.exists():
+                private_key_path.rename(backup_private_path)
+                print(f"Backed up existing private key to: {backup_private_path}")
+            
+            # Backup existing public key if it exists
+            if public_key_path.exists():
+                public_key_path.rename(backup_public_path)
+                print(f"Backed up existing public key to: {backup_public_path}")
+                
+        except OSError as e:
+            print(f"Error backing up existing SSH keys: {e}", file=sys.stderr)
+            sys.exit(1)
+        
+        print("Generating new SSH key pair and adding public key to account...")
     
     # Check if ssh-keygen is available
     try:
@@ -2012,7 +2029,7 @@ def generate_ssh_key():
             '-b', '4096',          # 4096-bit key size
             '-f', str(private_key_path),  # Output file path
             '-N', '',              # Empty passphrase
-            '-C', f'{os.getenv("USER", "user")}-vast.ai' # User
+            '-C', f'{os.getenv("USER", "user")}-vast.ai'  # Comment
         ]
         
         result = subprocess.run(

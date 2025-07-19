@@ -70,7 +70,7 @@ paths:
                   description: Error message when worker group not found or authentication fails
                   example: "authenticate_autogroup_apikey: invalid api_key or worker group 12345 not found"
       tags:
-      - Autoscaler
+      - Serverless
 components:
   securitySchemes:
     BearerAuth:

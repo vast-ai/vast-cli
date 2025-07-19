@@ -109,7 +109,7 @@ paths:
                     type: string
                     example: Invalid endpoint or missing required parameters
       tags:
-      - Autoscaler
+      - Serverless
 components:
   securitySchemes:
     BearerAuth:

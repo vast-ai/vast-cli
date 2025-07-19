@@ -766,13 +766,11 @@ paths:
       security:
       - BearerAuth: []
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
               type: object
-              required:
-              - endpoint_name
               properties:
                 endpoint_name:
                   type: string
@@ -794,7 +792,13 @@ paths:
                   type: string
                   description: Search query for finding worker instances (alternative
                     to template)
+                  default: '{"verified": {"eq": true}, "rentable": {"eq": true}, "rented":
+                    {"eq": false}}'
                   example: gpu_name=RTX_3090 rentable=true
+                launch_args:
+                  type: string
+                  description: Additional launch arguments for worker instances
+                  example: --env VAR=value
                 min_load:
                   type: number
                   description: Minimum load threshold for scaling
@@ -858,9 +862,7 @@ paths:
                   error:
                     type: string
                     enum:
-                    - invalid_search_params
-                    - no_endpoint_info
-                    - invalid_endpoint_identifier
+                    - invalid_args
                   msg:
                     type: string
                     example: Please assign your autogroup to a valid endpoint identifier
@@ -882,7 +884,123 @@ paths:
                     example: API requests too frequent endpoint threshold=4.0
       tags:
       - Autoscaler
-  /endptjobs/:
+    get:
+      summary: show autogroup
+      description: 'Retrieves the list of autojob groups associated with the authenticated
+        user.
+
+
+        CLI Usage: vastai show autogroups'
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                          example: 123
+                        min_load:
+                          type: number
+                          example: 1.0
+                        target_util:
+                          type: number
+                          example: 0.9
+                        cold_mult:
+                          type: number
+                          example: 3.0
+                        test_workers:
+                          type: integer
+                          example: 3
+                        template_hash:
+                          type: string
+                          example: abc123def456
+                        template_id:
+                          type: integer
+                          example: 456
+                        search_query:
+                          type: object
+                          description: Parsed search parameters as JSON object
+                          example:
+                            verified:
+                              eq: true
+                            rentable:
+                              eq: true
+                        launch_args:
+                          type: string
+                          example: --env VAR=value
+                        gpu_ram:
+                          type: number
+                          example: 24
+                        endpoint_name:
+                          type: string
+                          example: my_endpoint
+                        endpoint_id:
+                          type: integer
+                          example: 789
+                        api_key:
+                          type: string
+                          example: your_api_key_here
+                        created_at:
+                          type: string
+                          format: date-time
+                          example: '2023-10-01T12:00:00Z'
+                        user_id:
+                          type: integer
+                          example: 456
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                  msg:
+                    type: string
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                  msg:
+                    type: string
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=2.0
+      tags:
+      - Autoscaler
+  /api/v0/endptjobs/:
     post:
       summary: create endpoint
       description: 'This endpoint creates a new job processing endpoint with specified
@@ -893,47 +1011,41 @@ paths:
       security:
       - BearerAuth: []
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
               type: object
-              required:
-              - client_id
-              - min_load
-              - target_util
-              - cold_mult
-              - cold_workers
-              - max_workers
-              - endpoint_name
               properties:
-                client_id:
-                  type: string
-                  description: The ID of the client.
-                  example: me
                 min_load:
                   type: number
                   description: Minimum load for the endpoint.
-                  example: 0.5
+                  default: 10.0
+                  example: 50.0
                 target_util:
                   type: number
                   description: Target utilization for the endpoint.
+                  default: 0.9
                   example: 0.75
                 cold_mult:
                   type: number
                   description: Multiplier for cold start.
-                  example: 1.0
+                  default: 2.5
+                  example: 2.0
                 cold_workers:
-                  type: number
+                  type: integer
                   description: Number of cold workers.
-                  example: 2
+                  default: 5
+                  example: 5
                 max_workers:
-                  type: number
+                  type: integer
                   description: Maximum number of workers.
-                  example: 10
+                  default: 20
+                  example: 20
                 endpoint_name:
                   type: string
                   description: Name of the endpoint.
+                  default: default-endpoint
                   example: my_endpoint
       responses:
         '200':
@@ -941,7 +1053,15 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SuccessResponse'
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: integer
+                    description: The ID of the created endpoint
+                    example: 12345
         '400':
           description: Bad Request
           content:
@@ -953,11 +1073,7 @@ paths:
                     error:
                       type: string
                       enum:
-                      - missing_input
-                      - empty_input
-                      - input_too_long
-                      - invalid_characters
-                      - nonexistent_key
+                      - invalid_args
         '401':
           description: Unauthorized
           content:
@@ -970,6 +1086,103 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=4.0
+      tags:
+      - Autoscaler
+    get:
+      summary: show endpoints
+      description: Retrieve a list of endpoint jobs for the authenticated user.
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: A list of endpoint jobs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                          example: 123
+                        min_load:
+                          type: number
+                          example: 0.0
+                        target_util:
+                          type: number
+                          example: 0.9
+                        cold_mult:
+                          type: number
+                          example: 2.5
+                        cold_workers:
+                          type: integer
+                          example: 5
+                        max_workers:
+                          type: integer
+                          example: 20
+                        endpoint_name:
+                          type: string
+                          example: my_endpoint
+                        api_key:
+                          type: string
+                          example: your_api_key_here
+                        user_id:
+                          type: integer
+                          example: 456
+                        created_at:
+                          type: string
+                          format: date-time
+                          example: '2023-10-01T12:00:00Z'
+                        endpoint_state:
+                          type: string
+                          example: active
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: invalid_args
+                  msg:
+                    type: string
+                    example: No routegroups for user found
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                  msg:
+                    type: string
         '429':
           description: Too Many Requests
           content:
@@ -2350,24 +2563,6 @@ paths:
         schema:
           type: integer
           example: 4242
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-              - client_id
-              - autojob_id
-              properties:
-                client_id:
-                  type: string
-                  description: Client identifier, should be "me" for CLI usage
-                  example: me
-                autojob_id:
-                  type: integer
-                  description: ID of the autogroup to delete
-                  example: 4242
       responses:
         '200':
           description: Autogroup deleted successfully
@@ -2379,6 +2574,40 @@ paths:
                   success:
                     type: boolean
                     example: true
+                  deleted_workers:
+                    type: array
+                    description: List of worker instances that were deleted
+                    items:
+                      type: integer
+                    example:
+                    - 1001
+                    - 1002
+                  failed_workers:
+                    type: array
+                    description: List of worker instances that failed to delete
+                    items:
+                      type: integer
+                    example: []
+                  msg:
+                    type: string
+                    description: Additional information about the deletion
+                    example: Deleted autojob and 2 workers
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: invalid_args
+                  msg:
+                    type: string
+                    example: Invalid autojob ID
         '404':
           description: Autogroup not found
           content:
@@ -2398,8 +2627,8 @@ paths:
                   id:
                     type: integer
                     example: 4242
-        '400':
-          description: Bad request
+        '401':
+          description: Unauthorized
           content:
             application/json:
               schema:
@@ -2408,6 +2637,20 @@ paths:
                   success:
                     type: boolean
                     example: false
+                  error:
+                    type: string
+                  msg:
+                    type: string
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=3.0
       tags:
       - Autoscaler
     put:
@@ -2426,8 +2669,9 @@ paths:
         description: The ID of the autogroup to update.
         schema:
           type: integer
+          example: 4242
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
@@ -2436,36 +2680,51 @@ paths:
                 min_load:
                   type: number
                   description: Minimum load for the autogroup.
+                  example: 1.0
                 target_util:
                   type: number
                   description: Target utilization for the autogroup.
+                  example: 0.9
                 cold_mult:
                   type: number
                   description: Cold multiplier for the autogroup.
+                  example: 3.0
                 test_workers:
                   type: integer
                   description: Number of test workers for performance estimation.
+                  default: 3
+                  example: 3
                 template_hash:
                   type: string
                   description: Template hash for the autogroup.
+                  example: abc123def456
                 template_id:
                   type: integer
                   description: Template ID for the autogroup.
+                  example: 456
                 search_params:
                   type: string
-                  description: Search parameters for offers.
+                  description: Search parameters for offers (JSON object or query
+                    string).
+                  default: '{"verified": {"eq": true}, "rentable": {"eq": true}, "rented":
+                    {"eq": false}}'
+                  example: gpu_name=RTX_3090 rentable=true
                 launch_args:
                   type: string
                   description: Launch arguments for creating instances.
+                  example: --env VAR=value
                 gpu_ram:
                   type: number
                   description: Estimated GPU RAM requirement.
+                  example: 24
                 endpoint_name:
                   type: string
                   description: Deployment endpoint name.
+                  example: my_endpoint
                 endpoint_id:
                   type: integer
                   description: Deployment endpoint ID.
+                  example: 123
       responses:
         '200':
           description: Successfully updated the autogroup.
@@ -2482,57 +2741,61 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '404':
-          description: Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: invalid_args
+                  msg:
+                    type: string
+                    example: Workgroup not found for user
         '401':
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                  msg:
+                    type: string
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=2.0
       tags:
       - Autoscaler
-  /api/v0/endptjobs/{id}:
+  /api/v0/endptjobs/{id}/:
     delete:
       summary: delete endpoint
-      description: 'Deletes an endpoint group by ID. This will soft delete the endpoint
-        group by setting a deleted_at timestamp.
-
-        Associated autoscale jobs will also be soft deleted.
+      description: 'Deletes an endpoint group by ID. Associated autoscaler jobs will
+        also be deleted.
 
 
-        CLI Usage: vast delete endpoint [options]'
+        CLI Usage: vastai delete endpoint <ID>'
+      security:
+      - BearerAuth: []
       parameters:
-      - in: path
-        name: id
+      - name: id
+        in: path
         required: true
+        description: ID of the endpoint group to delete
         schema:
           type: integer
-        description: ID of the endpoint group to delete
-        example: 4242
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                client_id:
-                  type: string
-                  description: Client identifier, should be "me"
-                  example: me
-                endptjob_id:
-                  type: integer
-                  description: ID of endpoint group to delete
-                  example: 4242
-              required:
-              - client_id
-              - endptjob_id
+          example: 4242
       responses:
         '200':
           description: Endpoint group successfully deleted
@@ -2544,26 +2807,25 @@ paths:
                   success:
                     type: boolean
                     example: true
-                    description: Whether the deletion was successful
-        '404':
-          description: Endpoint group not found
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: false
-                  error:
-                    type: string
-                    example: no_such_endptjob
+                  deleted_workers:
+                    type: array
+                    description: List of worker instances that were deleted (if any)
+                    items:
+                      type: integer
+                    example:
+                    - 1001
+                    - 1002
+                  failed_workers:
+                    type: array
+                    description: List of worker instances that failed to delete (if
+                      any)
+                    items:
+                      type: integer
+                    example: []
                   msg:
                     type: string
-                    example: No endptjob by that id is available.
-                  id:
-                    type: integer
-                    example: 4242
+                    description: Additional information about the deletion
+                    example: Deleted endpoint job and 2 workers
         '400':
           description: Bad request
           content:
@@ -2574,8 +2836,138 @@ paths:
                   success:
                     type: boolean
                     example: false
+                  error:
+                    type: string
+                    example: invalid_args
+                  msg:
+                    type: string
+                    example: Routegroup not found for user
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                  msg:
+                    type: string
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=3.0
+      tags:
+      - Autoscaler
+    put:
+      summary: update endpoint
+      description: 'Updates the specified endpoint group with the provided parameters.
+
+
+        CLI Usage: vastai update endpoint ID [OPTIONS]'
       security:
       - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: ID of the endpoint group to update
+        schema:
+          type: integer
+          example: 4242
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                min_load:
+                  type: number
+                  description: Minimum floor load in perf units/s (token/s for LLMs)
+                  example: 0.0
+                target_util:
+                  type: number
+                  description: Target capacity utilization (fraction, max 1.0)
+                  example: 0.9
+                cold_mult:
+                  type: number
+                  description: Cold/stopped instance capacity target as multiple of
+                    hot capacity target
+                  example: 2.5
+                cold_workers:
+                  type: integer
+                  description: Min number of workers to keep 'cold' when you have
+                    no load
+                  example: 5
+                max_workers:
+                  type: integer
+                  description: Max number of workers your endpoint group can have
+                  example: 20
+                endpoint_name:
+                  type: string
+                  description: Deployment endpoint name
+                  example: my_endpoint
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: invalid_args
+                  msg:
+                    type: string
+                    example: Routegroup not found for user
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                  msg:
+                    type: string
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=2.0
       tags:
       - Autoscaler
   /api/v0/ssh/{id}/:
@@ -3275,6 +3667,249 @@ paths:
                     example: Invalid json_body
       tags:
       - Instances
+  /get_autogroup_logs/:
+    post:
+      servers:
+      - url: https://run.vast.ai
+        description: Autoscaler server
+      summary: get autogroup logs
+      description: Retrieves logs for a specific worker group by ID.
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - id
+              properties:
+                id:
+                  type: integer
+                  description: ID of the worker group
+                  default: 12345
+                  example: 12345
+                  minimum: 1
+                tail:
+                  type: integer
+                  description: Number of log lines to retrieve from the end
+                  default: 10000
+                  example: 1000
+                  minimum: 1
+      responses:
+        '200':
+          description: Response from autoscaler
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - title: Success - Logs Retrieved
+                  type: object
+                  properties:
+                    logs:
+                      type: string
+                      description: The worker group logs
+                      example: '2023-10-01 12:00:00 - Worker group started
+
+                        2023-10-01 12:01:00 - Instance scaled up'
+                - title: Error Response
+                  type: string
+                  description: Error message when worker group not found or authentication
+                    fails
+                  example: 'authenticate_autogroup_apikey: invalid api_key or worker
+                    group 12345 not found'
+      tags:
+      - Autoscaler
+  /get_autogroup_workers/:
+    post:
+      servers:
+      - url: https://run.vast.ai
+        description: Autoscaler server
+      summary: get autogroup workers
+      description: 'Retrieves the current list and status of workers for a specific
+        worker group.
+
+
+        Useful for monitoring, debugging connectivity issues, and understanding resource
+        usage within a worker group.'
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - id
+              properties:
+                id:
+                  type: integer
+                  description: ID of the worker group to monitor
+                  default: 12345
+                  example: 12345
+                  minimum: 1
+      responses:
+        '200':
+          description: Response from autoscaler
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - title: Success - Workers Retrieved
+                  type: object
+                  properties:
+                    workers:
+                      type: array
+                      description: List of workers in this worker group
+                      items:
+                        type: object
+                        properties:
+                          id:
+                            type: integer
+                            description: Worker instance ID
+                            example: 67890
+                          status:
+                            type: string
+                            description: Current worker status
+                            example: running
+                          url:
+                            type: string
+                            description: Worker instance URL
+                            example: http://192.168.1.10:8000
+                          created_at:
+                            type: string
+                            description: When the worker was created
+                            example: '2023-10-01T12:00:00Z'
+                - title: Error Response
+                  type: string
+                  description: Error message when worker group not found or authentication
+                    fails
+                  example: 'authenticate_autogroup_apikey: invalid api_key or worker
+                    group 12345 not found'
+      tags:
+      - Autoscaler
+  /get_endpoint_logs/:
+    post:
+      servers:
+      - url: https://run.vast.ai
+        description: Autoscaler server
+      summary: get endpoint logs
+      description: Retrieves logs for a specific endpoint by name.
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - endpoint
+              properties:
+                endpoint:
+                  type: string
+                  description: Name of the endpoint
+                  example: your_endpoint_name
+                tail:
+                  type: integer
+                  description: Number of log lines to retrieve from the end
+                  default: 10000
+                  example: 1000
+      responses:
+        '200':
+          description: Response from autoscaler
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - title: Success - Logs Retrieved
+                  type: object
+                  properties:
+                    logs:
+                      type: string
+                      description: The endpoint logs
+                      example: '2023-10-01 12:00:00 - Worker started
+
+                        2023-10-01 12:01:00 - Request processed'
+                - title: Error Response
+                  type: string
+                  description: Error message when endpoint not found or authentication
+                    fails
+                  example: 'authenticate_endpoint_apikey: invalid api_key or endpoint
+                    TGI-Llama32 not found'
+      tags:
+      - Autoscaler
+  /get_endpoint_workers/:
+    post:
+      servers:
+      - url: https://run.vast.ai
+        description: Autoscaler server
+      summary: get endpoint workers
+      description: 'Retrieves the current list and status of workers for a specific
+        endpoint.
+
+
+        Useful for monitoring, debugging connectivity issues, and understanding resource
+        usage.'
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - id
+              properties:
+                id:
+                  type: integer
+                  description: ID of the endpoint to monitor
+                  default: 12345
+                  example: 12345
+                  minimum: 1
+      responses:
+        '200':
+          description: Response from autoscaler
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - title: Success - Workers Retrieved
+                  type: object
+                  properties:
+                    workers:
+                      type: array
+                      description: List of workers for this endpoint
+                      items:
+                        type: object
+                        properties:
+                          id:
+                            type: integer
+                            description: Worker instance ID
+                            example: 67890
+                          status:
+                            type: string
+                            description: Current worker status
+                            example: running
+                          url:
+                            type: string
+                            description: Worker instance URL
+                            example: http://192.168.1.10:8000
+                          created_at:
+                            type: string
+                            description: When the worker was created
+                            example: '2023-10-01T12:00:00Z'
+                - title: Error Response
+                  type: string
+                  description: Error message when endpoint not found or authentication
+                    fails
+                  example: 'authenticate_endpoint_apikey: invalid api_key or endpoint
+                    12345 not found'
+      tags:
+      - Autoscaler
   /api/v0/team/invite/:
     post:
       summary: invite team member
@@ -4231,6 +4866,116 @@ paths:
                     example: API requests too frequent endpoint threshold=3.0
       tags:
       - Accounts
+  /route/:
+    post:
+      servers:
+      - url: https://run.vast.ai
+        description: Autoscaler server
+      summary: route
+      description: 'Calls on the autoscaler to retrieve a GPU instance address within
+        your endpoint for processing a request.
+
+
+        The autoscaler will return either a ready worker URL or status information
+        if no workers are available.'
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - endpoint
+              - cost
+              properties:
+                endpoint:
+                  type: string
+                  description: Name of the endpoint
+                  example: your_endpoint_name
+                cost:
+                  type: number
+                  format: float
+                  description: The estimated compute resources for the request
+                  default: 100.0
+                  example: 242.0
+                  minimum: 0
+      responses:
+        '200':
+          description: Success response - either worker assignment or status
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - title: Worker Available
+                  type: object
+                  properties:
+                    endpoint:
+                      type: string
+                      description: Same as the input parameter
+                      example: your_endpoint_name
+                    url:
+                      type: string
+                      description: The address of the worker instance to send the
+                        request to
+                      example: http://192.168.1.10:8000
+                    cost:
+                      type: number
+                      description: Same as the input parameter
+                      example: 242.0
+                    reqnum:
+                      type: integer
+                      description: Request number corresponding to this worker instance
+                      example: 12345
+                    signature:
+                      type: string
+                      description: Cryptographic signature authenticating the response
+                      example: a1b2c3d4e5f60708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20
+                    __request_id:
+                      type: string
+                      description: Unique identifier generated by the server for this
+                        request
+                      example: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+                - title: No Worker Available
+                  type: object
+                  properties:
+                    endpoint:
+                      type: string
+                      description: Same as the input parameter
+                      example: your_endpoint_name
+                    status:
+                      type: string
+                      description: Breakdown of workers in your endpoint group by
+                        status
+                      example: Stopped
+                    __request_id:
+                      type: string
+                      description: Unique identifier generated by the server for this
+                        request
+                      example: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+        '401':
+          description: Unauthorized - authentication failed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Authentication failed
+        '400':
+          description: Bad Request - invalid parameters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Invalid endpoint or missing required parameters
+      tags:
+      - Autoscaler
   /api/v0/machines/{machine_id}/dnotify:
     put:
       summary: schedule maint
@@ -5114,89 +5859,6 @@ paths:
                     example: API requests too frequent endpoint threshold=1.5
       tags:
       - Machines
-  /api/autojobs:
-    get:
-      summary: show autogroup
-      description: 'Retrieves the list of autojob groups associated with the authenticated
-        user.
-
-
-        CLI Usage: vastai show autogroups'
-      security:
-      - BearerAuth: []
-      responses:
-        '200':
-          description: Success response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  results:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: integer
-                        min_load:
-                          type: number
-                        target_util:
-                          type: number
-                        cold_mult:
-                          type: number
-                        test_workers:
-                          type: integer
-                        template_hash:
-                          type: string
-                        template_id:
-                          type: integer
-                        search_params:
-                          type: string
-                        search_query:
-                          type: string
-                        launch_args:
-                          type: string
-                        gpu_ram:
-                          type: number
-                        endpoint_name:
-                          type: string
-                        endpoint_id:
-                          type: integer
-                        api_key:
-                          type: string
-                        created_at:
-                          type: string
-                          format: date-time
-                        user_id:
-                          type: integer
-        '400':
-          description: Bad Request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '401':
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '429':
-          description: Too Many Requests
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  detail:
-                    type: string
-                    example: API requests too frequent endpoint threshold=2.0
-      tags:
-      - Autoscaler
   /api/v0/users/cloud_integrations/:
     get:
       summary: show connections
@@ -5434,83 +6096,6 @@ paths:
                     example: API requests too frequent endpoint threshold=2.0
       tags:
       - Billing
-  /api/v0/endptjobs/:
-    get:
-      summary: show endpoints
-      description: Retrieve a list of endpoint jobs for the authenticated user.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                client_id:
-                  type: string
-                  example: me
-                api_key:
-                  type: string
-                  description: API key for authentication
-                  example: your_api_key_here
-      responses:
-        '200':
-          description: A list of endpoint jobs
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  results:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: integer
-                          example: 123
-                        min_load:
-                          type: number
-                          example: 0.5
-                        target_util:
-                          type: number
-                          example: 0.8
-                        cold_mult:
-                          type: number
-                          example: 1.2
-                        cold_workers:
-                          type: integer
-                          example: 2
-                        max_workers:
-                          type: integer
-                          example: 10
-                        endpoint_name:
-                          type: string
-                          example: example_endpoint
-                        api_key:
-                          type: string
-                          example: your_api_key_here
-                        user_id:
-                          type: integer
-                          example: 456
-                        created_at:
-                          type: string
-                          format: date-time
-                          example: '2023-10-01T12:00:00Z'
-        '400':
-          description: Bad request
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: false
-      tags:
-      - Autoscaler
   /api/v0/instances/{instance_id}/ssh/:
     get:
       summary: show ssh-keys
@@ -6411,88 +6996,6 @@ paths:
                     example: API requests too frequent endpoint threshold=5.0
       tags:
       - Volumes
-  /api/v0/endptjobs/{id}/:
-    put:
-      summary: update endpoint
-      description: 'Updates the specified endpoint group with the provided parameters.
-
-
-        CLI Usage: vastai update endpoint ID [OPTIONS]'
-      security:
-      - BearerAuth: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: integer
-        description: ID of the endpoint group to update
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                min_load:
-                  type: number
-                  description: Minimum floor load in perf units/s (token/s for LLms)
-                  example: 100.0
-                target_util:
-                  type: number
-                  description: Target capacity utilization (fraction, max 1.0, default
-                    0.9)
-                  example: 0.9
-                cold_mult:
-                  type: number
-                  description: Cold/stopped instance capacity target as multiple of
-                    hot capacity target (default 2.5)
-                  example: 2.0
-                cold_workers:
-                  type: integer
-                  description: Min number of workers to keep 'cold' when you have
-                    no load (default 5)
-                  example: 5
-                max_workers:
-                  type: integer
-                  description: Max number of workers your endpoint group can have
-                    (default 20)
-                  example: 20
-                endpoint_name:
-                  type: string
-                  description: Deployment endpoint name
-                  example: LLama
-      responses:
-        '200':
-          description: Success response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SuccessResponse'
-        '400':
-          description: Bad Request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '404':
-          description: Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '429':
-          description: Too Many Requests
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  detail:
-                    type: string
-                    example: API requests too frequent endpoint threshold=2.0
-      tags:
-      - Autoscaler
 components:
   schemas:
     Error:

@@ -2088,7 +2088,7 @@ def generate_ssh_key(auto_yes=False):
     argument("--min_load", help="[NOTE: this field isn't currently used at the autojob level] minimum floor load in perf units/s  (token/s for LLms)", type=float),
     argument("--target_util", help="[NOTE: this field isn't currently used at the autojob level] target capacity utilization (fraction, max 1.0, default 0.9)", type=float),
     argument("--cold_mult",   help="[NOTE: this field isn't currently used at the autojob level]cold/stopped instance capacity target as multiple of hot capacity target (default 2.0)", type=float),
-    argument("--auto_instance", help="unused", type=str),
+    argument("--auto_instance", help="unused", type=str, default="prod"),
     usage="vastai autogroup create [OPTIONS]",
     help="Create a new autoscale group",
     epilog=deindent("""
@@ -2136,7 +2136,7 @@ def create__autogroup(args):
     argument("--cold_workers", help="min number of workers to keep 'cold' when you have no load (default 5)", type=int, default=5),
     argument("--max_workers", help="max number of workers your endpoint group can have (default 20)", type=int, default=20),
     argument("--endpoint_name", help="deployment endpoint name (allows multiple autoscale groups to share same deployment endpoint)", type=str),
-    argument("--auto_instance", help="unused", type=str),
+    argument("--auto_instance", help="unused", type=str, default="prod"),
     usage="vastai create endpoint [OPTIONS]",
     help="Create a new endpoint group",
     epilog=deindent("""

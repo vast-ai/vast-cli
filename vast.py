@@ -1957,10 +1957,8 @@ def create__ssh_key(args):
     r = http_post(args, url, headers=headers, json={"ssh_key": ssh_key_content})
     r.raise_for_status()
     
-    # Only show success status from the response
-    response_data = r.json()
-    success_status = response_data.get('success', True)
-    print(f"ssh-key created {{'success': {success_status}}} \nNote: You may need to add the new public key to pre-existing instances to connect.")
+    # Print json response
+    print("ssh-key created {}".format(r.json())) \nNote: You may need to add the new public key to pre-existing instances to connect.")
 
 
 def generate_ssh_key():

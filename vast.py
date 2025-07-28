@@ -1923,7 +1923,8 @@ def create__env_var(args):
 
 @parser.command(
     argument("ssh_key", help="add your existing ssh public key to your account (from the .pub file). If no public key is provided, a new key pair will be generated.", type=str, nargs='?'),
-    usage="vastai create ssh-key [ssh_public_key]",
+    argument("-y", "--yes", help="automatically answer yes to prompts", action="store_true"),
+    usage="vastai create ssh-key [ssh_public_key] [-y]",
     help="Create a new ssh-key",
     epilog=deindent("""
         You may use this command to add an existing public key, or create a new ssh key pair and add that public key, to your Vast account. 
@@ -1948,7 +1949,7 @@ def create__ssh_key(args):
     
     # If no SSH key provided, generate one
     if not ssh_key_content:
-        ssh_key_content = generate_ssh_key()
+        ssh_key_content = generate_ssh_key(args.yes)
     else:
         print("Adding provided SSH public key to account...")
     
@@ -1957,15 +1958,16 @@ def create__ssh_key(args):
     r = http_post(args, url, headers=headers, json={"ssh_key": ssh_key_content})
     r.raise_for_status()
     
-    # Only show success status from the response
-    response_data = r.json()
-    success_status = response_data.get('success', True)
-    print(f"ssh-key created {{'success': {success_status}}} \nNote: You may need to add the new public key to pre-existing instances to connect.")
+    # Print json response
+    print("ssh-key created {}\nNote: You may need to add the new public key to any pre-existing instances".format(r.json()))
 
 
-def generate_ssh_key():
+def generate_ssh_key(auto_yes=False):
     """
     Generate a new SSH key pair using ssh-keygen and return the public key content.
+    
+    Args:
+        auto_yes (bool): If True, automatically answer yes to prompts
     
     Returns:
         str: The content of the generated public key
@@ -1990,7 +1992,15 @@ def generate_ssh_key():
     
     # Check if any part of the key pair already exists and backup if needed
     if private_key_path.exists() or public_key_path.exists():
-        print(f"SSH key pair 'id_ed25519' already exists in {ssh_dir}")
+        print(f"An SSH key pair 'id_ed25519' already exists in {ssh_dir}")
+        if auto_yes:
+            print("Auto-answering yes to backup existing key pair.")
+            response = 'y'
+        else:
+            response = input("Would you like to generate a new key pair and backup your existing id_ed25519 key pair. [y/N]: ").lower()
+        if response not in ['y', 'yes']:
+            print("Aborted. No new key generated.")
+            sys.exit(0)
         
         # Generate timestamp for backup
         timestamp = int(time.time())

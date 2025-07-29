@@ -2173,7 +2173,7 @@ def get_runtype(args):
     if (args.args == '') or (args.args == ['']) or (args.args == []):
         runtype = 'args'
         args.args = None
-    if args.jupyter_dir or args.jupyter_lab:
+    if not args.jupyter and (args.jupyter_dir or args.jupyter_lab):
         args.jupyter = True
     if args.jupyter and runtype == 'args':
         print("Error: Can't use --jupyter and --args together. Try --onstart or --onstart-cmd instead of --args.", file=sys.stderr)
@@ -2181,8 +2181,7 @@ def get_runtype(args):
 
     if args.jupyter:
         runtype = 'jupyter_direc ssh_direc ssh_proxy' if args.direct else 'jupyter_proxy ssh_proxy'
-
-    if args.ssh:
+    elif args.ssh:
         runtype = 'ssh_direc ssh_proxy' if args.direct else 'ssh_proxy'
 
     return runtype
@@ -2211,6 +2210,20 @@ def validate_volume_params(args):
         volume_info["size"] = 15
 
     return volume_info
+
+def validate_portal_config(json_blob):
+    # jupyter runtypes already self-correct
+    if 'jupyter' in json_blob['runtype']:
+        return
+    
+    # remove jupyter configs from portal_config if not a jupyter runtype
+    portal_config = json_blob['env']['PORTAL_CONFIG'].split("|")
+    filtered_config = [config_str for config_str in portal_config if 'jupyter' not in config_str.lower()]
+    
+    if not filtered_config:
+        raise ValueError("Error: env variable PORTAL_CONFIG must contain at least one non-jupyter related config string if runtype is not jupyter")
+    else:
+        json_blob['env']['PORTAL_CONFIG'] = "|".join(filtered_config)
 
 @parser.command(
     argument("id", help="id of instance type to launch (returned from search offers)", type=int),
@@ -2323,6 +2336,9 @@ def create__instance(args: argparse.Namespace):
 
     if (args.args != None):
         json_blob["args"] = args.args
+
+    if "PORTAL_CONFIG" in json_blob["env"]:
+        validate_portal_config(json_blob)
 
     #print(f"put asks/{args.id}/  runtype:{runtype}")
     url = apiurl(args, "/asks/{id}/".format(id=args.id))

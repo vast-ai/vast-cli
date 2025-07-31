@@ -507,7 +507,7 @@ def translate_null_strings_to_blanks(d: Dict) -> Dict:
     new_d = {k: translate_nulls(v) for k, v in d.items()}
     return new_d
 
-    #req_url = apiurl(args, "/instances", {"owner": "me"});
+    #req_url = apiurl(args, "/instances", {"owner": "me"})
 
 
 def apiurl(args: argparse.Namespace, subpath: str, query_args: Dict = None) -> str:
@@ -1006,7 +1006,7 @@ def parse_query(query_str: str, res: Dict = None, fields = {}, field_alias = {},
             value = numeric_version(value)
 
         if not field in fields:
-            print("Warning: Unrecognized field: {}, see list of recognized fields.".format(field), file=sys.stderr);
+            print("Warning: Unrecognized field: {}, see list of recognized fields.".format(field), file=sys.stderr)
         if not op_name:
             raise ValueError("Unknown operator. Did you forget to quote your query? " + repr(op).strip("u"))
         if op_name in ["in", "notin"]:
@@ -1227,14 +1227,14 @@ def cancel__copy(args: argparse.Namespace):
     r = http_del(args, url, headers=headers,json=req_json)
     r.raise_for_status()
     if (r.status_code == 200):
-        rj = r.json();
+        rj = r.json()
         if (rj["success"]):
             print("Remote copy canceled - check instance status bar for progress updates (~30 seconds delayed).")
         else:
-            print(rj["msg"]);
+            print(rj["msg"])
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 
 
 @parser.command(
@@ -1270,14 +1270,14 @@ def cancel__sync(args: argparse.Namespace):
     r = http_del(args, url, headers=headers,json=req_json)
     r.raise_for_status()
     if (r.status_code == 200):
-        rj = r.json();
+        rj = r.json()
         if (rj["success"]):
             print("Remote copy canceled - check instance status bar for progress updates (~30 seconds delayed).")
         else:
-            print(rj["msg"]);
+            print(rj["msg"])
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 
 def default_start_date():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -1492,7 +1492,7 @@ def copy(args: argparse.Namespace):
                     print(rj["msg"])
     else:
         print(r.text)
-        print("failed with error {r.status_code}".format(**locals()));
+        print("failed with error {r.status_code}".format(**locals()))
 
 
 '''
@@ -1534,7 +1534,7 @@ def vm__copy(args: argparse.Namespace):
     r = http_put(args, url,  headers=headers,json=req_json)
     r.raise_for_status()
     if (r.status_code == 200):
-        rj = r.json();
+        rj = r.json()
         if (rj["success"]):
             print("Remote to Remote copy initiated - check instance status bar for progress updates (~30 seconds delayed).")
         else:
@@ -1543,10 +1543,10 @@ def vm__copy(args: argparse.Namespace):
             elif rj["msg"] == "Invalid dst_path.":
                 print("dst instance is not a VM")
             else:
-                print(rj["msg"]);
+                print(rj["msg"])
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 '''
 
 @parser.command(
@@ -1666,8 +1666,8 @@ def cloud__copy(args: argparse.Namespace):
         print("Cloud Copy Started - check instance status bar for progress updates (~30 seconds delayed).")
         print("When the operation is finished you should see 'Cloud Copy Operation Finished' in the instance status bar.")  
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 
 
 @parser.command(
@@ -1733,8 +1733,8 @@ def take__snapshot(args: argparse.Namespace):
         else:
             print(data.get("msg", "Unknown error with snapshot request"))
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 
 def validate_frequency_values(day_of_the_week, hour_of_the_day, frequency):
 
@@ -1891,23 +1891,23 @@ def create__ssh_key(args):
     argument("--template_id",   help="template id (optional)", type=int),
     argument("-n", "--no-default", action="store_true", help="Disable default search param query args"),
     argument("--launch_args",   help="launch args  string for create instance  ex: \"--onstart onstart_wget.sh  --env '-e ONSTART_PATH=https://s3.amazonaws.com/vast.ai/onstart_OOBA.sh' --image atinoda/text-generation-webui:default-nightly --disk 64\"", type=str),
-    argument("--endpoint_name", help="deployment endpoint name (allows multiple autoscale groups to share same deployment endpoint)", type=str),
-    argument("--endpoint_id",   help="deployment endpoint id (allows multiple autoscale groups to share same deployment endpoint)", type=int),
-    argument("--test_workers",help="number of workers to create to get an performance estimate for while initializing autogroup (default 3)", type=int, default=3),
+    argument("--endpoint_name", help="deployment endpoint name (allows multiple workergroups to share same deployment endpoint)", type=str),
+    argument("--endpoint_id",   help="deployment endpoint id (allows multiple workergroups to share same deployment endpoint)", type=int),
+    argument("--test_workers",help="number of workers to create to get an performance estimate for while initializing workergroup (default 3)", type=int, default=3),
     argument("--gpu_ram",     help="estimated GPU RAM req  (independent of search string)", type=float),
     argument("--search_params", help="search param string for search offers    ex: \"gpu_ram>=23 num_gpus=2 gpu_name=RTX_4090 inet_down>200 direct_port_count>2 disk_space>=64\"", type=str),
     argument("--min_load", help="[NOTE: this field isn't currently used at the autojob level] minimum floor load in perf units/s  (token/s for LLms)", type=float),
     argument("--target_util", help="[NOTE: this field isn't currently used at the autojob level] target capacity utilization (fraction, max 1.0, default 0.9)", type=float),
     argument("--cold_mult",   help="[NOTE: this field isn't currently used at the autojob level]cold/stopped instance capacity target as multiple of hot capacity target (default 2.0)", type=float),
-    usage="vastai autogroup create [OPTIONS]",
-    help="Create a new autoscale group",
+    usage="vastai create workergroup [OPTIONS]",
+    help="Create a new workergroup",
     epilog=deindent("""
-        Create a new autoscaling group to manage a pool of worker instances.
+        Create a new workergroup to manage a pool of worker instances.
                     
-        Example: vastai create autogroup --template_hash HASH  --endpoint_name "LLama" --test_workers 5
+        Example: vastai create workergroup --template_hash HASH  --endpoint_name "LLama" --test_workers 5
         """),
 )
-def create__autogroup(args):
+def create__workergroup(args):
     url = apiurl(args, "/autojobs/" )
 
     # if args.launch_args_dict:
@@ -1929,7 +1929,7 @@ def create__autogroup(args):
     r.raise_for_status()
     if 'application/json' in r.headers.get('Content-Type', ''):
         try:
-            print("autogroup create {}".format(r.json()))
+            print("workergroup create {}".format(r.json()))
         except requests.exceptions.JSONDecodeError:
             print("The response is not valid JSON.")
             print(r)
@@ -1945,7 +1945,7 @@ def create__autogroup(args):
     argument("--cold_mult",   help="cold/stopped instance capacity target as multiple of hot capacity target (default 2.5)", type=float, default=2.5),
     argument("--cold_workers", help="min number of workers to keep 'cold' when you have no load (default 5)", type=int, default=5),
     argument("--max_workers", help="max number of workers your endpoint group can have (default 20)", type=int, default=20),
-    argument("--endpoint_name", help="deployment endpoint name (allows multiple autoscale groups to share same deployment endpoint)", type=str),
+    argument("--endpoint_name", help="deployment endpoint name (allows multiple workergroups to share same deployment endpoint)", type=str),
     usage="vastai create endpoint [OPTIONS]",
     help="Create a new endpoint group",
     epilog=deindent("""
@@ -2365,14 +2365,14 @@ def delete__scheduled_job(args):
 
 @parser.command(
     argument("id", help="id of group to delete", type=int),
-    usage="vastai delete autogroup ID ",
-    help="Delete an autogroup group",
+    usage="vastai delete workergroup ID ",
+    help="Delete a workergroup",
     epilog=deindent("""
-        Note that deleteing an autogroup group doesn't automatically destroy all the instances that are associated with your autogroup group.
-        Example: vastai delete autogroup 4242
+        Note that deleting a workergroup doesn't automatically destroy all the instances that are associated with your workergroup.
+        Example: vastai delete workergroup 4242
     """),
 )
-def delete__autogroup(args):
+def delete__workergroup(args):
     id  = args.id
     url = apiurl(args, f"/autojobs/{id}/" )
     json_blob = {"client_id": "me", "autojob_id": args.id}
@@ -2383,7 +2383,7 @@ def delete__autogroup(args):
     r.raise_for_status()
     if 'application/json' in r.headers.get('Content-Type', ''):
         try:
-            print("autogroup delete {}".format(r.json()))
+            print("workergroup delete {}".format(r.json()))
         except requests.exceptions.JSONDecodeError:
             print("The response is not valid JSON.")
             print(r)
@@ -2397,7 +2397,7 @@ def delete__autogroup(args):
     usage="vastai delete endpoint ID ",
     help="Delete an endpoint group",
     epilog=deindent("""
-        Note that deleting an endpoint group doesn't automatically destroy all the instances that are associated with your endpoint group, nor all the autogroups.
+        Note that deleting an endpoint group doesn't automatically destroy all the instances that are associated with your endpoint group, nor all the workergroups.
         Example: vastai delete endpoint 4242
     """),
 )
@@ -2506,14 +2506,14 @@ def destroy_instance(id,args):
     if args.raw:
         return r
     elif (r.status_code == 200):
-        rj = r.json();
+        rj = r.json()
         if (rj["success"]):
-            print("destroying instance {id}.".format(**(locals())));
+            print("destroying instance {id}.".format(**(locals())))
         else:
-            print(rj["msg"]);
+            print(rj["msg"])
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 
 
 @parser.command(
@@ -2622,14 +2622,14 @@ def execute(args):
                 url = rj["result_url"]
                 r = requests.get(url)
                 if (r.status_code == 200):
-                    filtered_text = r.text.replace(rj["writeable_path"], '');
+                    filtered_text = r.text.replace(rj["writeable_path"], '')
                     print(filtered_text)
                     break
         else:
-            print(rj);
+            print(rj)
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 
 
 @parser.command(
@@ -2654,7 +2654,7 @@ def get__endpt_logs(args):
 
     r = http_post(args, url, headers=headers,json=json_blob)
     r.raise_for_status()
-    #print("autogroup list ".format(r.json()))
+    #print("workergroup list ".format(r.json()))
     levels = {0 : "info0", 1: "info1", 2: "trace", 3: "debug"}
 
     if (r.status_code == 200):
@@ -2688,7 +2688,7 @@ def invite__member(args):
     if (r.status_code == 200):
         print(f"successfully invited {args.email} to your current team")
     else:
-        print(r.text);
+        print(r.text)
         print(f"failed with error {r.status_code}")
 
 
@@ -2712,11 +2712,11 @@ def label__instance(args):
     r = http_put(args, url,  headers=headers,json=json_blob)
     r.raise_for_status()
 
-    rj = r.json();
+    rj = r.json()
     if rj["success"]:
-        print("label for {args.id} set to {args.label}.".format(**(locals())));
+        print("label for {args.id} set to {args.label}.".format(**(locals())))
     else:
-        print(rj["msg"]);
+        print(rj["msg"])
 
 
 def fetch_url_content(url):
@@ -2870,7 +2870,7 @@ def launch__instance(args):
             field = name.strip("+")
         #print(f"{field} {name} {direction}")
         if field in offers_alias:
-            field = offers_alias[field];
+            field = offers_alias[field]
         order.append([field, direction])
     query["order"] = order
     query["type"] = "on-demand"
@@ -3007,13 +3007,13 @@ def prepay__instance(args):
     r = http_put(args, url,  headers=headers,json=json_blob)
     r.raise_for_status()
 
-    rj = r.json();
+    rj = r.json()
     if rj["success"]:
         timescale = round( rj["timescale"], 3)
         discount_rate = 100.0*round( rj["discount_rate"], 3)
-        print("prepaid for {timescale} months of instance {args.id} applying ${args.amount} credits for a discount of {discount_rate}%".format(**(locals())));
+        print("prepaid for {timescale} months of instance {args.id} applying ${args.amount} credits for a discount of {discount_rate}%".format(**(locals())))
     else:
-        print(rj["msg"]);
+        print(rj["msg"])
 
 '''
 '''
@@ -3050,14 +3050,14 @@ def reboot__instance(args):
         return
 
     if (r.status_code == 200):
-        rj = r.json();
+        rj = r.json()
         if (rj["success"]):
-            print("Rebooting instance {args.id}.".format(**(locals())));
+            print("Rebooting instance {args.id}.".format(**(locals())))
         else:
-            print(rj["msg"]);
+            print(rj["msg"])
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 
 
 @parser.command(
@@ -3080,12 +3080,12 @@ def recycle__instance(args):
     if (r.status_code == 200):
         rj = r.json()
         if (rj["success"]):
-            print("Recycling instance {args.id}.".format(**(locals())));
+            print("Recycling instance {args.id}.".format(**(locals())))
         else:
-            print(rj["msg"]);
+            print(rj["msg"])
     else:
         print(r.text)
-        print("failed with error {r.status_code}".format(**locals()));
+        print("failed with error {r.status_code}".format(**locals()))
 
 @parser.command(
     argument("id", help="id of user to remove", type=int),
@@ -3674,7 +3674,7 @@ def search__offers(args):
                 field = name.strip("+")
             #print(f"{field} {name} {direction}")
             if field in offers_alias:
-                field = offers_alias[field];
+                field = offers_alias[field]
             order.append([field, direction])
 
         query["order"] = order
@@ -3928,7 +3928,7 @@ def search__volumes(args: argparse.Namespace):
                 direction = "asc"
                 field = name.strip("+")
             if field in offers_alias:
-                field = offers_alias[field];
+                field = offers_alias[field]
             order.append([field, direction])
 
         query["order"] = order
@@ -4071,8 +4071,8 @@ def _ssh_url(args, protocol):
         port   = json_object["port"]
 
     if ipaddr is None or ipaddr.endswith('.vast.ai'):
-        req_url = apiurl(args, "/instances", {"owner": "me"});
-        r = http_get(args, req_url);
+        req_url = apiurl(args, "/instances", {"owner": "me"})
+        r = http_get(args, req_url)
         r.raise_for_status()
         rows = r.json()["instances"]
         if args.id:
@@ -4222,13 +4222,13 @@ def show__ssh_keys(args):
         print(r.json())
 
 @parser.command(
-    usage="vastai show autogroups [--api-key API_KEY]",
-    help="Display user's current autogroup groups",
+    usage="vastai show workergroups [--api-key API_KEY]",
+    help="Display user's current workergroups",
     epilog=deindent("""
-        Example: vastai show autogroups 
+        Example: vastai show workergroups 
     """),
 )
-def show__autogroups(args):
+def show__workergroups(args):
     url = apiurl(args, "/autojobs/" )
     json_blob = {"client_id": "me", "api_key": args.api_key}
     if (args.explain):
@@ -4236,10 +4236,10 @@ def show__autogroups(args):
         print(json_blob)
     r = http_get(args, url, headers=headers,json=json_blob)
     r.raise_for_status()
-    #print("autogroup list ".format(r.json()))
+    #print("workergroup list ".format(r.json()))
 
     if (r.status_code == 200):
-        rj = r.json();
+        rj = r.json()
         if (rj["success"]):
             rows = rj["results"] 
             if args.raw:
@@ -4248,7 +4248,7 @@ def show__autogroups(args):
                 #print(rows)
                 print(json.dumps(rows, indent=1, sort_keys=True))
         else:
-            print(rj["msg"]);
+            print(rj["msg"])
 
 @parser.command(
     usage="vastai show endpoints [--api-key API_KEY]",
@@ -4265,10 +4265,10 @@ def show__endpoints(args):
         print(json_blob)
     r = http_get(args, url, headers=headers,json=json_blob)
     r.raise_for_status()
-    #print("autogroup list ".format(r.json()))
+    #print("workergroup list ".format(r.json()))
 
     if (r.status_code == 200):
-        rj = r.json();
+        rj = r.json()
         if (rj["success"]):
             rows = rj["results"] 
             if args.raw:
@@ -4277,7 +4277,7 @@ def show__endpoints(args):
                 #print(rows)
                 print(json.dumps(rows, indent=1, sort_keys=True))
         else:
-            print(rj["msg"]);
+            print(rj["msg"])
 
 
 @parser.command(
@@ -4291,9 +4291,9 @@ def show__connections(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, "/users/cloud_integrations/");
+    req_url = apiurl(args, "/users/cloud_integrations/")
     print(req_url)
-    r = http_get(args, req_url, headers=headers);
+    r = http_get(args, req_url, headers=headers)
     r.raise_for_status()
     rows = r.json()
 
@@ -4337,10 +4337,10 @@ def show__earnings(args):
     :rtype:
     """
 
-    Minutes = 60.0;
-    Hours	= 60.0*Minutes;
-    Days	= 24.0*Hours;
-    Years	= 365.0*Days;
+    Minutes = 60.0
+    Hours	= 60.0*Minutes
+    Days	= 24.0*Hours
+    Years	= 365.0*Days
     cday    = time.time() / Days
     sday = cday - 1.0
     eday = cday - 1.0
@@ -4372,7 +4372,7 @@ def show__earnings(args):
 
 
 
-    req_url = apiurl(args, "/users/me/machine-earnings", {"owner": "me", "sday": sday, "eday": eday, "machid" :args.machine_id});
+    req_url = apiurl(args, "/users/me/machine-earnings", {"owner": "me", "sday": sday, "eday": eday, "machid" :args.machine_id})
     r = http_get(args, req_url)
     r.raise_for_status()
     rows = r.json()
@@ -4451,7 +4451,7 @@ def show__invoices(args):
     """
 
     sdate,edate = convert_dates_to_timestamps(args)
-    req_url = apiurl(args, "/users/me/invoices", {"owner": "me", "sdate":sdate, "edate":edate, "inc_charges" : not args.only_credits});
+    req_url = apiurl(args, "/users/me/invoices", {"owner": "me", "sdate":sdate, "edate":edate, "inc_charges" : not args.only_credits})
 
     r = http_get(args, req_url)
     r.raise_for_status()
@@ -4524,7 +4524,7 @@ def show__instance(args):
     :rtype:
     """
 
-    #req_url = apiurl(args, "/instance", {"owner": "me"});
+    #req_url = apiurl(args, "/instance", {"owner": "me"})
     req_url = apiurl(args, "/instances/{id}/".format(id=args.id) , {"owner": "me"} )
    
     #r = http_get(req_url)
@@ -4551,7 +4551,7 @@ def show__instances(args = {}, extra = {}):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, "/instances", {"owner": "me"});
+    req_url = apiurl(args, "/instances", {"owner": "me"})
     #r = http_get(req_url)
     r = http_get(args, req_url)
     r.raise_for_status()
@@ -4587,8 +4587,8 @@ def show__ipaddrs(args):
     :rtype:
     """
 
-    req_url = apiurl(args, "/users/me/ipaddrs", {"owner": "me"});
-    r = http_get(args, req_url);
+    req_url = apiurl(args, "/users/me/ipaddrs", {"owner": "me"})
+    r = http_get(args, req_url)
     r.raise_for_status()
     rows = r.json()["results"]
     if args.raw:
@@ -4613,8 +4613,8 @@ def show__user(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, "/users/current", {"owner": "me"});
-    r = http_get(args, req_url);
+    req_url = apiurl(args, "/users/current", {"owner": "me"})
+    r = http_get(args, req_url)
     r.raise_for_status()
     user_blob = r.json()
     user_blob.pop("api_key")
@@ -4636,8 +4636,8 @@ def show__subaccounts(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, "/subaccounts", {"owner": "me"});
-    r = http_get(args, req_url);
+    req_url = apiurl(args, "/subaccounts", {"owner": "me"})
+    r = http_get(args, req_url)
     r.raise_for_status()
     rows = r.json()["users"]
     if args.raw:
@@ -4693,7 +4693,7 @@ def show__team_roles(args):
     """)
 )
 def show__volumes(args: argparse.Namespace):
-    req_url = apiurl(args, "/volumes", {"owner": "me"});
+    req_url = apiurl(args, "/volumes", {"owner": "me"})
     r = http_get(args, req_url)
     r.raise_for_status()
     rows = r.json()["volumes"]
@@ -4773,36 +4773,36 @@ def transfer__credit(args: argparse.Namespace):
     r.raise_for_status()
 
     if (r.status_code == 200):
-        rj = r.json();
+        rj = r.json()
         if (rj["success"]):
             print(f"Sent {args.amount} to {args.recipient} ".format(r.json()))
         else:
-            print(rj["msg"]);
+            print(rj["msg"])
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 
 @parser.command(
-    argument("id", help="id of autoscale group to update", type=int),
+    argument("id", help="id of workergroup to update", type=int),
     argument("--min_load", help="minimum floor load in perf units/s  (token/s for LLms)", type=float),
     argument("--target_util",      help="target capacity utilization (fraction, max 1.0, default 0.9)", type=float),
     argument("--cold_mult",   help="cold/stopped instance capacity target as multiple of hot capacity target (default 2.5)", type=float),
-    argument("--test_workers",help="number of workers to create to get an performance estimate for while initializing autogroup (default 3)", type=int),
+    argument("--test_workers",help="number of workers to create to get an performance estimate for while initializing workergroup (default 3)", type=int),
     argument("--gpu_ram",   help="estimated GPU RAM req  (independent of search string)", type=float),
     argument("--template_hash",   help="template hash (**Note**: if you use this field, you can skip search_params, as they are automatically inferred from the template)", type=str),
     argument("--template_id",   help="template id", type=int),
     argument("--search_params",   help="search param string for search offers    ex: \"gpu_ram>=23 num_gpus=2 gpu_name=RTX_4090 inet_down>200 direct_port_count>2 disk_space>=64\"", type=str),
     argument("-n", "--no-default", action="store_true", help="Disable default search param query args"),
     argument("--launch_args",   help="launch args  string for create instance  ex: \"--onstart onstart_wget.sh  --env '-e ONSTART_PATH=https://s3.amazonaws.com/public.vast.ai/onstart_OOBA.sh' --image atinoda/text-generation-webui:default-nightly --disk 64\"", type=str),
-    argument("--endpoint_name",   help="deployment endpoint name (allows multiple autoscale groups to share same deployment endpoint)", type=str),
-    argument("--endpoint_id",   help="deployment endpoint id (allows multiple autoscale groups to share same deployment endpoint)", type=int),
-    usage="vastai update autogroup ID [OPTIONS]",
-    help="Update an existing autoscale group",
+    argument("--endpoint_name",   help="deployment endpoint name (allows multiple workergroup to share same deployment endpoint)", type=str),
+    argument("--endpoint_id",   help="deployment endpoint id (allows multiple workergroup to share same deployment endpoint)", type=int),
+    usage="vastai update workergroup ID [OPTIONS]",
+    help="Update an existing workergroup",
     epilog=deindent("""
-        Example: vastai update autogroup 4242 --min_load 100 --target_util 0.9 --cold_mult 2.0 --search_params \"gpu_ram>=23 num_gpus=2 gpu_name=RTX_4090 inet_down>200 direct_port_count>2 disk_space>=64\" --launch_args \"--onstart onstart_wget.sh  --env '-e ONSTART_PATH=https://s3.amazonaws.com/public.vast.ai/onstart_OOBA.sh' --image atinoda/text-generation-webui:default-nightly --disk 64\" --gpu_ram 32.0 --endpoint_name "LLama" --endpoint_id 2
+        Example: vastai update workergroup 4242 --min_load 100 --target_util 0.9 --cold_mult 2.0 --search_params \"gpu_ram>=23 num_gpus=2 gpu_name=RTX_4090 inet_down>200 direct_port_count>2 disk_space>=64\" --launch_args \"--onstart onstart_wget.sh  --env '-e ONSTART_PATH=https://s3.amazonaws.com/public.vast.ai/onstart_OOBA.sh' --image atinoda/text-generation-webui:default-nightly --disk 64\" --gpu_ram 32.0 --endpoint_name "LLama" --endpoint_id 2
     """),
 )
-def update__autogroup(args):
+def update__workergroup(args):
     id  = args.id
     url = apiurl(args, f"/autojobs/{id}/" )
     if args.no_default:
@@ -4817,7 +4817,7 @@ def update__autogroup(args):
     r.raise_for_status()
     if 'application/json' in r.headers.get('Content-Type', ''):
         try:
-            print("autogroup update {}".format(r.json()))
+            print("workergroup update {}".format(r.json()))
         except requests.exceptions.JSONDecodeError:
             print("The response is not valid JSON.")
             print(r)
@@ -4833,7 +4833,7 @@ def update__autogroup(args):
     argument("--cold_mult",   help="cold/stopped instance capacity target as multiple of hot capacity target (default 2.5)", type=float),
     argument("--cold_workers", help="min number of workers to keep 'cold' when you have no load (default 5)", type=int),
     argument("--max_workers", help="max number of workers your endpoint group can have (default 20)", type=int),
-    argument("--endpoint_name",   help="deployment endpoint name (allows multiple autoscale groups to share same deployment endpoint)", type=str),
+    argument("--endpoint_name",   help="deployment endpoint name (allows multiple workergroups to share same deployment endpoint)", type=str),
     usage="vastai update endpoint ID [OPTIONS]",
     help="Update an existing endpoint group",
     epilog=deindent("""
@@ -5306,17 +5306,17 @@ def delete__machine(args):
     """
     Deletes machine if the machine is not in use by clients. Disregards host jobs on their own machines and force deletes a machine.
     """
-    req_url = apiurl(args, "/machines/{machine_id}/force_delete/".format(machine_id=args.id));
+    req_url = apiurl(args, "/machines/{machine_id}/force_delete/".format(machine_id=args.id))
     r = http_post(args, req_url, headers=headers)
     if (r.status_code == 200):
         rj = r.json()
         if (rj["success"]):
-            print("deleted machine_id ({machine_id}) and all related contracts.".format(machine_id=args.id));
+            print("deleted machine_id ({machine_id}) and all related contracts.".format(machine_id=args.id))
         else:
-            print(rj["msg"]);
+            print(rj["msg"])
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 
 
 def list_machine(args, id):
@@ -5538,19 +5538,19 @@ def remove__defjob(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, "/machines/{machine_id}/defjob/".format(machine_id=args.id));
-    # print(req_url);
+    req_url = apiurl(args, "/machines/{machine_id}/defjob/".format(machine_id=args.id))
+    # print(req_url)
     r = http_del(args, req_url, headers=headers)
 
     if (r.status_code == 200):
-        rj = r.json();
+        rj = r.json()
         if (rj["success"]):
-            print("default instance for machine {machine_id} removed.".format(machine_id=args.id));
+            print("default instance for machine {machine_id} removed.".format(machine_id=args.id))
         else:
-            print(rj["msg"]);
+            print(rj["msg"])
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 
 
 
@@ -5560,7 +5560,7 @@ def set_ask(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    print("set asks!\n");
+    print("set asks!\n")
 
 
 
@@ -5585,22 +5585,22 @@ def set__defjob(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url   = apiurl(args, "/machines/create_bids/");
+    req_url   = apiurl(args, "/machines/create_bids/")
     json_blob = {'machine': args.id, 'price_gpu': args.price_gpu, 'price_inetu': args.price_inetu, 'price_inetd': args.price_inetd, 'image': args.image, 'args': args.args}
     if (args.explain):
         print("request json: ")
         print(json_blob)
     r = http_put(args, req_url, headers=headers, json=json_blob)
     if (r.status_code == 200):
-        rj = r.json();
+        rj = r.json()
         if (rj["success"]):
             print(
-                "bids created for machine {args.id},  @ ${args.price_gpu}/gpu/day, ${args.price_inetu}/GB up, ${args.price_inetd}/GB down".format(**locals()));
+                "bids created for machine {args.id},  @ ${args.price_gpu}/gpu/day, ${args.price_inetu}/GB up, ${args.price_inetd}/GB down".format(**locals()))
         else:
-            print(rj["msg"]);
+            print(rj["msg"])
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 
 
 def smart_split(s, char):
@@ -5752,7 +5752,7 @@ def show__machine(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, f"/machines/{args.Machine}", {"owner": "me"});
+    req_url = apiurl(args, f"/machines/{args.Machine}", {"owner": "me"})
     r = http_get(args, req_url)
     r.raise_for_status()
     rows = r.json()
@@ -5778,7 +5778,7 @@ def show__machines(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, "/machines", {"owner": "me"});
+    req_url = apiurl(args, "/machines", {"owner": "me"})
     r = http_get(args, req_url)
     r.raise_for_status()
     rows = r.json()["machines"]
@@ -5808,7 +5808,7 @@ def show__maints(args):
     machine_ids = args.ids.split(',')
     machine_ids = list(map(int, machine_ids))
 
-    req_url = apiurl(args, "/machines/maintenances", {"owner": "me", "machine_ids" : machine_ids});
+    req_url = apiurl(args, "/machines/maintenances", {"owner": "me", "machine_ids" : machine_ids})
     r = http_get(args, req_url)
     r.raise_for_status()
     rows = r.json()
@@ -5835,17 +5835,17 @@ def unlist__machine(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, "/machines/{machine_id}/asks/".format(machine_id=args.id));
+    req_url = apiurl(args, "/machines/{machine_id}/asks/".format(machine_id=args.id))
     r = http_del(args, req_url, headers=headers)
     if (r.status_code == 200):
-        rj = r.json();
+        rj = r.json()
         if (rj["success"]):
-            print("all offers for machine {machine_id} removed, machine delisted.".format(machine_id=args.id));
+            print("all offers for machine {machine_id} removed, machine delisted.".format(machine_id=args.id))
         else:
-            print(rj["msg"]);
+            print(rj["msg"])
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 
 
 def suppress_stdout():
@@ -6735,13 +6735,13 @@ def main():
         sys.exit(res)
     except requests.exceptions.HTTPError as e:
         try:
-            errmsg = e.response.json().get("msg");
+            errmsg = e.response.json().get("msg")
         except JSONDecodeError:
             if e.response.status_code == 401:
                 errmsg = "Please log in or sign up"
             else:
                 errmsg = "(no detail message supplied)"
-        print("failed with error {e.response.status_code}: {errmsg}".format(**locals()));
+        print("failed with error {e.response.status_code}: {errmsg}".format(**locals()))
     except ValueError as e:
       print(e)
 

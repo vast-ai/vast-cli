@@ -70,7 +70,7 @@ paths:
                   description: Error message when endpoint not found or authentication fails
                   example: "authenticate_endpoint_apikey: invalid api_key or endpoint 12345 not found"
       tags:
-      - Autoscaler
+      - Serverless
 components:
   securitySchemes:
     BearerAuth:

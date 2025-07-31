@@ -104,7 +104,7 @@ paths:
                     type: string
                     example: API requests too frequent endpoint threshold=3.0
       tags:
-      - Autoscaler
+      - Serverless
 components:
   securitySchemes:
     BearerAuth:

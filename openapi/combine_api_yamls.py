@@ -38,7 +38,7 @@ def remove_existing_combined_file(directory):
             combined_file.unlink()
             print(f"Removed existing combined API spec at {combined_file}")
         else:
-            raise(f"No existing combined API spec found at {combined_file}")
+            print(f"No existing combined API spec found at {combined_file}")
     except Exception as e:
         print(f"Error removing existing combined file: {str(e)}")
 
@@ -136,7 +136,7 @@ def combine_yaml_files(directory):
         return None
 
 if __name__ == "__main__":
-    yaml_dir = Path("docs/api/yaml")
+    yaml_dir = Path("yaml")
 
     try:
         # First remove existing combined file

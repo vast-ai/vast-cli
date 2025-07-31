@@ -2080,9 +2080,9 @@ def generate_ssh_key(auto_yes=False):
     argument("--template_id",   help="template id (optional)", type=int),
     argument("-n", "--no-default", action="store_true", help="Disable default search param query args"),
     argument("--launch_args",   help="launch args  string for create instance  ex: \"--onstart onstart_wget.sh  --env '-e ONSTART_PATH=https://s3.amazonaws.com/vast.ai/onstart_OOBA.sh' --image atinoda/text-generation-webui:default-nightly --disk 64\"", type=str),
-    argument("--endpoint_name", help="deployment endpoint name (allows multiple autoscale groups to share same deployment endpoint)", type=str),
-    argument("--endpoint_id",   help="deployment endpoint id (allows multiple autoscale groups to share same deployment endpoint)", type=int),
-    argument("--test_workers",help="number of workers to create to get an performance estimate for while initializing autogroup (default 3)", type=int, default=3),
+    argument("--endpoint_name", help="deployment endpoint name (allows multiple workergroups to share same deployment endpoint)", type=str),
+    argument("--endpoint_id",   help="deployment endpoint id (allows multiple workergroups to share same deployment endpoint)", type=int),
+    argument("--test_workers",help="number of workers to create to get an performance estimate for while initializing workergroup (default 3)", type=int, default=3),
     argument("--gpu_ram",     help="estimated GPU RAM req  (independent of search string)", type=float),
     argument("--search_params", help="search param string for search offers    ex: \"gpu_ram>=23 num_gpus=2 gpu_name=RTX_4090 inet_down>200 direct_port_count>2 disk_space>=64\"", type=str),
     argument("--min_load", help="[NOTE: this field isn't currently used at the autojob level] minimum floor load in perf units/s  (token/s for LLms)", type=float),
@@ -2094,7 +2094,7 @@ def generate_ssh_key(auto_yes=False):
     epilog=deindent("""
         Create a new autoscaling group to manage a pool of worker instances.
                     
-        Example: vastai create autogroup --template_hash HASH  --endpoint_name "LLama" --test_workers 5
+        Example: vastai create workergroup --template_hash HASH  --endpoint_name "LLama" --test_workers 5
         """),
 )
 def create__autogroup(args):
@@ -2119,7 +2119,7 @@ def create__autogroup(args):
     r.raise_for_status()
     if 'application/json' in r.headers.get('Content-Type', ''):
         try:
-            print("autogroup create {}".format(r.json()))
+            print("workergroup create {}".format(r.json()))
         except requests.exceptions.JSONDecodeError:
             print("The response is not valid JSON.")
             print(r)
@@ -2137,6 +2137,7 @@ def create__autogroup(args):
     argument("--max_workers", help="max number of workers your endpoint group can have (default 20)", type=int, default=20),
     argument("--endpoint_name", help="deployment endpoint name (allows multiple autoscale groups to share same deployment endpoint)", type=str),
     argument("--auto_instance", help="unused", type=str, default="prod"),
+
     usage="vastai create endpoint [OPTIONS]",
     help="Create a new endpoint group",
     epilog=deindent("""
@@ -2691,11 +2692,11 @@ def delete__cluster(args: argparse.Namespace):
 
 @parser.command(
     argument("id", help="id of group to delete", type=int),
-    usage="vastai delete autogroup ID ",
-    help="Delete an autogroup group",
+    usage="vastai delete workergroup ID ",
+    help="Delete a workergroup group",
     epilog=deindent("""
-        Note that deleteing an autogroup group doesn't automatically destroy all the instances that are associated with your autogroup group.
-        Example: vastai delete autogroup 4242
+        Note that deleting a workergroup doesn't automatically destroy all the instances that are associated with your workergroup.
+        Example: vastai delete workergroup 4242
     """),
 )
 def delete__autogroup(args):
@@ -2709,7 +2710,7 @@ def delete__autogroup(args):
     r.raise_for_status()
     if 'application/json' in r.headers.get('Content-Type', ''):
         try:
-            print("autogroup delete {}".format(r.json()))
+            print("workergroup delete {}".format(r.json()))
         except requests.exceptions.JSONDecodeError:
             print("The response is not valid JSON.")
             print(r)
@@ -2723,7 +2724,7 @@ def delete__autogroup(args):
     usage="vastai delete endpoint ID ",
     help="Delete an endpoint group",
     epilog=deindent("""
-        Note that deleting an endpoint group doesn't automatically destroy all the instances that are associated with your endpoint group, nor all the autogroups.
+        Note that deleting an endpoint group doesn't automatically destroy all the instances that are associated with your endpoint group, nor all the workergroups.
         Example: vastai delete endpoint 4242
     """),
 )
@@ -4766,13 +4767,13 @@ def show__ssh_keys(args):
         print(r.json())
 
 @parser.command(
-    usage="vastai show autogroups [--api-key API_KEY]",
-    help="Display user's current autogroup groups",
+    usage="vastai show workergroups [--api-key API_KEY]",
+    help="Display user's current workergroups",
     epilog=deindent("""
-        Example: vastai show autogroups 
+        Example: vastai show workergroups 
     """),
 )
-def show__autogroups(args):
+def show__workergroups(args):
     url = apiurl(args, "/autojobs/" )
     json_blob = {"client_id": "me", "api_key": args.api_key}
     if (args.explain):
@@ -4780,7 +4781,7 @@ def show__autogroups(args):
         print(json_blob)
     r = http_get(args, url, headers=headers,json=json_blob)
     r.raise_for_status()
-    #print("autogroup list ".format(r.json()))
+    #print("workergroup list ".format(r.json()))
 
     if (r.status_code == 200):
         rj = r.json();
@@ -4809,7 +4810,7 @@ def show__endpoints(args):
         print(json_blob)
     r = http_get(args, url, headers=headers,json=json_blob)
     r.raise_for_status()
-    #print("autogroup list ".format(r.json()))
+    #print("workergroup list ".format(r.json()))
 
     if (r.status_code == 200):
         rj = r.json();
@@ -5406,22 +5407,22 @@ def transfer__credit(args: argparse.Namespace):
     argument("--min_load", help="minimum floor load in perf units/s  (token/s for LLms)", type=float),
     argument("--target_util",      help="target capacity utilization (fraction, max 1.0, default 0.9)", type=float),
     argument("--cold_mult",   help="cold/stopped instance capacity target as multiple of hot capacity target (default 2.5)", type=float),
-    argument("--test_workers",help="number of workers to create to get an performance estimate for while initializing autogroup (default 3)", type=int),
+    argument("--test_workers",help="number of workers to create to get an performance estimate for while initializing workergroup (default 3)", type=int),
     argument("--gpu_ram",   help="estimated GPU RAM req  (independent of search string)", type=float),
     argument("--template_hash",   help="template hash (**Note**: if you use this field, you can skip search_params, as they are automatically inferred from the template)", type=str),
     argument("--template_id",   help="template id", type=int),
     argument("--search_params",   help="search param string for search offers    ex: \"gpu_ram>=23 num_gpus=2 gpu_name=RTX_4090 inet_down>200 direct_port_count>2 disk_space>=64\"", type=str),
     argument("-n", "--no-default", action="store_true", help="Disable default search param query args"),
     argument("--launch_args",   help="launch args  string for create instance  ex: \"--onstart onstart_wget.sh  --env '-e ONSTART_PATH=https://s3.amazonaws.com/public.vast.ai/onstart_OOBA.sh' --image atinoda/text-generation-webui:default-nightly --disk 64\"", type=str),
-    argument("--endpoint_name",   help="deployment endpoint name (allows multiple autoscale groups to share same deployment endpoint)", type=str),
-    argument("--endpoint_id",   help="deployment endpoint id (allows multiple autoscale groups to share same deployment endpoint)", type=int),
-    usage="vastai update autogroup ID [OPTIONS]",
+    argument("--endpoint_name",   help="deployment endpoint name (allows multiple workergroups to share same deployment endpoint)", type=str),
+    argument("--endpoint_id",   help="deployment endpoint id (allows multiple workergroups to share same deployment endpoint)", type=int),
+    usage="vastai update workergroup ID [OPTIONS]",
     help="Update an existing autoscale group",
     epilog=deindent("""
-        Example: vastai update autogroup 4242 --min_load 100 --target_util 0.9 --cold_mult 2.0 --search_params \"gpu_ram>=23 num_gpus=2 gpu_name=RTX_4090 inet_down>200 direct_port_count>2 disk_space>=64\" --launch_args \"--onstart onstart_wget.sh  --env '-e ONSTART_PATH=https://s3.amazonaws.com/public.vast.ai/onstart_OOBA.sh' --image atinoda/text-generation-webui:default-nightly --disk 64\" --gpu_ram 32.0 --endpoint_name "LLama" --endpoint_id 2
+        Example: vastai update workergroup 4242 --min_load 100 --target_util 0.9 --cold_mult 2.0 --search_params \"gpu_ram>=23 num_gpus=2 gpu_name=RTX_4090 inet_down>200 direct_port_count>2 disk_space>=64\" --launch_args \"--onstart onstart_wget.sh  --env '-e ONSTART_PATH=https://s3.amazonaws.com/public.vast.ai/onstart_OOBA.sh' --image atinoda/text-generation-webui:default-nightly --disk 64\" --gpu_ram 32.0 --endpoint_name "LLama" --endpoint_id 2
     """),
 )
-def update__autogroup(args):
+def update__workergroup(args):
     id  = args.id
     url = apiurl(args, f"/autojobs/{id}/" )
     if args.no_default:
@@ -5436,7 +5437,7 @@ def update__autogroup(args):
     r.raise_for_status()
     if 'application/json' in r.headers.get('Content-Type', ''):
         try:
-            print("autogroup update {}".format(r.json()))
+            print("workergroup update {}".format(r.json()))
         except requests.exceptions.JSONDecodeError:
             print("The response is not valid JSON.")
             print(r)
@@ -5452,7 +5453,7 @@ def update__autogroup(args):
     argument("--cold_mult",   help="cold/stopped instance capacity target as multiple of hot capacity target (default 2.5)", type=float),
     argument("--cold_workers", help="min number of workers to keep 'cold' when you have no load (default 5)", type=int),
     argument("--max_workers", help="max number of workers your endpoint group can have (default 20)", type=int),
-    argument("--endpoint_name",   help="deployment endpoint name (allows multiple autoscale groups to share same deployment endpoint)", type=str),
+    argument("--endpoint_name",   help="deployment endpoint name (allows multiple workergroups to share same deployment endpoint)", type=str),
     usage="vastai update endpoint ID [OPTIONS]",
     help="Update an existing endpoint group",
     epilog=deindent("""

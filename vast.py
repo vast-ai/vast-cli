@@ -2692,7 +2692,7 @@ def delete__cluster(args: argparse.Namespace):
 @parser.command(
     argument("id", help="id of group to delete", type=int),
     usage="vastai delete workergroup ID ",
-    help="Delete an workergroup group",
+    help="Delete a workergroup group",
     epilog=deindent("""
         Note that deleting a workergroup doesn't automatically destroy all the instances that are associated with your workergroup.
         Example: vastai delete workergroup 4242

@@ -2085,11 +2085,11 @@ def generate_ssh_key(auto_yes=False):
     argument("--test_workers",help="number of workers to create to get an performance estimate for while initializing workergroup (default 3)", type=int, default=3),
     argument("--gpu_ram",     help="estimated GPU RAM req  (independent of search string)", type=float),
     argument("--search_params", help="search param string for search offers    ex: \"gpu_ram>=23 num_gpus=2 gpu_name=RTX_4090 inet_down>200 direct_port_count>2 disk_space>=64\"", type=str),
-    argument("--min_load", help="[NOTE: this field isn't currently used at the autojob level] minimum floor load in perf units/s  (token/s for LLms)", type=float),
-    argument("--target_util", help="[NOTE: this field isn't currently used at the autojob level] target capacity utilization (fraction, max 1.0, default 0.9)", type=float),
-    argument("--cold_mult",   help="[NOTE: this field isn't currently used at the autojob level]cold/stopped instance capacity target as multiple of hot capacity target (default 2.0)", type=float),
+    argument("--min_load", help="[NOTE: this field isn't currently used at the workergroup level] minimum floor load in perf units/s  (token/s for LLms)", type=float),
+    argument("--target_util", help="[NOTE: this field isn't currently used at the workergroup level] target capacity utilization (fraction, max 1.0, default 0.9)", type=float),
+    argument("--cold_mult",   help="[NOTE: this field isn't currently used at the workergroup level]cold/stopped instance capacity target as multiple of hot capacity target (default 2.0)", type=float),
     argument("--auto_instance", help="unused", type=str, default="prod"),
-    usage="vastai autogroup create [OPTIONS]",
+    usage="vastai workergroup create [OPTIONS]",
     help="Create a new autoscale group",
     epilog=deindent("""
         Create a new autoscaling group to manage a pool of worker instances.

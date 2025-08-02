@@ -756,12 +756,12 @@ paths:
       - Accounts
   /api/v0/autojobs/:
     post:
-      summary: create autogroup
-      description: 'Creates a new autoscaling job configuration that manages worker
+      summary: create workergroup
+      description: 'Creates a new workergroup configuration that manages worker
         instances for a serverless endpoint.
 
 
-        CLI Usage: vast-ai create autogroup --template_hash <HASH> --endpoint_name
+        CLI Usage: vast-ai create workergroup --template_hash <HASH> --endpoint_name
         <NAME> [options]'
       security:
       - BearerAuth: []
@@ -865,7 +865,7 @@ paths:
                     - invalid_args
                   msg:
                     type: string
-                    example: Please assign your autogroup to a valid endpoint identifier
+                    example: Please assign your workergroup to a valid endpoint identifier
         '401':
           description: Unauthorized
           content:
@@ -885,12 +885,12 @@ paths:
       tags:
       - Autoscaler
     get:
-      summary: show autogroup
+      summary: show workergroup
       description: 'Retrieves the list of autojob groups associated with the authenticated
         user.
 
 
-        CLI Usage: vastai show autogroups'
+        CLI Usage: vastai show workergroups'
       security:
       - BearerAuth: []
       responses:
@@ -2545,27 +2545,27 @@ paths:
       - Accounts
   /api/v0/autojobs/{id}/:
     delete:
-      summary: delete autogroup
-      description: 'Deletes an existing autogroup/autoscaler job. Note that deleting
-        an autogroup doesn''t
+      summary: delete workergroup
+      description: 'Deletes an existing workergroup. Note that deleting
+        an workergroup doesn''t
 
         automatically destroy all instances associated with it.
 
 
-        CLI Usage: vastai delete autogroup <ID>'
+        CLI Usage: vastai delete workergroup <ID>'
       security:
       - BearerAuth: []
       parameters:
       - name: id
         in: path
         required: true
-        description: ID of the autogroup to delete
+        description: ID of the workergroup to delete
         schema:
           type: integer
           example: 4242
       responses:
         '200':
-          description: Autogroup deleted successfully
+          description: workergroup deleted successfully
           content:
             application/json:
               schema:
@@ -2591,7 +2591,7 @@ paths:
                   msg:
                     type: string
                     description: Additional information about the deletion
-                    example: Deleted autojob and 2 workers
+                    example: Deleted workergroup and 2 workers
         '400':
           description: Bad request
           content:
@@ -2609,7 +2609,7 @@ paths:
                     type: string
                     example: Invalid autojob ID
         '404':
-          description: Autogroup not found
+          description: Workergroup not found
           content:
             application/json:
               schema:
@@ -2654,19 +2654,19 @@ paths:
       tags:
       - Autoscaler
     put:
-      summary: update autogroup
+      summary: update workergroup
       description: 'Updates the properties of an existing autoscale group based on
         the provided parameters.
 
 
-        CLI Usage: vastai update autogroup <ID> [OPTIONS]'
+        CLI Usage: vastai update workergroup <ID> [OPTIONS]'
       security:
       - BearerAuth: []
       parameters:
       - name: id
         in: path
         required: true
-        description: The ID of the autogroup to update.
+        description: The ID of the workergroup to update.
         schema:
           type: integer
           example: 4242
@@ -2679,15 +2679,15 @@ paths:
               properties:
                 min_load:
                   type: number
-                  description: Minimum load for the autogroup.
+                  description: Minimum load for the workergroup.
                   example: 1.0
                 target_util:
                   type: number
-                  description: Target utilization for the autogroup.
+                  description: Target utilization for the workergroup.
                   example: 0.9
                 cold_mult:
                   type: number
-                  description: Cold multiplier for the autogroup.
+                  description: Cold multiplier for the workergroup.
                   example: 3.0
                 test_workers:
                   type: integer
@@ -2696,11 +2696,11 @@ paths:
                   example: 3
                 template_hash:
                   type: string
-                  description: Template hash for the autogroup.
+                  description: Template hash for the workergroup.
                   example: abc123def456
                 template_id:
                   type: integer
-                  description: Template ID for the autogroup.
+                  description: Template ID for the workergroup.
                   example: 456
                 search_params:
                   type: string
@@ -2727,7 +2727,7 @@ paths:
                   example: 123
       responses:
         '200':
-          description: Successfully updated the autogroup.
+          description: Successfully updated the workergroup.
           content:
             application/json:
               schema:
@@ -3672,7 +3672,7 @@ paths:
       servers:
       - url: https://run.vast.ai
         description: Autoscaler server
-      summary: get autogroup logs
+      summary: get workergroup logs
       description: Retrieves logs for a specific worker group by ID.
       security:
       - BearerAuth: []
@@ -3726,7 +3726,7 @@ paths:
       servers:
       - url: https://run.vast.ai
         description: Autoscaler server
-      summary: get autogroup workers
+      summary: get workergroup workers
       description: 'Retrieves the current list and status of workers for a specific
         worker group.
 

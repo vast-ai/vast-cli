@@ -9,12 +9,12 @@ servers:
 paths:
   /api/v0/autojobs/:
     post:
-      summary: create autogroup
+      summary: create workergroup
       description: 'Creates a new autoscaling job configuration that manages worker
         instances for a serverless endpoint.
 
 
-        CLI Usage: vast-ai create autogroup --template_hash <HASH> --endpoint_name
+        CLI Usage: vast-ai create workergroup --template_hash <HASH> --endpoint_name
         <NAME> [options]
 
         '
@@ -119,7 +119,7 @@ paths:
                     - invalid_args
                   msg:
                     type: string
-                    example: Please assign your autogroup to a valid endpoint identifier
+                    example: Please assign your workergroup to a valid endpoint identifier
         '401':
           description: Unauthorized
           content:
@@ -160,9 +160,9 @@ x-rate-limit:
   per: request
   description: Maximum request frequency per IP address
 x-cli-commands:
-- name: create autogroup
-  description: Create a new autoscaling group
+- name: create workergroup
+  description: Create a new workergroup
   endpoint: /api/v0/autojobs/
   method: POST
-  example: vast-ai create autogroup --template_hash abc123 --endpoint_name "LLama"
+  example: vast-ai create workergroup --template_hash abc123 --endpoint_name "LLama"
     --test_workers 5

@@ -2097,7 +2097,7 @@ def generate_ssh_key(auto_yes=False):
         Example: vastai create workergroup --template_hash HASH  --endpoint_name "LLama" --test_workers 5
         """),
 )
-def create__autogroup(args):
+def create__workergroup(args):
     url = apiurl(args, "/autojobs/" )
 
     # if args.launch_args_dict:
@@ -2699,7 +2699,7 @@ def delete__cluster(args: argparse.Namespace):
         Example: vastai delete workergroup 4242
     """),
 )
-def delete__autogroup(args):
+def delete__workergroup(args):
     id  = args.id
     url = apiurl(args, f"/autojobs/{id}/" )
     json_blob = {"client_id": "me", "autojob_id": args.id}

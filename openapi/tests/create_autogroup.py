@@ -4,8 +4,8 @@ from .base import CommandTestSuite, TestCase
 class CreateAutogroupTestSuite(CommandTestSuite):
     def __init__(self):
         super().__init__(
-            command="create autogroup",
-            description="Create a new autoscaling group"
+            command="create workergroup",
+            description="Create a new workergroup"
         )
         self.generate_test_cases()
     
@@ -46,7 +46,7 @@ class CreateAutogroupTestSuite(CommandTestSuite):
                 "response": {
                     "success": False,
                     "error": "no_endpoint_info",
-                    "msg": "Please assign your autogroup to a valid endpoint identifier"
+                    "msg": "Please assign your workergroup to a valid endpoint identifier"
                 }
             }
         ))

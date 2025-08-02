@@ -68,7 +68,7 @@ except NameError:
 
 #server_url_default = "https://vast.ai"
 server_url_default = os.getenv("VAST_URL") or "https://console.vast.ai"
-# server_url_default = "http://localhost:5002"
+#server_url_default = "http://localhost:5002"
 #server_url_default = "host.docker.internal"
 #server_url_default = "http://localhost:5002"
 #server_url_default  = "https://vast.ai/api/v0"
@@ -743,6 +743,7 @@ overlay_fields = (
 )
 volume_fields = (
     ("id", "ID", "{}", None, True),
+    ("cluster_id", "Cluster ID", "{}", None, True),
     ("label", "Name", "{}", None, True),
     ("disk_space", "Disk", "{:.0f}", None, True),
     ("status", "status", "{}", None, True),
@@ -6052,46 +6053,54 @@ def list__machines(args):
 @parser.command(
     argument("machines", help="ids of machines to add disk to, that is networked to be on the same LAN as machine", type=int, nargs='+'),
     argument("mount_point", help="mount path of disk to add", type=str),
-    argument("disk_id", help="id of network volume to attach to machines in the cluster ", type=int, nargs="?"),
-    usage="vastai add network disk [MACHINES] MOUNT_PATH [DISK_ID]",
+    argument("-d", "--disk_id", help="id of network disk to attach to machines in the cluster", type=int, nargs='?'),
+    usage="vastai add network-disk MACHINES MOUNT_PATH [options]",
+    help="[Host] Add Network Disk to Physical Cluster.",
+    epilog=deindent("""
+        This variant can be used to add a network disk to a physical cluster.
+        When you add a network disk for the first time, you just need to specify the machine(s) and mount_path.
+        When you add a network disk for the second time, you need to specify the disk_id.
+        Example:
+        vastai add network-disk 1 /mnt/disk1
+        vastai add network-disk 1 /mnt/disk1 -d 12345
+    """)
 )
-def add__network__disk(args):
+def add__network_disk(args):
     json_blob = {
         "machines": [int(id) for id in args.machines],
         "mount_point": args.mount_point,
-        "disk_id": args.disk_id,
     }
-
+    if args.disk_id is not None:
+        json_blob["disk_id"] = args.disk_id
     url = apiurl(args, "/network_disk/")
-
     if args.explain:
         print("request json: ")
         print(json_blob)
-
     r = http_post(args, url, headers=headers, json=json_blob)
     r.raise_for_status()
-
+ 
     if args.raw:
         return r
 
-    print("Attached network disk to machines. Disk id: " + r.json()["disk_id"])
-
+    print("Attached network disk to machines. Disk id: " + str(r.json()["disk_id"]))
 
 @parser.command(
-    argument("--disk_id", help="id of network disk to list", type=int, required=True),
+    argument("disk_id", help="id of network disk to list", type=int),
     argument("-p", "--price_disk", help="storage price in $/GB/month, default: $%(default).2f/GB/month", default=.15, type=float),
-    argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format), default 1 month", type=str),
-    argument("-s", "--size", help="size of disk space allocated to offer in GB, default %(default)s GB", default=15),
-    usage="vastai list network volume --disk_id DISK_ID [options]",
+    argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format), default 1 month", type=str, default=None),
+    argument("-s", "--size", help="size of disk space allocated to offer in GB, default %(default)s GB", default=15, type=int),
+    usage="vastai list network volume DISK_ID [options]",
     help="[Host] list disk space for rent as a network volume"
 )
 def list__network_volume(args):
     json_blob = {
         "disk_id": args.disk_id,
         "price_disk": args.price_disk,
-        "end_date": string_to_unix_epoch(args.end_date) if args.end_date else None,
         "size": args.size
     }
+
+    if args.end_date:
+        json_blob["end_date"] = string_to_unix_epoch(args.end_date)
 
     url = apiurl(args, "/network_volumes/")
 

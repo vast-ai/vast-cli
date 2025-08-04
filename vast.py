@@ -507,7 +507,7 @@ def translate_null_strings_to_blanks(d: Dict) -> Dict:
     new_d = {k: translate_nulls(v) for k, v in d.items()}
     return new_d
 
-    #req_url = apiurl(args, "/instances", {"owner": "me"});
+    #req_url = apiurl(args, "/instances", {"owner": "me"})
 
 
 def apiurl(args: argparse.Namespace, subpath: str, query_args: Dict = None) -> str:
@@ -532,7 +532,7 @@ def apiurl(args: argparse.Namespace, subpath: str, query_args: Dict = None) -> s
         '''
         vector result;
         for (l_expression: expression) {
-            result.push_back(expression);
+            result.push_back(expression)
         }
         '''
         # an_iterator = (<expression> for <l-expression> in <expression>)
@@ -1028,7 +1028,7 @@ def parse_query(query_str: str, res: Dict = None, fields = {}, field_alias = {},
             value = numeric_version(value)
 
         if not field in fields:
-            print("Warning: Unrecognized field: {}, see list of recognized fields.".format(field), file=sys.stderr);
+            print("Warning: Unrecognized field: {}, see list of recognized fields.".format(field), file=sys.stderr)
         if not op_name:
             raise ValueError("Unknown operator. Did you forget to quote your query? " + repr(op).strip("u"))
         if op_name in ["in", "notin"]:
@@ -1249,14 +1249,14 @@ def cancel__copy(args: argparse.Namespace):
     r = http_del(args, url, headers=headers,json=req_json)
     r.raise_for_status()
     if (r.status_code == 200):
-        rj = r.json();
+        rj = r.json()
         if (rj["success"]):
             print("Remote copy canceled - check instance status bar for progress updates (~30 seconds delayed).")
         else:
-            print(rj["msg"]);
+            print(rj["msg"])
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 
 
 @parser.command(
@@ -1292,14 +1292,14 @@ def cancel__sync(args: argparse.Namespace):
     r = http_del(args, url, headers=headers,json=req_json)
     r.raise_for_status()
     if (r.status_code == 200):
-        rj = r.json();
+        rj = r.json()
         if (rj["success"]):
             print("Remote copy canceled - check instance status bar for progress updates (~30 seconds delayed).")
         else:
-            print(rj["msg"]);
+            print(rj["msg"])
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 
 def default_start_date():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -1514,7 +1514,7 @@ def copy(args: argparse.Namespace):
                     print(rj["msg"])
     else:
         print(r.text)
-        print("failed with error {r.status_code}".format(**locals()));
+        print("failed with error {r.status_code}".format(**locals()))
 
 
 '''
@@ -1556,7 +1556,7 @@ def vm__copy(args: argparse.Namespace):
     r = http_put(args, url,  headers=headers,json=req_json)
     r.raise_for_status()
     if (r.status_code == 200):
-        rj = r.json();
+        rj = r.json()
         if (rj["success"]):
             print("Remote to Remote copy initiated - check instance status bar for progress updates (~30 seconds delayed).")
         else:
@@ -1565,10 +1565,10 @@ def vm__copy(args: argparse.Namespace):
             elif rj["msg"] == "Invalid dst_path.":
                 print("dst instance is not a VM")
             else:
-                print(rj["msg"]);
+                print(rj["msg"])
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 '''
 
 @parser.command(
@@ -1688,8 +1688,8 @@ def cloud__copy(args: argparse.Namespace):
         print("Cloud Copy Started - check instance status bar for progress updates (~30 seconds delayed).")
         print("When the operation is finished you should see 'Cloud Copy Operation Finished' in the instance status bar.")  
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 
 
 @parser.command(
@@ -1755,8 +1755,8 @@ def take__snapshot(args: argparse.Namespace):
         else:
             print(data.get("msg", "Unknown error with snapshot request"))
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 
 def validate_frequency_values(day_of_the_week, hour_of_the_day, frequency):
 
@@ -2863,14 +2863,14 @@ def destroy_instance(id,args):
     if args.raw:
         return r
     elif (r.status_code == 200):
-        rj = r.json();
+        rj = r.json()
         if (rj["success"]):
-            print("destroying instance {id}.".format(**(locals())));
+            print("destroying instance {id}.".format(**(locals())))
         else:
-            print(rj["msg"]);
+            print(rj["msg"])
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 
 
 @parser.command(
@@ -2889,7 +2889,7 @@ def destroy__instance(args):
     """
     destroy_instance(args.id,args)
 
-def destory_instances(instance_ids, args):
+def destroy_instances(instance_ids, args):
     instance_ids = instance_ids if isinstance(instance_ids, list) else [instance_ids]
     def instance_id_to_int(id):
         try: 
@@ -2909,12 +2909,13 @@ def destory_instances(instance_ids, args):
     elif (r.status_code == 200):
         rj = r.json()
         if (rj["success"]):
+            instance_ids = [str(id) for id in instance_ids]
             str_instance_ids = ",".join(instance_ids)
-            print("destroying instances {str_instance_ids}.".format(**(locals())))
+            print(f"destroying instances {str_instance_ids}.".format(**locals()))
         else:
             print(rj["msg"])
     else:
-        print(r.text);
+        print(r.text)
         print("failed with error {r.status_code}".format(**locals()))
 
 @parser.command(
@@ -2925,8 +2926,8 @@ def destory_instances(instance_ids, args):
 def destroy__instances(args):
     """
     """
-    for id in args.ids:
-        destroy_instance(id, args)
+    instance_ids = [id for id in args.ids if id is not None]
+    destroy_instances(instance_ids, args)
 
 @parser.command(
     usage="vastai destroy team",
@@ -3007,14 +3008,14 @@ def execute(args):
                 url = rj["result_url"]
                 r = requests.get(url)
                 if (r.status_code == 200):
-                    filtered_text = r.text.replace(rj["writeable_path"], '');
+                    filtered_text = r.text.replace(rj["writeable_path"], '')
                     print(filtered_text)
                     break
         else:
-            print(rj);
+            print(rj)
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 
 
 
@@ -3111,7 +3112,7 @@ def invite__member(args):
     if (r.status_code == 200):
         print(f"successfully invited {args.email} to your current team")
     else:
-        print(r.text);
+        print(r.text)
         print(f"failed with error {r.status_code}")
 
 
@@ -3191,11 +3192,11 @@ def label__instance(args):
     r = http_put(args, url,  headers=headers,json=json_blob)
     r.raise_for_status()
 
-    rj = r.json();
+    rj = r.json()
     if rj["success"]:
-        print("label for {args.id} set to {args.label}.".format(**(locals())));
+        print("label for {args.id} set to {args.label}.".format(**(locals())))
     else:
-        print(rj["msg"]);
+        print(rj["msg"])
 
 
 def fetch_url_content(url):
@@ -3486,13 +3487,13 @@ def prepay__instance(args):
     r = http_put(args, url,  headers=headers,json=json_blob)
     r.raise_for_status()
 
-    rj = r.json();
+    rj = r.json()
     if rj["success"]:
         timescale = round( rj["timescale"], 3)
         discount_rate = 100.0*round( rj["discount_rate"], 3)
-        print("prepaid for {timescale} months of instance {args.id} applying ${args.amount} credits for a discount of {discount_rate}%".format(**(locals())));
+        print("prepaid for {timescale} months of instance {args.id} applying ${args.amount} credits for a discount of {discount_rate}%".format(**(locals())))
     else:
-        print(rj["msg"]);
+        print(rj["msg"])
 
 '''
 '''
@@ -3529,14 +3530,14 @@ def reboot__instance(args):
         return
 
     if (r.status_code == 200):
-        rj = r.json();
+        rj = r.json()
         if (rj["success"]):
-            print("Rebooting instance {args.id}.".format(**(locals())));
+            print("Rebooting instance {args.id}.".format(**(locals())))
         else:
-            print(rj["msg"]);
+            print(rj["msg"])
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 
 
 @parser.command(
@@ -3559,12 +3560,12 @@ def recycle__instance(args):
     if (r.status_code == 200):
         rj = r.json()
         if (rj["success"]):
-            print("Recycling instance {args.id}.".format(**(locals())));
+            print("Recycling instance {args.id}.".format(**(locals())))
         else:
-            print(rj["msg"]);
+            print(rj["msg"])
     else:
         print(r.text)
-        print("failed with error {r.status_code}".format(**locals()));
+        print("failed with error {r.status_code}".format(**locals()))
 
 @parser.command(
     argument("id", help="id of user to remove", type=int),
@@ -4645,8 +4646,8 @@ def _ssh_url(args, protocol):
         port   = json_object["port"]
 
     if ipaddr is None or ipaddr.endswith('.vast.ai'):
-        req_url = apiurl(args, "/instances", {"owner": "me"});
-        r = http_get(args, req_url);
+        req_url = apiurl(args, "/instances", {"owner": "me"})
+        r = http_get(args, req_url)
         r.raise_for_status()
         rows = r.json()["instances"]
         if args.id:
@@ -4813,7 +4814,7 @@ def show__workergroups(args):
     #print("workergroup list ".format(r.json()))
 
     if (r.status_code == 200):
-        rj = r.json();
+        rj = r.json()
         if (rj["success"]):
             rows = rj["results"] 
             if args.raw:
@@ -4822,7 +4823,7 @@ def show__workergroups(args):
                 #print(rows)
                 print(json.dumps(rows, indent=1, sort_keys=True))
         else:
-            print(rj["msg"]);
+            print(rj["msg"])
 
 @parser.command(
     usage="vastai show endpoints [--api-key API_KEY]",
@@ -4842,7 +4843,7 @@ def show__endpoints(args):
     #print("workergroup list ".format(r.json()))
 
     if (r.status_code == 200):
-        rj = r.json();
+        rj = r.json()
         if (rj["success"]):
             rows = rj["results"] 
             if args.raw:
@@ -4851,7 +4852,7 @@ def show__endpoints(args):
                 #print(rows)
                 print(json.dumps(rows, indent=1, sort_keys=True))
         else:
-            print(rj["msg"]);
+            print(rj["msg"])
 
 
 @parser.command(
@@ -4865,9 +4866,9 @@ def show__connections(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, "/users/cloud_integrations/");
+    req_url = apiurl(args, "/users/cloud_integrations/")
     print(req_url)
-    r = http_get(args, req_url, headers=headers);
+    r = http_get(args, req_url, headers=headers)
     r.raise_for_status()
     rows = r.json()
 
@@ -4946,7 +4947,7 @@ def show__earnings(args):
 
 
 
-    req_url = apiurl(args, "/users/me/machine-earnings", {"owner": "me", "sday": sday, "eday": eday, "machid" :args.machine_id});
+    req_url = apiurl(args, "/users/me/machine-earnings", {"owner": "me", "sday": sday, "eday": eday, "machid" :args.machine_id})
     r = http_get(args, req_url)
     r.raise_for_status()
     rows = r.json()
@@ -5025,7 +5026,7 @@ def show__invoices(args):
     """
 
     sdate,edate = convert_dates_to_timestamps(args)
-    req_url = apiurl(args, "/users/me/invoices", {"owner": "me", "sdate":sdate, "edate":edate, "inc_charges" : not args.only_credits});
+    req_url = apiurl(args, "/users/me/invoices", {"owner": "me", "sdate":sdate, "edate":edate, "inc_charges" : not args.only_credits})
 
     r = http_get(args, req_url)
     r.raise_for_status()
@@ -5098,7 +5099,7 @@ def show__instance(args):
     :rtype:
     """
 
-    #req_url = apiurl(args, "/instance", {"owner": "me"});
+    #req_url = apiurl(args, "/instance", {"owner": "me"})
     req_url = apiurl(args, "/instances/{id}/".format(id=args.id) , {"owner": "me"} )
    
     #r = http_get(req_url)
@@ -5125,7 +5126,7 @@ def show__instances(args = {}, extra = {}):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, "/instances", {"owner": "me"});
+    req_url = apiurl(args, "/instances", {"owner": "me"})
     #r = http_get(req_url)
     r = http_get(args, req_url)
     r.raise_for_status()
@@ -5161,8 +5162,8 @@ def show__ipaddrs(args):
     :rtype:
     """
 
-    req_url = apiurl(args, "/users/me/ipaddrs", {"owner": "me"});
-    r = http_get(args, req_url);
+    req_url = apiurl(args, "/users/me/ipaddrs", {"owner": "me"})
+    r = http_get(args, req_url)
     r.raise_for_status()
     rows = r.json()["results"]
     if args.raw:
@@ -5249,8 +5250,8 @@ def show__subaccounts(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, "/subaccounts", {"owner": "me"});
-    r = http_get(args, req_url);
+    req_url = apiurl(args, "/subaccounts", {"owner": "me"})
+    r = http_get(args, req_url)
     r.raise_for_status()
     rows = r.json()["users"]
     if args.raw:
@@ -5312,8 +5313,8 @@ def show__user(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, "/users/current", {"owner": "me"});
-    r = http_get(args, req_url);
+    req_url = apiurl(args, "/users/current", {"owner": "me"})
+    r = http_get(args, req_url)
     r.raise_for_status()
     user_blob = r.json()
     user_blob.pop("api_key")
@@ -5338,7 +5339,7 @@ def show__volumes(args: argparse.Namespace):
         "all": "all_volume"
     }
     type = types.get(args.type, "all")
-    req_url = apiurl(args, "/volumes", {"owner": "me", "type" : type});
+    req_url = apiurl(args, "/volumes", {"owner": "me", "type" : type})
     r = http_get(args, req_url)
     r.raise_for_status()
     rows = r.json()["volumes"]
@@ -5422,14 +5423,14 @@ def transfer__credit(args: argparse.Namespace):
     r.raise_for_status()
 
     if (r.status_code == 200):
-        rj = r.json();
+        rj = r.json()
         if (rj["success"]):
             print(f"Sent {args.amount} to {args.recipient} ".format(r.json()))
         else:
-            print(rj["msg"]);
+            print(rj["msg"])
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 
 @parser.command(
     argument("id", help="id of autoscale group to update", type=int),
@@ -5954,17 +5955,17 @@ def delete__machine(args):
     """
     Deletes machine if the machine is not in use by clients. Disregards host jobs on their own machines and force deletes a machine.
     """
-    req_url = apiurl(args, "/machines/{machine_id}/force_delete/".format(machine_id=args.id));
+    req_url = apiurl(args, "/machines/{machine_id}/force_delete/".format(machine_id=args.id))
     r = http_post(args, req_url, headers=headers)
     if (r.status_code == 200):
         rj = r.json()
         if (rj["success"]):
-            print("deleted machine_id ({machine_id}) and all related contracts.".format(machine_id=args.id));
+            print("deleted machine_id ({machine_id}) and all related contracts.".format(machine_id=args.id))
         else:
-            print(rj["msg"]);
+            print(rj["msg"])
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 
 
 def list_machine(args, id):
@@ -6273,19 +6274,19 @@ def remove__defjob(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, "/machines/{machine_id}/defjob/".format(machine_id=args.id));
-    # print(req_url);
+    req_url = apiurl(args, "/machines/{machine_id}/defjob/".format(machine_id=args.id))
+    # print(req_url)
     r = http_del(args, req_url, headers=headers)
 
     if (r.status_code == 200):
-        rj = r.json();
+        rj = r.json()
         if (rj["success"]):
-            print("default instance for machine {machine_id} removed.".format(machine_id=args.id));
+            print("default instance for machine {machine_id} removed.".format(machine_id=args.id))
         else:
-            print(rj["msg"]);
+            print(rj["msg"])
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 
 
 
@@ -6295,7 +6296,7 @@ def set_ask(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    print("set asks!\n");
+    print("set asks!\n")
 
 
 
@@ -6320,22 +6321,22 @@ def set__defjob(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url   = apiurl(args, "/machines/create_bids/");
+    req_url   = apiurl(args, "/machines/create_bids/")
     json_blob = {'machine': args.id, 'price_gpu': args.price_gpu, 'price_inetu': args.price_inetu, 'price_inetd': args.price_inetd, 'image': args.image, 'args': args.args}
     if (args.explain):
         print("request json: ")
         print(json_blob)
     r = http_put(args, req_url, headers=headers, json=json_blob)
     if (r.status_code == 200):
-        rj = r.json();
+        rj = r.json()
         if (rj["success"]):
             print(
-                "bids created for machine {args.id},  @ ${args.price_gpu}/gpu/day, ${args.price_inetu}/GB up, ${args.price_inetd}/GB down".format(**locals()));
+                "bids created for machine {args.id},  @ ${args.price_gpu}/gpu/day, ${args.price_inetu}/GB up, ${args.price_inetd}/GB down".format(**locals()))
         else:
-            print(rj["msg"]);
+            print(rj["msg"])
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 
 
 def smart_split(s, char):
@@ -6489,7 +6490,7 @@ def show__machine(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, f"/machines/{args.Machine}", {"owner": "me"});
+    req_url = apiurl(args, f"/machines/{args.Machine}", {"owner": "me"})
     r = http_get(args, req_url)
     r.raise_for_status()
     rows = r.json()
@@ -6515,7 +6516,7 @@ def show__machines(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, "/machines", {"owner": "me"});
+    req_url = apiurl(args, "/machines", {"owner": "me"})
     r = http_get(args, req_url)
     r.raise_for_status()
     rows = r.json()["machines"]
@@ -6545,7 +6546,7 @@ def show__maints(args):
     machine_ids = args.ids.split(',')
     machine_ids = list(map(int, machine_ids))
 
-    req_url = apiurl(args, "/machines/maintenances", {"owner": "me", "machine_ids" : machine_ids});
+    req_url = apiurl(args, "/machines/maintenances", {"owner": "me", "machine_ids" : machine_ids})
     r = http_get(args, req_url)
     r.raise_for_status()
     rows = r.json()
@@ -6572,17 +6573,17 @@ def unlist__machine(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, "/machines/{machine_id}/asks/".format(machine_id=args.id));
+    req_url = apiurl(args, "/machines/{machine_id}/asks/".format(machine_id=args.id))
     r = http_del(args, req_url, headers=headers)
     if (r.status_code == 200):
-        rj = r.json();
+        rj = r.json()
         if (rj["success"]):
-            print("all offers for machine {machine_id} removed, machine delisted.".format(machine_id=args.id));
+            print("all offers for machine {machine_id} removed, machine delisted.".format(machine_id=args.id))
         else:
-            print(rj["msg"]);
+            print(rj["msg"])
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(r.text)
+        print("failed with error {r.status_code}".format(**locals()))
 
 
 def suppress_stdout():
@@ -7474,13 +7475,13 @@ def main():
         sys.exit(res)
     except requests.exceptions.HTTPError as e:
         try:
-            errmsg = e.response.json().get("msg");
+            errmsg = e.response.json().get("msg")
         except JSONDecodeError:
             if e.response.status_code == 401:
                 errmsg = "Please log in or sign up"
             else:
                 errmsg = "(no detail message supplied)"
-        print("failed with error {e.response.status_code}: {errmsg}".format(**locals()));
+        print("failed with error {e.response.status_code}: {errmsg}".format(**locals()))
     except ValueError as e:
       print(e)
 

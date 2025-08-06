@@ -1,0 +1,84 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Network Volume Unlist API
+  description: API endpoint for unlisting network volumes for rent on the vast.ai platform.
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/network_volume/unlist:
+    post:
+      summary: unlist network-volume
+      description: 'Unlists a network volume for rent
+        
+       CLI Usage: vast unlist network-volume <offer_id>
+        '
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - id
+              properties:
+                id:
+                  type: integer
+                  description: ID of network volume ask being unlisted
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  id:
+                    type: integer
+                    description: id of unlisted network volume ask
+                  msg:
+                    type: string
+                    description: status message
+                example:
+                  success: true
+                  id: 6
+                  msg: Deleted network volume listing
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: invalid_args
+                  msg:
+                    type: string
+                    example: You must pass in `id` in the body of the request
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: not_authorized
+                  msg:
+                    type: string
+                    example: Authorization Error. Check that you have proper privileges to perform this action.
+      tags:
+      - Network Volumes
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Bearer authentication with API key in Authorization header

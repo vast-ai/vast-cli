@@ -10,6 +10,84 @@ servers:
 - url: https://console.vast.ai
   description: Production server
 paths:
+  /api/v0/network_disk/:
+    post:
+      summary: add network-disk
+      description: 'Adds a network disk to be used to create network volume offers,
+        or adds machines to an existing network disk.
+
+        CLI Usage: vast add network_disk <machine_id>... <mount_point> [options]'
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - mount_point
+              properties:
+                machine_id:
+                  type: integer
+                  description: ID of the machine to add network disk to
+                machine_ids:
+                  type: array
+                  items:
+                    type: integer
+                  description: IDs of machines to add network disk to
+                mount_point:
+                  type: string
+                  description: Path to mount point of networked storage on machine
+                    or machines
+                disk_id:
+                  type: integer
+                  description: ID of network disk, if adding machines to existing
+                    disk
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  disk_id:
+                    type: integer
+                    description: ID of disk created or added to machines
+                example:
+                  success: true
+                  disk_id: 2
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: invalid_args
+                  msg:
+                    type: string
+                    example: Invalid machine id
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: not_authorized
+                  msg:
+                    type: string
+                    example: Only machine owner can add network disk
+      tags:
+      - Network Volumes
   /api/v0/instances/{id}/ssh/:
     post:
       summary: attach ssh-key
@@ -1695,6 +1773,162 @@ paths:
                     example: API requests too frequent endpoint threshold=4.5
       tags:
       - Instances
+  /api/v0/network_volume/:
+    put:
+      summary: create network-volume
+      description: 'Creates a network volume from an offer
+
+        CLI Usage: vast create network-volume <offer_id>'
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - id
+              - size
+              properties:
+                id:
+                  type: integer
+                  description: ID of network volume ask being accepted
+                size:
+                  type: integer
+                  description: size of network volume in GB being created
+                name:
+                  type: string
+                  description: optional name for network volume being created
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  volume_name:
+                    type: string
+                    description: name of network volume created
+                  volume_size:
+                    type: integer
+                    description: size of network volume created
+                example:
+                  success: true
+                  id: 6
+                  msg: Deleted network volume listing
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: invalid_args
+                  msg:
+                    type: string
+                    example: You must pass in `id` in the body of the request
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: not_authorized
+                  msg:
+                    type: string
+                    example: Authorization Error. Check that you have proper privileges
+                      to perform this action.
+      tags:
+      - Network Volumes
+    post:
+      summary: list network-volume
+      description: 'Lists a network disk for rent as network volumes, or updates an
+        existing listing with a new price/size/end date/discount
+
+        CLI Usage: vast list network-volume <disk_id> [options]'
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - disk_id
+              properties:
+                price_disk:
+                  type: number
+                  format: float
+                  description: Price per GB of network volume storage
+                disk_id:
+                  type: integer
+                  description: ID of network disk for which offer is being created
+                size:
+                  type: integer
+                  description: Size in GB of the amount of space available to be rented
+                credit_discount_max:
+                  type: number
+                  format: float
+                  description: Maximum discount rate allowed for prepaid credits
+                end_date:
+                  type: number
+                  format: float
+                  description: Unix timestamp for when the listing expires
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  msg:
+                    type: string
+                    description: status message
+                example:
+                  success: true
+                  disk_id: created network volume ask with id 6 and size 24
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: invalid_args
+                  msg:
+                    type: string
+                    example: Invalid disk_id
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: not_authorized
+                  msg:
+                    type: string
+                    example: Could not find network disk with id 6 associated with
+                      user
+      tags:
+      - Network Volumes
   /api/v0/ssh/:
     post:
       summary: create ssh-key
@@ -5228,6 +5462,163 @@ paths:
                     example: API requests too frequent endpoint threshold=3.0
       tags:
       - Billing
+  /api/v0/network_volumes/search/:
+    post:
+      summary: search network volumes
+      description: 'Search for available GPU machine offers with advanced filtering
+        and sorting.
+
+        CLI Usage: ``` vast search network-volumes --order=storage_cost ''reliability
+        > 0.99 geolocation in [US, CA]''```'
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                q:
+                  type: object
+                  properties:
+                    verified:
+                      type: object
+                      description: Display offers where all machines in cluster are
+                        verified
+                      example:
+                        eq: true
+                    order:
+                      type: array
+                      items:
+                        type: array
+                        items:
+                          type: string
+                      description: Sort fields and directions
+                      example:
+                      - - storage_cost
+                        - asc
+                    limit:
+                      type: integer
+                      description: Max results to return
+                    reliability2:
+                      type: object
+                      description: Cluster reliability score (0-1)
+                      example:
+                        gt: 0.98
+                    inet_down:
+                      type: object
+                      description: Download bandwidth (MB/s)
+                      example:
+                        gt: 100.0
+                    inet_up:
+                      type: object
+                      description: Upload bandwidth (MB/s)
+                      example:
+                        gt: 100.0
+                    geolocation:
+                      type: object
+                      description: Cluster location (two letter country code)
+                      example:
+                        in:
+                        - TW
+                        - SE
+                    disk_bw:
+                      type: object
+                      description: Disk read bandwidth in MB/s
+                      example:
+                        gt: 500
+                    duration:
+                      type: object
+                      description: Maximum rental duration in days
+                      example:
+                        gte: 30
+                    storage_cost:
+                      type: object
+                      description: Storage cost in $/GB/month
+                      example:
+                        lte: 0.1
+      responses:
+        '200':
+          description: Successful search response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  offers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        ask_contract_id:
+                          type: integer
+                          description: Unique offer ID
+                        disk_space:
+                          type: number
+                          description: Storage space in GB
+                        inet_up:
+                          type: number
+                          description: Upload bandwidth (MB/s)
+                        inet_down:
+                          type: number
+                          description: Download bandwidth (MB/s)
+                        reliability2:
+                          type: number
+                          description: Cluster reliability score (0-1)
+                        verified:
+                          type: boolean
+                          description: Cluster verification status
+                        geolocation:
+                          type: string
+                          description: Geographic location
+                        nw_disk_avg_bw:
+                          type: integer
+                          description: Average read bw of network disk from machines
+                            in cluster
+                        nw_disk_max_bw:
+                          type: integer
+                          description: Max read bw of network disk from machines in
+                            cluster
+                        nw_disk_min_bw:
+                          type: integer
+                          description: Min read bw of network disk from machines in
+                            cluster
+                        start_date:
+                          type: number
+                          description: start date of offer, in epoch time
+                        end_date:
+                          type: number
+                          description: end date of offer, in epoch time
+                        storage_cost:
+                          type: number
+                          description: storage cost in $/GB/month
+                        storage_cost_total:
+                          type: number
+                          description: total storage cost per hour for rented space
+        '400':
+          description: Bad request - invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized - invalid or missing API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too many requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      tags:
+      - Network Volumes
   /api/v0/search/asks/:
     put:
       summary: search offers
@@ -6929,6 +7320,75 @@ paths:
                     example: API requests too frequent endpoint threshold=1.8
       tags:
       - Machines
+  /api/v0/network_volume/unlist:
+    post:
+      summary: unlist network-volume
+      description: 'Unlists a network volume for rent
+
+        CLI Usage: vast unlist network-volume <offer_id>'
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - id
+              properties:
+                id:
+                  type: integer
+                  description: ID of network volume ask being unlisted
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  id:
+                    type: integer
+                    description: id of unlisted network volume ask
+                  msg:
+                    type: string
+                    description: status message
+                example:
+                  success: true
+                  id: 6
+                  msg: Deleted network volume listing
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: invalid_args
+                  msg:
+                    type: string
+                    example: You must pass in `id` in the body of the request
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: not_authorized
+                  msg:
+                    type: string
+                    example: Authorization Error. Check that you have proper privileges
+                      to perform this action.
+      tags:
+      - Network Volumes
   /api/v0/volumes/unlist:
     post:
       summary: unlist volume

@@ -727,10 +727,11 @@ instance_fields = (
 cluster_fields = (
     ("id", "ID", "{}", None, True),
     ("subnet", "Subnet", "{}", None, True),
+    ("status", "Status", "{}", None, True),
     ("node_count", "Nodes", "{}", None, True),
     ("manager_id", "Manager ID", "{}", None, True),
     ("manager_ip", "Manager IP", "{}", None, True),
-    ("machine_ids", "Machine ID's", "{}", None, True)
+    ("machines", "Machines", "{}", None, True),
 )
 
 overlay_fields = (
@@ -5161,7 +5162,7 @@ def show__clusters(args: argparse.Namespace):
 
     rows = []
     for cluster_id, cluster_data in response_data['clusters'].items():
-        machine_ids = [ node["machine_id"] for node in cluster_data["nodes"]]
+        machines = {member['machine_id']: member['actual_status'] for member in cluster_data["nodes"]}
 
         manager_node = next(node for node in cluster_data['nodes'] if node['is_cluster_manager'])
 
@@ -5169,9 +5170,10 @@ def show__clusters(args: argparse.Namespace):
             'id': cluster_id,
             'subnet': cluster_data['subnet'],
             'node_count': len(cluster_data['nodes']),
-            'machine_ids': str(machine_ids),
+            'machines': machines,
             'manager_id': str(manager_node['machine_id']),
             'manager_ip': manager_node['local_ip'],
+            'status': cluster_data['actual_status'],
         }
 
         rows.append(row_data)

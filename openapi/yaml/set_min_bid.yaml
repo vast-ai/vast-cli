@@ -1,0 +1,111 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API - Set Minimum Bid Price
+  description: API endpoint to set the minimum bid price for a machine.
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/machines/{machine_id}/minbid:
+    put:
+      summary: set min-bid
+      description: 'Sets the minimum bid price for a specified machine.
+
+
+        CLI Usage: vast set min-bid {machine_id} --price {price}
+
+        '
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: machine_id
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: The ID of the machine.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - price
+              properties:
+                price:
+                  type: number
+                  format: float
+                  description: Minimum bid price for the machine.
+                  example: 0.5
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  you_sent:
+                    type: object
+                    description: The original request JSON.
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=1.5
+      tags:
+      - Machines
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 1.5
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-input-validation:
+  price:
+    max_length: None
+    pattern: None
+    description: Must be a float representing the minimum bid price.
+x-cli-commands:
+- name: set min-bid
+  description: Set the minimum bid price for a machine.
+  endpoint: /api/v0/machines/{machine_id}/minbid
+  method: PUT
+  example: vast set min-bid 123 --price 0.5

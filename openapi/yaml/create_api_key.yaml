@@ -1,0 +1,153 @@
+openapi: 3.0.0
+info:
+  title: Create API Key
+  description: 'Creates a new API key with restricted permissions that can be shared
+    with other users and teammates.
+
+    The permissions must be specified in a JSON file format.
+
+    '
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/auth/apikeys/:
+    post:
+      summary: create api-key
+      description: 'Creates a new API key with specified permissions for the authenticated
+        user.
+
+
+        CLI Usage: vast create api-key --name NAME --permission_file PERMISSIONS [--key_params
+        PARAMS]
+
+
+        Example:
+
+        vast create api-key --name "read-only" --permission_file permissions.json
+
+        '
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  description: Name for the API key
+                  example: read-only-key
+                permissions:
+                  type: object
+                  description: JSON object containing permission definitions
+                  example:
+                    read: true
+                    write: false
+                key_params:
+                  type: object
+                  description: Optional wildcard parameters for advanced keys
+                  example:
+                    ip_whitelist:
+                    - 1.2.3.4
+      responses:
+        '200':
+          description: API key created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    description: The ID of the created API key
+                    example: 12345
+                  key:
+                    type: string
+                    description: The newly generated API key
+                    example: vast-123456789abcdef
+                  permissions:
+                    anyOf:
+                    - type: boolean
+                      description: False when permissions are disabled
+                      example: false
+                    - type: object
+                      description: Object defining the permissions when enabled
+                      example:
+                        read: true
+                        write: false
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    enum:
+                    - invalid_permissions
+                    - missing_permissions
+                  msg:
+                    type: string
+                    example: Invalid permission format
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  msg:
+                    type: string
+                    example: Unauthorized
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=2.0
+      tags:
+      - Accounts
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+x-rate-limit:
+  threshold: 2.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-input-validation:
+  permissions:
+    description: Must be valid JSON object defining allowed permissions
+    example:
+      read: true
+      write: false
+  name:
+    max_length: 255
+    description: Optional name to identify the API key
+  key_params:
+    description: Optional parameters for advanced key configuration
+x-cli-commands:
+- name: create api-key
+  description: Create a new API key with restricted permissions
+  endpoint: /api/v0/auth/apikeys/
+  method: POST
+  example: vast create api-key --name "read-only" --permission_file permissions.json

@@ -1,0 +1,98 @@
+openapi: 3.0.0
+info:
+  title: Instance Reboot API
+  description: API endpoint to reboot (stop/start) a running instance container
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/instances/reboot/{id}/:
+    put:
+      summary: reboot instance
+      description: "Stops and starts a container without losing GPU priority. Updates\
+        \ container status to 'rebooting' \nand executes docker stop/start commands\
+        \ on the host machine.\n\nCLI Usage: vastai reboot instance <ID>\n"
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: ID of the instance to reboot
+        example: 1234
+      responses:
+        '200':
+          description: Instance reboot initiated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    enum:
+                    - invalid_args
+                  msg:
+                    type: string
+                    example: invalid instance_id
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=1.0
+      tags:
+      - Instances
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 1.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: reboot instance
+  description: Reboot (stop/start) an instance
+  endpoint: /api/v0/instances/reboot/{id}/
+  method: PUT
+  example: vastai reboot instance 1234

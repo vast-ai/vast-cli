@@ -1,0 +1,143 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Team Member Invitation API
+  description: 'API endpoint for inviting new members to a team. This endpoint validates
+    the invitation request,
+
+    checks permissions, and sends an email invitation to the specified user.
+
+
+    The inviter must be a team member with appropriate permissions to invite new members.
+
+    '
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/team/invite/:
+    post:
+      summary: invite team member
+      description: 'Sends an invitation email to the specified user to join the team
+        with the given role.
+
+
+        CLI Usage: vast-ai invite team-member --email EMAIL --role ROLE
+
+        '
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - email
+              - role
+              properties:
+                email:
+                  type: string
+                  description: Email address of the user to invite
+                  format: email
+                  example: user@example.com
+                role:
+                  type: string
+                  description: Role to assign to the new team member
+                  example: developer
+                api_key:
+                  type: string
+                  description: API key of the inviting user
+                  example: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+      responses:
+        '200':
+          description: Invitation sent successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  msg:
+                    type: string
+                    example: New invitation sent to ${email}
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  msg:
+                    type: string
+                    enum:
+                    - User is a not a team member
+                    - User cannot be invited to their own team.
+                    - User is already a member of this team.
+        '403':
+          description: Forbidden - User not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Team metadata not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  msg:
+                    type: string
+                    example: Team metadata not found
+        '429':
+          description: Too Many Requests - Duplicate invitation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  msg:
+                    type: string
+                    example: 'Error: invitation already sent to user@example.com only
+                      300 seconds ago.'
+      tags:
+      - Team
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  description: Prevents duplicate invitations to same email within short time period
+  error_response:
+    status_code: 429
+    message: 'Error: invitation already sent to {email} only {elapsed} seconds ago.'
+x-input-validation:
+  email:
+    required: true
+    format: email
+    description: Must be valid email format and not belong to an existing team member
+  role:
+    required: true
+    description: Must match an existing role in the team's rights table
+  api_key:
+    description: Used to identify the actual inviting user
+x-cli-commands:
+- name: invite team-member
+  description: Invite a new member to join your team
+  endpoint: /api/v0/team/invite/
+  method: POST
+  example: vast-ai invite team-member --email user@example.com --role developer

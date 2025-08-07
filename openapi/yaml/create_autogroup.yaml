@@ -1,0 +1,168 @@
+openapi: 3.0.0
+info:
+  title: Create Autoscaling Job API
+  description: Creates a new autoscaling job configuration for serverless endpoints
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/autojobs/:
+    post:
+      summary: create workergroup
+      description: 'Creates a new autoscaling job configuration that manages worker
+        instances for a serverless endpoint.
+
+
+        CLI Usage: vast-ai create workergroup --template_hash <HASH> --endpoint_name
+        <NAME> [options]
+
+        '
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                endpoint_name:
+                  type: string
+                  description: Name of the endpoint group
+                  example: LLama
+                endpoint_id:
+                  type: integer
+                  description: ID of existing endpoint group (alternative to endpoint_name)
+                  example: 123
+                template_hash:
+                  type: string
+                  description: Hash ID of template to use for worker instances
+                  example: abc123def456
+                template_id:
+                  type: integer
+                  description: ID of template (alternative to template_hash)
+                  example: 456
+                search_params:
+                  type: string
+                  description: Search query for finding worker instances (alternative
+                    to template)
+                  default: '{"verified": {"eq": true}, "rentable": {"eq": true}, "rented": {"eq": false}}'
+                  example: gpu_name=RTX_3090 rentable=true
+                launch_args:
+                  type: string
+                  description: Additional launch arguments for worker instances
+                  example: "--env VAR=value"
+                min_load:
+                  type: number
+                  description: Minimum load threshold for scaling
+                  default: 1.0
+                  example: 1.0
+                target_util:
+                  type: number
+                  description: Target GPU utilization
+                  default: 0.9
+                  example: 0.9
+                cold_mult:
+                  type: number
+                  description: Cold start multiplier
+                  default: 3.0
+                  example: 3.0
+                cold_workers:
+                  type: integer
+                  description: Number of cold workers to maintain
+                  default: 3
+                  example: 3
+                max_workers:
+                  type: integer
+                  description: Maximum number of worker instances
+                  default: 20
+                  example: 20
+                test_workers:
+                  type: integer
+                  description: Number of test workers
+                  default: 3
+                  example: 3
+                gpu_ram:
+                  type: integer
+                  description: Minimum GPU RAM in GB
+                  default: 24
+                  example: 24
+      responses:
+        '200':
+          description: Successfully created autoscaling job
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  id:
+                    type: integer
+                    description: ID of created autoscaling job
+                    example: 789
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    enum:
+                    - invalid_args
+                  msg:
+                    type: string
+                    example: Please assign your workergroup to a valid endpoint identifier
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=4.0
+      tags:
+      - Serverless
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 4.0
+  per: request
+  description: Maximum request frequency per IP address
+x-cli-commands:
+- name: create workergroup
+  description: Create a new workergroup
+  endpoint: /api/v0/autojobs/
+  method: POST
+  example: vast-ai create workergroup --template_hash abc123 --endpoint_name "LLama"
+    --test_workers 5

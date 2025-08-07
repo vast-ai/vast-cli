@@ -1,0 +1,123 @@
+openapi: 3.0.0
+info:
+  title: Show Endpoints API
+  description: Retrieve a list of endpoint jobs for the authenticated user
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/endptjobs/:
+    get:
+      summary: show endpoints
+      description: Retrieve a list of endpoint jobs for the authenticated user.
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: A list of endpoint jobs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                          example: 123
+                        min_load:
+                          type: number
+                          example: 0.0
+                        target_util:
+                          type: number
+                          example: 0.9
+                        cold_mult:
+                          type: number
+                          example: 2.5
+                        cold_workers:
+                          type: integer
+                          example: 5
+                        max_workers:
+                          type: integer
+                          example: 20
+                        endpoint_name:
+                          type: string
+                          example: my_endpoint
+                        api_key:
+                          type: string
+                          example: your_api_key_here
+                        user_id:
+                          type: integer
+                          example: 456
+                        created_at:
+                          type: string
+                          format: date-time
+                          example: '2023-10-01T12:00:00Z'
+                        endpoint_state:
+                          type: string
+                          example: active
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: invalid_args
+                  msg:
+                    type: string
+                    example: No routegroups for user found
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                  msg:
+                    type: string
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=3.0
+      tags:
+      - Serverless
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+x-rate-limit:
+  threshold: 3.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: show endpoints
+  description: Display user's current endpoint groups
+  endpoint: /api/v0/endptjobs/
+  method: GET
+  example: vast-ai show endpoints

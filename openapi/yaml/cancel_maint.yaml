@@ -1,0 +1,65 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API
+  version: 1.0.0
+paths:
+  /api/v0/machines/{machine_id}/cancel_maint:
+    put:
+      summary: cancel maint
+      description: Cancel a scheduled maintenance window for a specified machine.
+      parameters:
+      - name: machine_id
+        in: path
+        required: true
+        description: ID of the machine to cancel maintenance for.
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Maintenance window successfully canceled.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  ctime:
+                    type: number
+                    format: float
+                    description: Current time in seconds since the epoch.
+                  machine_id:
+                    type: integer
+                    description: ID of the machine.
+                  msg:
+                    type: string
+                    example: deleted 1 scheduled maintenance window(s) on machine
+                      1234
+        '404':
+          description: Machine not found or does not belong to the user.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  msg:
+                    type: string
+                    example: No such machine id
+                  machine_id:
+                    type: integer
+                  user_id:
+                    type: integer
+      security:
+      - apiKeyAuth: []
+      tags:
+      - Machines
+components:
+  securitySchemes:
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization

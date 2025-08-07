@@ -1,0 +1,141 @@
+openapi: 3.0.0
+info:
+  title: Remove Team Member API
+  description: API endpoint to remove a member from a team
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/team/members/{id}:
+    delete:
+      summary: remove team member
+      description: 'Removes a member from the team by revoking their team-related
+        API keys and updating membership status.
+
+        Cannot remove the team owner.
+
+
+        CLI Usage: vast-ai remove team-member ID
+
+        Example: vast-ai remove team-member 12345
+
+        '
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+        description: User ID of the team member to remove
+        example: 12345
+      responses:
+        '200':
+          description: Member removed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                    - success
+                    example: success
+                  message:
+                    type: string
+                    example: User removed from the team.
+        '400':
+          description: Bad request - cannot remove team owner
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  msg:
+                    type: string
+                    example: Cannot remove the team owner from the team
+        '401':
+          description: Unauthorized - invalid or missing API key
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: unauthorized
+                  msg:
+                    type: string
+                    example: Invalid or missing API key
+        '403':
+          description: Forbidden - user is blacklisted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: forbidden
+                  msg:
+                    type: string
+                    example: User is blacklisted
+        '404':
+          description: Member not found or already removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                    - failure
+                    example: failure
+                  message:
+                    type: string
+                    example: No user was removed from the team.
+        '429':
+          description: Too many requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: rate_limit_exceeded
+                  msg:
+                    type: string
+                    example: API requests too frequent endpoint threshold=3.0
+      security:
+      - ApiKeyAuth: []
+      tags:
+      - Team
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: API key authentication
+x-rate-limit:
+  threshold: 3.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: remove team-member
+  description: Remove a team member
+  endpoint: /api/v0/team/members/{id}
+  method: DELETE
+  example: vast-ai remove team-member 12345

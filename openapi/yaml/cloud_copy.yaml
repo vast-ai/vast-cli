@@ -1,0 +1,78 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Cloud Copy API
+  version: 1.0.0
+paths:
+  /api/v0/commands/rclone/:
+    post:
+      summary: cloud copy
+      description: 'Starts a cloud copy operation by sending a command to the remote
+        server. The operation can transfer data between an instance and a cloud service.
+
+        '
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                instance_id:
+                  type: string
+                  description: ID of the instance.
+                src:
+                  type: string
+                  description: Source path for the copy operation.
+                dst:
+                  type: string
+                  description: Destination path for the copy operation.
+                selected:
+                  type: string
+                  description: ID of the cloud connection.
+                transfer:
+                  type: string
+                  description: Type of transfer (e.g., "Instance To Cloud" or "Cloud
+                    To Instance").
+                flags:
+                  type: array
+                  items:
+                    type: string
+                  description: Additional flags for the operation.
+                api_key:
+                  type: string
+                  description: API key for authentication.
+      responses:
+        '200':
+          description: Cloud copy operation initiated successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  msg:
+                    type: string
+                  result_url:
+                    type: string
+        '400':
+          description: Bad request due to invalid parameters or cloud service.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  msg:
+                    type: string
+      security:
+      - apiKeyAuth: []
+      tags:
+      - Instances
+components:
+  securitySchemes:
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key

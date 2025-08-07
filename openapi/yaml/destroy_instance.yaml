@@ -1,0 +1,121 @@
+openapi: 3.0.0
+info:
+  title: Destroy Instance API
+  description: API endpoint to destroy/delete an instance
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/instances/{id}/:
+    delete:
+      summary: destroy instance
+      description: 'Destroys/deletes an instance permanently. This is irreversible
+        and will delete all data.
+
+
+        CLI Usage: vast-ai destroy instance <id>
+
+        Example: vast-ai destroy instance 4242
+
+        '
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+        description: ID of the instance to destroy
+        example: 4242
+      - in: query
+        name: api_key
+        schema:
+          type: string
+        description: Optional API key for authentication (can also be provided in
+          Authorization header)
+        required: false
+      responses:
+        '200':
+          description: Instance destroyed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                    description: Whether the destruction was successful
+                  msg:
+                    type: string
+                    description: Optional status message
+                    example: Instance destroyed successfully
+        '400':
+          description: Bad request - invalid instance ID
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: invalid_args
+                  msg:
+                    type: string
+                    example: invalid instance_id
+        '404':
+          description: Instance not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: not_found
+                  msg:
+                    type: string
+                    example: Instance not found
+        '429':
+          description: Too many requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: rate_limit_exceeded
+                  msg:
+                    type: string
+                    example: API requests too frequent endpoint threshold=3.0
+      security:
+      - ApiKeyAuth: []
+      tags:
+      - Instances
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: API key authentication
+x-rate-limit:
+  threshold: 3.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: destroy instance
+  description: Destroy an instance (irreversible, deletes data)
+  endpoint: /api/v0/instances/{id}
+  method: DELETE
+  example: vast-ai destroy instance 4242

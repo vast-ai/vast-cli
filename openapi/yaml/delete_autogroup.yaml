@@ -1,0 +1,129 @@
+openapi: 3.0.0
+info:
+  title: Delete Autogroup API
+  description: API endpoint to delete an autogroup/autoscaler job
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/autojobs/{id}/:
+    delete:
+      summary: delete autogroup
+      description: "Deletes an existing autogroup/autoscaler job. Note that deleting\
+        \ an autogroup doesn't \nautomatically destroy all instances associated with\
+        \ it.\n\nCLI Usage: vastai delete autogroup <ID>\n"
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: ID of the autogroup to delete
+        schema:
+          type: integer
+          example: 4242
+      responses:
+        '200':
+          description: Autogroup deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  deleted_workers:
+                    type: array
+                    description: List of worker instances that were deleted
+                    items:
+                      type: integer
+                    example: [1001, 1002]
+                  failed_workers:
+                    type: array
+                    description: List of worker instances that failed to delete
+                    items:
+                      type: integer
+                    example: []
+                  msg:
+                    type: string
+                    description: Additional information about the deletion
+                    example: "Deleted autojob and 2 workers"
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: invalid_args
+                  msg:
+                    type: string
+                    example: Invalid autojob ID
+        '404':
+          description: Autogroup not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: no_such_autojob
+                  msg:
+                    type: string
+                    example: No autojob by that id is available.
+                  id:
+                    type: integer
+                    example: 4242
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                  msg:
+                    type: string
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=3.0
+      tags:
+      - Serverless
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+x-rate-limit:
+  threshold: 3.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: delete autogroup
+  description: Delete an autogroup group
+  endpoint: /api/v0/autojobs/{id}/
+  method: DELETE
+  example: vastai delete autogroup 4242

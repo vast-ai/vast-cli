@@ -1,0 +1,140 @@
+openapi: 3.0.0
+info:
+  title: Show Autogroups API
+  description: Retrieve the list of autojob groups for the authenticated user
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/autojobs/:
+    get:
+      summary: show autogroup
+      description: 'Retrieves the list of autojob groups associated with the authenticated
+        user.
+
+
+        CLI Usage: vastai show autogroups
+
+        '
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                          example: 123
+                        min_load:
+                          type: number
+                          example: 1.0
+                        target_util:
+                          type: number
+                          example: 0.9
+                        cold_mult:
+                          type: number
+                          example: 3.0
+                        test_workers:
+                          type: integer
+                          example: 3
+                        template_hash:
+                          type: string
+                          example: abc123def456
+                        template_id:
+                          type: integer
+                          example: 456
+                        search_query:
+                          type: object
+                          description: Parsed search parameters as JSON object
+                          example: {"verified": {"eq": true}, "rentable": {"eq": true}}
+                        launch_args:
+                          type: string
+                          example: "--env VAR=value"
+                        gpu_ram:
+                          type: number
+                          example: 24
+                        endpoint_name:
+                          type: string
+                          example: my_endpoint
+                        endpoint_id:
+                          type: integer
+                          example: 789
+                        api_key:
+                          type: string
+                          example: your_api_key_here
+                        created_at:
+                          type: string
+                          format: date-time
+                          example: '2023-10-01T12:00:00Z'
+                        user_id:
+                          type: integer
+                          example: 456
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                  msg:
+                    type: string
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                  msg:
+                    type: string
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=2.0
+      tags:
+      - Serverless
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+x-rate-limit:
+  threshold: 2.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: show autogroups
+  description: Retrieve the list of autojob groups for the authenticated user
+  endpoint: /api/v0/autojobs/
+  method: GET
+  example: vastai show autogroups

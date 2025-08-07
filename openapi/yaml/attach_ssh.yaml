@@ -1,0 +1,90 @@
+openapi: 3.0.0
+info:
+  title: Attach SSH Key API
+  description: API for attaching an SSH key to an instance.
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/instances/{id}/ssh/:
+    post:
+      summary: attach ssh-key
+      description: 'Attaches an SSH key to the specified instance, allowing SSH access
+        using the provided key.
+
+
+        CLI Usage: vast attach instance_id ssh_key
+
+        '
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: ID of the instance to attach the SSH key to
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ssh_key:
+                  type: string
+                  description: The SSH key to attach to the instance
+                  example: ssh-rsa AAAAB3NzaC1yc2EAAA...
+      responses:
+        '200':
+          description: SSH key attached successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  msg:
+                    type: string
+                    example: SSH key attached successfully
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      tags:
+      - Instances
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string

@@ -1,0 +1,112 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Benchmarks API
+  description: API for searching benchmarks using various parameters.
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/benchmarks/:
+    get:
+      summary: search benchmarks
+      description: 'Retrieve benchmark data based on search parameters.
+
+
+        CLI Usage: vast-ai search benchmarks
+
+        '
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: query
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Search query string to filter benchmarks.
+        example: score>1000
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    contract_id:
+                      type: integer
+                      description: ID of instance/contract reporting benchmark
+                    id:
+                      type: integer
+                      description: Benchmark unique ID
+                    image:
+                      type: string
+                      description: Image used for benchmark
+                    last_update:
+                      type: number
+                      format: float
+                      description: Date of benchmark
+                    machine_id:
+                      type: integer
+                      description: ID of machine benchmarked
+                    model:
+                      type: string
+                      description: Name of model used in benchmark
+                    name:
+                      type: string
+                      description: Name of benchmark
+                    num_gpus:
+                      type: integer
+                      description: Number of GPUs used in benchmark
+                    score:
+                      type: number
+                      format: float
+                      description: Benchmark score result
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=3.0
+      tags:
+      - Search
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 3.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: search benchmarks
+  description: Retrieve benchmark data based on search parameters.
+  endpoint: /api/v0/benchmarks/
+  method: GET
+  example: vast-ai search benchmarks

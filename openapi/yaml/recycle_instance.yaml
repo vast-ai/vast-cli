@@ -1,0 +1,105 @@
+openapi: 3.0.0
+info:
+  title: Instance Recycle API
+  description: API endpoint to recycle (destroy/recreate) an instance container
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/instances/recycle/{id}/:
+    put:
+      summary: recycle instance
+      description: 'Destroys and recreates container in place (from newly pulled image)
+        without losing GPU priority.
+
+        Updates container status to ''recycling'' and executes docker stop/remove
+        commands on the host machine.
+
+
+        CLI Usage: vastai recycle instance <ID>
+
+        '
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: ID of the instance to recycle
+        example: 1234
+      responses:
+        '200':
+          description: Instance recycle initiated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '400':
+          description: Bad Request - Invalid instance ID
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    enum:
+                    - invalid_id
+                  msg:
+                    type: string
+                    example: Invalid instance id.
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=1.0
+      tags:
+      - Instances
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 1.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: recycle instance
+  description: Recycle (destroy/create) an instance
+  endpoint: /api/v0/instances/recycle/{id}/
+  method: PUT
+  example: vastai recycle instance 1234

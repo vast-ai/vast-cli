@@ -1,0 +1,167 @@
+openapi: 3.0.0
+info:
+  title: Create Endpoint API
+  description: 'This API allows users to create a new endpoint for job processing.
+
+
+    CLI Usage: vast-ai create endpoint
+
+    '
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/endptjobs/:
+    post:
+      summary: create endpoint
+      description: 'This endpoint creates a new job processing endpoint with specified
+        parameters.
+
+
+        CLI Usage: vast-ai create endpoint
+
+        '
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                min_load:
+                  type: number
+                  description: Minimum load for the endpoint.
+                  default: 10.0
+                  example: 50.0
+                target_util:
+                  type: number
+                  description: Target utilization for the endpoint.
+                  default: 0.9
+                  example: 0.75
+                cold_mult:
+                  type: number
+                  description: Multiplier for cold start.
+                  default: 2.5
+                  example: 2.0
+                cold_workers:
+                  type: integer
+                  description: Number of cold workers.
+                  default: 5
+                  example: 5
+                max_workers:
+                  type: integer
+                  description: Maximum number of workers.
+                  default: 20
+                  example: 20
+                endpoint_name:
+                  type: string
+                  description: Name of the endpoint.
+                  default: "default-endpoint"
+                  example: "my_endpoint"
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: integer
+                    description: The ID of the created endpoint
+                    example: 12345
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Error'
+                  properties:
+                    error:
+                      type: string
+                      enum:
+                      - invalid_args
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=4.0
+      tags:
+      - Serverless
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 4
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-input-validation:
+  min_load:
+    max_length: 10
+    pattern: ^[0-9]*\.?[0-9]+$
+    description: Must be a positive number.
+  target_util:
+    max_length: 10
+    pattern: ^[0-9]*\.?[0-9]+$
+    description: Must be a positive number.
+  cold_mult:
+    max_length: 10
+    pattern: ^[0-9]*\.?[0-9]+$
+    description: Must be a positive number.
+  cold_workers:
+    max_length: 10
+    pattern: ^[0-9]+$
+    description: Must be a non-negative integer.
+  max_workers:
+    max_length: 10
+    pattern: ^[0-9]+$
+    description: Must be a non-negative integer.
+  endpoint_name:
+    max_length: 255
+    pattern: ^[a-zA-Z0-9_-]+$
+    description: Must be a valid endpoint name.
+x-cli-commands:
+- name: Create Endpoint
+  description: Create a new endpoint for job processing.
+  endpoint: /api/v0/endptjobs/
+  method: POST
+  example: vast-ai create endpoint --min_load 0.5 --target_util 0.75 --cold_mult 1.0
+    --cold_workers 2 --max_workers 10 --endpoint_name my_endpoint

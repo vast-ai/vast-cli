@@ -1,0 +1,128 @@
+openapi: 3.0.0
+info:
+  title: Update Endpoint API
+  description: API for updating an existing endpoint group
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/endptjobs/{id}/:
+    put:
+      summary: update endpoint
+      description: 'Updates the specified endpoint group with the provided parameters.
+
+
+        CLI Usage: vastai update endpoint ID [OPTIONS]
+
+        '
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: ID of the endpoint group to update
+        schema:
+          type: integer
+          example: 4242
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                min_load:
+                  type: number
+                  description: Minimum floor load in perf units/s (token/s for LLMs)
+                  example: 0.0
+                target_util:
+                  type: number
+                  description: Target capacity utilization (fraction, max 1.0)
+                  example: 0.9
+                cold_mult:
+                  type: number
+                  description: Cold/stopped instance capacity target as multiple of hot capacity target
+                  example: 2.5
+                cold_workers:
+                  type: integer
+                  description: Min number of workers to keep 'cold' when you have no load
+                  example: 5
+                max_workers:
+                  type: integer
+                  description: Max number of workers your endpoint group can have
+                  example: 20
+                endpoint_name:
+                  type: string
+                  description: Deployment endpoint name
+                  example: my_endpoint
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: invalid_args
+                  msg:
+                    type: string
+                    example: "Routegroup not found for user"
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                  msg:
+                    type: string
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=2.0
+      tags:
+      - Serverless
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+x-rate-limit:
+  threshold: 2.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: update endpoint
+  description: Update an existing endpoint group
+  endpoint: /api/v0/endptjobs/{id}/
+  method: PUT
+  example: vastai update endpoint 4242 --min_load 100 --target_util 0.9 --cold_mult 2.0 --endpoint_name "my_endpoint"

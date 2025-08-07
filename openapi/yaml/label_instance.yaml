@@ -1,0 +1,131 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Instance Label API
+  description: "API endpoint for setting a text label on an instance. The label helps\
+    \ identify \nand organize instances with custom descriptions.\n\nThe instance\
+    \ must belong to the authenticated user.\n"
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/instances/{id}/:
+    put:
+      summary: label instance
+      description: 'Updates the text label associated with the specified instance.
+
+
+        CLI Usage: vast-ai label instance <id> <label>
+
+        '
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: ID of the instance to label
+        schema:
+          type: integer
+          example: 12345
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - label
+              properties:
+                label:
+                  type: string
+                  description: Text label to assign to the instance
+                  maxLength: 1024
+                  example: My ML Training Job
+      responses:
+        '200':
+          description: Label updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  msg:
+                    type: string
+                    example: label for 12345 set to 'My ML Training Job'
+        '400':
+          description: Bad Request - Invalid label
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    enum:
+                    - label_too_long
+                  msg:
+                    type: string
+                    example: Please limit label length to 1024 characters, ideally
+                      less than 128.
+        '403':
+          description: Forbidden - Not authenticated or not owner of instance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Instance not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: no_such_instance
+                  msg:
+                    type: string
+                    example: Instance 12345 not found.
+      tags:
+      - Instances
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 1.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-input-validation:
+  label:
+    max_length: 1024
+    description: Text label must be 1024 characters or less
+x-cli-commands:
+- name: label instance
+  description: Set a text label on an instance
+  endpoint: /api/v0/instances/{id}/
+  method: PUT
+  example: vast-ai label instance 12345 "My ML Training Job"

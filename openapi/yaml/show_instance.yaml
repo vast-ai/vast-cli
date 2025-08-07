@@ -1,0 +1,263 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai API - Show Instance
+  description: >
+    Retrieves details of a specific instance for the authenticated user.
+    
+    CLI Usage: vastai show instance [--api-key API_KEY] [--raw]
+  version: 1.0.0
+servers:
+  - url: https://console.vast.ai
+    description: Production server
+paths:
+  /api/v0/instances/{id}/:
+    get:
+      summary: show instance
+      description: >
+        Retrieves the details of a specific instance for the authenticated user.
+        
+        This endpoint returns detailed information including SSH connection parameters,
+        instance state, resource utilization, template data, and pricing details.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: The ID of the instance to retrieve.
+          required: true
+          schema:
+            type: integer
+          example: 123
+      responses:
+        '200':
+          description: Success response with instance details.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  instances:
+                    $ref: '#/components/schemas/Instance'
+        '400':
+          description: Bad Request – Invalid instance ID or invalid arguments.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized – Invalid or missing authentication.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests – API requests are too frequent.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=2.0
+      tags:
+        - Instances
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header.
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: invalid_args
+        msg:
+          type: string
+          example: "error 400/1782: Invalid args: invalid json: {}"
+    Instance:
+      type: object
+      description: Detailed information about an instance.
+      properties:
+        id:
+          type: integer
+          example: 123
+          description: Unique identifier for the instance.
+        ssh_idx:
+          type: string
+          example: "ssh1"
+          description: Identifier for the SSH forwarder used.
+        ssh_host:
+          type: string
+          nullable: true
+          example: "192.168.1.10"
+          description: Host (or IP) used for SSH connection.
+        ssh_port:
+          type: integer
+          nullable: true
+          example: 22
+          description: Port used for SSH connection.
+        actual_status:
+          type: string
+          example: "running"
+          description: Current status of the instance (e.g. running, offline).
+        intended_status:
+          type: string
+          example: "running"
+          description: Intended or desired status of the instance.
+        cur_state:
+          type: string
+          example: "active"
+          description: Current state of the machine contract.
+        next_state:
+          type: string
+          example: "pending"
+          description: Next scheduled state for the machine.
+        template_id:
+          type: integer
+          example: 45
+          description: Identifier for the instance template.
+        template_hash_id:
+          type: string
+          example: "abc123"
+          description: Hash identifier for the instance template.
+        image_uuid:
+          type: string
+          example: "uuid-1234"
+          description: Unique identifier for the instance image.
+        image_args:
+          type: string
+          example: "--arg1 value"
+          description: Arguments used when launching the instance image.
+        image_runtype:
+          type: string
+          enum:
+            - ssh
+            - args
+          example: "ssh"
+          description: How the instance image is executed.
+        extra_env:
+          type: array
+          items:
+            type: string
+          example: ["VAR1=value1", "VAR2=value2"]
+          description: Additional environment variables.
+        onstart:
+          type: string
+          example: "init.sh"
+          description: Script or command executed when the instance starts.
+        label:
+          type: string
+          example: "Instance 123"
+          description: A human-readable label for the instance.
+        jupyter_token:
+          type: string
+          example: "token123"
+          description: Jupyter token if the instance provides a Jupyter environment.
+        status_msg:
+          type: string
+          example: "Running normally"
+          description: A message describing the current status.
+        gpu_util:
+          type: number
+          format: float
+          example: 0.75
+          description: Current GPU utilization as a fraction.
+        gpu_arch:
+          type: string
+          example: "Volta"
+          description: GPU architecture of the instance.
+        disk_util:
+          type: number
+          format: float
+          example: 75
+          description: Disk utilization percentage.
+        disk_usage:
+          type: number
+          format: float
+          example: 75
+          description: Disk usage percentage.
+        gpu_temp:
+          type: number
+          format: float
+          example: 65
+          description: Current GPU temperature in Celsius.
+        cuda_max_good:
+          type: number
+          format: float
+          example: 11.2
+          description: Maximum CUDA version that is considered optimal.
+        driver_version:
+          type: string
+          example: "460.32.03"
+          description: Version of the GPU driver installed.
+        public_ipaddr:
+          type: string
+          example: "203.0.113.1"
+          description: Public IP address of the instance.
+        local_ipaddrs:
+          type: array
+          items:
+            type: string
+          example: ["192.168.1.5"]
+          description: List of local IP addresses for the instance.
+        direct_port_end:
+          type: integer
+          example: 8001
+          description: The ending port number for direct connections.
+        direct_port_start:
+          type: integer
+          example: 8000
+          description: The starting port number for direct connections.
+        cpu_util:
+          type: number
+          format: float
+          example: 0.65
+          description: CPU utilization as a fraction.
+        mem_usage:
+          type: number
+          format: float
+          example: 4096
+          description: Memory usage in megabytes.
+        mem_limit:
+          type: number
+          format: float
+          example: 8192
+          description: Memory limit in megabytes.
+        vmem_usage:
+          type: number
+          format: float
+          example: 4096
+          description: Virtual memory usage in megabytes.
+        machine_dir_ssh_port:
+          type: integer
+          example: 2222
+          description: Calculated SSH port for accessing the machine directory.
+        uptime_mins:
+          type: number
+          format: float
+          example: 120
+          description: Uptime of the instance in minutes.
+        ports:
+          type: array
+          items:
+            type: integer
+          example: [8080, 8081]
+          description: List of additional ports exposed by the instance.
+        # Additional price details may be included here if provided by calculate_price_details.
+x-rate-limit:
+  threshold: 2.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint.
+x-cli-commands:
+  - name: show instance
+    description: Retrieve details of a specific instance for the authenticated user.
+    endpoint: /api/v0/instances/{id}/
+    method: GET
+    example: vastai show instance [--api-key API_KEY] [--raw]

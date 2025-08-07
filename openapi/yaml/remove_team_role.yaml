@@ -1,0 +1,137 @@
+openapi: 3.0.0
+info:
+  title: Remove Team Role API
+  description: API endpoint to remove a role from a team
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/team/roles/{id}:
+    delete:
+      summary: remove team role
+      description: 'Removes a role from the team. Cannot remove the team owner role.
+
+
+        CLI Usage: vast-ai remove team-role NAME
+
+        Example: vast-ai remove team-role developer
+
+        '
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        description: Name of the role to remove
+        example: developer
+      responses:
+        '200':
+          description: Role removed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                    - success
+                    example: success
+                  message:
+                    type: string
+                    example: Role removed from team
+        '400':
+          description: Bad request - role name is required
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  msg:
+                    type: string
+                    example: Role name is required
+        '401':
+          description: Unauthorized - invalid or missing API key
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: unauthorized
+                  msg:
+                    type: string
+                    example: Invalid or missing API key
+        '403':
+          description: Forbidden - cannot delete owner role or user is blacklisted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: forbidden
+                  msg:
+                    type: string
+                    example: You cannot delete the owner role.
+        '404':
+          description: Role not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: not_found
+                  msg:
+                    type: string
+                    example: Specified role not found
+      security:
+      - BearerAuth: []
+      tags:
+      - Team
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 3.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-input-validation:
+  id:
+    description: Must be a valid role name string
+    required: true
+x-cli-commands:
+- name: remove team-role
+  description: Remove a role from your team
+  endpoint: /api/v0/team/roles/{id}
+  method: DELETE
+  example: vast-ai remove team-role developer

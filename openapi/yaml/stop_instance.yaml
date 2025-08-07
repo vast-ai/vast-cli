@@ -1,0 +1,120 @@
+openapi: 3.0.0
+info:
+  title: Instance Stop API
+  description: API endpoint to stop a running instance container
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/instances/{id}/:
+    put:
+      summary: stop instance
+      description: 'Stops a running container and updates its status to ''stopped''.
+
+
+        CLI Usage: vastai stop instance <ID>
+
+        '
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: ID of the instance to stop
+        example: 1234
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - state
+              properties:
+                state:
+                  type: string
+                  description: Set instance to stopped state
+                  default: stopped
+                  const: stopped
+                  example: stopped
+      responses:
+        '200':
+          description: Instance stop initiated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimpleBooleanSuccessResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Error'
+                properties:
+                  error:
+                    type: string
+                    enum:
+                    - missing_billing
+                    - label_too_long
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=1.0
+      tags:
+      - Instances
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header
+  schemas:
+    SimpleBooleanSuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        msg:
+          type: string
+x-rate-limit:
+  threshold: 1.0
+  per: request
+  description: Maximum request frequency per IP address for this endpoint
+x-cli-commands:
+- name: stop instance
+  description: Stop a running instance
+  endpoint: /api/v0/instances/{id}/
+  method: PUT
+  example: vastai stop instance 1234

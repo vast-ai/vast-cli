@@ -68,7 +68,7 @@ except NameError:
 
 #server_url_default = "https://vast.ai"
 server_url_default = os.getenv("VAST_URL") or "https://console.vast.ai"
-# server_url_default = "http://localhost:5002"
+#server_url_default = "http://localhost:5002"
 #server_url_default = "host.docker.internal"
 #server_url_default = "http://localhost:5002"
 #server_url_default  = "https://vast.ai/api/v0"
@@ -743,6 +743,7 @@ overlay_fields = (
 )
 volume_fields = (
     ("id", "ID", "{}", None, True),
+    ("cluster_id", "Cluster ID", "{}", None, True),
     ("label", "Name", "{}", None, True),
     ("disk_space", "Disk", "{:.0f}", None, True),
     ("status", "status", "{}", None, True),
@@ -1922,44 +1923,182 @@ def create__env_var(args):
         print(f"Failed to create environment variable: {result.get('msg', 'Unknown error')}")
 
 @parser.command(
-    argument("ssh_key", help="add the public key of your ssh key to your account (form the .pub file)", type=str),
-    usage="vastai create ssh-key ssh_key",
+    argument("ssh_key", help="add your existing ssh public key to your account (from the .pub file). If no public key is provided, a new key pair will be generated.", type=str, nargs='?'),
+    argument("-y", "--yes", help="automatically answer yes to prompts", action="store_true"),
+    usage="vastai create ssh-key [ssh_public_key] [-y]",
     help="Create a new ssh-key",
     epilog=deindent("""
-        Use this command to create a new ssh key for your account. 
-        All ssh keys are stored in your account and can be used to connect to instances they've been added to
-        All ssh keys should be added in rsa format
+        You may use this command to add an existing public key, or create a new ssh key pair and add that public key, to your Vast account. 
+        
+        If you provide an ssh_public_key.pub argument, that public key will be added to your Vast account. All ssh public keys should be in OpenSSH format.
+        
+                Example: $vastai create ssh-key 'ssh_public_key.pub'
+        
+        If you don't provide an ssh_public_key.pub argument, a new Ed25519 key pair will be generated.
+            
+                Example: $vastai create ssh-key
+                    
+        The generated keys are saved as ~/.ssh/id_ed25519 (private) and ~/.ssh/id_ed25519.pub (public). Any existing id_ed25519 keys are backed up as .backup_<timestamp>.
+        The public key will be added to your Vast account.
+        
+        All ssh public keys are stored in your Vast account and can be used to connect to instances they've been added to.
     """)
 )
+
 def create__ssh_key(args):
+    ssh_key_content = args.ssh_key
+    
+    # If no SSH key provided, generate one
+    if not ssh_key_content:
+        ssh_key_content = generate_ssh_key(args.yes)
+    else:
+        print("Adding provided SSH public key to account...")
+    
+    # Send the SSH key to the API
     url = apiurl(args, "/ssh/")
-    r = http_post(args, url, headers=headers, json={"ssh_key": args.ssh_key})
+    r = http_post(args, url, headers=headers, json={"ssh_key": ssh_key_content})
     r.raise_for_status()
-    print("ssh-key created {}".format(r.json()))
+    
+    # Print json response
+    print("ssh-key created {}\nNote: You may need to add the new public key to any pre-existing instances".format(r.json()))
+
+
+def generate_ssh_key(auto_yes=False):
+    """
+    Generate a new SSH key pair using ssh-keygen and return the public key content.
+    
+    Args:
+        auto_yes (bool): If True, automatically answer yes to prompts
+    
+    Returns:
+        str: The content of the generated public key
+        
+    Raises:
+        SystemExit: If ssh-keygen is not available or key generation fails
+    """
+    
+    print("No SSH key provided. Generating a new SSH key pair and adding public key to account...")
+    
+    # Define paths
+    ssh_dir = Path.home() / '.ssh'
+    private_key_path = ssh_dir / 'id_ed25519'
+    public_key_path = ssh_dir / 'id_ed25519.pub'
+    
+    # Create .ssh directory if it doesn't exist
+    try:
+        ssh_dir.mkdir(mode=0o700, exist_ok=True)
+    except OSError as e:
+        print(f"Error creating .ssh directory: {e}", file=sys.stderr)
+        sys.exit(1)
+    
+    # Check if any part of the key pair already exists and backup if needed
+    if private_key_path.exists() or public_key_path.exists():
+        print(f"An SSH key pair 'id_ed25519' already exists in {ssh_dir}")
+        if auto_yes:
+            print("Auto-answering yes to backup existing key pair.")
+            response = 'y'
+        else:
+            response = input("Would you like to generate a new key pair and backup your existing id_ed25519 key pair. [y/N]: ").lower()
+        if response not in ['y', 'yes']:
+            print("Aborted. No new key generated.")
+            sys.exit(0)
+        
+        # Generate timestamp for backup
+        timestamp = int(time.time())
+        backup_private_path = ssh_dir / f'id_ed25519.backup_{timestamp}'
+        backup_public_path = ssh_dir / f'id_ed25519.pub.backup_{timestamp}'
+        
+        try:
+            # Backup existing private key if it exists
+            if private_key_path.exists():
+                private_key_path.rename(backup_private_path)
+                print(f"Backed up existing private key to: {backup_private_path}")
+            
+            # Backup existing public key if it exists
+            if public_key_path.exists():
+                public_key_path.rename(backup_public_path)
+                print(f"Backed up existing public key to: {backup_public_path}")
+                
+        except OSError as e:
+            print(f"Error backing up existing SSH keys: {e}", file=sys.stderr)
+            sys.exit(1)
+        
+        print("Generating new SSH key pair and adding public key to account...")
+    
+    # Check if ssh-keygen is available
+    try:
+        subprocess.run(['ssh-keygen', '--help'], capture_output=True, check=False)
+    except FileNotFoundError:
+        print("Error: ssh-keygen not found. Please install OpenSSH client tools.", file=sys.stderr)
+        sys.exit(1)
+    
+    # Generate the SSH key pair
+    try:
+        cmd = [
+            'ssh-keygen',
+            '-t', 'ed25519',       # Ed25519 key type
+            '-f', str(private_key_path),  # Output file path
+            '-N', '',              # Empty passphrase
+            '-C', f'{os.getenv("USER") or os.getenv("USERNAME", "user")}-vast.ai'  # User
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            input='y\n',           # Automatically answer 'yes' to overwrite prompts
+            check=True
+        )
+        
+    except subprocess.CalledProcessError as e:
+        print(f"Error generating SSH key: {e}", file=sys.stderr)
+        if e.stderr:
+            print(f"ssh-keygen error: {e.stderr}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Unexpected error during key generation: {e}", file=sys.stderr)
+        sys.exit(1)
+    
+    # Set proper permissions for the private key
+    try:
+        private_key_path.chmod(0o600)  # Read/write for owner only
+    except OSError as e:
+        print(f"Warning: Could not set permissions for private key: {e}", file=sys.stderr)
+    
+    # Read and return the public key content
+    try:
+        with open(public_key_path, 'r') as f:
+            public_key_content = f.read().strip()
+        
+        return public_key_content
+        
+    except IOError as e:
+        print(f"Error reading generated public key: {e}", file=sys.stderr)
+        sys.exit(1)
 
 @parser.command(
     argument("--template_hash", help="template hash (required, but **Note**: if you use this field, you can skip search_params, as they are automatically inferred from the template)", type=str),
     argument("--template_id",   help="template id (optional)", type=int),
     argument("-n", "--no-default", action="store_true", help="Disable default search param query args"),
     argument("--launch_args",   help="launch args  string for create instance  ex: \"--onstart onstart_wget.sh  --env '-e ONSTART_PATH=https://s3.amazonaws.com/vast.ai/onstart_OOBA.sh' --image atinoda/text-generation-webui:default-nightly --disk 64\"", type=str),
-    argument("--endpoint_name", help="deployment endpoint name (allows multiple autoscale groups to share same deployment endpoint)", type=str),
-    argument("--endpoint_id",   help="deployment endpoint id (allows multiple autoscale groups to share same deployment endpoint)", type=int),
-    argument("--test_workers",help="number of workers to create to get an performance estimate for while initializing autogroup (default 3)", type=int, default=3),
+    argument("--endpoint_name", help="deployment endpoint name (allows multiple workergroups to share same deployment endpoint)", type=str),
+    argument("--endpoint_id",   help="deployment endpoint id (allows multiple workergroups to share same deployment endpoint)", type=int),
+    argument("--test_workers",help="number of workers to create to get an performance estimate for while initializing workergroup (default 3)", type=int, default=3),
     argument("--gpu_ram",     help="estimated GPU RAM req  (independent of search string)", type=float),
     argument("--search_params", help="search param string for search offers    ex: \"gpu_ram>=23 num_gpus=2 gpu_name=RTX_4090 inet_down>200 direct_port_count>2 disk_space>=64\"", type=str),
-    argument("--min_load", help="[NOTE: this field isn't currently used at the autojob level] minimum floor load in perf units/s  (token/s for LLms)", type=float),
-    argument("--target_util", help="[NOTE: this field isn't currently used at the autojob level] target capacity utilization (fraction, max 1.0, default 0.9)", type=float),
-    argument("--cold_mult",   help="[NOTE: this field isn't currently used at the autojob level]cold/stopped instance capacity target as multiple of hot capacity target (default 2.0)", type=float),
-    argument("--auto_instance", help="unused", type=str),
-    usage="vastai autogroup create [OPTIONS]",
+    argument("--min_load", help="[NOTE: this field isn't currently used at the workergroup level] minimum floor load in perf units/s  (token/s for LLms)", type=float),
+    argument("--target_util", help="[NOTE: this field isn't currently used at the workergroup level] target capacity utilization (fraction, max 1.0, default 0.9)", type=float),
+    argument("--cold_mult",   help="[NOTE: this field isn't currently used at the workergroup level]cold/stopped instance capacity target as multiple of hot capacity target (default 2.0)", type=float),
+    argument("--auto_instance", help="unused", type=str, default="prod"),
+    usage="vastai workergroup create [OPTIONS]",
     help="Create a new autoscale group",
     epilog=deindent("""
         Create a new autoscaling group to manage a pool of worker instances.
                     
-        Example: vastai create autogroup --template_hash HASH  --endpoint_name "LLama" --test_workers 5
+        Example: vastai create workergroup --template_hash HASH  --endpoint_name "LLama" --test_workers 5
         """),
 )
-def create__autogroup(args):
+def create__workergroup(args):
     url = apiurl(args, "/autojobs/" )
 
     # if args.launch_args_dict:
@@ -1981,7 +2120,7 @@ def create__autogroup(args):
     r.raise_for_status()
     if 'application/json' in r.headers.get('Content-Type', ''):
         try:
-            print("autogroup create {}".format(r.json()))
+            print("workergroup create {}".format(r.json()))
         except requests.exceptions.JSONDecodeError:
             print("The response is not valid JSON.")
             print(r)
@@ -1998,7 +2137,8 @@ def create__autogroup(args):
     argument("--cold_workers", help="min number of workers to keep 'cold' when you have no load (default 5)", type=int, default=5),
     argument("--max_workers", help="max number of workers your endpoint group can have (default 20)", type=int, default=20),
     argument("--endpoint_name", help="deployment endpoint name (allows multiple autoscale groups to share same deployment endpoint)", type=str),
-    argument("--auto_instance", help="unused", type=str),
+    argument("--auto_instance", help="unused", type=str, default="prod"),
+
     usage="vastai create endpoint [OPTIONS]",
     help="Create a new endpoint group",
     epilog=deindent("""
@@ -2035,7 +2175,7 @@ def get_runtype(args):
     if (args.args == '') or (args.args == ['']) or (args.args == []):
         runtype = 'args'
         args.args = None
-    if args.jupyter_dir or args.jupyter_lab:
+    if not args.jupyter and (args.jupyter_dir or args.jupyter_lab):
         args.jupyter = True
     if args.jupyter and runtype == 'args':
         print("Error: Can't use --jupyter and --args together. Try --onstart or --onstart-cmd instead of --args.", file=sys.stderr)
@@ -2043,8 +2183,7 @@ def get_runtype(args):
 
     if args.jupyter:
         runtype = 'jupyter_direc ssh_direc ssh_proxy' if args.direct else 'jupyter_proxy ssh_proxy'
-
-    if args.ssh:
+    elif args.ssh:
         runtype = 'ssh_direc ssh_proxy' if args.direct else 'ssh_proxy'
 
     return runtype
@@ -2073,6 +2212,20 @@ def validate_volume_params(args):
         volume_info["size"] = 15
 
     return volume_info
+
+def validate_portal_config(json_blob):
+    # jupyter runtypes already self-correct
+    if 'jupyter' in json_blob['runtype']:
+        return
+    
+    # remove jupyter configs from portal_config if not a jupyter runtype
+    portal_config = json_blob['env']['PORTAL_CONFIG'].split("|")
+    filtered_config = [config_str for config_str in portal_config if 'jupyter' not in config_str.lower()]
+    
+    if not filtered_config:
+        raise ValueError("Error: env variable PORTAL_CONFIG must contain at least one non-jupyter related config string if runtype is not jupyter")
+    else:
+        json_blob['env']['PORTAL_CONFIG'] = "|".join(filtered_config)
 
 @parser.command(
     argument("id", help="id of instance type to launch (returned from search offers)", type=int),
@@ -2185,6 +2338,9 @@ def create__instance(args: argparse.Namespace):
 
     if (args.args != None):
         json_blob["args"] = args.args
+
+    if "PORTAL_CONFIG" in json_blob["env"]:
+        validate_portal_config(json_blob)
 
     #print(f"put asks/{args.id}/  runtype:{runtype}")
     url = apiurl(args, "/asks/{id}/".format(id=args.id))
@@ -2537,14 +2693,14 @@ def delete__cluster(args: argparse.Namespace):
 
 @parser.command(
     argument("id", help="id of group to delete", type=int),
-    usage="vastai delete autogroup ID ",
-    help="Delete an autogroup group",
+    usage="vastai delete workergroup ID ",
+    help="Delete a workergroup group",
     epilog=deindent("""
-        Note that deleteing an autogroup group doesn't automatically destroy all the instances that are associated with your autogroup group.
-        Example: vastai delete autogroup 4242
+        Note that deleting a workergroup doesn't automatically destroy all the instances that are associated with your workergroup.
+        Example: vastai delete workergroup 4242
     """),
 )
-def delete__autogroup(args):
+def delete__workergroup(args):
     id  = args.id
     url = apiurl(args, f"/autojobs/{id}/" )
     json_blob = {"client_id": "me", "autojob_id": args.id}
@@ -2555,7 +2711,7 @@ def delete__autogroup(args):
     r.raise_for_status()
     if 'application/json' in r.headers.get('Content-Type', ''):
         try:
-            print("autogroup delete {}".format(r.json()))
+            print("workergroup delete {}".format(r.json()))
         except requests.exceptions.JSONDecodeError:
             print("The response is not valid JSON.")
             print(r)
@@ -2569,7 +2725,7 @@ def delete__autogroup(args):
     usage="vastai delete endpoint ID ",
     help="Delete an endpoint group",
     epilog=deindent("""
-        Note that deleting an endpoint group doesn't automatically destroy all the instances that are associated with your endpoint group, nor all the autogroups.
+        Note that deleting an endpoint group doesn't automatically destroy all the instances that are associated with your endpoint group, nor all the workergroups.
         Example: vastai delete endpoint 4242
     """),
 )
@@ -4616,13 +4772,13 @@ def show__ssh_keys(args):
         print(r.json())
 
 @parser.command(
-    usage="vastai show autogroups [--api-key API_KEY]",
-    help="Display user's current autogroup groups",
+    usage="vastai show workergroups [--api-key API_KEY]",
+    help="Display user's current workergroups",
     epilog=deindent("""
-        Example: vastai show autogroups 
+        Example: vastai show workergroups 
     """),
 )
-def show__autogroups(args):
+def show__workergroups(args):
     url = apiurl(args, "/autojobs/" )
     json_blob = {"client_id": "me", "api_key": args.api_key}
     if (args.explain):
@@ -4630,7 +4786,7 @@ def show__autogroups(args):
         print(json_blob)
     r = http_get(args, url, headers=headers,json=json_blob)
     r.raise_for_status()
-    #print("autogroup list ".format(r.json()))
+    #print("workergroup list ".format(r.json()))
 
     if (r.status_code == 200):
         rj = r.json();
@@ -4659,7 +4815,7 @@ def show__endpoints(args):
         print(json_blob)
     r = http_get(args, url, headers=headers,json=json_blob)
     r.raise_for_status()
-    #print("autogroup list ".format(r.json()))
+    #print("workergroup list ".format(r.json()))
 
     if (r.status_code == 200):
         rj = r.json();
@@ -5256,22 +5412,22 @@ def transfer__credit(args: argparse.Namespace):
     argument("--min_load", help="minimum floor load in perf units/s  (token/s for LLms)", type=float),
     argument("--target_util",      help="target capacity utilization (fraction, max 1.0, default 0.9)", type=float),
     argument("--cold_mult",   help="cold/stopped instance capacity target as multiple of hot capacity target (default 2.5)", type=float),
-    argument("--test_workers",help="number of workers to create to get an performance estimate for while initializing autogroup (default 3)", type=int),
+    argument("--test_workers",help="number of workers to create to get an performance estimate for while initializing workergroup (default 3)", type=int),
     argument("--gpu_ram",   help="estimated GPU RAM req  (independent of search string)", type=float),
     argument("--template_hash",   help="template hash (**Note**: if you use this field, you can skip search_params, as they are automatically inferred from the template)", type=str),
     argument("--template_id",   help="template id", type=int),
     argument("--search_params",   help="search param string for search offers    ex: \"gpu_ram>=23 num_gpus=2 gpu_name=RTX_4090 inet_down>200 direct_port_count>2 disk_space>=64\"", type=str),
     argument("-n", "--no-default", action="store_true", help="Disable default search param query args"),
     argument("--launch_args",   help="launch args  string for create instance  ex: \"--onstart onstart_wget.sh  --env '-e ONSTART_PATH=https://s3.amazonaws.com/public.vast.ai/onstart_OOBA.sh' --image atinoda/text-generation-webui:default-nightly --disk 64\"", type=str),
-    argument("--endpoint_name",   help="deployment endpoint name (allows multiple autoscale groups to share same deployment endpoint)", type=str),
-    argument("--endpoint_id",   help="deployment endpoint id (allows multiple autoscale groups to share same deployment endpoint)", type=int),
-    usage="vastai update autogroup ID [OPTIONS]",
+    argument("--endpoint_name",   help="deployment endpoint name (allows multiple workergroups to share same deployment endpoint)", type=str),
+    argument("--endpoint_id",   help="deployment endpoint id (allows multiple workergroups to share same deployment endpoint)", type=int),
+    usage="vastai update workergroup ID [OPTIONS]",
     help="Update an existing autoscale group",
     epilog=deindent("""
-        Example: vastai update autogroup 4242 --min_load 100 --target_util 0.9 --cold_mult 2.0 --search_params \"gpu_ram>=23 num_gpus=2 gpu_name=RTX_4090 inet_down>200 direct_port_count>2 disk_space>=64\" --launch_args \"--onstart onstart_wget.sh  --env '-e ONSTART_PATH=https://s3.amazonaws.com/public.vast.ai/onstart_OOBA.sh' --image atinoda/text-generation-webui:default-nightly --disk 64\" --gpu_ram 32.0 --endpoint_name "LLama" --endpoint_id 2
+        Example: vastai update workergroup 4242 --min_load 100 --target_util 0.9 --cold_mult 2.0 --search_params \"gpu_ram>=23 num_gpus=2 gpu_name=RTX_4090 inet_down>200 direct_port_count>2 disk_space>=64\" --launch_args \"--onstart onstart_wget.sh  --env '-e ONSTART_PATH=https://s3.amazonaws.com/public.vast.ai/onstart_OOBA.sh' --image atinoda/text-generation-webui:default-nightly --disk 64\" --gpu_ram 32.0 --endpoint_name "LLama" --endpoint_id 2
     """),
 )
-def update__autogroup(args):
+def update__workergroup(args):
     id  = args.id
     url = apiurl(args, f"/autojobs/{id}/" )
     if args.no_default:
@@ -5286,7 +5442,7 @@ def update__autogroup(args):
     r.raise_for_status()
     if 'application/json' in r.headers.get('Content-Type', ''):
         try:
-            print("autogroup update {}".format(r.json()))
+            print("workergroup update {}".format(r.json()))
         except requests.exceptions.JSONDecodeError:
             print("The response is not valid JSON.")
             print(r)
@@ -5302,7 +5458,7 @@ def update__autogroup(args):
     argument("--cold_mult",   help="cold/stopped instance capacity target as multiple of hot capacity target (default 2.5)", type=float),
     argument("--cold_workers", help="min number of workers to keep 'cold' when you have no load (default 5)", type=int),
     argument("--max_workers", help="max number of workers your endpoint group can have (default 20)", type=int),
-    argument("--endpoint_name",   help="deployment endpoint name (allows multiple autoscale groups to share same deployment endpoint)", type=str),
+    argument("--endpoint_name",   help="deployment endpoint name (allows multiple workergroups to share same deployment endpoint)", type=str),
     usage="vastai update endpoint ID [OPTIONS]",
     help="Update an existing endpoint group",
     epilog=deindent("""
@@ -5901,46 +6057,54 @@ def list__machines(args):
 @parser.command(
     argument("machines", help="ids of machines to add disk to, that is networked to be on the same LAN as machine", type=int, nargs='+'),
     argument("mount_point", help="mount path of disk to add", type=str),
-    argument("disk_id", help="id of network volume to attach to machines in the cluster ", type=int, nargs="?"),
-    usage="vastai add network disk [MACHINES] MOUNT_PATH [DISK_ID]",
+    argument("-d", "--disk_id", help="id of network disk to attach to machines in the cluster", type=int, nargs='?'),
+    usage="vastai add network-disk MACHINES MOUNT_PATH [options]",
+    help="[Host] Add Network Disk to Physical Cluster.",
+    epilog=deindent("""
+        This variant can be used to add a network disk to a physical cluster.
+        When you add a network disk for the first time, you just need to specify the machine(s) and mount_path.
+        When you add a network disk for the second time, you need to specify the disk_id.
+        Example:
+        vastai add network-disk 1 /mnt/disk1
+        vastai add network-disk 1 /mnt/disk1 -d 12345
+    """)
 )
-def add__network__disk(args):
+def add__network_disk(args):
     json_blob = {
         "machines": [int(id) for id in args.machines],
         "mount_point": args.mount_point,
-        "disk_id": args.disk_id,
     }
-
+    if args.disk_id is not None:
+        json_blob["disk_id"] = args.disk_id
     url = apiurl(args, "/network_disk/")
-
     if args.explain:
         print("request json: ")
         print(json_blob)
-
     r = http_post(args, url, headers=headers, json=json_blob)
     r.raise_for_status()
-
+ 
     if args.raw:
         return r
 
-    print("Attached network disk to machines. Disk id: " + r.json()["disk_id"])
-
+    print("Attached network disk to machines. Disk id: " + str(r.json()["disk_id"]))
 
 @parser.command(
-    argument("--disk_id", help="id of network disk to list", type=int, required=True),
+    argument("disk_id", help="id of network disk to list", type=int),
     argument("-p", "--price_disk", help="storage price in $/GB/month, default: $%(default).2f/GB/month", default=.15, type=float),
-    argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format), default 1 month", type=str),
-    argument("-s", "--size", help="size of disk space allocated to offer in GB, default %(default)s GB", default=15),
-    usage="vastai list network volume --disk_id DISK_ID [options]",
+    argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format), default 1 month", type=str, default=None),
+    argument("-s", "--size", help="size of disk space allocated to offer in GB, default %(default)s GB", default=15, type=int),
+    usage="vastai list network volume DISK_ID [options]",
     help="[Host] list disk space for rent as a network volume"
 )
 def list__network_volume(args):
     json_blob = {
         "disk_id": args.disk_id,
         "price_disk": args.price_disk,
-        "end_date": string_to_unix_epoch(args.end_date) if args.end_date else None,
         "size": args.size
     }
+
+    if args.end_date:
+        json_blob["end_date"] = string_to_unix_epoch(args.end_date)
 
     url = apiurl(args, "/network_volumes/")
 
@@ -6204,7 +6368,7 @@ def parse_env(envs):
             if (set(e).issubset(set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:./_"))):
                 result["-v " + e] = "1" 
           elif (prev == "-n"):
-            if (set(e).issubset(set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"))):
+            if (set(e).issubset(set("abcdefghijklmnopqrstuvwxyz0123456789-"))):
                 result["-n " + e] = "1"
           else:
               result[prev] = e

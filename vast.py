@@ -3022,6 +3022,7 @@ def execute(args):
 @parser.command(
     argument("id", help="id of endpoint group to fetch logs from", type=int),
     argument("--level", help="log detail level (0 to 3)", type=int, default=1),
+    argument("--tail", help="", type=int, default=None),
     usage="vastai get endpt-logs ID [--api-key API_KEY]",
     help="Fetch logs for a specific serverless endpoint group",
     epilog=deindent("""
@@ -3034,6 +3035,7 @@ def get__endpt_logs(args):
         args.url = None
     url = (args.url or "https://run.vast.ai") + "/get_endpoint_logs/"
     json_blob = {"id": args.id, "api_key": args.api_key}
+    if args.tail: json_blob["tail"] = args.tail
     if (args.explain):
         print(f"{url} with request json: ")
         print(json_blob)
@@ -3062,6 +3064,7 @@ def get__endpt_logs(args):
 @parser.command(
     argument("id", help="id of endpoint group to fetch logs from", type=int),
     argument("--level", help="log detail level (0 to 3)", type=int, default=1),
+    argument("--tail", help="", type=int, default=None),
     usage="vastai get wrkgrp-logs ID [--api-key API_KEY]",
     help="Fetch logs for a specific serverless worker group group",
     epilog=deindent("""
@@ -3074,6 +3077,7 @@ def get__wrkgrp_logs(args):
         args.url = None
     url = (args.url or "https://run.vast.ai") + "/get_autogroup_logs/"
     json_blob = {"id": args.id, "api_key": args.api_key}
+    if args.tail: json_blob["tail"] = args.tail
     if (args.explain):
         print(f"{url} with request json: ")
         print(json_blob)

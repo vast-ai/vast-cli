@@ -733,6 +733,17 @@ cluster_fields = (
     ("machine_ids", "Machine ID's", "{}", None, True)
 )
 
+network_disk_fields = (
+    ("network_disk_id", "Network Disk ID", "{}", None, True),
+    ("free_space", "Free Space (GB)", "{}", None, True),
+    ("total_space", "Total Space (GB)", "{}", None, True),
+)
+
+network_disk_machine_fields = (
+    ("machine_id", "Machine ID", "{}", None, True),
+    ("mount_point", "Mount Point", "{}", None, True),
+)
+
 overlay_fields = (
     ("overlay_id", "Overlay ID", "{}", None, True),
     ("name", "Name", "{}", None, True),
@@ -6083,6 +6094,40 @@ def add__network_disk(args):
         return r
 
     print("Attached network disk to machines. Disk id: " + str(r.json()["disk_id"]))
+
+
+@parser.command(
+    usage="vastai show network-disks",
+    help="Show network disks associated with your account.",
+    epilog=deindent("""
+        Show network disks associated with your account.
+    """)
+)
+def show__network_disks(args: argparse.Namespace):
+    req_url = apiurl(args, "/network_disk/")
+    r = http_get(args, req_url)
+    r.raise_for_status()
+    response_data = r.json()
+
+    if args.raw:
+        return response_data
+
+    for cluster_data in response_data['data']:
+        print(f"Cluster ID: {cluster_data['cluster_id']}")
+        display_table(cluster_data['network_disks'], network_disk_fields, replace_spaces=False)
+
+        machine_rows = []
+        for machine_id in cluster_data['machine_ids']:
+            machine_rows.append(
+                {
+                    "machine_id": machine_id,
+                    "mount_point": cluster_data['mounts'].get(str(machine_id), "N/A"),
+                }
+            )
+        print()
+        display_table(machine_rows, network_disk_machine_fields, replace_spaces=False)
+        print("\n")
+
 
 @parser.command(
     argument("disk_id", help="id of network disk to list", type=int),

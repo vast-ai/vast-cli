@@ -1,0 +1,97 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Network Volume List API
+  description: API endpoint for listing network volumes for rent on the vast.ai platform.
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/network_volume/:
+    post:
+      summary: list network-volume
+      description: 'Lists a network disk for rent as network volumes,
+        or updates an existing listing with a new price/size/end date/discount
+
+        CLI Usage: vast list network-volume <disk_id> [options]
+
+        '
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - disk_id
+              properties:
+                price_disk:
+                  type: number
+                  format: float
+                  description: Price per GB of network volume storage
+                disk_id:
+                  type: integer
+                  description: ID of network disk for which offer is being created
+                size:
+                  type: integer
+                  description: Size in GB of the amount of space available to be rented
+                credit_discount_max:
+                  type: number
+                  format: float
+                  description: Maximum discount rate allowed for prepaid credits
+                end_date:
+                  type: number
+                  format: float
+                  description: Unix timestamp for when the listing expires
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  msg:
+                    type: string
+                    description: status message
+                example:
+                  success: true
+                  disk_id: created network volume ask with id 6 and size 24
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: invalid_args
+                  msg:
+                    type: string
+                    example: Invalid disk_id
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: not_authorized
+                  msg:
+                    type: string
+                    example: Could not find network disk with id 6 associated with user
+      tags:
+      - Network Volumes
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Bearer authentication with API key in Authorization header

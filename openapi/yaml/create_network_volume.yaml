@@ -1,0 +1,91 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Network Volume Create API
+  description: API endpoint for creating network volumes from offers
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/network_volume/:
+    put:
+      summary: create network-volume
+      description: 'Creates a network volume from an offer
+        
+       CLI Usage: vast create network-volume <offer_id>
+        '
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - id
+              - size
+              properties:
+                id:
+                  type: integer
+                  description: ID of network volume ask being accepted
+                size:
+                  type: integer
+                  description: size of network volume in GB being created
+                name:
+                  type: string
+                  description: optional name for network volume being created
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  volume_name:
+                    type: string
+                    description: name of network volume created
+                  volume_size:
+                    type: integer
+                    description: size of network volume created
+                example:
+                  success: true
+                  id: 6
+                  msg: Deleted network volume listing
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: invalid_args
+                  msg:
+                    type: string
+                    example: You must pass in `id` in the body of the request
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: not_authorized
+                  msg:
+                    type: string
+                    example: Authorization Error. Check that you have proper privileges to perform this action.
+      tags:
+      - Network Volumes
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Bearer authentication with API key in Authorization header

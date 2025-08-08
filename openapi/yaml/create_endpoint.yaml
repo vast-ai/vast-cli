@@ -164,4 +164,4 @@ x-cli-commands:
   endpoint: /api/v0/endptjobs/
   method: POST
   example: vast-ai create endpoint --min_load 0.5 --target_util 0.75 --cold_mult 1.0
-    --cold_workers 2 --max_workers 10 --endpoint_name my_endpoint
+    --cold_workers 2 --max_workers 10 --endpoint_name "vLLM-Qwen3-8B"

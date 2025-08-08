@@ -8,7 +8,7 @@ paths:
     post:
       servers:
       - url: https://run.vast.ai
-        description: Autoscaler server
+        description: Production server
       summary: get endpoint workers
       description: 'Retrieves the current list and status of workers for a specific endpoint.
 
@@ -35,7 +35,7 @@ paths:
                   minimum: 1
       responses:
         '200':
-          description: Response from autoscaler
+          description: Successfully retrieved endpoints workers.
           content:
             application/json:
               schema:
@@ -68,7 +68,7 @@ paths:
                 - title: Error Response
                   type: string
                   description: Error message when endpoint not found or authentication fails
-                  example: "authenticate_endpoint_apikey: invalid api_key or endpoint 12345 not found"
+                  example: "authenticate_endpoint_apikey: invalid api_key or endpoint vLLM-Qwen3-8B not found"
       tags:
       - Serverless
 components:

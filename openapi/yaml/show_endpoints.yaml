@@ -49,7 +49,7 @@ paths:
                           example: 20
                         endpoint_name:
                           type: string
-                          example: my_endpoint
+                          example: vLLM-Qwen3-8B
                         api_key:
                           type: string
                           example: your_api_key_here
@@ -78,7 +78,7 @@ paths:
                     example: invalid_args
                   msg:
                     type: string
-                    example: No routegroups for user found
+                    example: No endpoints for user found
         '401':
           description: Unauthorized
           content:
@@ -120,4 +120,4 @@ x-cli-commands:
   description: Display user's current endpoint groups
   endpoint: /api/v0/endptjobs/
   method: GET
-  example: vast-ai show endpoints
+  example: vastai show endpoints

@@ -1,20 +1,20 @@
 openapi: 3.0.0
 info:
-  title: Update Autogroup API
-  description: API endpoint to update an existing autoscale group
+  title: Update Workergroup API
+  description: API endpoint to update an existing workergroups
   version: 1.0.0
 servers:
 - url: https://console.vast.ai
   description: Production server
 paths:
-  /api/v0/autojobs/{id}/:
+  /api/v0/workergroups/{id}/:
     put:
-      summary: update autogroup
-      description: 'Updates the properties of an existing autoscale group based on
+      summary: update workergroup
+      description: 'Updates the properties of an existing workergroup based on
         the provided parameters.
 
 
-        CLI Usage: vastai update autogroup <ID> [OPTIONS]
+        CLI Usage: vastai update workergroup <ID> [OPTIONS]
 
         '
       security:
@@ -23,7 +23,7 @@ paths:
       - name: id
         in: path
         required: true
-        description: The ID of the autogroup to update.
+        description: The ID of the workergroup to update.
         schema:
           type: integer
           example: 4242
@@ -36,15 +36,15 @@ paths:
               properties:
                 min_load:
                   type: number
-                  description: Minimum load for the autogroup.
+                  description: Minimum load for the workergroup.
                   example: 1.0
                 target_util:
                   type: number
-                  description: Target utilization for the autogroup.
+                  description: Target utilization for the workergroup.
                   example: 0.9
                 cold_mult:
                   type: number
-                  description: Cold multiplier for the autogroup.
+                  description: Cold multiplier for the workergroup.
                   example: 3.0
                 test_workers:
                   type: integer
@@ -53,11 +53,11 @@ paths:
                   example: 3
                 template_hash:
                   type: string
-                  description: Template hash for the autogroup.
+                  description: Template hash for the workergroup.
                   example: abc123def456
                 template_id:
                   type: integer
-                  description: Template ID for the autogroup.
+                  description: Template ID for the workergroup.
                   example: 456
                 search_params:
                   type: string
@@ -75,14 +75,14 @@ paths:
                 endpoint_name:
                   type: string
                   description: Deployment endpoint name.
-                  example: my_endpoint
+                  example: vLLM-Qwen3-8B
                 endpoint_id:
                   type: integer
                   description: Deployment endpoint ID.
                   example: 123
       responses:
         '200':
-          description: Successfully updated the autogroup.
+          description: Successfully updated the workergroup.
           content:
             application/json:
               schema:
@@ -144,8 +144,8 @@ x-rate-limit:
   per: request
   description: Maximum request frequency per IP address for this endpoint
 x-cli-commands:
-- name: update autogroup
-  description: Update an autogroup
-  endpoint: /api/v0/autojobs/{id}/
+- name: update workergroup
+  description: Update a workergroup
+  endpoint: /api/v0/workergroups/{id}/
   method: PUT
-  example: vastai update autogroup 4242 --min_load 1.5 --target_util 0.8
+  example: vastai update workergroup 4242 --min_load 1.5 --target_util 0.8

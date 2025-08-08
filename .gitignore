@@ -4,5 +4,3 @@ failed_machines.txt
 Pass_testresults.log
 dist/
 __pycache__/
-.idea/*
-.venv/*

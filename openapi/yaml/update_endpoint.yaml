@@ -83,7 +83,7 @@ paths:
                     example: invalid_args
                   msg:
                     type: string
-                    example: "Routegroup not found for user"
+                    example: "Endpointgroup not found for user"
         '401':
           description: Unauthorized
           content:
@@ -125,4 +125,4 @@ x-cli-commands:
   description: Update an existing endpoint group
   endpoint: /api/v0/endptjobs/{id}/
   method: PUT
-  example: vastai update endpoint 4242 --min_load 100 --target_util 0.9 --cold_mult 2.0 --endpoint_name "my_endpoint"
+  example: vastai update endpoint 4242 --min_load 100 --target_util 0.9 --cold_mult 2.0 --endpoint_name "vLLM-Qwen3-8B"

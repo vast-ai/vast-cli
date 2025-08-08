@@ -1,19 +1,19 @@
 openapi: 3.0.0
 info:
   title: Route Endpoint API
-  description: Route endpoint calls on the autoscaler to retrieve a GPU instance address for your request
+  description: Route endpoint calls on the serverless engine to retrieve a GPU instance address for your request
   version: 1.0.0
 paths:
   /route/:
     post:
       servers:
       - url: https://run.vast.ai
-        description: Autoscaler server
+        description: Production server
       summary: route
-      description: 'Calls on the autoscaler to retrieve a GPU instance address within your endpoint for processing a request.
+      description: 'Calls on the serverless engine to retrieve a GPU instance address within your endpoint for processing a request.
 
 
-        The autoscaler will return either a ready worker URL or status information if no workers are available.
+        The engine will return either a ready worker URL or status information if no workers are available.
 
         '
       security:
@@ -31,7 +31,7 @@ paths:
                 endpoint:
                   type: string
                   description: Name of the endpoint
-                  example: your_endpoint_name
+                  example: vLLM-Qwen3-8B
                 cost:
                   type: number
                   format: float
@@ -52,7 +52,7 @@ paths:
                     endpoint:
                       type: string
                       description: Same as the input parameter
-                      example: your_endpoint_name
+                      example: vLLM-Qwen3-8B
                     url:
                       type: string
                       description: The address of the worker instance to send the request to
@@ -79,7 +79,7 @@ paths:
                     endpoint:
                       type: string
                       description: Same as the input parameter
-                      example: your_endpoint_name
+                      example: vLLM-Qwen3-8B
                     status:
                       type: string
                       description: Breakdown of workers in your endpoint group by status
@@ -121,4 +121,4 @@ x-cli-commands:
   description: Get a worker URL for your endpoint request
   endpoint: /route/
   method: POST
-  example: 'curl -X POST https://run.vast.ai/route/ -H "Authorization: Bearer YOUR_API_KEY" -H "Content-Type: application/json" -d ''{"endpoint": "your_endpoint_name", "cost": 242.0}'''
+  example: 'curl -X POST https://run.vast.ai/route/ -H "Authorization: Bearer YOUR_API_KEY" -H "Content-Type: application/json" -d ''{"endpoint": "vLLM-Qwen3-8B", "cost": 242.0}'''

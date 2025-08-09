@@ -754,11 +754,11 @@ paths:
                     example: API requests too frequent endpoint threshold=1.0
       tags:
       - Accounts
-  /api/v0/autojobs/:
+  /api/v0/workergroups/:
     post:
       summary: create workergroup
-      description: 'Creates a new workergroup configuration that manages worker
-        instances for a serverless endpoint.
+      description: 'Creates a new workergroup configuration that manages worker instances
+        for a serverless endpoint.
 
 
         CLI Usage: vast-ai create workergroup --template_hash <HASH> --endpoint_name
@@ -775,7 +775,7 @@ paths:
                 endpoint_name:
                   type: string
                   description: Name of the endpoint group
-                  example: LLama
+                  example: vLLM-Qwen3-8B
                 endpoint_id:
                   type: integer
                   description: ID of existing endpoint group (alternative to endpoint_name)
@@ -836,7 +836,7 @@ paths:
                   example: 24
       responses:
         '200':
-          description: Successfully created autoscaling job
+          description: Successfully created workergroup
           content:
             application/json:
               schema:
@@ -883,10 +883,10 @@ paths:
                     type: string
                     example: API requests too frequent endpoint threshold=4.0
       tags:
-      - Autoscaler
+      - Serverless
     get:
       summary: show workergroup
-      description: 'Retrieves the list of autojob groups associated with the authenticated
+      description: 'Retrieves the list of workergroups associated with the authenticated
         user.
 
 
@@ -999,7 +999,7 @@ paths:
                     type: string
                     example: API requests too frequent endpoint threshold=2.0
       tags:
-      - Autoscaler
+      - Serverless
   /api/v0/endptjobs/:
     post:
       summary: create endpoint
@@ -1097,7 +1097,7 @@ paths:
                     type: string
                     example: API requests too frequent endpoint threshold=4.0
       tags:
-      - Autoscaler
+      - Serverless
     get:
       summary: show endpoints
       description: Retrieve a list of endpoint jobs for the authenticated user.
@@ -1139,7 +1139,7 @@ paths:
                           example: 20
                         endpoint_name:
                           type: string
-                          example: my_endpoint
+                          example: vLLM-Qwen3-8B
                         api_key:
                           type: string
                           example: your_api_key_here
@@ -1168,7 +1168,7 @@ paths:
                     example: invalid_args
                   msg:
                     type: string
-                    example: No routegroups for user found
+                    example: No endpoints for user found
         '401':
           description: Unauthorized
           content:
@@ -1194,7 +1194,7 @@ paths:
                     type: string
                     example: API requests too frequent endpoint threshold=3.0
       tags:
-      - Autoscaler
+      - Serverless
   /api/v0/secrets/:
     post:
       summary: create env-var
@@ -2543,13 +2543,10 @@ paths:
                     example: API requests too frequent endpoint threshold=1.0
       tags:
       - Accounts
-  /api/v0/autojobs/{id}/:
+  /api/v0/workergroups/{id}/:
     delete:
       summary: delete workergroup
-      description: 'Deletes an existing workergroup. Note that deleting
-        an workergroup doesn''t
-
-        automatically destroy all instances associated with it.
+      description: 'Deletes an existing workergroup.
 
 
         CLI Usage: vastai delete workergroup <ID>'
@@ -2565,7 +2562,7 @@ paths:
           example: 4242
       responses:
         '200':
-          description: workergroup deleted successfully
+          description: Workergroup deleted successfully
           content:
             application/json:
               schema:
@@ -2620,10 +2617,10 @@ paths:
                     example: false
                   error:
                     type: string
-                    example: no_such_autojob
+                    example: no_such_workergroup
                   msg:
                     type: string
-                    example: No autojob by that id is available.
+                    example: No workergroup by that id is available.
                   id:
                     type: integer
                     example: 4242
@@ -2652,11 +2649,11 @@ paths:
                     type: string
                     example: API requests too frequent endpoint threshold=3.0
       tags:
-      - Autoscaler
+      - Serverless
     put:
       summary: update workergroup
-      description: 'Updates the properties of an existing autoscale group based on
-        the provided parameters.
+      description: 'Updates the properties of an existing workergroup based on the
+        provided parameters.
 
 
         CLI Usage: vastai update workergroup <ID> [OPTIONS]'
@@ -2720,7 +2717,7 @@ paths:
                 endpoint_name:
                   type: string
                   description: Deployment endpoint name.
-                  example: my_endpoint
+                  example: vLLM-Qwen3-8B
                 endpoint_id:
                   type: integer
                   description: Deployment endpoint ID.
@@ -2777,11 +2774,11 @@ paths:
                     type: string
                     example: API requests too frequent endpoint threshold=2.0
       tags:
-      - Autoscaler
+      - Serverless
   /api/v0/endptjobs/{id}/:
     delete:
       summary: delete endpoint
-      description: 'Deletes an endpoint group by ID. Associated autoscaler jobs will
+      description: 'Deletes an endpoint group by ID. Associated workergroups will
         also be deleted.
 
 
@@ -2867,7 +2864,7 @@ paths:
                     type: string
                     example: API requests too frequent endpoint threshold=3.0
       tags:
-      - Autoscaler
+      - Serverless
     put:
       summary: update endpoint
       description: 'Updates the specified endpoint group with the provided parameters.
@@ -2943,7 +2940,7 @@ paths:
                     example: invalid_args
                   msg:
                     type: string
-                    example: Routegroup not found for user
+                    example: Endpointgroup not found for user
         '401':
           description: Unauthorized
           content:
@@ -2969,7 +2966,7 @@ paths:
                     type: string
                     example: API requests too frequent endpoint threshold=2.0
       tags:
-      - Autoscaler
+      - Serverless
   /api/v0/ssh/{id}/:
     delete:
       summary: delete ssh key
@@ -3667,13 +3664,13 @@ paths:
                     example: Invalid json_body
       tags:
       - Instances
-  /get_autogroup_logs/:
+  /get_workergroup_logs/:
     post:
       servers:
       - url: https://run.vast.ai
-        description: Autoscaler server
+        description: Production server
       summary: get workergroup logs
-      description: Retrieves logs for a specific worker group by ID.
+      description: Retrieves logs for a specific workergroup by ID.
       security:
       - BearerAuth: []
       requestBody:
@@ -3699,7 +3696,7 @@ paths:
                   minimum: 1
       responses:
         '200':
-          description: Response from autoscaler
+          description: Logs successfully retrieved.
           content:
             application/json:
               schema:
@@ -3709,30 +3706,30 @@ paths:
                   properties:
                     logs:
                       type: string
-                      description: The worker group logs
-                      example: '2023-10-01 12:00:00 - Worker group started
+                      description: The workergroup logs
+                      example: '2023-10-01 12:00:00 - Workergroup started
 
                         2023-10-01 12:01:00 - Instance scaled up'
                 - title: Error Response
                   type: string
-                  description: Error message when worker group not found or authentication
+                  description: Error message when workergroup not found or authentication
                     fails
-                  example: 'authenticate_autogroup_apikey: invalid api_key or worker
-                    group 12345 not found'
+                  example: 'authenticate_workergroup_apikey: invalid api_key or workergroup
+                    12345 not found'
       tags:
-      - Autoscaler
-  /get_autogroup_workers/:
+      - Serverless
+  /get_workergroup_workers/:
     post:
       servers:
       - url: https://run.vast.ai
-        description: Autoscaler server
+        description: Production server
       summary: get workergroup workers
       description: 'Retrieves the current list and status of workers for a specific
-        worker group.
+        workergroup.
 
 
         Useful for monitoring, debugging connectivity issues, and understanding resource
-        usage within a worker group.'
+        usage within a workergroup.'
       security:
       - BearerAuth: []
       requestBody:
@@ -3746,13 +3743,13 @@ paths:
               properties:
                 id:
                   type: integer
-                  description: ID of the worker group to monitor
+                  description: ID of the workergroup to monitor
                   default: 12345
                   example: 12345
                   minimum: 1
       responses:
         '200':
-          description: Response from autoscaler
+          description: Workers successfully retrieved.
           content:
             application/json:
               schema:
@@ -3762,13 +3759,13 @@ paths:
                   properties:
                     workers:
                       type: array
-                      description: List of workers in this worker group
+                      description: List of workers in this workergroup
                       items:
                         type: object
                         properties:
                           id:
                             type: integer
-                            description: Worker instance ID
+                            description: Workergroup instance ID
                             example: 67890
                           status:
                             type: string
@@ -3784,17 +3781,17 @@ paths:
                             example: '2023-10-01T12:00:00Z'
                 - title: Error Response
                   type: string
-                  description: Error message when worker group not found or authentication
+                  description: Error message when workergroup not found or authentication
                     fails
-                  example: 'authenticate_autogroup_apikey: invalid api_key or worker
-                    group 12345 not found'
+                  example: 'authenticate_workergroup_apikey: invalid api_key or workergroup
+                    12345 not found'
       tags:
-      - Autoscaler
+      - Serverless
   /get_endpoint_logs/:
     post:
       servers:
       - url: https://run.vast.ai
-        description: Autoscaler server
+        description: Production server
       summary: get endpoint logs
       description: Retrieves logs for a specific endpoint by name.
       security:
@@ -3811,7 +3808,7 @@ paths:
                 endpoint:
                   type: string
                   description: Name of the endpoint
-                  example: your_endpoint_name
+                  example: vLLM-Qwen3-8B
                 tail:
                   type: integer
                   description: Number of log lines to retrieve from the end
@@ -3819,7 +3816,7 @@ paths:
                   example: 1000
       responses:
         '200':
-          description: Response from autoscaler
+          description: Successfully retrieved endpoint logs.
           content:
             application/json:
               schema:
@@ -3838,14 +3835,14 @@ paths:
                   description: Error message when endpoint not found or authentication
                     fails
                   example: 'authenticate_endpoint_apikey: invalid api_key or endpoint
-                    TGI-Llama32 not found'
+                    vLLM-Qwen3-8B not found'
       tags:
-      - Autoscaler
+      - Serverless
   /get_endpoint_workers/:
     post:
       servers:
       - url: https://run.vast.ai
-        description: Autoscaler server
+        description: Production server
       summary: get endpoint workers
       description: 'Retrieves the current list and status of workers for a specific
         endpoint.
@@ -3872,7 +3869,7 @@ paths:
                   minimum: 1
       responses:
         '200':
-          description: Response from autoscaler
+          description: Successfully retrieved endpoints workers.
           content:
             application/json:
               schema:
@@ -3907,9 +3904,9 @@ paths:
                   description: Error message when endpoint not found or authentication
                     fails
                   example: 'authenticate_endpoint_apikey: invalid api_key or endpoint
-                    12345 not found'
+                    vLLM-Qwen3-8B not found'
       tags:
-      - Autoscaler
+      - Serverless
   /api/v0/team/invite/:
     post:
       summary: invite team member
@@ -4870,14 +4867,14 @@ paths:
     post:
       servers:
       - url: https://run.vast.ai
-        description: Autoscaler server
+        description: Production server
       summary: route
-      description: 'Calls on the autoscaler to retrieve a GPU instance address within
-        your endpoint for processing a request.
+      description: 'Calls on the serverless engine to retrieve a GPU instance address
+        within your endpoint for processing a request.
 
 
-        The autoscaler will return either a ready worker URL or status information
-        if no workers are available.'
+        The engine will return either a ready worker URL or status information if
+        no workers are available.'
       security:
       - BearerAuth: []
       requestBody:
@@ -4893,7 +4890,7 @@ paths:
                 endpoint:
                   type: string
                   description: Name of the endpoint
-                  example: your_endpoint_name
+                  example: vLLM-Qwen3-8B
                 cost:
                   type: number
                   format: float
@@ -4914,7 +4911,7 @@ paths:
                     endpoint:
                       type: string
                       description: Same as the input parameter
-                      example: your_endpoint_name
+                      example: vLLM-Qwen3-8B
                     url:
                       type: string
                       description: The address of the worker instance to send the
@@ -4943,7 +4940,7 @@ paths:
                     endpoint:
                       type: string
                       description: Same as the input parameter
-                      example: your_endpoint_name
+                      example: vLLM-Qwen3-8B
                     status:
                       type: string
                       description: Breakdown of workers in your endpoint group by
@@ -4975,7 +4972,7 @@ paths:
                     type: string
                     example: Invalid endpoint or missing required parameters
       tags:
-      - Autoscaler
+      - Serverless
   /api/v0/machines/{machine_id}/dnotify:
     put:
       summary: schedule maint

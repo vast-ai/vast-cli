@@ -1,17 +1,16 @@
 openapi: 3.0.0
 info:
-  title: Get Worker Group Logs API
-  description: Retrieve logs for a specific worker group from the autoscaler
+  title: Get Workergroup Logs API
+  description: Retrieve logs for a specific workergroup
   version: 1.0.0
 paths:
-  /get_autogroup_logs/:
+  /get_workergroup_logs/:
     post:
       servers:
       - url: https://run.vast.ai
-        description: Autoscaler server
-      summary: get autogroup logs
-      description: 'Retrieves logs for a specific worker group by ID.
-
+        description: Production server
+      summary: get workergroup logs
+      description: 'Retrieves logs for a specific workergroup by ID.
         '
       security:
       - BearerAuth: []
@@ -38,7 +37,7 @@ paths:
                   minimum: 1
       responses:
         '200':
-          description: Response from autoscaler
+          description: Logs successfully retrieved.
           content:
             application/json:
               schema:
@@ -48,12 +47,12 @@ paths:
                   properties:
                     logs:
                       type: string
-                      description: The worker group logs
-                      example: "2023-10-01 12:00:00 - Worker group started\n2023-10-01 12:01:00 - Instance scaled up"
+                      description: The workergroup logs
+                      example: "2023-10-01 12:00:00 - Workergroup started\n2023-10-01 12:01:00 - Instance scaled up"
                 - title: Error Response
                   type: string
-                  description: Error message when worker group not found or authentication fails
-                  example: "authenticate_autogroup_apikey: invalid api_key or worker group 12345 not found"
+                  description: Error message when workergroup not found or authentication fails
+                  example: "authenticate_workergroup_apikey: invalid api_key or workergroup 12345 not found"
       tags:
       - Serverless
 components:
@@ -63,8 +62,8 @@ components:
       scheme: bearer
       description: API key must be provided in the Authorization header
 x-cli-commands:
-- name: get worker group logs
-  description: Retrieve logs for a specific worker group
-  endpoint: /get_autogroup_logs/
+- name: get workergroup logs
+  description: Retrieve logs for a specific workergroup
+  endpoint: /get_workergroup_logs/
   method: POST
-  example: 'curl -X POST https://run.vast.ai/get_autogroup_logs/ -H "Authorization: Bearer YOUR_API_KEY" -H "Content-Type: application/json" -d ''{"id": 12345, "tail": 1000}'''
+  example: 'curl -X POST https://run.vast.ai/get_workergroup_logs/ -H "Authorization: Bearer YOUR_API_KEY" -H "Content-Type: application/json" -d ''{"id": 12345, "tail": 1000}'''

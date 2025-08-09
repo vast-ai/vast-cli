@@ -1,31 +1,29 @@
 openapi: 3.0.0
 info:
-  title: Delete Autogroup API
-  description: API endpoint to delete an autogroup/autoscaler job
+  title: Delete Workergroup API
+  description: API endpoint to delete a workergroup
   version: 1.0.0
 servers:
 - url: https://console.vast.ai
   description: Production server
 paths:
-  /api/v0/autojobs/{id}/:
+  /api/v0/workergroups/{id}/:
     delete:
-      summary: delete autogroup
-      description: "Deletes an existing autogroup/autoscaler job. Note that deleting\
-        \ an autogroup doesn't \nautomatically destroy all instances associated with\
-        \ it.\n\nCLI Usage: vastai delete autogroup <ID>\n"
+      summary: delete workergroup
+      description: "Deletes an existing workergroup. \n\nCLI Usage: vastai delete workergroup <ID>\n"
       security:
       - BearerAuth: []
       parameters:
       - name: id
         in: path
         required: true
-        description: ID of the autogroup to delete
+        description: ID of the workergroup to delete
         schema:
           type: integer
           example: 4242
       responses:
         '200':
-          description: Autogroup deleted successfully
+          description: Workergroup deleted successfully
           content:
             application/json:
               schema:
@@ -49,7 +47,7 @@ paths:
                   msg:
                     type: string
                     description: Additional information about the deletion
-                    example: "Deleted autojob and 2 workers"
+                    example: "Deleted workergroup and 2 workers"
         '400':
           description: Bad request
           content:
@@ -67,7 +65,7 @@ paths:
                     type: string
                     example: Invalid autojob ID
         '404':
-          description: Autogroup not found
+          description: Workergroup not found
           content:
             application/json:
               schema:
@@ -78,10 +76,10 @@ paths:
                     example: false
                   error:
                     type: string
-                    example: no_such_autojob
+                    example: no_such_workergroup
                   msg:
                     type: string
-                    example: No autojob by that id is available.
+                    example: No workergroup by that id is available.
                   id:
                     type: integer
                     example: 4242
@@ -122,8 +120,8 @@ x-rate-limit:
   per: request
   description: Maximum request frequency per IP address for this endpoint
 x-cli-commands:
-- name: delete autogroup
-  description: Delete an autogroup group
-  endpoint: /api/v0/autojobs/{id}/
+- name: delete workergroup
+  description: Delete a workergroup
+  endpoint: /api/v0/workergroups/{id}/
   method: DELETE
-  example: vastai delete autogroup 4242
+  example: vastai delete workergroup 4242

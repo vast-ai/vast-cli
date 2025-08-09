@@ -649,6 +649,7 @@ vol_offers_fields = {
         "geolocation",
         "gpu_arch",
         "has_avx",
+        "host_id",
         "id",
         "inet_down",
         "inet_up",

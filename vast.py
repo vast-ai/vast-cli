@@ -695,6 +695,10 @@ nw_vol_displayable_fields = (
     ("host_id", "host_id", "{}", None, True),
     ("cluster_id", "cluster_id", "{}", None, True),
     ("geolocation", "country", "{}", None, True),
+    ("nw_disk_min_bw", "Min BW MiB/s", "{}", None, True),
+    ("nw_disk_max_bw", "Max BW MiB/s", "{}", None, True),
+    ("nw_disk_avg_bw", "Avg BW MiB/s", "{}", None, True),
+
 )
 # Need to add bw_nvlink, machine_id, direct_port_count to output.
 

@@ -67,8 +67,9 @@ except NameError:
 
 
 #server_url_default = "https://vast.ai"
-server_url_default = os.getenv("VAST_URL") or "https://console.vast.ai"
 #server_url_default = "http://localhost:5002"
+server_url_default = os.getenv("VAST_URL") or "https://console.vast.ai"
+#server_url_default = "https://alpha.vast.ai"
 #server_url_default = "host.docker.internal"
 #server_url_default = "http://localhost:5002"
 #server_url_default  = "https://vast.ai/api/v0"
@@ -5164,7 +5165,11 @@ def show__clusters(args: argparse.Namespace):
     for cluster_id, cluster_data in response_data['clusters'].items():
         machines = {member['machine_id']: member['actual_status'] for member in cluster_data["nodes"]}
 
-        manager_node = next(node for node in cluster_data['nodes'] if node['is_cluster_manager'])
+        for node in cluster_data['nodes']:
+            if node["is_cluster_manager"]:
+                manager_node = node
+                break
+
 
         row_data = {
             'id': cluster_id,

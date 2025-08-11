@@ -641,6 +641,10 @@ displayable_fields_reserved = (
 vol_offers_fields = {
         "cpu_arch",
         "cuda_vers",
+        "cluster_id",
+        "nw_disk_min_bw",
+        "nw_disk_avg_bw",
+        "nw_disk_max_bw",
         "datacenter",
         "disk_bw",
         "disk_space",

@@ -1,0 +1,93 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Add Network Disk API
+  description: API endpoint for adding network disks to machines for network volume asks
+  version: 1.0.0
+servers:
+- url: https://console.vast.ai
+  description: Production server
+paths:
+  /api/v0/network_disk/:
+    post:
+      summary: add network-disk
+      description: 'Adds a network disk to be used to create network
+        volume offers, or adds machines to an existing network disk.
+
+        CLI Usage: vast add network_disk <machine_id>... <mount_point> [options]
+
+        '
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - mount_point
+              properties:
+                machine_id:
+                  type: integer
+                  description: ID of the machine to add network disk to
+                machine_ids:
+                  type: array
+                  items:
+                    type: integer
+                  description: IDs of machines to add network disk to
+                mount_point:
+                  type: string
+                  description: Path to mount point of networked storage on machine or machines
+                disk_id:
+                  type: integer
+                  description: ID of network disk, if adding machines to existing disk
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  disk_id:
+                    type: integer
+                    description: ID of disk created or added to machines
+                example:
+                  success: true
+                  disk_id: 2
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: invalid_args
+                  msg:
+                    type: string
+                    example: Invalid machine id
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: not_authorized
+                  msg:
+                    type: string
+                    example: Only machine owner can add network disk
+      tags:
+      - Network Volumes
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Bearer authentication with API key in Authorization header

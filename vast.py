@@ -661,6 +661,7 @@ vol_offers_fields = {
         "total_flops",
         "ubuntu_version",
         "verified",
+        "cluster_id"
 }
 
 

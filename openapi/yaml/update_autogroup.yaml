@@ -62,7 +62,7 @@ paths:
                 search_params:
                   type: string
                   description: Search parameters for offers (JSON object or query string).
-                  default: '{"verified": {"eq": true}, "rentable": {"eq": true}, "rented": {"eq": false}}'
+                  default: 'verified=true rentable=true rented=false'
                   example: gpu_name=RTX_3090 rentable=true
                 launch_args:
                   type: string

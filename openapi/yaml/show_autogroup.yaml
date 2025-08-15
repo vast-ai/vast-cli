@@ -59,7 +59,7 @@ paths:
                         search_query:
                           type: object
                           description: Parsed search parameters as JSON object
-                          example: {"verified": {"eq": true}, "rentable": {"eq": true}}
+                          example: 'verified=true rentable=true rented=false'
                         launch_args:
                           type: string
                           example: "--env VAR=value"

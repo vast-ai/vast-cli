@@ -792,8 +792,7 @@ paths:
                   type: string
                   description: Search query for finding worker instances (alternative
                     to template)
-                  default: '{"verified": {"eq": true}, "rentable": {"eq": true}, "rented":
-                    {"eq": false}}'
+                  default: verified=true rentable=true rented=false
                   example: gpu_name=RTX_3090 rentable=true
                 launch_args:
                   type: string
@@ -933,11 +932,7 @@ paths:
                         search_query:
                           type: object
                           description: Parsed search parameters as JSON object
-                          example:
-                            verified:
-                              eq: true
-                            rentable:
-                              eq: true
+                          example: verified=true rentable=true rented=false
                         launch_args:
                           type: string
                           example: --env VAR=value
@@ -2703,8 +2698,7 @@ paths:
                   type: string
                   description: Search parameters for offers (JSON object or query
                     string).
-                  default: '{"verified": {"eq": true}, "rentable": {"eq": true}, "rented":
-                    {"eq": false}}'
+                  default: verified=true rentable=true rented=false
                   example: gpu_name=RTX_3090 rentable=true
                 launch_args:
                   type: string

@@ -27,7 +27,7 @@ dependencies = [
   "borb (==2.1.25)",
   "python-dateutil==2.6.1",
   "pytz",
-  "urllib3==2.2.3",
+  "urllib3>=2.5.0",
   "poetry-dynamic-versioning (>=1.8.1,<2.0.0)",
   "gitpython (>=3.1.44,<4.0.0)",
   "toml (>=0.10.2,<0.11.0)",

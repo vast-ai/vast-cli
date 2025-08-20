@@ -5441,7 +5441,7 @@ def transfer__credit(args: argparse.Namespace):
     argument("--launch_args",   help="launch args  string for create instance  ex: \"--onstart onstart_wget.sh  --env '-e ONSTART_PATH=https://s3.amazonaws.com/public.vast.ai/onstart_OOBA.sh' --image atinoda/text-generation-webui:default-nightly --disk 64\"", type=str),
     argument("--endpoint_name",   help="deployment endpoint name (allows multiple workergroups to share same deployment endpoint)", type=str),
     argument("--endpoint_id",   help="deployment endpoint id (allows multiple workergroups to share same deployment endpoint)", type=int),
-    usage="vastai update workergroup ID [OPTIONS]",
+    usage="vastai update workergroup WORKERGROUP_ID --endpoint_id ENDPOINT_ID [options]",
     help="Update an existing autoscale group",
     epilog=deindent("""
         Example: vastai update workergroup 4242 --min_load 100 --target_util 0.9 --cold_mult 2.0 --search_params \"gpu_ram>=23 num_gpus=2 gpu_name=RTX_4090 inet_down>200 direct_port_count>2 disk_space>=64\" --launch_args \"--onstart onstart_wget.sh  --env '-e ONSTART_PATH=https://s3.amazonaws.com/public.vast.ai/onstart_OOBA.sh' --image atinoda/text-generation-webui:default-nightly --disk 64\" --gpu_ram 32.0 --endpoint_name "LLama" --endpoint_id 2

@@ -105,20 +105,41 @@ components:
           description: Port used for SSH connection.
         actual_status:
           type: string
+          enum:
+            - running
+            - stopped
+            - frozen
+            - loading
+            - unknown
+            - offline
+            - rebooting
+            - recycling
           example: "running"
-          description: Current status of the instance (e.g. running, offline).
+          description: Current status of the instance container.
         intended_status:
           type: string
+          enum:
+            - running
+            - stopped
+            - frozen
           example: "running"
-          description: Intended or desired status of the instance.
+          description: Intended status of the instance container.
         cur_state:
           type: string
-          example: "active"
+          enum:
+            - running
+            - stopped
+            - unloaded
+          example: "running"
           description: Current state of the machine contract.
         next_state:
           type: string
-          example: "pending"
-          description: Next scheduled state for the machine.
+          enum:
+            - running
+            - stopped
+            - unloaded
+          example: "running"
+          description: Next scheduled state for the machine contract.
         template_id:
           type: integer
           example: 45

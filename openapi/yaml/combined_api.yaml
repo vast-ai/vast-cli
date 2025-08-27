@@ -1599,19 +1599,24 @@ paths:
                   minimum: 8.0
                   default: 10.0
                   example: 32.0
-                extra_env:
+                env:
                   type: object
-                  description: Environment variables to set in the container
+                  description: Environment variables and port mappings
                   example:
                     JUPYTER_TOKEN: abc123
+                    PORTAL_CONFIG: '{"ports": [8080, 8081]}'
                   maxLength: 256
                 runtype:
                   type: string
-                  description: Instance run type (ssh, jupyter, etc)
+                  description: Instance run type
                   enum:
                   - ssh
                   - jupyter
                   - args
+                  - ssh_proxy
+                  - ssh_direct
+                  - jupyter_proxy
+                  - jupyter_direct
                   example: jupyter
                 onstart:
                   type: string
@@ -1643,7 +1648,9 @@ paths:
                   example: running
                 cancel_unavail:
                   type: boolean
-                  description: Whether to cancel if instance cannot start immediately
+                  description: Whether to cancel if instance cannot start immediately.
+                    Defaults to false for interruptibles, true for on-demand with
+                    target_state='running'
                   example: true
                 vm:
                   type: boolean
@@ -1656,6 +1663,62 @@ paths:
                 apikey_id:
                   type: string
                   description: Optional API key identifier for audit logging
+                args:
+                  type: array
+                  items:
+                    type: string
+                  description: Arguments to pass to the container entrypoint
+                  example:
+                  - -c
+                  - echo hello; sleep infinity;
+                entrypoint:
+                  type: string
+                  description: Override entrypoint for args launch instance
+                  example: bash
+                use_ssh:
+                  type: boolean
+                  description: Launch as an SSH instance type (deprecated, use runtype
+                    instead)
+                python_utf8:
+                  type: boolean
+                  description: Set python's locale to C.UTF-8
+                lang_utf8:
+                  type: boolean
+                  description: Install and generate locales before instance launch,
+                    set locale to C.UTF-8
+                use_jupyter_lab:
+                  type: boolean
+                  description: Launch instance with jupyter lab instead of notebook
+                jupyter_dir:
+                  type: string
+                  description: Directory in instance to use to launch jupyter
+                force:
+                  type: boolean
+                  description: Skip sanity checks when creating from an existing instance
+                user:
+                  type: string
+                  description: User to use with docker create (breaks some images,
+                    use with caution)
+                volume_info:
+                  type: object
+                  description: Volume creation/linking information
+                  properties:
+                    create_new:
+                      type: boolean
+                      description: Whether to create a new volume
+                    volume_id:
+                      type: integer
+                      description: ID of existing volume to link or volume offer ID
+                        for new volume
+                    size:
+                      type: integer
+                      description: Size of the volume in GB (for new volumes)
+                    mount_path:
+                      type: string
+                      description: Mount path for the volume inside the container
+                    name:
+                      type: string
+                      description: Label for the new volume
       responses:
         '200':
           description: Instance created successfully
@@ -1689,7 +1752,8 @@ paths:
                     - no_ssh_key_for_vm
                   msg:
                     type: string
-                    example: Please set a bid price >= 0.001 and <= 128.0
+                    example: 'error 400/3467: Invalid args: ''id'' is required and
+                      must be a valid offer ID'
                   ask_id:
                     type: integer
                     example: 1234567
@@ -1711,15 +1775,16 @@ paths:
                     example: false
                   error:
                     type: string
-                    example: not_allowed
+                    example: invalid_args
                   msg:
                     type: string
-                    example: Hosts can only rent their own machines
+                    example: 'error 403/3586: Offer 1234567 is not your own. Hosts
+                      can only rent their own machines.'
                   ask_id:
                     type: integer
                     example: 1234567
         '404':
-          description: Offer not found
+          description: Offer not found or not available
           content:
             application/json:
               schema:
@@ -1730,15 +1795,17 @@ paths:
                     example: false
                   error:
                     type: string
-                    example: no_such_ask
+                    example: invalid_args
                   msg:
                     type: string
-                    example: Instance type by id 1234567 is not available
+                    example: 'error 404/3603: no_such_ask Instance type by id 1234567
+                      is not available.'
                   ask_id:
                     type: integer
                     example: 1234567
         '410':
-          description: Offer no longer available
+          description: Offer no longer available (when cancel_unavail is true and
+            instance cannot start)
           content:
             application/json:
               schema:
@@ -1752,7 +1819,8 @@ paths:
                     example: no_such_ask
                   msg:
                     type: string
-                    example: Instance type 1234567 is no longer available
+                    example: 'error 410/3907: no_such_ask Instance type 1234567 is
+                      no longer available.'
                   ask_id:
                     type: integer
                     example: 1234567
@@ -7629,38 +7697,38 @@ components:
         actual_status:
           type: string
           enum:
-            - running
-            - stopped
-            - frozen
-            - loading
-            - unknown
-            - offline
-            - rebooting
-            - recycling
+          - running
+          - stopped
+          - frozen
+          - loading
+          - unknown
+          - offline
+          - rebooting
+          - recycling
           example: running
           description: Current status of the instance container.
         intended_status:
           type: string
           enum:
-            - running
-            - stopped
-            - frozen
+          - running
+          - stopped
+          - frozen
           example: running
           description: Intended status of the instance container.
         cur_state:
           type: string
           enum:
-            - running
-            - stopped
-            - unloaded
+          - running
+          - stopped
+          - unloaded
           example: running
           description: Current state of the machine contract.
         next_state:
           type: string
           enum:
-            - running
-            - stopped
-            - unloaded
+          - running
+          - stopped
+          - unloaded
           example: running
           description: Next scheduled state for the machine contract.
         template_id:

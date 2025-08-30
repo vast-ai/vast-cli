@@ -1159,10 +1159,6 @@ def parse_vast_url(url_str):
             (instance_id, path) = url_parts
         else:
             raise VRLException("Invalid VRL (Vast resource locator).")
-        try:
-            instance_id = int(instance_id)
-        except:
-            raise VRLException("Instance id must be an integer.")
     else:
         try:
             instance_id = int(path)

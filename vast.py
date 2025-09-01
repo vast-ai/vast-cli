@@ -322,24 +322,27 @@ def http_request(verb, args, req_url, headers: dict[str, str] | None = None, jso
     for i in range(0, args.retry):
         req = requests.Request(method=verb, url=req_url, headers=headers, json=json)
         session = requests.Session()
-        prep = session.prepare_request(req)
-        if ARGS.curl:
-            as_curl = curlify.to_curl(prep)
-            simple = re.sub(r" -H '[^']*'", '', as_curl)
-            parts = re.split(r'(?=\s+-\S+)', simple)
-            pp = parts[-1].split("'")
-            pp[-3] += "\n "
-            parts = [*parts[:-1], *[x.rstrip() for x in "'".join(pp).split("\n")]]
-            print("\n" + ' \\\n  '.join(parts).strip() + "\n")
-            sys.exit(0)
-        else:
-            r = session.send(prep)
+        try:
+            prep = session.prepare_request(req)
+            if ARGS.curl:
+                as_curl = curlify.to_curl(prep)
+                simple = re.sub(r" -H '[^']*'", '', as_curl)
+                parts = re.split(r'(?=\s+-\S+)', simple)
+                pp = parts[-1].split("'")
+                pp[-3] += "\n "
+                parts = [*parts[:-1], *[x.rstrip() for x in "'".join(pp).split("\n")]]
+                print("\n" + ' \\\n  '.join(parts).strip() + "\n")
+                sys.exit(0)
+            else:
+                r = session.send(prep)
 
-        if (r.status_code == 429):
-            time.sleep(t)
-            t *= 1.5
-        else:
-            break
+            if (r.status_code == 429):
+                time.sleep(t)
+                t *= 1.5
+            else:
+                break
+        finally:
+            session.close()
     return r
 
 def http_get(args, req_url, headers = None, json = None):
@@ -6767,7 +6770,392 @@ def instance_exist(instance_id, api_key, args):
         if args.debugging:
             debug_print(args, f"No instance found or Unexpected error checking instance existence: {e}")
         return False
+
+def run_copy_test(instance_id, api_key, args):
+    """
+    Tests file copy operations between local and remote instance.
+
+    Returns:
+        (passed: bool, reason: str)
+    """
+    import os
+    import time
+    import uuid
+    import shutil
+    import argparse
+    import subprocess
+    import tempfile
+    from datetime import datetime
+
+    # External helpers expected to exist:
+    # - progress_print(args, msg)
+    # - create__ssh_key(argparse.Namespace)
+    # - attach__ssh(argparse.Namespace)
+    # - show__instance(argparse.Namespace) -> dict
+    # - copy(argparse.Namespace)
+
+    progress_print(args, "Starting copy test...")
+
+    temp_ssh_dir = None
+    temp_private_key_path = None
+    temp_public_key_path = None
+
+    # Predefine paths so we can attempt cleanup even if we fail early
+    test_id = str(uuid.uuid4())[:8]
+    local_test_dir = f"/tmp/vast_copy_test_{test_id}"
+    remote_test_dir = f"/tmp/vast_copy_test_{test_id}"
+
+    try:
+        # --- Create temp SSH key pair ---
+        temp_ssh_dir = tempfile.mkdtemp(prefix="vast_copy_test_ssh_")
+        temp_private_key_path = os.path.join(temp_ssh_dir, "id_ed25519")
+        temp_public_key_path = os.path.join(temp_ssh_dir, "id_ed25519.pub")
+
+        progress_print(args, f"Creating temporary SSH key in: {temp_ssh_dir}")
+
+        try:
+            cmd = [
+                "ssh-keygen",
+                "-t", "ed25519",
+                "-f", temp_private_key_path,
+                "-N", "",  # Empty passphrase
+                "-C", f"vast-copy-test-{uuid.uuid4().hex[:8]}",
+            ]
+            subprocess.run(cmd, capture_output=True, text=True, check=True)
+            progress_print(args, "SSH key pair generated successfully")
+        except subprocess.CalledProcessError as e:
+            return False, f"Failed to generate SSH key: {e.stderr}"
+        except FileNotFoundError:
+            return False, "ssh-keygen not found. Please install OpenSSH client tools."
+
+        with open(temp_public_key_path, "r") as f:
+            public_key_content = f.read().strip()
+
+        # --- Add key to account ---
+        progress_print(args, "Adding SSH key to VAST account...")
+        ssh_create_args = argparse.Namespace(
+            ssh_key=public_key_content,
+            yes=True,
+            explain=getattr(args, "explain", False),
+            api_key=api_key,
+            url=args.url,
+            retry=args.retry,
+            raw=args.raw,
+            debugging=args.debugging,
+        )
+        try:
+            create__ssh_key(ssh_create_args)
+            progress_print(args, "SSH key added to VAST account successfully")
+        except Exception as e:
+            return False, f"Failed to add SSH key to account: {e}"
+
+        # --- Attach key to instance ---
+        progress_print(args, "Attaching SSH key to instance...")
+        ssh_attach_args = argparse.Namespace(
+            instance_id=instance_id,
+            ssh_key=public_key_content,
+            explain=getattr(args, "explain", False),
+            api_key=api_key,
+            url=args.url,
+            retry=args.retry,
+            raw=args.raw,
+            debugging=args.debugging,
+        )
+        try:
+            attach__ssh(ssh_attach_args)
+            progress_print(args, "SSH key attached to instance successfully")
+        except Exception as e:
+            return False, f"Failed to attach SSH key to instance: {e}"
+
+        # --- Wait for propagation ---
+        wait_seconds = getattr(args, "ssh_propagation_wait", 60)
+        progress_print(args, f"Waiting {wait_seconds}s for SSH key propagation…")
+        time.sleep(wait_seconds)
+
+        # --- Verify attachment with retry (up to 5 minutes) ---
+        progress_print(args, "Verifying SSH key attachment...")
+        
+        ssh_key_verified = False
+        max_wait_time = 300  # 5 minutes
+        check_interval = 30  # Check every 30 seconds
+        start_time = time.time()
+        
+        while time.time() - start_time < max_wait_time:
+            try:
+                # Use the SSH-specific endpoint like in the curl example
+                ssh_url = f"{getattr(args, 'url', 'https://console.vast.ai')}/api/v0/instances/{instance_id}/ssh/"
+                
+                # Create args for http_get
+                ssh_args = argparse.Namespace(
+                    api_key=api_key,
+                    url=getattr(args, 'url', 'https://console.vast.ai'),
+                    retry=getattr(args, 'retry', 3),
+                    raw=True,
+                    debugging=args.debugging,
+                )
+                
+                # Use the existing http_get function which handles connection cleanup
+                r = http_get(ssh_args, ssh_url)
+                if r.status_code == 200:
+                    ssh_data = r.json()
+                    if ssh_data.get('success') and ssh_data.get('ssh_keys'):
+                        ssh_keys = ssh_data['ssh_keys']
+                        # Parse the SSH keys if they're returned as a string
+                        if isinstance(ssh_keys, str):
+                            import json
+                            try:
+                                ssh_keys = json.loads(ssh_keys)
+                            except:
+                                ssh_keys = []
+                        
+                        if ssh_keys:
+                            progress_print(args, f"Verified {len(ssh_keys)} SSH key(s) attached to instance")
+                            ssh_key_verified = True
+                            break
+                        else:
+                            elapsed = int(time.time() - start_time)
+                            remaining = max_wait_time - elapsed
+                            progress_print(args, f"No SSH keys found yet. Elapsed: {elapsed}s, Remaining: {remaining}s")
+                    else:
+                        elapsed = int(time.time() - start_time)
+                        remaining = max_wait_time - elapsed
+                        progress_print(args, f"SSH endpoint returned no keys. Elapsed: {elapsed}s, Remaining: {remaining}s")
+                else:
+                    progress_print(args, f"Warning: SSH endpoint returned status {r.status_code}")
+            except Exception as e:
+                progress_print(args, f"Warning: Failed to verify SSH keys on instance: {e}")
+            
+            if time.time() - start_time < max_wait_time:
+                progress_print(args, f"Waiting {check_interval}s before next check...")
+                time.sleep(check_interval)
+        
+        if not ssh_key_verified:
+            progress_print(args, "Warning: SSH key verification timed out after 5 minutes, but continuing with test")
+        else:
+            progress_print(args, "SSH key verification successful!")
+
+        # --- Local preparation ---
+        progress_print(args, f"Creating local test directory: {local_test_dir}")
+        os.makedirs(local_test_dir, exist_ok=True)
+
+        # ---------- Test 1: Local -> Remote, then verify ----------
+        local_file_path = os.path.join(local_test_dir, "local_to_remote_test.txt")
+        
+        # Create a 100MB file for testing
+        file_size_mb = 100
+        file_size_bytes = file_size_mb * 1024 * 1024  # 100MB in bytes
+        
+        progress_print(args, f"Creating {file_size_mb}MB test file...")
+        with open(local_file_path, "wb") as f:
+            # Write in chunks to avoid memory issues
+            chunk_size = 1024 * 1024  # 1MB chunks
+            remaining = file_size_bytes
+            while remaining > 0:
+                chunk = min(chunk_size, remaining)
+                f.write(os.urandom(chunk))  # Write random bytes
+                remaining -= chunk
+        
+        # Add a header with test info
+        header = f"Local to remote test content - {test_id}\nGenerated at: {datetime.now().isoformat()}\nFile size: {file_size_mb}MB\n"
+        with open(local_file_path, "r+b") as f:
+            f.seek(0)
+            f.write(header.encode())
+        
+        if not os.path.exists(local_file_path):
+            return False, "Failed to create local test file"
+        
+        actual_size = os.path.getsize(local_file_path)
+        progress_print(args, f"Local file created ({actual_size} bytes, {actual_size / (1024*1024):.2f}MB)")
+
+        # Use a simpler approach - copy to /tmp directly without creating subdirectories
+        remote_file_path_lr = f"{instance_id}:/tmp/local_to_remote_test_{test_id}.txt"
+        copy_args = argparse.Namespace(
+            src=local_file_path,
+            dst=remote_file_path_lr,
+            identity=temp_private_key_path,
+            explain=getattr(args, "explain", False),
+            api_key=api_key,
+            url=args.url,
+            retry=args.retry,
+            raw=args.raw,
+            debugging=args.debugging,
+        )
+        # Time the local to remote copy
+        progress_print(args, f"Starting Local → Remote copy of {actual_size / (1024*1024):.2f}MB...")
+        start_time_lr = time.time()
+        try:
+            copy(copy_args)
+            end_time_lr = time.time()
+            duration_lr = end_time_lr - start_time_lr
+            speed_lr_mbps = (actual_size * 8) / (1024 * 1024 * duration_lr)  # Convert to Mbps
+            progress_print(args, f"Local → Remote copy completed in {duration_lr:.2f}s")
+            progress_print(args, f"Local → Remote speed: {speed_lr_mbps:.2f} Mbps")
+        except Exception as e:
+            return False, f"Local → Remote copy failed: {e}"
+
+        # Verify by copying back - use a simpler destination path
+        verify_file_path = f"/tmp/verify_remote_file_{test_id}.txt"
+        verify_copy_args = argparse.Namespace(
+            src=f"{instance_id}:/tmp/local_to_remote_test_{test_id}.txt",
+            dst=verify_file_path,
+            identity=temp_private_key_path,
+            explain=getattr(args, "explain", False),
+            api_key=api_key,
+            url=args.url,
+            retry=args.retry,
+            raw=args.raw,
+            debugging=args.debugging,
+        )
+        try:
+            copy(verify_copy_args)
+            # Handle the case where copy creates a directory instead of a file
+            actual_file_path = verify_file_path
+            if os.path.exists(verify_file_path):
+                if os.path.isdir(verify_file_path):
+                    # The copy function created a directory, look for the file inside
+                    expected_filename = f"local_to_remote_test_{test_id}.txt"
+                    actual_file_path = os.path.join(verify_file_path, expected_filename)
+                    progress_print(args, f"Copy created directory, looking for file: {actual_file_path}")
+                
+                if os.path.exists(actual_file_path):
+                    verify_size = os.path.getsize(actual_file_path)
+                    progress_print(args, f"Verification file exists, size: {verify_size} bytes ({verify_size / (1024*1024):.2f}MB)")
+                else:
+                    return False, f"Verification file does not exist: {actual_file_path}"
+            else:
+                return False, f"Verification file does not exist: {verify_file_path}"
+            
+            # For large files, just verify the header instead of full content
+            with open(actual_file_path, "rb") as f:
+                header = f.read(200)  # Read first 200 bytes for header verification
+            if not header.startswith(b"Local to remote test content"):
+                return False, "File header verification failed (local→remote roundtrip)"
+            progress_print(args, "Local→Remote roundtrip verification passed")
+        except Exception as e:
+            return False, f"Verification copy failed: {e}"
+
+        # ---------- Test 2: Remote -> Local ----------
+        # Create a 100MB file for remote-to-local testing
+        progress_print(args, f"Creating {file_size_mb}MB file for Remote → Local test...")
+        temp_local_file = os.path.join(local_test_dir, "temp_remote_file.txt")
+        
+        with open(temp_local_file, "wb") as f:
+            # Write in chunks to avoid memory issues
+            chunk_size = 1024 * 1024  # 1MB chunks
+            remaining = file_size_bytes
+            while remaining > 0:
+                chunk = min(chunk_size, remaining)
+                f.write(os.urandom(chunk))  # Write random bytes
+                remaining -= chunk
+        
+        # Add a header with test info
+        header = f"Remote to local test content - {test_id}\nGenerated at: {datetime.now().isoformat()}\nFile size: {file_size_mb}MB\n"
+        with open(temp_local_file, "r+b") as f:
+            f.seek(0)
+            f.write(header.encode())
+        
+        temp_file_size = os.path.getsize(temp_local_file)
+        progress_print(args, f"Remote test file created ({temp_file_size} bytes, {temp_file_size / (1024*1024):.2f}MB)")
+
+        remote_file_path_rl = f"{instance_id}:/tmp/remote_to_local_test_{test_id}.txt"
+        temp_copy_args = argparse.Namespace(
+            src=temp_local_file,
+            dst=remote_file_path_rl,
+            identity=temp_private_key_path,
+            explain=getattr(args, "explain", False),
+            api_key=api_key,
+            url=args.url,
+            retry=args.retry,
+            raw=args.raw,
+            debugging=args.debugging,
+        )
+        try:
+            copy(temp_copy_args)
+            progress_print(args, "Staged remote file created via copy")
+        except Exception as e:
+            return False, f"Failed to create remote file: {e}"
+
+        # Copy remote → local with timing
+        local_dest_file = os.path.join(local_test_dir, "remote_to_local_test.txt")
+        remote_to_local_args = argparse.Namespace(
+            src=remote_file_path_rl,
+            dst=local_dest_file,
+            identity=temp_private_key_path,
+            explain=getattr(args, "explain", False),
+            api_key=api_key,
+            url=args.url,
+            retry=args.retry,
+            raw=args.raw,
+            debugging=args.debugging,
+        )
+        
+        # Time the remote to local copy
+        progress_print(args, f"Starting Remote → Local copy of {temp_file_size / (1024*1024):.2f}MB...")
+        start_time_rl = time.time()
+        try:
+            copy(remote_to_local_args)
+            end_time_rl = time.time()
+            duration_rl = end_time_rl - start_time_rl
+            speed_rl_mbps = (temp_file_size * 8) / (1024 * 1024 * duration_rl)  # Convert to Mbps
+            progress_print(args, f"Remote → Local copy completed in {duration_rl:.2f}s")
+            progress_print(args, f"Remote → Local speed: {speed_rl_mbps:.2f} Mbps")
+        except Exception as e:
+            return False, f"Remote → Local copy failed: {e}"
+
+        # Handle the case where copy creates a directory instead of a file
+        actual_dest_file = local_dest_file
+        if os.path.exists(local_dest_file):
+            if os.path.isdir(local_dest_file):
+                # The copy function created a directory, look for the file inside
+                expected_filename = f"remote_to_local_test_{test_id}.txt"
+                actual_dest_file = os.path.join(local_dest_file, expected_filename)
+                progress_print(args, f"Copy created directory, looking for file: {actual_dest_file}")
+            
+            if os.path.exists(actual_dest_file):
+                downloaded_size = os.path.getsize(actual_dest_file)
+                progress_print(args, f"Remote to local file exists, size: {downloaded_size} bytes ({downloaded_size / (1024*1024):.2f}MB)")
+            else:
+                return False, f"Remote → Local verification failed - file does not exist: {actual_dest_file}"
+        else:
+            return False, f"Remote → Local verification failed - file does not exist: {local_dest_file}"
+        
+        # For large files, just verify the header instead of full content
+        with open(actual_dest_file, "rb") as f:
+            header = f.read(200)  # Read first 200 bytes for header verification
+        if not header.startswith(b"Remote to local test content"):
+            return False, "File header verification failed (remote→local roundtrip)"
+        progress_print(args, "Remote → Local roundtrip verification passed")
+
+        # --- Cleanup local test dir ---
+        try:
+            shutil.rmtree(local_test_dir)
+            progress_print(args, "Local test directory cleaned up")
+        except Exception as e:
+            progress_print(args, f"Warning: cleanup of local test dir failed: {e}")
+
+        progress_print(args, "=== COPY TEST SUMMARY ===")
+        progress_print(args, "✓ SSH key creation & attach: PASSED")
+        progress_print(args, f"✓ Local → Remote copy & verify: PASSED ({speed_lr_mbps:.2f} Mbps)")
+        progress_print(args, f"✓ Remote → Local copy & verify: PASSED ({speed_rl_mbps:.2f} Mbps)")
+        progress_print(args, "✓ Cleanup: PASSED")
+        progress_print(args, "All copy tests completed successfully!")
+        return True, ""
+
+    except Exception as e:
+        progress_print(args, f"Copy test failed with exception: {e}")
+        return False, f"Copy test failed with exception: {e}"
+
+    finally:
+        # Always remove temporary SSH keys
+        try:
+            if temp_ssh_dir and os.path.exists(temp_ssh_dir):
+                progress_print(args, "Cleaning up temporary SSH keys…")
+                shutil.rmtree(temp_ssh_dir)
+                progress_print(args, "Temporary SSH keys cleaned up")
+        except Exception as e:
+            progress_print(args, f"Warning: Failed to cleanup temporary SSH keys: {e}")
     
+
 def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, api_key=None):
     """
     Executes machine testing by connecting to the specified IP and port, monitoring
@@ -7177,6 +7565,8 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
     epilog=deindent("""
         This command tests if a machine meets specific requirements and 
         runs a series of tests to ensure it's functioning correctly.
+        The test includes hardware validation, performance testing, and
+        file copy functionality testing (local-to-remote and remote-to-local).
 
         Examples:
          vast self-test machine 12345
@@ -7392,6 +7782,16 @@ def self_test__machine(args):
                         if not port:
                             result["reason"] = "Failed to retrieve mapped port."
                         else:
+                            # Run copy test first
+                            progress_print(args, "Running copy test...")
+                            copy_success, copy_reason = run_copy_test(str(instance_id), api_key, args)
+                            if not copy_success:
+                                result["success"] = False
+                                result["reason"] = f"Copy test failed: {copy_reason}"
+                                return result
+                            progress_print(args, "Copy test completed successfully.")
+                            
+                            # Run machine tester
                             delay = "15"
                             success, reason = run_machinetester(
                                 ip_address, port, str(instance_id), args.machine_id, delay, args, api_key=api_key

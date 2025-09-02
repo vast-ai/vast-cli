@@ -6812,6 +6812,8 @@ def run_copy_test(instance_id, api_key, args):
         temp_public_key_path = os.path.join(temp_ssh_dir, "id_ed25519.pub")
 
         progress_print(args, f"Creating temporary SSH key in: {temp_ssh_dir}")
+        progress_print(args, f"[COPY TEST] WARNING: This test will create and attach SSH keys that might interfere with the remote test script")
+        progress_print(args, f"[COPY TEST] The remote test script runs /verification/remote.sh and might be affected by SSH key changes")
 
         try:
             cmd = [
@@ -6864,75 +6866,14 @@ def run_copy_test(instance_id, api_key, args):
         try:
             attach__ssh(ssh_attach_args)
             progress_print(args, "SSH key attached to instance successfully")
+            progress_print(args, f"[COPY TEST] WARNING: SSH key attached - this may have interfered with the remote test script execution")
+            progress_print(args, f"[COPY TEST] The remote script /verification/remote.sh might have been affected by this SSH key change")
         except Exception as e:
             return False, f"Failed to attach SSH key to instance: {e}"
 
         # --- Wait for propagation ---
-        wait_seconds = getattr(args, "ssh_propagation_wait", 60)
-        progress_print(args, f"Waiting {wait_seconds}s for SSH key propagation…")
-        time.sleep(wait_seconds)
-
-        # --- Verify attachment with retry (up to 5 minutes) ---
-        progress_print(args, "Verifying SSH key attachment...")
-        
-        ssh_key_verified = False
-        max_wait_time = 300  # 5 minutes
-        check_interval = 30  # Check every 30 seconds
-        start_time = time.time()
-        
-        while time.time() - start_time < max_wait_time:
-            try:
-                # Use the SSH-specific endpoint like in the curl example
-                ssh_url = f"{getattr(args, 'url', 'https://console.vast.ai')}/api/v0/instances/{instance_id}/ssh/"
-                
-                # Create args for http_get
-                ssh_args = argparse.Namespace(
-                    api_key=api_key,
-                    url=getattr(args, 'url', 'https://console.vast.ai'),
-                    retry=getattr(args, 'retry', 3),
-                    raw=True,
-                    debugging=args.debugging,
-                )
-                
-                # Use the existing http_get function which handles connection cleanup
-                r = http_get(ssh_args, ssh_url)
-                if r.status_code == 200:
-                    ssh_data = r.json()
-                    if ssh_data.get('success') and ssh_data.get('ssh_keys'):
-                        ssh_keys = ssh_data['ssh_keys']
-                        # Parse the SSH keys if they're returned as a string
-                        if isinstance(ssh_keys, str):
-                            import json
-                            try:
-                                ssh_keys = json.loads(ssh_keys)
-                            except:
-                                ssh_keys = []
-                        
-                        if ssh_keys:
-                            progress_print(args, f"Verified {len(ssh_keys)} SSH key(s) attached to instance")
-                            ssh_key_verified = True
-                            break
-                        else:
-                            elapsed = int(time.time() - start_time)
-                            remaining = max_wait_time - elapsed
-                            progress_print(args, f"No SSH keys found yet. Elapsed: {elapsed}s, Remaining: {remaining}s")
-                    else:
-                        elapsed = int(time.time() - start_time)
-                        remaining = max_wait_time - elapsed
-                        progress_print(args, f"SSH endpoint returned no keys. Elapsed: {elapsed}s, Remaining: {remaining}s")
-                else:
-                    progress_print(args, f"Warning: SSH endpoint returned status {r.status_code}")
-            except Exception as e:
-                progress_print(args, f"Warning: Failed to verify SSH keys on instance: {e}")
-            
-            if time.time() - start_time < max_wait_time:
-                progress_print(args, f"Waiting {check_interval}s before next check...")
-                time.sleep(check_interval)
-        
-        if not ssh_key_verified:
-            progress_print(args, "Warning: SSH key verification timed out after 5 minutes, but continuing with test")
-        else:
-            progress_print(args, "SSH key verification successful!")
+        progress_print(args, "Waiting 80s for SSH key propagation…")
+        time.sleep(80)
 
         # --- Local preparation ---
         progress_print(args, f"Creating local test directory: {local_test_dir}")
@@ -6982,6 +6923,8 @@ def run_copy_test(instance_id, api_key, args):
         )
         # Time the local to remote copy
         progress_print(args, f"Starting Local → Remote copy of {actual_size / (1024*1024):.2f}MB...")
+        progress_print(args, f"[COPY TEST] WARNING: About to perform file operations that might interfere with remote test script")
+        progress_print(args, f"[COPY TEST] Target path: /tmp/local_to_remote_test_{test_id}.txt")
         start_time_lr = time.time()
         try:
             copy(copy_args)
@@ -6990,6 +6933,7 @@ def run_copy_test(instance_id, api_key, args):
             speed_lr_mbps = (actual_size * 8) / (1024 * 1024 * duration_lr)  # Convert to Mbps
             progress_print(args, f"Local → Remote copy completed in {duration_lr:.2f}s")
             progress_print(args, f"Local → Remote speed: {speed_lr_mbps:.2f} Mbps")
+            progress_print(args, f"[COPY TEST] WARNING: File copy completed - this may have affected the remote test script")
         except Exception as e:
             return False, f"Local → Remote copy failed: {e}"
 
@@ -7139,6 +7083,8 @@ def run_copy_test(instance_id, api_key, args):
         progress_print(args, f"✓ Remote → Local copy & verify: PASSED ({speed_rl_mbps:.2f} Mbps)")
         progress_print(args, "✓ Cleanup: PASSED")
         progress_print(args, "All copy tests completed successfully!")
+        progress_print(args, f"[COPY TEST] WARNING: Copy test completed - the remote test script may have been affected")
+        progress_print(args, f"[COPY TEST] Next step: Machine tester will check if /verification/remote.sh is still running properly")
         return True, ""
 
     except Exception as e:
@@ -7193,6 +7139,10 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
     # Ensure debugging is set in args
     if not hasattr(args, 'debugging'):
         args.debugging = False
+        
+    # Add comprehensive logging
+    progress_print(args, f"[MACHINE TESTER] Starting with IP: {ip_address}, Port: {port}, Instance: {instance_id}")
+    progress_print(args, f"[MACHINE TESTER] Delay: {delay} seconds, Debug: {args.debugging}")
 
     def is_instance(instance_id):
         """Check instance status via show__instance."""
@@ -7237,15 +7187,22 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
     first_connection_established = False  # Flag to track first successful connection
     instance_destroyed = False  # Track whether the instance has been destroyed
     try:
+        progress_print(args, f"[MACHINE TESTER] Entering main monitoring loop (timeout: 600s)")
+        progress_print(args, f"[MACHINE TESTER] Expected: Remote script should be running tests and outputting progress")
+        loop_count = 0
         while time.time() - start_time < 600:
+            loop_count += 1
+            progress_print(args, f"[MACHINE TESTER] Loop #{loop_count} - Elapsed time: {int(time.time() - start_time)}s")
+            
             # Check instance status with high priority for offline status
             status = is_instance(instance_id)
+            progress_print(args, f"[MACHINE TESTER] Instance {instance_id} status: {status}")
             if args.debugging:
                 debug_print(args, f"Instance {instance_id} status: {status}")
                 
             if status == 'offline':
                 reason = "Instance offline during testing"
-                progress_print(args, f"Instance {instance_id} went offline. {reason}")
+                progress_print(args, f"[MACHINE TESTER] Instance {instance_id} went offline. {reason}")
                 destroy_instance_silent(instance_id, destroy_args)
                 instance_destroyed = True
                 with open("Error_testresults.log", "a") as f:
@@ -7253,73 +7210,109 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
                 return False, reason
 
             # Attempt to connect to the progress endpoint
+            progress_print(args, f"[MACHINE TESTER] Attempting to connect to https://{ip_address}:{port}/progress")
             try:
                 if args.debugging:
                     debug_print(args, f"Sending GET request to https://{ip_address}:{port}/progress")
                 response = requests.get(f'https://{ip_address}:{port}/progress', verify=False, timeout=10)
+                progress_print(args, f"[MACHINE TESTER] Response status: {response.status_code}")
                 
                 if response.status_code == 200 and not first_connection_established:
-                    progress_print(args, "Successfully established HTTPS connection to the server.")
+                    progress_print(args, "[MACHINE TESTER] Successfully established HTTPS connection to the server.")
                     first_connection_established = True
 
                 message = response.text.strip()
+                progress_print(args, f"[MACHINE TESTER] Response text: '{message}'")
+                
+                # Log the full response content for debugging
+                if message == 'DONE' and loop_count <= 3:  # Only log first few responses to avoid spam
+                    progress_print(args, f"[MACHINE TESTER] WARNING: Got 'DONE' immediately - this suggests remote script failed")
+                    progress_print(args, f"[MACHINE TESTER] Full response content: {repr(response.text)}")
+                    progress_print(args, f"[MACHINE TESTER] Response headers: {dict(response.headers)}")
+                
                 if args.debugging:
                     debug_print(args, f"Received message: '{message}'")
             except requests.exceptions.RequestException as e:
+                progress_print(args, f"[MACHINE TESTER] Error making HTTPS request: {e}")
                 if args.debugging:
                     progress_print(args, f"Error making HTTPS request: {e}")
                 message = ''
 
             # Process response messages
             if message:
+                progress_print(args, f"[MACHINE TESTER] Processing message: '{message}'")
                 lines = message.split('\n')
                 new_lines = [line for line in lines if line not in printed_lines]
+                progress_print(args, f"[MACHINE TESTER] Found {len(new_lines)} new lines to process")
+                
                 for line in new_lines:
+                    progress_print(args, f"[MACHINE TESTER] Processing line: '{line}'")
                     if line == 'DONE':
-                        progress_print(args, "Test completed successfully.")
+                        progress_print(args, "[MACHINE TESTER] Test completed successfully.")
                         with open("Pass_testresults.log", "a") as f:
                             f.write(f"{machine_id}\n")
-                        progress_print(args, f"Test passed.")
+                        progress_print(args, f"[MACHINE TESTER] Test passed.")
+                        
+                        # Run copy test before destroying the instance
+                        progress_print(args, "[MACHINE TESTER] Running copy test before instance destruction...")
+                        try:
+                            copy_success, copy_reason = run_copy_test(str(instance_id), api_key, args)
+                            if copy_success:
+                                progress_print(args, "[MACHINE TESTER] Copy test completed successfully.")
+                            else:
+                                progress_print(args, f"[MACHINE TESTER] Copy test failed: {copy_reason}")
+                        except Exception as e:
+                            progress_print(args, f"[MACHINE TESTER] Copy test failed with exception: {e}")
+                        
+                        # Now destroy the instance
                         destroy_instance_silent(instance_id, destroy_args)
                         instance_destroyed = True
                         return True, ""
                     elif line.startswith('ERROR'):
-                        progress_print(args, line)
+                        progress_print(args, f"[MACHINE TESTER] {line}")
                         with open("Error_testresults.log", "a") as f:
                             f.write(f"{machine_id}:{instance_id} {line}\n")
-                        progress_print(args, f"Test failed with error: {line}.")
+                        progress_print(args, f"[MACHINE TESTER] Test failed with error: {line}.")
                         destroy_instance_silent(instance_id, destroy_args)
                         instance_destroyed = True
                         return False, line
                     else:
-                        progress_print(args, line)
+                        progress_print(args, f"[MACHINE TESTER] {line}")
                     printed_lines.add(line)
                 no_response_seconds = 0
             else:
                 no_response_seconds += 20
+                progress_print(args, f"[MACHINE TESTER] No message received. no_response_seconds: {no_response_seconds}")
                 if args.debugging:
                     debug_print(args, f"No message received. Incremented no_response_seconds to {no_response_seconds}.")
 
             if status == 'running' and no_response_seconds >= 120:
+                progress_print(args, f"[MACHINE TESTER] No response for 120s with running instance. This may indicate a misconfiguration of ports on the machine. Network error or system stall or crashed.")
                 with open("Error_testresults.log", "a") as f:
                     f.write(f"{machine_id}:{instance_id} No response from port {port} for 120s with running instance\n")
-                progress_print(args, f"No response for 120s with running instance. This may indicate a misconfiguration of ports on the machine. Network error or system stall or crashed. ")
+                progress_print(args, f"[MACHINE TESTER] No response for 120s with running instance. This may indicate a misconfiguration of ports on the machine. Network error or system stall or crashed. ")
                 destroy_instance_silent(instance_id, destroy_args)
                 instance_destroyed = True
                 return False, "No response for 120 seconds with running instance. The system might have crashed or stalled during stress test. Use the self-test machine function in vast cli"
 
+            progress_print(args, f"[MACHINE TESTER] Waiting 20 seconds before next check...")
             if args.debugging:
                 debug_print(args, "Waiting for 20 seconds before the next check.")
             time.sleep(20)
 
+        progress_print(args, f"[MACHINE TESTER] Time limit reached (600s). Destroying instance {instance_id}.")
         if args.debugging:
             debug_print(args, f"Time limit reached. Destroying instance {instance_id}.")
         return False, "Test did not complete within the time limit"
     finally:
         # Ensure instance cleanup
+        progress_print(args, f"[MACHINE TESTER] Entering finally block")
         if not instance_destroyed and instance_id and instance_exist(instance_id, api_key, destroy_args):
+           progress_print(args, f"[MACHINE TESTER] Cleaning up instance {instance_id} in finally block")
            destroy_instance_silent(instance_id, destroy_args)
-        progress_print(args, f"Machine: {machine_id} Done with testing remote.py results {message}")
+        else:
+           progress_print(args, f"[MACHINE TESTER] Instance {instance_id} already destroyed or doesn't exist")
+        progress_print(args, f"[MACHINE TESTER] Machine: {machine_id} Done with testing remote.py results")
         warnings.simplefilter('default')
 
 def safe_float(value):
@@ -7734,6 +7727,10 @@ def self_test__machine(args):
                 create_volume=None,
                 link_volume=None,
             )
+            
+            progress_print(args, f"Creating instance with Docker image: {docker_image}")
+            progress_print(args, f"Onstart command: /verification/remote.sh")
+            progress_print(args, f"Expected behavior: Remote script should start GPU/system tests and output progress")
 
             # Create instance
             try:
@@ -7782,34 +7779,40 @@ def self_test__machine(args):
                         if not port:
                             result["reason"] = "Failed to retrieve mapped port."
                         else:
-                            # Run copy test first
-                            progress_print(args, "Running copy test...")
-                            copy_success, copy_reason = run_copy_test(str(instance_id), api_key, args)
-                            if not copy_success:
-                                result["success"] = False
-                                result["reason"] = f"Copy test failed: {copy_reason}"
-                                return result
-                            progress_print(args, "Copy test completed successfully.")
-                            
-                            # Run machine tester
+                            # Run machine tester (includes copy test)
+                            progress_print(args, "Starting remote machine tests...")
+                            progress_print(args, f"Remote script should be running: /verification/remote.sh")
+                            progress_print(args, f"Monitoring progress at: https://{ip_address}:{port}/progress")
                             delay = "15"
                             success, reason = run_machinetester(
                                 ip_address, port, str(instance_id), args.machine_id, delay, args, api_key=api_key
                             )
                             result["success"] = success
                             result["reason"] = reason
+                            
+                            # Clean up instance after machine tester completes
+                            try:
+                                if instance_id and instance_exist(instance_id, api_key, destroy_args):
+                                    destroy_instance_silent(instance_id, destroy_args)
+                            except Exception as e:
+                                if args.debugging:
+                                    debug_print(args, f"Error during cleanup: {e}")
 
     except Exception as e:
         result["success"] = False
         result["reason"] = str(e)
-
-    finally:
+        
+        # Clean up instance on exception
         try:
             if instance_id and instance_exist(instance_id, api_key, destroy_args):
                 destroy_instance_silent(instance_id, destroy_args)
-        except Exception as e:
+        except Exception as cleanup_e:
             if args.debugging:
-                debug_print(args, f"Error during cleanup: {e}")
+                debug_print(args, f"Error during cleanup: {cleanup_e}")
+
+    finally:
+        # No instance destruction here - it's handled above
+        pass
 
     # Output results
     if args.raw:

@@ -183,3 +183,5 @@ The `vast.py` script supports tab-completion in both Bash and Zsh shells if the 
 
 This documentation should help you get started with the Vast.ai CLI tools and understand the available commands and usage patterns. For more detailed information, refer to the inline help provided by each command.
 ```
+
+See the openapi/ directory for our api docs

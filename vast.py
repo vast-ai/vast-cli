@@ -2910,6 +2910,34 @@ def destroy__instance(args):
     """
     destroy_instance(args.id,args)
 
+def destroy_instances(instance_ids, args):
+    instance_ids = instance_ids if isinstance(instance_ids, list) else [instance_ids]
+    def instance_id_to_int(id):
+        try: 
+            if isinstance(id, int):
+                return id
+            else:
+                return int(id)
+        except ValueError:
+            raise ValueError("Instance Id must be a number or numeric value, or a numeric string that can be converted to number")
+    instance_ids = [instance_id_to_int(id) for id in instance_ids if id is not None]
+    data = {"instance_ids": instance_ids}
+    url = apiurl(args, "/instances")
+    r = http_del(args, url, headers=headers,json=data)
+    r.raise_for_status()
+    if args.raw:
+        return r
+    elif (r.status_code == 200):
+        rj = r.json()
+        if (rj["success"]):
+            str_instance_ids = ",".join(instance_ids)
+            print("destroying instances {str_instance_ids}.".format(**(locals())))
+        else:
+            print(rj["msg"])
+    else:
+        print(r.text);
+        print("failed with error {r.status_code}".format(**locals()))
+
 @parser.command(
     argument("ids", help="ids of instance to destroy", type=int, nargs='+'),
     usage="vastai destroy instances [--raw] <id>",
@@ -2918,8 +2946,8 @@ def destroy__instance(args):
 def destroy__instances(args):
     """
     """
-    for id in args.ids:
-        destroy_instance(id, args)
+    instance_ids = [id for id in args.ids if id is not None]
+    destroy_instances(instance_ids, args)
 
 @parser.command(
     usage="vastai destroy team",

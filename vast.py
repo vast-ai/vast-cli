@@ -1497,12 +1497,12 @@ def copy(args: argparse.Namespace):
     if (r.status_code == 200):
         rj = r.json()
         #print(json.dumps(rj, indent=1, sort_keys=True))
-        if (rj["success"]) and ((src_id is None) or (dst_id is None)):
+        if (rj["success"]) and ((src_id is None or src_id == "local") or (dst_id is None or dst_id == "local")):
             homedir = subprocess.getoutput("echo $HOME")
             #print(f"homedir: {homedir}")
             remote_port = None
             identity = args.identity if (args.identity is not None) else f"{homedir}/.ssh/id_rsa"
-            if (src_id is None):
+            if (src_id is None or src_id == "local"):
                 #result = subprocess.run(f"mkdir -p {src_path}", shell=True)
                 remote_port = rj["dst_port"]
                 remote_addr = rj["dst_addr"]
@@ -1510,7 +1510,7 @@ def copy(args: argparse.Namespace):
                 print(cmd)
                 result = subprocess.run(cmd, shell=True)
                 #result = subprocess.run(["sudo", "rsync" "-arz", "-v", "--progress", "-rsh=ssh", "-e 'sudo ssh -i {homedir}/.ssh/id_rsa -p {remote_port} -o StrictHostKeyChecking=no'", src_path, "vastai_kaalia@{remote_addr}::{dst_id}"], shell=True)
-            elif (dst_id is None):
+            elif (dst_id is None or dst_id == "local"):
                 result = subprocess.run(f"mkdir -p {dst_path}", shell=True)
                 remote_port = rj["src_port"]
                 remote_addr = rj["src_addr"]

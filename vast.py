@@ -1159,10 +1159,6 @@ def parse_vast_url(url_str):
             (instance_id, path) = url_parts
         else:
             raise VRLException("Invalid VRL (Vast resource locator).")
-        try:
-            instance_id = int(instance_id)
-        except:
-            raise VRLException("Instance id must be an integer.")
     else:
         try:
             instance_id = int(path)
@@ -1442,27 +1438,38 @@ def clone__volume(args: argparse.Namespace):
 
 
 @parser.command(
-    argument("src", help="instance_id:/path to source of object to copy", type=str),
-    argument("dst", help="instance_id:/path to target of copy operation", type=str),
+    argument("src", help="Source location for copy operation (supports multiple formats)", type=str),
+    argument("dst", help="Target location for copy operation (supports multiple formats)", type=str),
     argument("-i", "--identity", help="Location of ssh private key", type=str),
     usage="vastai copy SRC DST",
     help="Copy directories between instances and/or local",
     epilog=deindent("""
         Copies a directory from a source location to a target location. Each of source and destination
         directories can be either local or remote, subject to appropriate read and write
-        permissions required to carry out the action. The format for both src and dst is [instance_id:]path.
-                    
+        permissions required to carry out the action.
+
+        Supported location formats:
+        - [instance_id:]path               (legacy format, still supported)
+        - C.instance_id:path              (container copy format)
+        - cloud_service:path              (cloud service format)
+        - cloud_service.cloud_service_id:path  (cloud service with ID)
+        - local:path                      (explicit local path)
+
         You should not copy to /root or / as a destination directory, as this can mess up the permissions on your instance ssh folder, breaking future copy operations (as they use ssh authentication)
         You can see more information about constraints here: https://vast.ai/docs/gpu-instances/data-movement#constraints
-                    
+
         Examples:
          vast copy 6003036:/workspace/ 6003038:/workspace/
-         vast copy 11824:/data/test data/test
-         vast copy data/test 11824:/data/test
+         vast copy C.11824:/data/test local:data/test
+         vast copy local:data/test C.11824:/data/test
+         vast copy drive:/folder/file.txt C.6003036:/workspace/
+         vast copy s3.101:/data/ C.6003036:/workspace/
 
         The first example copy syncs all files from the absolute directory '/workspace' on instance 6003036 to the directory '/workspace' on instance 6003038.
-        The second example copy syncs the relative directory 'data/test' on the local machine from '/data/test' in instance 11824.
-        The third example copy syncs the directory '/data/test' in instance 11824 from the relative directory 'data/test' on the local machine.
+        The second example copy syncs files from container 11824 to the local machine using structured syntax.
+        The third example copy syncs files from local to container 11824 using structured syntax.
+        The fourth example copy syncs files from Google Drive to an instance.
+        The fifth example copy syncs files from S3 bucket with id 101 to an instance.
     """),
 )
 def copy(args: argparse.Namespace):
@@ -1501,12 +1508,12 @@ def copy(args: argparse.Namespace):
     if (r.status_code == 200):
         rj = r.json()
         #print(json.dumps(rj, indent=1, sort_keys=True))
-        if (rj["success"]) and ((src_id is None) or (dst_id is None)):
+        if (rj["success"]) and ((src_id is None or src_id == "local") or (dst_id is None or dst_id == "local")):
             homedir = subprocess.getoutput("echo $HOME")
             #print(f"homedir: {homedir}")
             remote_port = None
             identity = args.identity if (args.identity is not None) else f"{homedir}/.ssh/id_rsa"
-            if (src_id is None):
+            if (src_id is None or src_id == "local"):
                 #result = subprocess.run(f"mkdir -p {src_path}", shell=True)
                 remote_port = rj["dst_port"]
                 remote_addr = rj["dst_addr"]
@@ -1514,7 +1521,7 @@ def copy(args: argparse.Namespace):
                 print(cmd)
                 result = subprocess.run(cmd, shell=True)
                 #result = subprocess.run(["sudo", "rsync" "-arz", "-v", "--progress", "-rsh=ssh", "-e 'sudo ssh -i {homedir}/.ssh/id_rsa -p {remote_port} -o StrictHostKeyChecking=no'", src_path, "vastai_kaalia@{remote_addr}::{dst_id}"], shell=True)
-            elif (dst_id is None):
+            elif (dst_id is None or dst_id == "local"):
                 result = subprocess.run(f"mkdir -p {dst_path}", shell=True)
                 remote_port = rj["src_port"]
                 remote_addr = rj["src_addr"]

@@ -1438,27 +1438,38 @@ def clone__volume(args: argparse.Namespace):
 
 
 @parser.command(
-    argument("src", help="instance_id:/path to source of object to copy", type=str),
-    argument("dst", help="instance_id:/path to target of copy operation", type=str),
+    argument("src", help="Source location for copy operation (supports multiple formats)", type=str),
+    argument("dst", help="Target location for copy operation (supports multiple formats)", type=str),
     argument("-i", "--identity", help="Location of ssh private key", type=str),
     usage="vastai copy SRC DST",
     help="Copy directories between instances and/or local",
     epilog=deindent("""
         Copies a directory from a source location to a target location. Each of source and destination
         directories can be either local or remote, subject to appropriate read and write
-        permissions required to carry out the action. The format for both src and dst is [instance_id:]path.
-                    
+        permissions required to carry out the action.
+
+        Supported location formats:
+        - [instance_id:]path               (legacy format, still supported)
+        - C.instance_id:path              (container copy format)
+        - cloud_service:path              (cloud service format)
+        - cloud_service.cloud_service_id:path  (cloud service with ID)
+        - local:path                      (explicit local path)
+
         You should not copy to /root or / as a destination directory, as this can mess up the permissions on your instance ssh folder, breaking future copy operations (as they use ssh authentication)
         You can see more information about constraints here: https://vast.ai/docs/gpu-instances/data-movement#constraints
-                    
+
         Examples:
          vast copy 6003036:/workspace/ 6003038:/workspace/
-         vast copy 11824:/data/test data/test
-         vast copy data/test 11824:/data/test
+         vast copy C.11824:/data/test local:data/test
+         vast copy local:data/test C.11824:/data/test
+         vast copy drive:/folder/file.txt C.6003036:/workspace/
+         vast copy s3.101:/data/ C.6003036:/workspace/
 
         The first example copy syncs all files from the absolute directory '/workspace' on instance 6003036 to the directory '/workspace' on instance 6003038.
-        The second example copy syncs the relative directory 'data/test' on the local machine from '/data/test' in instance 11824.
-        The third example copy syncs the directory '/data/test' in instance 11824 from the relative directory 'data/test' on the local machine.
+        The second example copy syncs files from container 11824 to the local machine using structured syntax.
+        The third example copy syncs files from local to container 11824 using structured syntax.
+        The fourth example copy syncs files from Google Drive to an instance.
+        The fifth example copy syncs files from S3 bucket with id 101 to an instance.
     """),
 )
 def copy(args: argparse.Namespace):

@@ -33,26 +33,32 @@ paths:
                 machine:
                   type: integer
                   description: ID of the machine to list
+                  example: 123
                 price_gpu:
                   type: number
                   format: float
                   description: Price per GPU per hour
+                  example: 0.25
                 price_disk:
                   type: number
                   format: float
                   description: Price per GB of disk storage
+                  example: 0.15
                 price_inetu:
                   type: number
                   format: float
                   description: Price per GB of upload bandwidth
+                  example: 0.15
                 price_inetd:
                   type: number
                   format: float
                   description: Price per GB of download bandwidth
+                  example: 0.15
                 price_min_bid:
                   type: number
                   format: float
                   description: Minimum bid price allowed
+                  example: 0.30
                 min_chunk:
                   type: integer
                   description: Minimum number of GPUs that must be rented together
@@ -61,10 +67,12 @@ paths:
                   type: number
                   format: float
                   description: Unix timestamp for when the listing expires
+                  example: 1741392000
                 credit_discount_max:
                   type: number
                   format: float
                   description: Maximum discount rate allowed for prepaid credits
+                  example: 0.05
       responses:
         '200':
           description: Successful response

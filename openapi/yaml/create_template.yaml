@@ -83,6 +83,7 @@ paths:
                   description: Recommended disk space in GB
               required:
               - name
+              - image
       responses:
         '200':
           description: Template created or existing template found

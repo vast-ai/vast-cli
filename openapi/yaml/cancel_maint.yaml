@@ -3,7 +3,7 @@ info:
   title: Vast.ai API
   version: 1.0.0
 paths:
-  /api/v0/machines/{machine_id}/cancel_maint:
+  /api/v0/machines/{machine_id}/cancel_maint/:
     put:
       summary: cancel maint
       description: Cancel a scheduled maintenance window for a specified machine.

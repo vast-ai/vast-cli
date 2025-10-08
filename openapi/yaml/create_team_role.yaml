@@ -7,7 +7,7 @@ servers:
 - url: https://console.vast.ai
   description: Production server
 paths:
-  /api/v0/team/role:
+  /api/v0/team/roles/:
     post:
       summary: create team role
       description: 'Creates a new role within a team. Only team owners or managers

@@ -7,7 +7,7 @@ servers:
 - url: https://console.vast.ai
   description: Production server
 paths:
-  /api/v0/machines/{machine_id}/cleanup:
+  /api/v0/machines/{machine_id}/cleanup/:
     put:
       summary: cleanup machine
       description: 'This endpoint removes expired contracts on a specified machine,

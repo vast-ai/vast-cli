@@ -7,7 +7,7 @@ servers:
 - url: https://console.vast.ai
   description: Production server
 paths:
-  /api/v0/team:
+  /api/v0/team/:
     post:
       summary: create team
       description: "Creates a new team with the authenticated user as the owner. The\

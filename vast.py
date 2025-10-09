@@ -2721,6 +2721,7 @@ def delete__cluster(args: argparse.Namespace):
 
 @parser.command(
     argument("id", help="id of group to delete", type=int),
+    argument("--auto_instance", help="unused", type=str, default="prod"),
     usage="vastai delete workergroup ID ",
     help="Delete a workergroup group",
     epilog=deindent("""
@@ -2731,7 +2732,7 @@ def delete__cluster(args: argparse.Namespace):
 def delete__workergroup(args):
     id  = args.id
     url = apiurl(args, f"/autojobs/{id}/" )
-    json_blob = {"client_id": "me", "autojob_id": args.id}
+    json_blob = {"client_id": "me", "autojob_id": args.id, "autoscaler_instance": args.auto_instance}
     if (args.explain):
         print("request json: ")
         print(json_blob)
@@ -2750,17 +2751,17 @@ def delete__workergroup(args):
 
 @parser.command(
     argument("id", help="id of endpoint group to delete", type=int),
+    argument("--auto_instance", help="unused", type=str, default="prod"),
     usage="vastai delete endpoint ID ",
     help="Delete an endpoint group",
     epilog=deindent("""
-        Note that deleting an endpoint group doesn't automatically destroy all the instances that are associated with your endpoint group, nor all the workergroups.
         Example: vastai delete endpoint 4242
     """),
 )
 def delete__endpoint(args):
     id  = args.id
     url = apiurl(args, f"/endptjobs/{id}/" )
-    json_blob = {"client_id": "me", "endptjob_id": args.id}
+    json_blob = {"client_id": "me", "endptjob_id": args.id, "autoscaler_instance": args.auto_instance}
     if (args.explain):
         print("request json: ")
         print(json_blob)

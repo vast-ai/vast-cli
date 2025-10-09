@@ -13,7 +13,7 @@ paths:
       description: |
         Creates a new team account, separate from the user's personal account.
         The authenticated user becomes the owner of the new team and is added as a member.
-        Default team roles (owner, manager) are created for the team.
+        Default team roles (owner, manager, member) are created for the team.
         Optionally, the user can transfer credits to the new team during creation.
 
         **Operation details:**
@@ -55,6 +55,11 @@ paths:
                       instance_write: {}
                       billing_read: {}
                       billing_write: {}
+                transfer_credit:
+                  type: number
+                  format: float
+                  description: Credits to transfer to team
+                  example: 0
       responses:
         '200':
           description: Team Successfully Created!

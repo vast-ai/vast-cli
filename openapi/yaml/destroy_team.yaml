@@ -1,6 +1,6 @@
 openapi: 3.0.0
 info:
-  title: Vast.ai API - Destroy Team
+  title: Destroy Team API
   description: API endpoint to destroy/delete a team and all associated data
   version: 1.0.0
 servers:
@@ -31,7 +31,7 @@ paths:
                     example: Team Successfully Deleted!
                   pkey_id:
                     type: integer
-                    description: The ID of the user's team API key that was converted to a client key.
+                    description:  ID of the user's team API key which was converted back to a client key.
                     example: 12345
         '401':
           description: Unauthorized - Invalid or missing API key

@@ -10,12 +10,20 @@ paths:
   /api/v0/team/:
     post:
       summary: create team
-      description: "Creates a new team with the authenticated user as the owner. The\
-        \ user's existing API key \nbecomes the owner key for the team. The user cannot\
-        \ already be a team or be a member of another team.\n\nThe operation:\n1.\
-        \ Converts the user into a team\n2. Creates default team roles (member, manager,\
-        \ owner)\n3. Converts user's API key into the owner key\n4. Adds the creating\
-        \ user as a team member\n\nCLI Usage: vast create team --name <team_name>\n"
+      description: |
+        Creates a new team account, separate from the user's personal account.
+        The authenticated user becomes the owner of the new team and is added as a member.
+        Default team roles (owner, manager) are created for the team.
+        Optionally, the user can transfer credits to the new team during creation.
+
+        **Operation details:**
+        1. Creates a new team account and assigns the authenticated user as the owner.
+        2. Initializes default team roles for the team.
+        3. Updates the user's API key/session to grant owner rights for the new team.
+        4. Adds the user as a member of the team.
+
+        **CLI Usage:**  
+        `vastai create team --name <team_name>`
       security:
       - BearerAuth: []
       tags:
@@ -36,8 +44,9 @@ paths:
                   example: my-awesome-team
                 permissions:
                   type: object
-                  description: JSON object containing role and permission definitions.
-                    https://vast.ai/docs/cli/roles-and-permissions
+                  description: |
+                    JSON object containing role and permission definitions.
+                    [See roles and permissions documentation](https://vast.ai/docs/cli/roles-and-permissions)
                   example:
                     api:
                       misc: {}
@@ -48,12 +57,15 @@ paths:
                       billing_write: {}
       responses:
         '200':
-          description: Team created successfully
+          description: Team Successfully Created!
           content:
             application/json:
               schema:
                 type: object
                 properties:
+                  success:
+                    type: boolean
+                    example: true
                   msg:
                     type: string
                     example: Team Successfully Created!
@@ -67,32 +79,25 @@ paths:
                   success:
                     type: boolean
                     example: false
-                  error:
-                    type: string
-                    enum:
-                    - already_team
-                    - team_member
                   msg:
                     type: string
-                    example: Cannot create a team within a team
+                    example: Team name already exists
         '401':
           description: Unauthorized - Invalid or missing API key
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        '403':
-          description: Forbidden - User is blacklisted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '404':
-          description: User's master API key not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+              example:
+                success: false
+                error: auth_error
+                msg: Invalid user key
+        # '403':
+        #   description: Forbidden - User is blacklisted
+        #   content:
+        #     application/json:
+        #       schema:
+        #         $ref: '#/components/schemas/Error'
 components:
   securitySchemes:
     BearerAuth:

@@ -120,3 +120,9 @@ components:
           type: string
         msg:
           type: string
+x-cli-commands:
+- name: create team
+  description: Create a new team with the authenticated user as owner
+  endpoint: /api/v0/team/
+  method: POST
+  example: vastai create team --name <team_name> --permissions <permissions_json>

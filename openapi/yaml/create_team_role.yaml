@@ -13,10 +13,7 @@ paths:
       description: 'Creates a new role within a team. Only team owners or managers
         with the appropriate permissions can perform this operation.
 
-
-        CLI Usage: vast create team role --name <role_name> --permissions <permissions_json>
-
-        '
+        CLI Usage: vast create team role --name <role_name> --permissions <permissions_json>'
       security:
       - BearerAuth: []
       tags:
@@ -35,6 +32,8 @@ paths:
                   type: string
                   description: Name for the new role
                   example: developer
+                  minLength: 2
+                  maxLength: 50
                 permissions:
                   type: object
                   description: JSON object containing permission definitions
@@ -50,9 +49,10 @@ paths:
               schema:
                 type: object
                 properties:
+                  success:
                   msg:
                     type: string
-                    example: Role Successfully Created!
+                    example: success
         '400':
           description: Bad Request
           content:
@@ -100,3 +100,9 @@ components:
         msg:
           type: string
           example: Unauthorized access
+x-cli-commands:
+- name: create team role
+  description: Create a new role within your team
+  endpoint: /api/v0/team/roles/
+  method: POST
+  example: vast create team role --name <role_name> --permissions <permissions_json>

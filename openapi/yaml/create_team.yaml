@@ -23,7 +23,7 @@ paths:
         4. Adds the user as a member of the team.
 
         **CLI Usage:**  
-        `vastai create team --name <team_name>`
+        `vastai create team --name <team_name> -permissions <permissions_json>`
       security:
       - BearerAuth: []
       tags:

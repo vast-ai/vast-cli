@@ -32,15 +32,22 @@ paths:
                   type: string
                   description: Name for the new role
                   example: developer
-                  minLength: 2
-                  maxLength: 50
                 permissions:
                   type: object
                   description: JSON object containing permission definitions
-                  example:
+                  properties:
                     api:
-                      user_read: {}
-                      instance_write: {}
+                      type: object
+                      description: Permission categories under 'api'
+                      properties:
+                        user_read:
+                          type: object
+                          description: Permission to read user info
+                          example: {}
+                        instance_write:
+                          type: object
+                          description: Permission to write instances
+                          example: {}
       responses:
         '200':
           description: Role created successfully

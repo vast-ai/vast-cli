@@ -38,7 +38,6 @@ paths:
                 team_name:
                   type: string
                   description: Name for the new team
-                  maxLength: 30
                   example: my-awesome-team
                 transfer_credit:
                   type: number

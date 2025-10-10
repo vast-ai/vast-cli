@@ -65,7 +65,7 @@ paths:
                   value:
                     success: false
                     error: not_found
-                    msg: Cannot Delete Team: User is not a team account
+                    msg: Cannot Delete Team. User is not a team account
                 owner_not_found:
                   summary: Team owner not found
                   value:

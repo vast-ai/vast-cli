@@ -10,10 +10,12 @@ paths:
   /api/v0/team/roles/:
     post:
       summary: create team role
-      description: 'Creates a new role within a team. Only team owners or managers
+      description: |
+        Creates a new role within a team. Only team owners or managers
         with the appropriate permissions can perform this operation.
 
-        CLI Usage: vast create team role --name <role_name> --permissions <permissions_json>'
+        **CLI Usage**
+        `vast create team role --name <role_name> --permissions <permissions_json>`
       security:
       - BearerAuth: []
       tags:

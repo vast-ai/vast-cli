@@ -2348,7 +2348,7 @@ paths:
   /api/v0/team/:
     post:
       summary: create team
-      description: 'Create a new [team](https://docs.vast.ai/documentation/teams/teams-overview)
+      description: 'Creates a new [team](https://docs.vast.ai/documentation/teams/teams-overview)
         with given name and following default roles
 
         - **Owner**: Full access to all team resources, settings, and member management.
@@ -2425,18 +2425,100 @@ paths:
           content:
             application/json:
               schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: auth_error
+                  msg:
+                    type: string
+                    example: Invalid user key
+    delete:
+      summary: destroy team
+      description: 'Deletes a team and all associated data including API keys, rights,
+        invitations,
+
+        memberships and metadata. The team owner''s master API key is converted to
+        a normal client key.
+
+
+        CLI Usage: vast-ai destroy team'
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Team successfully deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  msg:
+                    type: string
+                    example: Team Successfully Deleted!
+                  pkey_id:
+                    type: integer
+                    description: ID of the user's team API key which was converted
+                      back to a client key.
+                    example: 12345
+        '401':
+          description: Unauthorized - Invalid or missing API key
+          content:
+            application/json:
+              schema:
                 $ref: '#/components/schemas/Error'
               example:
                 success: false
                 error: auth_error
                 msg: Invalid user key
+        '403':
+          description: Forbidden - Only the Team's Owner may delete the team
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                success: false
+                error: not_allowed
+                msg: Only the Team's Owner may delete the team
+        '404':
+          description: Not Found - Team does not exist or user is not a team account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                not_a_team:
+                  summary: User is not a team account
+                  value:
+                    success: false
+                    error: not_found
+                    msg: Cannot Delete Team. User is not a team account
+                owner_not_found:
+                  summary: Team owner not found
+                  value:
+                    success: false
+                    error: not_found
+                    msg: Team owner not found
+      tags:
+      - Team
   /api/v0/team/roles/:
     post:
       summary: create team role
       description: 'Creates a new role within a team. Only team owners or managers
+
         with the appropriate permissions can perform this operation.
 
-        CLI Usage: vast create team role --name <role_name> --permissions <permissions_json>'
+
+        **CLI Usage**
+
+        `vast create team role --name <role_name> --permissions <permissions_json>`'
       security:
       - BearerAuth: []
       tags:
@@ -2479,7 +2561,6 @@ paths:
               schema:
                 type: object
                 properties:
-                  success: null
                   msg:
                     type: string
                     example: success

@@ -11,7 +11,7 @@ paths:
     post:
       summary: create team
       description: |
-        Create a new [team](https://docs.vast.ai/documentation/teams/teams-overview) with given name and following default roles
+        Creates a new [team](https://docs.vast.ai/documentation/teams/teams-overview) with given name and following default roles
         - **Owner**: Full access to all team resources, settings, and member management. The team owner is the user who creates the team.
         - **Manager**: All permissions of Owner except team deletion.
         - **Member**: Can view, create, and interact with instances, but cannot access billing, team management, autoscaler, or machines.
@@ -76,11 +76,17 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-              example:
-                success: false
-                error: auth_error
-                msg: Invalid user key
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: auth_error
+                  msg:
+                    type: string
+                    example: Invalid user key
         # '403':
         #   description: Forbidden - User is blacklisted
         #   content:
@@ -93,17 +99,6 @@ components:
       type: http
       scheme: bearer
       description: API key must be provided in the Authorization header
-  schemas:
-    Error:
-      type: object
-      properties:
-        success:
-          type: boolean
-          example: false
-        error:
-          type: string
-        msg:
-          type: string
 x-cli-commands:
 - name: create team
   description: Create a new team with the authenticated user as owner

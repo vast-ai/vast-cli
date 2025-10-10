@@ -2721,7 +2721,7 @@ def delete__cluster(args: argparse.Namespace):
 
 @parser.command(
     argument("id", help="id of group to delete", type=int),
-    argument("--auto_instance", help="unused", type=str, default="prod"),
+    argument("--auto_instance", help=argparse.SUPPRESS, type=str, default="prod"),
     usage="vastai delete workergroup ID ",
     help="Delete a workergroup group",
     epilog=deindent("""
@@ -2751,7 +2751,7 @@ def delete__workergroup(args):
 
 @parser.command(
     argument("id", help="id of endpoint group to delete", type=int),
-    argument("--auto_instance", help="unused", type=str, default="prod"),
+    argument("--auto_instance", help=argparse.SUPPRESS, type=str, default="prod"),
     usage="vastai delete endpoint ID ",
     help="Delete an endpoint group",
     epilog=deindent("""

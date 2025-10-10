@@ -14,8 +14,7 @@ paths:
         Creates a new role within a team. Only team owners or managers
         with the appropriate permissions can perform this operation.
 
-        **CLI Usage**
-        `vast create team role --name <role_name> --permissions <permissions_json>`
+        CLI Usage: `vastai create team role --name <role_name> --permissions <permissions_json>`
       security:
       - BearerAuth: []
       tags:
@@ -40,16 +39,19 @@ paths:
                   properties:
                     api:
                       type: object
-                      description: Permission categories under 'api'
-                      properties:
-                        user_read:
+                      description: API permissions
+                      allOf:
+                        - title: User Read
                           type: object
-                          description: Permission to read user info
-                          example: {}
-                        instance_write:
-                          type: object
-                          description: Permission to write instances
-                          example: {}
+                          properties:
+                            user_read:
+                              type: object
+                              description: Permission to read user info
+                              default: {}
+                            instance_write:
+                              type: object
+                              description: Permission to write instances
+                              default: {}
       responses:
         '200':
           description: Role created successfully
@@ -71,12 +73,9 @@ paths:
                   success:
                     type: boolean
                     example: false
-                  error:
-                    type: string
-                    example: invalid_role_name
                   msg:
                     type: string
-                    example: Role name is invalid
+                    example: Missing permissions parameter
         '401':
           description: Unauthorized - Invalid or missing API key
           content:
@@ -113,4 +112,4 @@ x-cli-commands:
   description: Create a new role within your team
   endpoint: /api/v0/team/roles/
   method: POST
-  example: vast create team role --name <role_name> --permissions <permissions_json>
+  example: vastai create team role --name <role_name> --permissions <permissions_json>

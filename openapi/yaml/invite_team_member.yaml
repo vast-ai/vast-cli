@@ -1,15 +1,7 @@
 openapi: 3.0.0
 info:
   title: Vast.ai Team Member Invitation API
-  description: 'API endpoint for inviting new members to a team. This endpoint validates
-    the invitation request,
-
-    checks permissions, and sends an email invitation to the specified user.
-
-
-    The inviter must be a team member with appropriate permissions to invite new members.
-
-    '
+  description: Invites member to team via email
   version: 1.0.0
 servers:
 - url: https://console.vast.ai
@@ -18,13 +10,11 @@ paths:
   /api/v0/team/invite/:
     post:
       summary: invite team member
-      description: 'Sends an invitation email to the specified user to join the team
+      description: |
+        Sends an invitation email to the specified user to join the team
         with the given role.
 
-
-        CLI Usage: vast-ai invite team-member --email EMAIL --role ROLE
-
-        '
+        CLI Usage: `vastai invite team-member --email <email> --role <role>`
       security:
       - BearerAuth: []
       requestBody:
@@ -46,10 +36,6 @@ paths:
                   type: string
                   description: Role to assign to the new team member
                   example: developer
-                api_key:
-                  type: string
-                  description: API key of the inviting user
-                  example: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
       responses:
         '200':
           description: Invitation sent successfully
@@ -58,6 +44,9 @@ paths:
               schema:
                 type: object
                 properties:
+                  success:
+                    type: boolean
+                    example: true
                   msg:
                     type: string
                     example: New invitation sent to ${email}
@@ -133,11 +122,9 @@ x-input-validation:
   role:
     required: true
     description: Must match an existing role in the team's rights table
-  api_key:
-    description: Used to identify the actual inviting user
 x-cli-commands:
 - name: invite team-member
   description: Invite a new member to join your team
   endpoint: /api/v0/team/invite/
   method: POST
-  example: vast-ai invite team-member --email user@example.com --role developer
+  example: vastai invite team-member --email user@example.com --role developer

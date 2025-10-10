@@ -10,14 +10,16 @@ paths:
   /api/v0/team/roles/{id}:
     delete:
       summary: remove team role
-      description: 'Removes a role from the team. Cannot remove the team owner role.
+      description: |
+        Removes a role from the team. Cannot remove the team owner role.
 
-
-        CLI Usage: vast-ai remove team-role NAME
-
-        Example: vast-ai remove team-role developer
-
-        '
+        CLI Usage: `vastai remove team-role <name>`
+      security:
+      - BearerAuth: []
+      tags:
+      - Team
+      requestBody:
+        required: true
       parameters:
       - in: path
         name: id

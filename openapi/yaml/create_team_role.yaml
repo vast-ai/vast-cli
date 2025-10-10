@@ -56,7 +56,6 @@ paths:
               schema:
                 type: object
                 properties:
-                  success:
                   msg:
                     type: string
                     example: success

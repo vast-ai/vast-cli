@@ -6,7 +6,10 @@ paths:
   /api/v0/team/roles/{id}/:
     put:
       summary: update team role
-      description: Update an existing team role with new name and permissions.
+      description: |
+        Update an existing team role with new name and permissions.
+
+        CLI Usage: `vastai update team-role <role id> --name <new_name> --permissions <new_permissions_json>`
       parameters:
       - name: id
         in: path
@@ -38,12 +41,6 @@ paths:
               schema:
                 type: string
                 example: Successfully Updated Team Role For <role_name>
-        '400':
-          description: Bad Request - Missing or invalid parameters.
-        '403':
-          description: Forbidden - User does not have permission to update this role.
-        '404':
-          description: Not Found - API key not found.
       security:
       - apiKeyAuth: []
       tags:
@@ -54,3 +51,9 @@ components:
       type: apiKey
       in: header
       name: Authorization
+x-cli-commands:
+- name: update team-role
+  description: Update an existing team role
+  endpoint: /api/v0/team/roles/{id}/
+  method: put
+  example: "vastai update team-role 1234 --name \"new_role_name\" --permissions '{\"api\": {\"user_read\": {}, \"instance_write\": {}}}'"

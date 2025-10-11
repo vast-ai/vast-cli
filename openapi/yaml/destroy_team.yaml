@@ -10,9 +10,12 @@ paths:
   /api/v0/team/:
     delete:
       summary: destroy team
-      description: "Deletes a team and all associated data including API keys, rights,\
-        \ invitations, \nmemberships and metadata. The team owner's master API key\
-        \ is converted to a normal client key.\n\nCLI Usage: vast-ai destroy team\n"
+      description: |
+        Deletes a team and all associated data including API keys, rights,
+        invitations, memberships and metadata. The team owner's master API key
+        is converted to a normal client key.
+
+        CLI Usage: `vastai destroy team`
       security:
       - BearerAuth: []
       responses:

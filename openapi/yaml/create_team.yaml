@@ -36,7 +36,6 @@ paths:
               properties:
                 team_name:
                   type: string
-                  description: Name for the new team
                   example: my-awesome-team
                 transfer_credit:
                   type: number

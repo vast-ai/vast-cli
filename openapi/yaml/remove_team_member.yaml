@@ -11,13 +11,10 @@ paths:
     delete:
       summary: remove team member
       description: |
-        Removes a member from the team by revoking their team-related
-        API keys and updating membership status.
+        Removes a member from the team by revoking their team-related API keys and updating membership status.
         Cannot remove the team owner.
 
-        CLI Usage: `vastai remove team-member ID
-
-        '
+        CLI Usage: `vastai remove team-member <id>`
       parameters:
       - in: path
         name: id
@@ -135,4 +132,4 @@ x-cli-commands:
   description: Remove a team member
   endpoint: /api/v0/team/members/{id}
   method: DELETE
-  example: vast-ai remove team-member 12345
+  example: vastai remove team-member 12345

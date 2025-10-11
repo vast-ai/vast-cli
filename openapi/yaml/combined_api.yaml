@@ -2354,7 +2354,7 @@ paths:
         - **Owner**: Full access to all team resources, settings, and member management.
         The team owner is the user who creates the team.
 
-        - **Manager**: All permissions of Owner except team deletion.
+        - **Manager**: All permissions of owner except team deletion.
 
         - **Member**: Can view, create, and interact with instances, but cannot access
         billing, team management, autoscaler, or machines.
@@ -2367,9 +2367,8 @@ paths:
         team account using the `transfer_credit` field.
 
 
-        **CLI Usage:**
-
-        `vastai create team --team_name <team_name> [--transfer_credit <amount>]`'
+        CLI Usage: `vastai create team --team_name <team_name> [--transfer_credit
+        <amount>]`'
       security:
       - BearerAuth: []
       tags:
@@ -2386,7 +2385,6 @@ paths:
               properties:
                 team_name:
                   type: string
-                  description: Name for the new team
                   example: my-awesome-team
                 transfer_credit:
                   type: number
@@ -2439,13 +2437,13 @@ paths:
     delete:
       summary: destroy team
       description: 'Deletes a team and all associated data including API keys, rights,
-        invitations,
 
-        memberships and metadata. The team owner''s master API key is converted to
-        a normal client key.
+        invitations, memberships and metadata. The team owner''s master API key
+
+        is converted to a normal client key.
 
 
-        CLI Usage: vast-ai destroy team'
+        CLI Usage: `vastai destroy team`'
       security:
       - BearerAuth: []
       responses:
@@ -2516,9 +2514,7 @@ paths:
         with the appropriate permissions can perform this operation.
 
 
-        **CLI Usage**
-
-        `vast create team role --name <role_name> --permissions <permissions_json>`'
+        CLI Usage: `vastai create team role --name <role_name> --permissions <permissions_json>`'
       security:
       - BearerAuth: []
       tags:
@@ -2543,16 +2539,19 @@ paths:
                   properties:
                     api:
                       type: object
-                      description: Permission categories under 'api'
-                      properties:
-                        user_read:
-                          type: object
-                          description: Permission to read user info
-                          example: {}
-                        instance_write:
-                          type: object
-                          description: Permission to write instances
-                          example: {}
+                      description: API permissions
+                      allOf:
+                      - title: User Read
+                        type: object
+                        properties:
+                          user_read:
+                            type: object
+                            description: Permission to read user info
+                            default: {}
+                          instance_write:
+                            type: object
+                            description: Permission to write instances
+                            default: {}
       responses:
         '200':
           description: Role created successfully
@@ -2574,12 +2573,9 @@ paths:
                   success:
                     type: boolean
                     example: false
-                  error:
-                    type: string
-                    example: invalid_role_name
                   msg:
                     type: string
-                    example: Role name is invalid
+                    example: Missing permissions parameter
         '401':
           description: Unauthorized - Invalid or missing API key
           content:
@@ -4246,10 +4242,11 @@ paths:
     post:
       summary: invite team member
       description: 'Sends an invitation email to the specified user to join the team
+
         with the given role.
 
 
-        CLI Usage: vast-ai invite team-member --email EMAIL --role ROLE'
+        CLI Usage: `vastai invite team-member --email <email> --role <role>`'
       security:
       - BearerAuth: []
       requestBody:
@@ -4271,10 +4268,6 @@ paths:
                   type: string
                   description: Role to assign to the new team member
                   example: developer
-                api_key:
-                  type: string
-                  description: API key of the inviting user
-                  example: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
       responses:
         '200':
           description: Invitation sent successfully
@@ -4283,6 +4276,9 @@ paths:
               schema:
                 type: object
                 properties:
+                  success:
+                    type: boolean
+                    example: true
                   msg:
                     type: string
                     example: New invitation sent to ${email}
@@ -4809,9 +4805,7 @@ paths:
         Cannot remove the team owner.
 
 
-        CLI Usage: vast-ai remove team-member ID
-
-        Example: vast-ai remove team-member 12345'
+        CLI Usage: `vastai remove team-member <id>`'
       parameters:
       - in: path
         name: id
@@ -4919,9 +4913,11 @@ paths:
       description: 'Removes a role from the team. Cannot remove the team owner role.
 
 
-        CLI Usage: vast-ai remove team-role NAME
-
-        Example: vast-ai remove team-role developer'
+        CLI Usage: `vastai remove team-role <name>`'
+      security:
+      - BearerAuth: []
+      tags:
+      - Team
       parameters:
       - in: path
         name: id
@@ -5004,10 +5000,6 @@ paths:
                   msg:
                     type: string
                     example: Specified role not found
-      security:
-      - BearerAuth: []
-      tags:
-      - Team
   /api/v0/volumes/:
     put:
       summary: rent volume
@@ -7037,7 +7029,7 @@ paths:
         user''s team.
 
 
-        CLI Usage: vastai show team-members'
+        CLI Usage: `vastai show team-members`'
       security:
       - BearerAuth: []
       responses:
@@ -7062,6 +7054,10 @@ paths:
                       type: string
                       description: Email of the team member
                       example: johndoe@example.com
+                    fullname:
+                      type: string
+                      description: Full name of the team member
+                      example: John Doe
                     roles:
                       type: array
                       description: Roles assigned to the team member
@@ -7135,7 +7131,11 @@ paths:
       - Accounts
     put:
       summary: update team role
-      description: Update an existing team role with new name and permissions.
+      description: 'Update an existing team role with new name and permissions.
+
+
+        CLI Usage: `vastai update team-role <role id> --name <new_name> --permissions
+        <new_permissions_json>`'
       parameters:
       - name: id
         in: path
@@ -7167,12 +7167,6 @@ paths:
               schema:
                 type: string
                 example: Successfully Updated Team Role For <role_name>
-        '400':
-          description: Bad Request - Missing or invalid parameters.
-        '403':
-          description: Forbidden - User does not have permission to update this role.
-        '404':
-          description: Not Found - API key not found.
       security:
       - BearerAuth: []
       tags:
@@ -7180,11 +7174,11 @@ paths:
   /api/v0/team/roles-full/:
     get:
       summary: show team roles
-      description: 'Retrieve a list of all roles for a team, excluding the ''team_owner''
+      description: 'Retrieve a list of all roles for a team, excluding the owner''
         role.
 
 
-        CLI Usage: vastai show team-roles'
+        CLI Usage: `vastai show team-roles`'
       security:
       - BearerAuth: []
       responses:
@@ -7197,10 +7191,6 @@ paths:
                 items:
                   type: object
                   properties:
-                    id:
-                      type: integer
-                      description: Role ID
-                      example: 1
                     name:
                       type: string
                       description: Name of the role
@@ -7217,12 +7207,32 @@ paths:
                       type: string
                       description: Unique identifier for the role
                       example: admin_role
+                    id:
+                      type: integer
+                      description: Role ID
+                      example: 1234
         '401':
           description: Unauthorized
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '404':
+          description: Invalid API key
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: auth_error
+                  msg:
+                    type: string
+                    example: Invalid user key
       tags:
       - Team
   /api/v0/users/current/:

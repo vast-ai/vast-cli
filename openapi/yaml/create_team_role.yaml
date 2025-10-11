@@ -7,16 +7,14 @@ servers:
 - url: https://console.vast.ai
   description: Production server
 paths:
-  /api/v0/team/role:
+  /api/v0/team/roles/:
     post:
       summary: create team role
-      description: 'Creates a new role within a team. Only team owners or managers
+      description: |
+        Creates a new role within a team. Only team owners or managers
         with the appropriate permissions can perform this operation.
 
-
-        CLI Usage: vast create team role --name <role_name> --permissions <permissions_json>
-
-        '
+        CLI Usage: `vastai create team role --name <role_name> --permissions <permissions_json>`
       security:
       - BearerAuth: []
       tags:
@@ -38,10 +36,22 @@ paths:
                 permissions:
                   type: object
                   description: JSON object containing permission definitions
-                  example:
+                  properties:
                     api:
-                      user_read: {}
-                      instance_write: {}
+                      type: object
+                      description: API permissions
+                      allOf:
+                        - title: User Read
+                          type: object
+                          properties:
+                            user_read:
+                              type: object
+                              description: Permission to read user info
+                              default: {}
+                            instance_write:
+                              type: object
+                              description: Permission to write instances
+                              default: {}
       responses:
         '200':
           description: Role created successfully
@@ -52,7 +62,7 @@ paths:
                 properties:
                   msg:
                     type: string
-                    example: Role Successfully Created!
+                    example: success
         '400':
           description: Bad Request
           content:
@@ -63,12 +73,9 @@ paths:
                   success:
                     type: boolean
                     example: false
-                  error:
-                    type: string
-                    example: invalid_role_name
                   msg:
                     type: string
-                    example: Role name is invalid
+                    example: Missing permissions parameter
         '401':
           description: Unauthorized - Invalid or missing API key
           content:
@@ -100,3 +107,9 @@ components:
         msg:
           type: string
           example: Unauthorized access
+x-cli-commands:
+- name: create team role
+  description: Create a new role within your team
+  endpoint: /api/v0/team/roles/
+  method: POST
+  example: vastai create team role --name <role_name> --permissions <permissions_json>

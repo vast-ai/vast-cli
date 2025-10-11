@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: Remove Team Member API
-  description: API endpoint to remove a member from a team
+  description: Removes member from the team
   version: 1.0.0
 servers:
 - url: https://console.vast.ai
@@ -10,17 +10,11 @@ paths:
   /api/v0/team/members/{id}:
     delete:
       summary: remove team member
-      description: 'Removes a member from the team by revoking their team-related
-        API keys and updating membership status.
-
+      description: |
+        Removes a member from the team by revoking their team-related API keys and updating membership status.
         Cannot remove the team owner.
 
-
-        CLI Usage: vast-ai remove team-member ID
-
-        Example: vast-ai remove team-member 12345
-
-        '
+        CLI Usage: `vastai remove team-member <id>`
       parameters:
       - in: path
         name: id
@@ -138,4 +132,4 @@ x-cli-commands:
   description: Remove a team member
   endpoint: /api/v0/team/members/{id}
   method: DELETE
-  example: vast-ai remove team-member 12345
+  example: vastai remove team-member 12345

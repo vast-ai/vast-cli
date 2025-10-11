@@ -7,15 +7,19 @@ servers:
 - url: https://console.vast.ai
   description: Production server
 paths:
-  /api/v0/team:
+  /api/v0/team/:
     post:
       summary: create team
-      description: "Creates a new team with the authenticated user as the owner. The\
-        \ user's existing API key \nbecomes the owner key for the team. The user cannot\
-        \ already be a team or be a member of another team.\n\nThe operation:\n1.\
-        \ Converts the user into a team\n2. Creates default team roles (member, manager,\
-        \ owner)\n3. Converts user's API key into the owner key\n4. Adds the creating\
-        \ user as a team member\n\nCLI Usage: vast create team --name <team_name>\n"
+      description: |
+        Creates a new [team](https://docs.vast.ai/documentation/teams/teams-overview) with given name and following default roles
+        - **Owner**: Full access to all team resources, settings, and member management. The team owner is the user who creates the team.
+        - **Manager**: All permissions of owner except team deletion.
+        - **Member**: Can view, create, and interact with instances, but cannot access billing, team management, autoscaler, or machines.
+
+        - The API key used to create the team becomes the team key and is used for all team operations (e.g, creating roles, deleting the team).
+        - You can optionally transfer credits from your personal account to the new team account using the `transfer_credit` field.
+
+        CLI Usage: `vastai create team --team_name <team_name> [--transfer_credit <amount>]`
       security:
       - BearerAuth: []
       tags:
@@ -32,28 +36,23 @@ paths:
               properties:
                 team_name:
                   type: string
-                  description: Name for the new team
                   example: my-awesome-team
-                permissions:
-                  type: object
-                  description: JSON object containing role and permission definitions.
-                    https://vast.ai/docs/cli/roles-and-permissions
-                  example:
-                    api:
-                      misc: {}
-                      user_read: {}
-                      instance_read: {}
-                      instance_write: {}
-                      billing_read: {}
-                      billing_write: {}
+                transfer_credit:
+                  type: number
+                  format: float
+                  description: Credits to transfer from personal account to team
+                  example: 0
       responses:
         '200':
-          description: Team created successfully
+          description: Team Successfully Created!
           content:
             application/json:
               schema:
                 type: object
                 properties:
+                  success:
+                    type: boolean
+                    example: true
                   msg:
                     type: string
                     example: Team Successfully Created!
@@ -67,46 +66,40 @@ paths:
                   success:
                     type: boolean
                     example: false
-                  error:
-                    type: string
-                    enum:
-                    - already_team
-                    - team_member
                   msg:
                     type: string
-                    example: Cannot create a team within a team
+                    example: Team name already exists
         '401':
           description: Unauthorized - Invalid or missing API key
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '403':
-          description: Forbidden - User is blacklisted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '404':
-          description: User's master API key not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: auth_error
+                  msg:
+                    type: string
+                    example: Invalid user key
+        # '403':
+        #   description: Forbidden - User is blacklisted
+        #   content:
+        #     application/json:
+        #       schema:
+        #         $ref: '#/components/schemas/Error'
 components:
   securitySchemes:
     BearerAuth:
       type: http
       scheme: bearer
       description: API key must be provided in the Authorization header
-  schemas:
-    Error:
-      type: object
-      properties:
-        success:
-          type: boolean
-          example: false
-        error:
-          type: string
-        msg:
-          type: string
+x-cli-commands:
+- name: create team
+  description: Create a new team with the authenticated user as owner
+  endpoint: /api/v0/team/
+  method: POST
+  example: vastai create team --team_name <team_name>

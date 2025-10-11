@@ -1,6 +1,6 @@
 openapi: 3.0.0
 info:
-  title: Vast.ai API - Destroy Team
+  title: Destroy Team API
   description: API endpoint to destroy/delete a team and all associated data
   version: 1.0.0
 servers:
@@ -10,9 +10,12 @@ paths:
   /api/v0/team/:
     delete:
       summary: destroy team
-      description: "Deletes a team and all associated data including API keys, rights,\
-        \ invitations, \nmemberships and metadata. The team owner's master API key\
-        \ is converted to a normal client key.\n\nCLI Usage: vast-ai destroy team\n"
+      description: |
+        Deletes a team and all associated data including API keys, rights,
+        invitations, memberships and metadata. The team owner's master API key
+        is converted to a normal client key.
+
+        CLI Usage: `vastai destroy team`
       security:
       - BearerAuth: []
       responses:
@@ -23,37 +26,55 @@ paths:
               schema:
                 type: object
                 properties:
+                  success:
+                    type: boolean
+                    example: true
                   msg:
                     type: string
                     example: Team Successfully Deleted!
+                  pkey_id:
+                    type: integer
+                    description:  ID of the user's team API key which was converted back to a client key.
+                    example: 12345
         '401':
           description: Unauthorized - Invalid or missing API key
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                success: false
+                error: auth_error
+                msg: Invalid user key
         '403':
-          description: Forbidden - User is blacklisted
+          description: Forbidden - Only the Team's Owner may delete the team
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                success: false
+                error: not_allowed
+                msg: Only the Team's Owner may delete the team
         '404':
-          description: Not Found - Team does not exist
+          description: Not Found - Team does not exist or user is not a team account
           content:
             application/json:
               schema:
-                allOf:
-                - $ref: '#/components/schemas/Error'
-                - type: object
-                  properties:
-                    error:
-                      type: string
-                      enum:
-                      - no_such_user
-                    msg:
-                      type: string
-                      example: No such user.
+                $ref: '#/components/schemas/Error'
+              examples:
+                not_a_team:
+                  summary: User is not a team account
+                  value:
+                    success: false
+                    error: not_found
+                    msg: Cannot Delete Team. User is not a team account
+                owner_not_found:
+                  summary: Team owner not found
+                  value:
+                    success: false
+                    error: not_found
+                    msg: Team owner not found
       tags:
       - Team
 components:

@@ -329,9 +329,11 @@ def compute_column_sum(rows_invoice: typing.List[typing.Dict],
     # return round(s * 100) / 100
 
 
-def generate_invoice_page(user_blob: typing.Dict,
-                          rows_invoice: typing.List[typing.Dict],
-                          page_number: int, date_header_text: str = "") -> Page:
+def fill_invoice_page(   page: Page,
+    user_blob: typing.Dict,
+    rows_invoice: typing.List[typing.Dict],
+    page_number: int,
+    date_header_text: str = "") -> Page:
     """Makes a single page of the invoice.
 
     :param str date_header_text:
@@ -347,84 +349,77 @@ def generate_invoice_page(user_blob: typing.Dict,
     else:
         rows_per_page = num_rows_subsequents_pages
 
-    page: Page = Page()
-
-    # set PageLayout
+    # Build layout on the provided page (already in the Document)
     page_layout: PageLayout = SingleColumnLayout(page)
+
+    # Header
     table_logo_and_invoice_num = build_logo_and_invoice_num_table(page, page_number)
     page_layout.add(table_logo_and_invoice_num)
     page_layout.add(Paragraph(" "))
 
     if page_number == 1:
-        # Invoice information table
         page_layout.add(build_2nd_block_table())
-        # Empty paragraph for spacing
         page_layout.add(Paragraph(" "))
-        # Billing and shipping information table
         page_layout.add(build_billto_table(user_blob))
         page_layout.add(Paragraph(date_header_text + " "))
 
     if len(rows_invoice) == 0:
-        # If we don't handle this case the client crashes with no output.
         page_layout.add(Paragraph("NO DATA"))
     else:
         table_invoice_rows = build_invoice_charges_table(rows_invoice, rows_per_page, page_number)
         page_layout.add(table_invoice_rows)
-    return page
+
 def build_logo_and_invoice_num_table(page: Page, page_number: int) -> FixedColumnWidthTable:
-    """
-    At the top of every page is a table with our logo, the invoice number, and little text reading "page X of Y".
-    This function creates that table and returns it.
+    from decimal import Decimal
 
-    :param page_number:
-    :rtype FixedColumnWidthTable:
-    """
-    if page_number == 1:
-        invoice_number_font_size = Decimal(20)
-        invoice_word_font_size = Decimal(40)
-        logo_img_filename: str = r'./vast.ai-logo.png'
-        logo_img_width: int = 48
-        logo_img_height: int = 70
-    else:
-        invoice_number_font_size = Decimal(14)
-        invoice_word_font_size = Decimal(20)
-        logo_img_filename: str = r'./vast.ai-logo-50pct.png'
-        logo_img_width: int = 36
-        logo_img_height: int = 53
-
+    # Page geometry (matches SingleColumnLayout: 10% margins L/R -> 80% content width)
     w = page.get_page_info().get_width()
+    h = page.get_page_info().get_height()
     content_w = w * Decimal("0.80")
 
-    # allocate relative widths across 3 columns
+    header_h_budget = h * Decimal("0.05")
+    header_h_cap = Decimal(40)
+    max_logo_h = min(header_h_budget, header_h_cap)
+
+    if page_number == 1:
+        invoice_word_font_size   = Decimal(32)   
+        invoice_number_font_size = Decimal(16)
+        logo_img_filename        = r'./vast.ai-logo.png'
+    else:
+        invoice_word_font_size   = Decimal(18)
+        invoice_number_font_size = Decimal(14)
+        logo_img_filename        = r'./vast.ai-logo-50pct.png'
+
+    
     col_w = [
-        content_w * Decimal("0.25"),  # logo
-        content_w * Decimal("0.30"),  # middle
-        content_w * Decimal("0.45"),  # right (big "Invoice")
+        content_w * Decimal("0.22"),  # logo
+        content_w * Decimal("0.28"),  # page text
+        content_w * Decimal("0.50"),  # "Invoice" + "# nnn"
     ]
 
     logo_img = PIL.Image.open(logo_img_filename)
+    ow, oh = logo_img.size if logo_img else (1, 1)
+    scale = float(max_logo_h) / float(oh) if oh else 1.0
+    img_h = max_logo_h
+    img_w = Decimal(max(1, round(ow * scale)))
 
-    # 2 rows, 3 columns
     table = FixedColumnWidthTable(
-        number_of_rows=2,
+        number_of_rows=1,
         number_of_columns=3,
         column_widths=col_w,
     )
 
-    # Logo spans both rows in the first column
+    # Cell 1: logo (no row_span; keep it simple)
     table.add(
-        TableCell(
-            Image(
-                logo_img,
-                width=Decimal(logo_img_width),
-                height=Decimal(logo_img_height),
-                horizontal_alignment=Alignment.LEFT,
-            ),
-            row_span=2,
+        Image(
+            logo_img,
+            width=img_w,
+            height=img_h,
+            horizontal_alignment=Alignment.LEFT,
         )
     )
 
-    # Row 1: middle cell = page text; right cell = big "Invoice"
+    # Cell 2: "Page x of y" (right-aligned)
     table.add(
         Paragraph(
             f"Page {page_number} of {page_count}",
@@ -432,27 +427,19 @@ def build_logo_and_invoice_num_table(page: Page, page_number: int) -> FixedColum
             horizontal_alignment=Alignment.RIGHT,
         )
     )
+
+    # Cell 3: "Invoice" + invoice number (two lines, right-aligned)
     table.add(
         Paragraph(
-            "Invoice",
+            f"Invoice\n# {invoice_number}",
             font="Helvetica",
             font_size=invoice_word_font_size,
             horizontal_alignment=Alignment.RIGHT,
         )
     )
 
-    # Row 2: middle cell blank; right cell = invoice number
-    table.add(Paragraph(" "))
-    table.add(
-        Paragraph(
-            f"# {invoice_number}",
-            font="Helvetica",
-            font_size=invoice_number_font_size,
-            horizontal_alignment=Alignment.RIGHT,
-        )
-    )
-
-    table.set_padding_on_all_cells(Decimal(1), Decimal(1), Decimal(1), Decimal(1))
+    # No padding: maximize usable height
+    table.set_padding_on_all_cells(Decimal(0), Decimal(0), Decimal(0), Decimal(0))
     if no_table_borders:
         table.no_borders()
     return table
@@ -474,17 +461,8 @@ def compute_pages_needed(rows_invoice: typing.List[typing.Dict]) -> int:
 
 
 def generate_invoice(user_blob: typing.Dict,
-                     rows_invoice: typing.List[typing.Dict], filter_data: typing.Dict) -> None:
-    """
-    This is the main function in this library. It calls everything else and makes the invoice page by page. The
-    resulting invoice is written as a single PDF file.
-
-    :param filter_data: Parameters for client side filter.
-    :param user_blob: info about the user
-    :param typing.List[typing.Dict] rows_invoice: The list of dicts we use elsewhere.
-    :rtype None:
-    """
-
+                     rows_invoice: typing.List[typing.Dict],
+                     filter_data: typing.Dict) -> None:
     pdf: Document = Document()
     global page_count
     page_count = compute_pages_needed(rows_invoice)
@@ -493,22 +471,20 @@ def generate_invoice(user_blob: typing.Dict,
     page_number = 1
 
     if len(rows_invoice) == 0:
-        page = generate_invoice_page(user_blob, rows_invoice, page_number, filter_data["header_text"])
+        page = Page()
+        pdf.add_page(page)               
+        fill_invoice_page(page, user_blob, rows_invoice, page_number, filter_data["header_text"])
         print("Adding Empty page ", str(page_number))
-        pdf.add_page(page)
     else:
         while len(rows_invoice) > 0:
-            page = generate_invoice_page(user_blob, rows_invoice, page_number, filter_data["header_text"])
+            page = Page()
+            pdf.add_page(page)             
+            fill_invoice_page(page, user_blob, rows_invoice, page_number, filter_data["header_text"])
             print("Adding page ", str(page_number))
-            pdf.add_page(page)
             page_number += 1
 
-    # We write out the latest PDF so that we can watch the file change with `evince` or similar viewer even though
-    # parameters may differ from run to run.
     with open("latest-invoice.pdf", "wb") as debug_file_handle:
         PDF.dumps(debug_file_handle, pdf)
-    debug_file_handle.close()
 
     with open(filter_data["pdf_filename"], "wb") as users_file_handle:
         PDF.dumps(users_file_handle, pdf)
-    users_file_handle.close()

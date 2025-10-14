@@ -1,0 +1,45 @@
+on:
+  push:
+    paths:
+      - 'openapi/yaml/*.yaml'
+
+jobs:
+  update-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout vast-cli
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run combine script
+        run: python combine_api_yamls.py
+
+      - name: Convert YAML to JSON
+        run: |
+          # example: using yq
+          pip install yq
+          yq -o=json combined.yaml > openapi.json
+
+      - name: Checkout docs repo
+        uses: actions/checkout@v3
+        with:
+          repository: your-org/docs
+          token: ${{ secrets.DOCS_REPO_TOKEN }}
+          path: docs-repo
+
+      - name: Copy openapi.json to docs
+        run: cp openapi.json docs-repo/openapi.json
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.DOCS_REPO_TOKEN }}
+          path: docs-repo
+          commit-message: 'Update openapi.json from vast-cli'
+          title: 'Automated update of openapi.json'
+          body: 'This PR updates the openapi.json based on latest changes in vast-cli.'

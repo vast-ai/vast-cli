@@ -25,8 +25,8 @@ jobs:
       - name: Checkout docs repo
         uses: actions/checkout@v3
         with:
-          repository: your-org/docs
-          token: ${{ secrets.DOCS_REPO_TOKEN }}
+          repository: vast-ai/docs
+          token: ${{ secrets.UPDATE_API_DOCS_TOKEN }}
           path: docs-repo
 
       - name: Copy openapi.json to docs
@@ -35,7 +35,7 @@ jobs:
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v5
         with:
-          token: ${{ secrets.DOCS_REPO_TOKEN }}
+          token: ${{ secrets.UPDATE_API_DOCS_TOKEN }}
           path: docs-repo
           commit-message: 'Update openapi.json from vast-cli'
           title: 'Automated update of openapi.json'

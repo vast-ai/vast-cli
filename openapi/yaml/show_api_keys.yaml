@@ -37,9 +37,6 @@ paths:
                         user_id:
                           type: integer
                           example: 456
-                        key:
-                          type: string
-                          example: your-api-key-value
                         rights:
                           type: string
                           example: read

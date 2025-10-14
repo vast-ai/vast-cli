@@ -30,7 +30,7 @@ jobs:
           path: docs-repo
 
       - name: Copy openapi.json to docs
-        run: cp openapi.json docs-repo/openapi.json
+        run: cp openapi.json docs-repo/api-reference/openapi.json
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v5

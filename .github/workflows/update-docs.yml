@@ -20,7 +20,7 @@ jobs:
         run: |
           # example: using yq
           pip install yq
-          yq . combined.yaml > openapi.json
+          yq . openapi/yaml/combined_api.yaml > openapi.json
 
       - name: Checkout docs repo
         uses: actions/checkout@v3

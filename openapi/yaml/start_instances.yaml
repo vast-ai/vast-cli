@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: Vast.ai Start Instances API
-  description: API endpoint to start a list of instances on Vast.ai.
+  description: API endpoint to start a list of instances on Vast.ai
   version: 1.0.0
 servers:
 - url: https://console.vast.ai

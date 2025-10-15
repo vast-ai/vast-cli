@@ -10,13 +10,10 @@ paths:
   /api/v0/instances/{id}/ssh/:
     post:
       summary: attach ssh-key
-      description: 'Attaches an SSH key to the specified instance, allowing SSH access
-        using the provided key.
+      description: |
+        Attaches an SSH key to the specified instance, allowing SSH access using the provided key.
 
-
-        CLI Usage: vast attach instance_id ssh_key
-
-        '
+        CLI Usage: `vastai attach ssh <instance_id> <ssh_key>`
       security:
       - BearerAuth: []
       parameters:

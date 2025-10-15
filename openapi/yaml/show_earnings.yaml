@@ -11,13 +11,10 @@ paths:
   /api/v0/users/{user_id}/machine-earnings/:
     get:
       summary: show earnings
-      description: 'Retrieves the earnings history for a specified time range and
-        optionally per machine.
+      description: |
+        Retrieves the earnings history for a specified time range and optionally per machine.
 
-
-        CLI Usage: vastai show earnings [OPTIONS]
-
-        '
+        CLI Usage: `vastai show earnings [options]`
       security:
       - BearerAuth: []
       parameters:

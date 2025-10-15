@@ -10,12 +10,11 @@ paths:
       - url: https://run.vast.ai
         description: Production server
       summary: get endpoint workers
-      description: 'Retrieves the current list and status of workers for a specific endpoint.
-
-
+      description: |
+        Retrieves the current list and status of workers for a specific endpoint.
         Useful for monitoring, debugging connectivity issues, and understanding resource usage.
 
-        '
+        CLI Usage: `vastai get endpoint workers <id>`
       security:
       - BearerAuth: []
       requestBody:

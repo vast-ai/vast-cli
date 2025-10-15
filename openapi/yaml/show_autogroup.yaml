@@ -10,13 +10,10 @@ paths:
   /api/v0/workergroups/:
     get:
       summary: show workergroup
-      description: 'Retrieves the list of workergroups associated with the authenticated
-        user.
+      description: |
+        Retrieves the list of workergroups associated with the authenticated user.
 
-
-        CLI Usage: vastai show workergroups
-
-        '
+        CLI Usage: `vastai show workergroups`
       security:
       - BearerAuth: []
       responses:

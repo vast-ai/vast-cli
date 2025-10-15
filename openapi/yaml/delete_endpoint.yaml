@@ -10,12 +10,10 @@ paths:
   /api/v0/endptjobs/{id}/:
     delete:
       summary: delete endpoint
-      description: 'Deletes an endpoint group by ID. Associated workergroups will also be deleted.
+      description: |
+        Deletes an endpoint group by ID. Associated workergroups will also be deleted.
 
-
-        CLI Usage: vastai delete endpoint <ID>
-
-        '
+        CLI Usage: `vastai delete endpoint <id>`
       security:
       - BearerAuth: []
       parameters:

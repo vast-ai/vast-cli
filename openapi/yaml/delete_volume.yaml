@@ -10,8 +10,10 @@ paths:
   /api/v0/volumes/:
     delete:
       summary: delete volume
-      description: 'Delete a volume by its ID.
-        CLI Usage: vastai delete volume VOLUME_ID'
+      description: |
+        Delete a volume by its ID.
+
+        CLI Usage: `vastai delete volume <volume_id>`
       security:
       - BearerAuth: []
       requestBody:

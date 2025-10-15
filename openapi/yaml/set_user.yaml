@@ -10,12 +10,10 @@ paths:
   /api/v0/users/:
     put:
       summary: set user
-      description: 'Updates the user data for the authenticated user.
+      description: |
+        Updates the user data for the authenticated user.
 
-
-        CLI Usage: vast set user --file {file_path}
-
-        '
+        CLI Usage: `vastai set user --file <file_path>`
       security:
       - BearerAuth: []
       requestBody:

@@ -13,7 +13,7 @@ paths:
       description: |
         Deletes the default job (background instances) for a specified machine.
 
-        CLI Usage: `vastai remove defjob {machine_id}`
+        CLI Usage: `vastai remove defjob <machine_id>`
       security:
       - BearerAuth: []
       parameters:

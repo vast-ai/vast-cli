@@ -10,16 +10,11 @@ paths:
   /api/v0/instances/recycle/{id}/:
     put:
       summary: recycle instance
-      description: 'Destroys and recreates container in place (from newly pulled image)
-        without losing GPU priority.
+      description: |
+        Destroys and recreates container in place (from newly pulled image) without losing GPU priority.
+        Updates container status to 'recycling' and executes docker stop/remove commands on the host machine.
 
-        Updates container status to ''recycling'' and executes docker stop/remove
-        commands on the host machine.
-
-
-        CLI Usage: vastai recycle instance <ID>
-
-        '
+        CLI Usage: `vastai recycle instance <id>`
       security:
       - BearerAuth: []
       parameters:

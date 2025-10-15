@@ -10,12 +10,10 @@ paths:
   /api/v0/network_disk/:
     post:
       summary: add network-disk
-      description: 'Adds a network disk to be used to create network
-        volume offers, or adds machines to an existing network disk.
+      description: |
+        Adds a network disk to be used to create network volume offers, or adds machines to an existing network disk.
 
-        CLI Usage: vast add network_disk <machine_id>... <mount_point> [options]
-
-        '
+        CLI Usage: `vastai add network_disk <machine_id>... <mount_point> [options]`
       security:
       - BearerAuth: []
       requestBody:

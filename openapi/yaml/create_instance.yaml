@@ -14,7 +14,7 @@ paths:
         Creates a new instance by accepting an "ask" contract from a provider.
         This is the main endpoint for launching new instances on Vast.ai.
 
-        CLI Usage: `vast create instance <offer_id> [options]`
+        CLI Usage: `vastai create instance <offer_id> [options]`
       security:
       - BearerAuth: []
       tags:

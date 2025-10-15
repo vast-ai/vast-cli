@@ -10,13 +10,10 @@ paths:
   /api/v0/machines/{machine_id}/cleanup/:
     put:
       summary: cleanup machine
-      description: 'This endpoint removes expired contracts on a specified machine,
-        freeing up space.
+      description: |
+        This endpoint removes expired contracts on a specified machine, freeing up space.
 
-
-        CLI Usage: vast-ai cleanup machine {machine_id}
-
-        '
+        CLI Usage: `vastai cleanup machine <machine_id>`
       security:
       - BearerAuth: []
       parameters:

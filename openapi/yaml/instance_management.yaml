@@ -14,11 +14,11 @@ paths:
       summary: manage instance
       description: |
         Manage instance state and labels. The operation is determined by the request body parameters.
-        
+
         CLI Usage:
-        - To stop: vastai stop instance <ID>
-        - To start: vastai start instance <ID>
-        - To label: vastai label instance <ID> <label>
+        - To stop: `vastai stop instance <id>`
+        - To start: `vastai start instance <id>`
+        - To label: `vastai label instance <id> <label>`
       security:
       - BearerAuth: []
       parameters:

@@ -10,12 +10,15 @@ paths:
   /api/v0/instances/:
     get:
       summary: show instances
-      description: 'Retrieve a list of instances for the authenticated user.
 
 
         CLI Usage: vast-ai show instances [OPTIONS] [--api-key API_KEY] [--raw]
 
         '
+      description: |
+        Retrieve a list of instances for the authenticated user.
+
+        CLI Usage: `vastai show instances [options] [--api-key <api_key>] [--raw]`
       security:
       - BearerAuth: []
       responses:

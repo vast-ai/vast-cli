@@ -7,15 +7,10 @@ paths:
   /api/v0/template/:
     post:
       summary: create template
-      description: 'Creates a new template for launching instances. If an identical
-        template already exists,
+      description: |
+        Creates a new template for launching instances. If an identical template already exists, returns the existing template instead of creating a duplicate.
 
-        returns the existing template instead of creating a duplicate.
-
-
-        CLI Usage: vast create template [options]
-
-        '
+        CLI Usage: `vastai create template [options]`
       tags:
       - Templates
       security:

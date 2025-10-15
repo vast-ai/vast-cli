@@ -13,11 +13,11 @@ paths:
   /api/v0/instances/{id}/:
     get:
       summary: show instance
-      description: >
+      description: |
         Retrieves the details of a specific instance for the authenticated user.
-        
-        This endpoint returns detailed information including SSH connection parameters,
-        instance state, resource utilization, template data, and pricing details.
+        This endpoint returns detailed information including SSH connection parameters, instance state, resource utilization, template data, and pricing details.
+
+        CLI Usage: `vastai show instance [--api-key <api_key>] [--raw]`
       security:
         - BearerAuth: []
       parameters:

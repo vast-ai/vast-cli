@@ -10,10 +10,10 @@ paths:
   /api/v0/instances/request_logs/{id}:
     put:
       summary: show logs
-      description: "Request logs from a specific instance. The logs will be uploaded\
-        \ to S3 and \ncan be retrieved from a generated URL. Supports both container\
-        \ logs and daemon\nsystem logs.\n\nCLI Usage: vast logs INSTANCE_ID [--tail\
-        \ LINES] [--filter GREP] [--daemon-logs]\n"
+      description: |
+        Request logs from a specific instance. The logs will be uploaded to S3 and can be retrieved from a generated URL. Supports both container logs and daemon system logs.
+
+        CLI Usage: `vastai show logs <instance_id> [--tail <lines>] [--filter <grep>] [--daemon-logs]`
       parameters:
       - name: id
         in: path

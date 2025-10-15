@@ -11,8 +11,7 @@ paths:
     get:
       summary: search invoices
       description: |
-        This endpoint allows users to search and retrieve invoices based
-        on specified filters.
+        This endpoint allows users to search and retrieve invoices based on specified filters.
 
         CLI Usage: `vastai search invoices`
       security:

@@ -6,7 +6,10 @@ paths:
   /api/v0/machines/{machine_id}/cancel_maint/:
     put:
       summary: cancel maint
-      description: Cancel a scheduled maintenance window for a specified machine.
+      description: |
+        Cancel a scheduled maintenance window for a specified machine.
+
+        CLI Usage: `vastai cancel maint <machine_id>`
       parameters:
       - name: machine_id
         in: path

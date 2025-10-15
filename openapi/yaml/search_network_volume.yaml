@@ -1,18 +1,7 @@
 openapi: 3.0.0
 info:
   title: Vast.ai Search Network Volumes API
-  description: 'API endpoint to search and retrieve network volume offers based on specified
-    filters.
-
-    Supports advanced querying with operators: - Equality: `field=value` or `field
-    eq value` - Inequality: `field!=value` or `field neq value` - Greater than: `field>value`
-    or `field gt value` - Less than: `field<value` or `field lt value` - Greater/equal:
-    `field>=value` or `field gte value` - Less/equal: `field<=value` or `field lte
-    value` - In list: `field in [val1,val2,...]` - Not in list: `field nin [val1,val2,...]`
-
-    Example queries: ``` reliability > 0.99 num_gpus>=4 gpu_name=RTX_3090 driver_version>=470
-    cuda_vers>=11.0 gpu_ram>=10000 geolocation in [TW,SE] gpu_name in [RTX_3090,RTX_4090]
-    ```'
+  description: API endpoint to search and retrieve network volume offers based on specified filters.
   version: 1.0.0
 servers:
 - url: https://console.vast.ai
@@ -21,11 +10,10 @@ paths:
   /api/v0/network_volumes/search/:
     post:
       summary: search network volumes
-      description: 'Search for available GPU machine offers with advanced filtering
-        and sorting.
+      description: |
+        Search for available network volume offers with advanced filtering and sorting.
 
-        CLI Usage: ``` vast search network-volumes --order=storage_cost ''reliability > 0.99 geolocation in [US, CA]''```
-        '
+        CLI Usage: `vastai search network-volumes <query> [--order <field>]`
       security:
       - BearerAuth: []
       requestBody:

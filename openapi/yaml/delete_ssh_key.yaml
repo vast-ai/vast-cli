@@ -7,11 +7,10 @@ paths:
   /api/v0/ssh/{id}/:
     delete:
       summary: delete ssh key
-      description: 'Removes an SSH key from the authenticated user''s account
+      description: |
+        Removes an SSH key from the authenticated user's account
 
-        CLI Usage: vastai delete ssh-key <id>`
-
-        '
+        CLI Usage: `vastai delete ssh-key <id>`
       operationId: deleteSshKey
       security:
       - ApiKeyAuth: []

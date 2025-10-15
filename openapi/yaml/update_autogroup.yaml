@@ -10,13 +10,10 @@ paths:
   /api/v0/workergroups/{id}/:
     put:
       summary: update workergroup
-      description: 'Updates the properties of an existing workergroup based on
-        the provided parameters.
+      description: |
+        Updates the properties of an existing workergroup based on the provided parameters.
 
-
-        CLI Usage: vastai update workergroup <ID> [OPTIONS]
-
-        '
+        CLI Usage: `vastai update workergroup <id> [options]`
       security:
       - BearerAuth: []
       parameters:

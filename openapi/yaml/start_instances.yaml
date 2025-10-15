@@ -10,11 +10,6 @@ paths:
   /api/v0/instances/start:
     post:
       summary: start instances
-
-
-        CLI Usage: vast-ai start instances [OPTIONS] ID0 ID1 ID2...
-
-        '
       description: |
         Start a list of instances specified by their IDs.
 

@@ -11,8 +11,8 @@ paths:
     post:
       summary: unlist network-volume
       description: |
-        Unlists a network volume for rent
-        
+        Unlists a network volume for rent.
+
         CLI Usage: `vastai unlist volume <offer_id>`
       security:
       - BearerAuth: []

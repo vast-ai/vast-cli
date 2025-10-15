@@ -6,7 +6,6 @@ paths:
   /api/v0/machines/:
     get:
       summary: show machines
-        user.
       description: |
         Fetches data for multiple machines associated with the authenticated user.
 

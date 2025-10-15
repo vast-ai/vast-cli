@@ -11,12 +11,6 @@ paths:
   /api/v0/subaccounts/:
     get:
       summary: show subaccounts
-        user''s account.
-
-
-        CLI Usage: vast-ai show subaccounts
-
-        '
       description: |
         Retrieve a list of subaccounts associated with the authenticated user's account.
 

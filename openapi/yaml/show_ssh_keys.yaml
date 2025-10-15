@@ -7,7 +7,6 @@ paths:
   /api/v0/ssh/:
     get:
       summary: show ssh keys
-        account.
       description: |
         Retrieve a list of SSH keys associated with the authenticated user's account.
 

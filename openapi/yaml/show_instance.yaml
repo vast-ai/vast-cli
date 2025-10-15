@@ -1,10 +1,7 @@
 openapi: 3.0.0
 info:
   title: Vast.ai API - Show Instance
-  description: >
-    Retrieves details of a specific instance for the authenticated user.
-    
-    CLI Usage: vastai show instance [--api-key API_KEY] [--raw]
+  description: Retrieves details of a specific instance for the authenticated user.
   version: 1.0.0
 servers:
   - url: https://console.vast.ai

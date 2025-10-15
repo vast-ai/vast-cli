@@ -9,7 +9,7 @@ paths:
       description: |
         Update an existing team role with new name and permissions.
 
-        CLI Usage: `vastai update team-role <role id> --name <new_name> --permissions <new_permissions_json>`
+        CLI Usage: `vastai update team-role <id> --name <new_name> --permissions <new_permissions_json>`
       parameters:
       - name: id
         in: path

@@ -10,8 +10,10 @@ paths:
   /api/v0/volumes/unlist/:
     post:
       summary: unlist volume
-      description: 'Remove a volume listing from the marketplace.
-        CLI Usage: vastai unlist volume VOLUME_ID'
+      description: |
+        Remove a volume listing from the marketplace.
+
+        CLI Usage: `vastai unlist volume <volume_id>`
       security:
       - BearerAuth: []
       requestBody:

@@ -10,12 +10,6 @@ paths:
   /api/v0/users/current/:
     get:
       summary: show user
-        the API key.
-
-
-        CLI Usage: vastai show user
-
-        '
       description: |
         Retrieve information about the current authenticated user, excluding the API key.
 

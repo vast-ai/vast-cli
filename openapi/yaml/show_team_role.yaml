@@ -10,11 +10,6 @@ paths:
   /api/v0/team/roles/{id}/:
     get:
       summary: show team role
-
-
-        CLI Usage: vastai show team-role NAME
-
-        '
       description: |
         Retrieve details of a specific team role by its name.
 

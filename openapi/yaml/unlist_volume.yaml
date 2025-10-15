@@ -7,7 +7,7 @@ servers:
 - url: https://cloud.vast.ai
   description: Production server
 paths:
-  /api/v0/volumes/unlist:
+  /api/v0/volumes/unlist/:
     post:
       summary: unlist volume
       description: 'Remove a volume listing from the marketplace.

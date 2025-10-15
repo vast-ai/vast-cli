@@ -7,7 +7,7 @@ servers:
 - url: https://console.vast.ai
   description: Production server
 paths:
-  /api/v0/machines/{machine_id}/asks:
+  /api/v0/machines/{machine_id}/asks/:
     delete:
       summary: unlist machine
       description: 'Removes all ''ask'' type offer contracts for a specified machine,

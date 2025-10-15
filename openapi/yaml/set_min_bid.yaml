@@ -7,7 +7,7 @@ servers:
 - url: https://console.vast.ai
   description: Production server
 paths:
-  /api/v0/machines/{machine_id}/minbid:
+  /api/v0/machines/{machine_id}/minbid/:
     put:
       summary: set min-bid
       description: 'Sets the minimum bid price for a specified machine.

@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: Vast.ai Search Offers API
-  description: 'API endpoint to search and retrieve GPU machine offers based on specified
+  description: 'API endpoint to search and retrieve filtered GPU machine offers based on specified
     filters.
 
     Supports advanced querying with operators: - Equality: `field=value` or `field
@@ -22,8 +22,21 @@ paths:
     post:
       summary: search offers
       description: |
-        Search for available GPU machine offers with advanced filtering
-        and sorting.
+        Search for available GPU machine offers with advanced filtering and sorting.
+
+        **How to use filter operators in the request body:**
+
+        Each filter parameter (such as `verified`, `gpu_name`, `num_gpus`, etc.) should be an object specifying the operator and value you want to match.  
+        Supported operators:
+        - `eq`: Equal to a value (e.g. `{ "eq": true }`)
+        - `neq`: Not equal to a value (e.g. `{ "neq": false }`)
+        - `gt`: Greater than a value (e.g. `{ "gt": 0.99 }`)
+        - `lt`: Less than a value (e.g. `{ "lt": 10000 }`)
+        - `gte`: Greater than or equal to a value (e.g. `{ "gte": 4 }`)
+        - `lte`: Less than or equal to a value (e.g. `{ "lte": 8 }`)
+        - `in`: Value is in a list (e.g. `{ "in": ["RTX_3090", "RTX_4090"] }`)
+        - `nin`: Value is not in a list (e.g. `{ "nin": ["TW", "SE"] }`)
+
 
         Default filters applied unless --no-default:
         - verified: true
@@ -76,7 +89,7 @@ paths:
                 gpu_name:
                   type: object
                   description: GPU model name
-                  proprties:
+                  properties:
                     eq:
                       type: string
                   default:
@@ -84,6 +97,11 @@ paths:
                 reliability2:
                   type: object
                   description: Machine reliability score (0-1)
+                  properties:
+                    gt:
+                      type: string
+                  default:
+                    gt: '0.9'
                 num_gpus:
                   type: object
                   description: Number of GPUs

@@ -1,18 +1,7 @@
 openapi: 3.0.0
 info:
   title: Vast.ai Search Offers API
-  description: 'API endpoint to search and retrieve filtered GPU machine offers based on specified
-    filters.
-
-    Supports advanced querying with operators: - Equality: `field=value` or `field
-    eq value` - Inequality: `field!=value` or `field neq value` - Greater than: `field>value`
-    or `field gt value` - Less than: `field<value` or `field lt value` - Greater/equal:
-    `field>=value` or `field gte value` - Less/equal: `field<=value` or `field lte
-    value` - In list: `field in [val1,val2,...]` - Not in list: `field nin [val1,val2,...]`
-
-    Example queries: ``` reliability > 0.99 num_gpus>=4 gpu_name=RTX_3090 driver_version>=470
-    cuda_vers>=11.0 gpu_ram>=10000 geolocation in [TW,SE] gpu_name in [RTX_3090,RTX_4090]
-    ```'
+  description: 'API endpoint to search and retrieve filtered GPU machine offers'
   version: 1.0.0
 servers:
 - url: https://console.vast.ai
@@ -24,19 +13,20 @@ paths:
       description: |
         Search for available GPU machine offers with advanced filtering and sorting.
 
-        **How to use filter operators in the request body:**
+        Each filter parameter (such as `verified`, `gpu_name`, `num_gpus`, etc.) should be an object specifying the operator and value you want to match.
 
-        Each filter parameter (such as `verified`, `gpu_name`, `num_gpus`, etc.) should be an object specifying the operator and value you want to match.  
-        Supported operators:
-        - `eq`: Equal to a value (e.g. `{ "eq": true }`)
-        - `neq`: Not equal to a value (e.g. `{ "neq": false }`)
-        - `gt`: Greater than a value (e.g. `{ "gt": 0.99 }`)
-        - `lt`: Less than a value (e.g. `{ "lt": 10000 }`)
-        - `gte`: Greater than or equal to a value (e.g. `{ "gte": 4 }`)
-        - `lte`: Less than or equal to a value (e.g. `{ "lte": 8 }`)
-        - `in`: Value is in a list (e.g. `{ "in": ["RTX_3090", "RTX_4090"] }`)
-        - `nin`: Value is not in a list (e.g. `{ "nin": ["TW", "SE"] }`)
+        **Supported filter operators:**
 
+        | Operator | Meaning                | Example                        |
+        |:---------|:-----------------------|:-------------------------------|
+        | `eq`     | Equal to               | `{ "eq": true }`               |
+        | `neq`    | Not equal to           | `{ "neq": false }`             |
+        | `gt`     | Greater than           | `{ "gt": 0.99 }`               |
+        | `lt`     | Less than              | `{ "lt": 10000 }`              |
+        | `gte`    | Greater than or equal  | `{ "gte": 4 }`                 |
+        | `lte`    | Less than or equal     | `{ "lte": 8 }`                 |
+        | `in`     | Value is in a list     | `{ "in": ["RTX_3090", "RTX_4090"] }` |
+        | `nin`    | Value is not in a list | `{ "nin": ["TW", "SE"] }`      |
 
         Default filters applied unless --no-default:
         - verified: true
@@ -92,11 +82,9 @@ paths:
                   properties:
                     eq:
                       type: string
-                  default:
-                    eq: RTX 5090
-                reliability2:
+                reliability:
                   type: object
-                  description: Machine reliability score (0-1)
+                  description: Machine reliability score (Any decimal number between 0-1)
                   properties:
                     gt:
                       type: string
@@ -159,7 +147,7 @@ paths:
                   description: NVIDIA driver version as 3 digit string
                 duration:
                   type: object
-                  description: Maximum rental duration in days
+                  description: Maximum rental duration in seconds
                 flops_usd:
                   type: object
                   description: TFLOPs per dollar
@@ -286,9 +274,9 @@ paths:
                         inet_down:
                           type: number
                           description: Download bandwidth (MB/s)
-                        reliability2:
+                        reliability:
                           type: number
-                          description: Reliability score (0-1)
+                          description: Score  (0-1)
                         verified:
                           type: boolean
                           description: Verification status

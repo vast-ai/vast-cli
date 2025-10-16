@@ -5716,8 +5716,36 @@ paths:
     post:
       summary: search offers
       description: 'Search for available GPU machine offers with advanced filtering
-
         and sorting.
+
+
+        Each filter parameter (such as `verified`, `gpu_name`, `num_gpus`, etc.) should
+        be an object specifying the operator and value you want to match.
+
+
+        **Supported filter operators:**
+
+
+        | Operator | Meaning                | Example                        |
+
+        |:---------|:-----------------------|:-------------------------------|
+
+        | `eq`     | Equal to               | `{ "eq": true }`               |
+
+        | `neq`    | Not equal to           | `{ "neq": false }`             |
+
+        | `gt`     | Greater than           | `{ "gt": 0.99 }`               |
+
+        | `lt`     | Less than              | `{ "lt": 10000 }`              |
+
+        | `gte`    | Greater than or equal  | `{ "gte": 4 }`                 |
+
+        | `lte`    | Less than or equal     | `{ "lte": 8 }`                 |
+
+        | `in`     | Value is in a list     | `{ "in": ["RTX_3090", "RTX_4090"] }`
+        |
+
+        | `nin`    | Value is not in a list | `{ "nin": ["TW", "SE"] }`      |
 
 
         Default filters applied unless --no-default:
@@ -5744,34 +5772,54 @@ paths:
                 verified:
                   type: object
                   description: Machine verification status
+                  properties:
+                    eq:
+                      type: boolean
                   default:
                     eq: true
                 rentable:
                   type: object
                   description: Whether machine is rentable
+                  properties:
+                    eq:
+                      type: boolean
                   default:
                     eq: true
                 external:
                   type: object
                   description: External machine status
+                  properties:
+                    eq:
+                      type: boolean
                   default:
                     eq: false
                 rented:
                   type: object
                   description: Current rental status
+                  properties:
+                    eq:
+                      type: boolean
                   default:
                     eq: false
-                reliability2:
-                  type: object
-                  description: Machine reliability score (0-1)
-                num_gpus:
-                  type: object
-                  description: Number of GPUs
                 gpu_name:
                   type: object
                   description: GPU model name
+                  properties:
+                    eq:
+                      type: string
                   default:
-                    eq: RTX 4090
+                    eq: RTX 5090
+                reliability:
+                  type: object
+                  description: Machine reliability score (0-1)
+                  properties:
+                    gt:
+                      type: string
+                  default:
+                    gt: '0.9'
+                num_gpus:
+                  type: object
+                  description: Number of GPUs
                 cuda_max_good:
                   type: object
                   description: Maximum CUDA version
@@ -5825,7 +5873,7 @@ paths:
                   description: NVIDIA driver version as 3 digit string
                 duration:
                   type: object
-                  description: Maximum rental duration in days
+                  description: Maximum rental duration in seconds
                 flops_usd:
                   type: object
                   description: TFLOPs per dollar
@@ -5897,17 +5945,6 @@ paths:
                 allocated_storage:
                   type: number
                   description: Required storage in GB
-            example:
-              verified:
-                eq: true
-              rentable:
-                eq: true
-              external:
-                eq: false
-              rented:
-                eq: false
-              gpu_name:
-                eq: RTX 3090
       responses:
         '200':
           description: Successful search response
@@ -5963,7 +6000,7 @@ paths:
                         inet_down:
                           type: number
                           description: Download bandwidth (MB/s)
-                        reliability2:
+                        reliability:
                           type: number
                           description: Reliability score (0-1)
                         verified:

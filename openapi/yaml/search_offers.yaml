@@ -85,11 +85,6 @@ paths:
                 reliability:
                   type: object
                   description: Machine reliability score (Any decimal number between 0-1)
-                  properties:
-                    gt:
-                      type: string
-                  default:
-                    gt: '0.9'
                 num_gpus:
                   type: object
                   description: Number of GPUs

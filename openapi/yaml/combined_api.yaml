@@ -5712,18 +5712,26 @@ paths:
                 $ref: '#/components/schemas/Error'
       tags:
       - Network Volumes
-  /api/v0/search/asks/:
-    put:
+  /api/v0/bundles/:
+    post:
       summary: search offers
       description: 'Search for available GPU machine offers with advanced filtering
+
         and sorting.
 
-        Default filters applied unless --no-default: - verified: true - external:
-        false - rentable: true - rented: false
 
-        CLI Usage Examples: ``` vast search offers ''reliability > 0.99 num_gpus>=4''
-        vast search offers ''gpu_name=RTX_3090'' --order=dph_total vast search offers
-        ''cuda_vers>=11.0'' --no-default ```'
+        Default filters applied unless --no-default:
+
+        - verified: true
+
+        - external: false
+
+        - rentable: true
+
+        - rented: false
+
+
+        CLI Usage: `vastai search offers ''reliability > 0.99 num_gpus>=4'' --order=dph_total`'
       security:
       - BearerAuth: []
       requestBody:
@@ -5733,250 +5741,173 @@ paths:
             schema:
               type: object
               properties:
-                select_cols:
+                verified:
+                  type: object
+                  description: Machine verification status
+                  default:
+                    eq: true
+                rentable:
+                  type: object
+                  description: Whether machine is rentable
+                  default:
+                    eq: true
+                external:
+                  type: object
+                  description: External machine status
+                  default:
+                    eq: false
+                rented:
+                  type: object
+                  description: Current rental status
+                  default:
+                    eq: false
+                reliability2:
+                  type: object
+                  description: Machine reliability score (0-1)
+                num_gpus:
+                  type: object
+                  description: Number of GPUs
+                gpu_name:
+                  type: object
+                  description: GPU model name
+                  default:
+                    eq: RTX 4090
+                cuda_max_good:
+                  type: object
+                  description: Maximum CUDA version
+                gpu_ram:
+                  type: object
+                  description: GPU memory in MB
+                dlperf_per_dphtotal:
+                  type: object
+                  description: DLPerf per dollar per hour
+                inet_down:
+                  type: object
+                  description: Download bandwidth (MB/s)
+                inet_up:
+                  type: object
+                  description: Upload bandwidth (MB/s)
+                direct_port_count:
+                  type: object
+                  description: Number of direct ports
+                geolocation:
+                  type: object
+                  description: Machine location (two letter country code)
+                bw_nvlink:
+                  type: object
+                  description: Bandwidth NVLink
+                compute_cap:
+                  type: object
+                  description: CUDA compute capability*100 (650 for 6.5, 700 for 7.0)
+                cpu_arch:
+                  type: object
+                  description: Host machine CPU architecture (e.g. amd64, arm64)
+                cpu_cores:
+                  type: object
+                  description: Number of virtual CPUs
+                cpu_ghz:
+                  type: object
+                  description: CPU clock speed in GHz
+                datacenter:
+                  type: object
+                  description: Show only datacenter offers
+                disk_bw:
+                  type: object
+                  description: Disk read bandwidth in MB/s
+                dlperf:
+                  type: object
+                  description: Deep Learning performance score
+                dlperf_usd:
+                  type: object
+                  description: DLPerf per dollar
+                driver_version:
+                  type: object
+                  description: NVIDIA driver version as 3 digit string
+                duration:
+                  type: object
+                  description: Maximum rental duration in days
+                flops_usd:
+                  type: object
+                  description: TFLOPs per dollar
+                gpu_arch:
+                  type: object
+                  description: Host machine GPU architecture (e.g. nvidia, amd)
+                gpu_max_power:
+                  type: object
+                  description: GPU power limit in watts
+                gpu_max_temp:
+                  type: object
+                  description: GPU temperature limit in Celsius
+                gpu_mem_bw:
+                  type: object
+                  description: GPU memory bandwidth in GB/s
+                gpu_total_ram:
+                  type: object
+                  description: Total GPU RAM across all GPUs in GB
+                gpu_frac:
+                  type: object
+                  description: Ratio of GPUs in offer to GPUs in system
+                gpu_display_active:
+                  type: object
+                  description: Whether GPU has a display attached
+                has_avx:
+                  type: object
+                  description: CPU supports AVX instruction set
+                pci_gen:
+                  type: object
+                  description: PCIe generation
+                storage_cost:
+                  type: object
+                  description: Storage cost in $/GB/month
+                static_ip:
+                  type: object
+                  description: Whether the IP address is static/stable
+                total_flops:
+                  type: object
+                  description: Total TFLOPs from all GPUs
+                ubuntu_version:
+                  type: object
+                  description: Host machine Ubuntu OS version
+                vms_enabled:
+                  type: object
+                  description: Whether the machine is a VM instance
+                machine_id:
+                  type: object
+                  description: Filter by specific host machine ID
+                order:
                   type: array
                   items:
-                    type: string
-                  example:
-                  - '*'
-                  description: Columns to select, defaults to all
-                q:
-                  type: object
-                  properties:
-                    verified:
-                      type: object
-                      description: Machine verification status
-                      example:
-                        eq: true
-                    rentable:
-                      type: object
-                      description: Whether machine is rentable
-                      example:
-                        eq: true
-                    external:
-                      type: object
-                      description: External machine status
-                      example:
-                        eq: false
-                    rented:
-                      type: object
-                      description: Current rental status
-                      example:
-                        eq: false
-                    order:
-                      type: array
-                      items:
-                        type: array
-                        items:
-                          type: string
-                      description: Sort fields and directions
-                      example:
-                      - - dph_total
-                        - asc
-                    type:
+                    type: array
+                    items:
                       type: string
-                      enum:
-                      - on-demand
-                      - bid
-                      - reserved
-                      description: Contract type filter
-                    limit:
-                      type: integer
-                      description: Max results to return
-                    disable_bundling:
-                      type: boolean
-                      description: Disable offer bundling
-                    allocated_storage:
-                      type: number
-                      description: Required storage in GB
-                    reliability2:
-                      type: object
-                      description: Machine reliability score (0-1)
-                      example:
-                        gt: 0.98
-                    num_gpus:
-                      type: object
-                      description: Number of GPUs
-                      example:
-                        gte: 4
-                    gpu_name:
-                      type: object
-                      description: GPU model name
-                      example:
-                        eq: RTX 3090
-                    cuda_max_good:
-                      type: object
-                      description: Maximum CUDA version
-                      example:
-                        gte: 11.0
-                    gpu_ram:
-                      type: object
-                      description: GPU memory in MB
-                      example:
-                        gte: 24000
-                    dlperf_per_dphtotal:
-                      type: object
-                      description: DLPerf per dollar per hour
-                      example:
-                        gt: 50.0
-                    inet_down:
-                      type: object
-                      description: Download bandwidth (MB/s)
-                      example:
-                        gt: 100.0
-                    inet_up:
-                      type: object
-                      description: Upload bandwidth (MB/s)
-                      example:
-                        gt: 100.0
-                    direct_port_count:
-                      type: object
-                      description: Number of direct ports
-                      example:
-                        gt: 1
-                    geolocation:
-                      type: object
-                      description: Machine location (two letter country code)
-                      example:
-                        in:
-                        - TW
-                        - SE
-                    bw_nvlink:
-                      type: object
-                      description: Bandwidth NVLink
-                      example:
-                        gt: 100.0
-                    compute_cap:
-                      type: object
-                      description: CUDA compute capability*100 (650 for 6.5, 700 for
-                        7.0)
-                      example:
-                        gte: 700
-                    cpu_arch:
-                      type: object
-                      description: Host machine CPU architecture (e.g. amd64, arm64)
-                      example:
-                        eq: amd64
-                    cpu_cores:
-                      type: object
-                      description: Number of virtual CPUs
-                      example:
-                        gte: 8
-                    cpu_ghz:
-                      type: object
-                      description: CPU clock speed in GHz
-                      example:
-                        gt: 3.0
-                    datacenter:
-                      type: object
-                      description: Show only datacenter offers
-                      example:
-                        eq: true
-                    disk_bw:
-                      type: object
-                      description: Disk read bandwidth in MB/s
-                      example:
-                        gt: 500
-                    dlperf:
-                      type: object
-                      description: Deep Learning performance score
-                      example:
-                        gt: 20.0
-                    dlperf_usd:
-                      type: object
-                      description: DLPerf per dollar
-                      example:
-                        gt: 10.0
-                    driver_version:
-                      type: object
-                      description: NVIDIA driver version as 3 digit string
-                      example:
-                        gte: 535.86.05
-                    duration:
-                      type: object
-                      description: Maximum rental duration in days
-                      example:
-                        gte: 30
-                    flops_usd:
-                      type: object
-                      description: TFLOPs per dollar
-                      example:
-                        gt: 1.0
-                    gpu_arch:
-                      type: object
-                      description: Host machine GPU architecture (e.g. nvidia, amd)
-                      example:
-                        eq: nvidia
-                    gpu_max_power:
-                      type: object
-                      description: GPU power limit in watts
-                      example:
-                        lte: 300
-                    gpu_max_temp:
-                      type: object
-                      description: GPU temperature limit in Celsius
-                      example:
-                        lte: 85
-                    gpu_mem_bw:
-                      type: object
-                      description: GPU memory bandwidth in GB/s
-                      example:
-                        gt: 500
-                    gpu_total_ram:
-                      type: object
-                      description: Total GPU RAM across all GPUs in GB
-                      example:
-                        gte: 48
-                    gpu_frac:
-                      type: object
-                      description: Ratio of GPUs in offer to GPUs in system
-                      example:
-                        eq: 1.0
-                    gpu_display_active:
-                      type: object
-                      description: Whether GPU has a display attached
-                      example:
-                        eq: false
-                    has_avx:
-                      type: object
-                      description: CPU supports AVX instruction set
-                      example:
-                        eq: true
-                    pci_gen:
-                      type: object
-                      description: PCIe generation
-                      example:
-                        gte: 4
-                    storage_cost:
-                      type: object
-                      description: Storage cost in $/GB/month
-                      example:
-                        lte: 0.1
-                    static_ip:
-                      type: object
-                      description: Whether the IP address is static/stable
-                      example:
-                        eq: true
-                    total_flops:
-                      type: object
-                      description: Total TFLOPs from all GPUs
-                      example:
-                        gt: 100
-                    ubuntu_version:
-                      type: object
-                      description: Host machine Ubuntu OS version
-                      example:
-                        eq: '20.04'
-                    vms_enabled:
-                      type: object
-                      description: Whether the machine is a VM instance
-                      example:
-                        eq: false
-                    machine_id:
-                      type: object
-                      description: Filter by specific host machine ID
-                      example:
-                        eq: 12345
+                  description: Sort fields and directions
+                type:
+                  type: string
+                  enum:
+                  - on-demand
+                  - bid
+                  - reserved
+                  description: Contract type filter
+                limit:
+                  type: integer
+                  description: Max results to return
+                disable_bundling:
+                  type: boolean
+                  description: Disable offer bundling
+                allocated_storage:
+                  type: number
+                  description: Required storage in GB
+            example:
+              verified:
+                eq: true
+              rentable:
+                eq: true
+              external:
+                eq: false
+              rented:
+                eq: false
+              gpu_name:
+                eq: RTX 3090
       responses:
         '200':
           description: Successful search response

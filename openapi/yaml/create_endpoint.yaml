@@ -15,13 +15,11 @@ paths:
   /api/v0/endptjobs/:
     post:
       summary: create endpoint
-      description: 'This endpoint creates a new job processing endpoint with specified
+      description: |
+        This endpoint creates a new job processing endpoint with specified
         parameters.
 
-
-        CLI Usage: vast-ai create endpoint
-
-        '
+        CLI Usage: `vast-ai create endpoint`
       security:
       - BearerAuth: []
       requestBody:

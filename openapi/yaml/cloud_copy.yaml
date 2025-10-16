@@ -6,7 +6,7 @@ paths:
   /api/v0/commands/rclone/:
     post:
       summary: cloud copy
-      description: 'Starts a cloud copy operation by sending a command to the remote
+      description: 'Starts cloud copy operation by sending a command to the remote
         server. The operation can transfer data between an instance and a cloud service.
 
         '

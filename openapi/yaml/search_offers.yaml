@@ -44,15 +44,23 @@ paths:
                 verified:
                   type: object
                   description: Machine verification status
+                  default:
+                    eq: true
                 rentable:
                   type: object
                   description: Whether machine is rentable
+                  default:
+                    eq: true
                 external:
                   type: object
                   description: External machine status
+                  default:
+                    eq: false
                 rented:
                   type: object
                   description: Current rental status
+                  default:
+                    eq: false
                 reliability2:
                   type: object
                   description: Machine reliability score (0-1)
@@ -62,6 +70,8 @@ paths:
                 gpu_name:
                   type: object
                   description: GPU model name
+                  default:
+                    eq: RTX 4090
                 cuda_max_good:
                   type: object
                   description: Maximum CUDA version

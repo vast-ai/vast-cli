@@ -15,7 +15,7 @@ paths:
 
         Each filter parameter (such as `verified`, `gpu_name`, `num_gpus`, etc.) should be an object specifying the operator and value you want to match.
 
-        **Supported filter operators:**
+        **Filter operators:**
 
         | Operator | Meaning                | Example                        |
         |:---------|:-----------------------|:-------------------------------|
@@ -91,30 +91,39 @@ paths:
                 num_gpus:
                   type: object
                   description: Number of GPUs
-                cuda_max_good:
-                  type: object
-                  description: Maximum CUDA version
                 gpu_ram:
                   type: object
                   description: GPU memory in MB
+                duration:
+                  type: object
+                  description: Maximum rental duration in seconds
+                machine_id:
+                  type: object
+                  description: Filter by specific host machine ID
                 dlperf_per_dphtotal:
                   type: object
                   description: DLPerf per dollar per hour
+                geolocation:
+                  type: object
+                  description: Machine location (two letter country code)
+                cuda_max_good:
+                  type: object
+                  description: Maximum supported CUDA version
                 inet_down:
                   type: object
                   description: Download bandwidth (MB/s)
                 inet_up:
                   type: object
                   description: Upload bandwidth (MB/s)
-                direct_port_count:
+                driver_version:
                   type: object
-                  description: Number of direct ports
-                geolocation:
-                  type: object
-                  description: Machine location (two letter country code)
+                  description: NVIDIA driver version in the format "XXX.XX.XX
                 compute_cap:
                   type: object
                   description: CUDA compute capability*100 (Enter 6.5 for 650, 7.0 for 700)
+                dlperf:
+                  type: object
+                  description: Deep Learning performance score
                 cpu_arch:
                   type: object
                   description: Host machine CPU architecture (e.g. amd64, arm64)
@@ -139,15 +148,6 @@ paths:
                 bw_nvlink:
                   type: object
                   description: NVLink bandwidth
-                dlperf:
-                  type: object
-                  description: Deep Learning performance score
-                driver_version:
-                  type: object
-                  description: NVIDIA driver version in the format "XXX.XX.XX
-                duration:
-                  type: object
-                  description: Maximum rental duration in seconds
                 gpu_arch:
                   type: object
                   description: Host machine GPU architecture (e.g. nvidia, amd)
@@ -166,6 +166,9 @@ paths:
                 gpu_frac:
                   type: object
                   description: Ratio of GPUs in offer to GPUs in system
+                direct_port_count:
+                  type: object
+                  description: Number of direct ports
                 pci_gen:
                   type: object
                   description: PCIe generation
@@ -181,9 +184,6 @@ paths:
                 os_version:
                   type: object
                   description: Host machine Ubuntu OS version
-                machine_id:
-                  type: object
-                  description: Filter by specific host machine ID
                 order:
                   type: array
                   items:

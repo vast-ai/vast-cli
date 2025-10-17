@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: Vast.ai Search Offers API
-  description: 'API endpoint to search and retrieve filtered GPU machine offers'
+  description: API endpoint to search and retrieve filtered GPU machine offers
   version: 1.0.0
 servers:
 - url: https://console.vast.ai
@@ -45,7 +45,7 @@ paths:
               properties:
                 limit:
                   type: integer
-                  description: Max results to return
+                  description: Max offers to return
                 verified:
                   type: object
                   description: Machine verification status
@@ -76,6 +76,12 @@ paths:
                   - on-demand
                   - bid
                   - reserved
+                  description: |
+                    Instance type for the offer
+
+                    - **on-demand**: High priority, fixed pricing, guaranteed resources. Best for production workloads and time-sensitive tasks.
+                    - **reserved**: High priority, discounted rates with pre-payment. Ideal for long-term projects and predictable workloads.
+                    - **bid** (interruptible): Low priority, lowest cost, may be paused if outbid. Suitable for batch processing, development, and fault-tolerant workloads.
                 gpu_name:
                   type: object
                   description: GPU model name
@@ -108,8 +114,7 @@ paths:
                   description: Machine location (two letter country code)
                 compute_cap:
                   type: object
-                  description: CUDA compute capability*100 (650 for 6.5, 700 for
-                    7.0)
+                  description: CUDA compute capability*100 (Enter 6.5 for 650, 7.0 for 700)
                 cpu_arch:
                   type: object
                   description: Host machine CPU architecture (e.g. amd64, arm64)
@@ -191,12 +196,23 @@ paths:
                   description: Disable offer bundling
                 allocated_storage:
                   type: number
-                  description: Required storage in GB
+                  description: |
+                      Storage allocation size in GB for the instance.
+                      This sets the disk size when creating the instance and cannot be changed later.
+                      Default is 8GB.
       responses:
         '200':
           description: Successful search response
           content:
             application/json:
+              schema:
+                type: object
+                properties:
+                  offers:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
               example:
                 offers:
                   id: 12345678

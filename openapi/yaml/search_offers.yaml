@@ -46,6 +46,18 @@ paths:
                 limit:
                   type: integer
                   description: Max offers to return
+                type:
+                  type: string
+                  enum:
+                  - on-demand
+                  - bid
+                  - reserved
+                  description: |
+                    Instance type for the offer
+
+                    - **on-demand**: High priority, fixed pricing, guaranteed resources. Best for production workloads and time-sensitive tasks.
+                    - **reserved**: High priority, discounted rates with pre-payment. Ideal for long-term projects and predictable workloads.
+                    - **bid** (interruptible): Low priority, lowest cost, may be paused if outbid. Suitable for batch processing, development, and fault-tolerant workloads.
                 verified:
                   type: object
                   description: Machine verification status
@@ -70,18 +82,6 @@ paths:
                       type: boolean
                   default:
                     eq: false
-                type:
-                  type: string
-                  enum:
-                  - on-demand
-                  - bid
-                  - reserved
-                  description: |
-                    Instance type for the offer
-
-                    - **on-demand**: High priority, fixed pricing, guaranteed resources. Best for production workloads and time-sensitive tasks.
-                    - **reserved**: High priority, discounted rates with pre-payment. Ideal for long-term projects and predictable workloads.
-                    - **bid** (interruptible): Low priority, lowest cost, may be paused if outbid. Suitable for batch processing, development, and fault-tolerant workloads.
                 gpu_name:
                   type: object
                   description: GPU model name
@@ -96,7 +96,7 @@ paths:
                   description: GPU memory in MB
                 duration:
                   type: object
-                  description: Maximum rental duration in seconds
+                  description: Minimum required rental duration in seconds (the offer must be available for at least this long from now).
                 machine_id:
                   type: object
                   description: Filter by specific host machine ID
@@ -106,6 +106,12 @@ paths:
                 geolocation:
                   type: object
                   description: Machine location (two letter country code)
+                gpu_arch:
+                  type: object
+                  description: Host machine GPU architecture (e.g. nvidia, amd)
+                dlperf:
+                  type: object
+                  description: Deep Learning performance score
                 cuda_max_good:
                   type: object
                   description: Maximum supported CUDA version
@@ -120,13 +126,10 @@ paths:
                   description: NVIDIA driver version in the format "XXX.XX.XX
                 compute_cap:
                   type: object
-                  description: CUDA compute capability*100 (Enter 6.5 for 650, 7.0 for 700)
-                dlperf:
-                  type: object
-                  description: Deep Learning performance score
+                  description: CUDA compute capability x 100. Use 650 for compute capability 6.5 or 700 for 7.0.”
                 cpu_arch:
                   type: object
-                  description: Host machine CPU architecture (e.g. amd64, arm64)
+                  description: Host machine CPU architecture (Default is amd64)
                 cpu_cores:
                   type: object
                   description: Number of virtual CPUs
@@ -135,22 +138,16 @@ paths:
                   description: CPU clock speed in GHz
                 cpu_ram:
                   type: object
-                  description: RAM in MB
+                  description: CPU RAM in MB
                 datacenter:
                   type: object
                   description: Show only datacenter offers
-                  properties:
-                    eq:
-                      type: boolean
                 disk_bw:
                   type: object
                   description: Disk read bandwidth in MB/s
                 bw_nvlink:
                   type: object
-                  description: NVLink bandwidth
-                gpu_arch:
-                  type: object
-                  description: Host machine GPU architecture (e.g. nvidia, amd)
+                  description: NVLink interconnect bandwidth in GB/s. Use when filtering for multi-GPU systems with high-speed NVLink.
                 gpu_max_power:
                   type: object
                   description: GPU power limit in watts
@@ -165,7 +162,7 @@ paths:
                   description: Total GPU RAM across all GPUs in MB
                 gpu_frac:
                   type: object
-                  description: Ratio of GPUs in offer to GPUs in system
+                  description: Fraction of the total GPU resources being offered
                 direct_port_count:
                   type: object
                   description: Number of direct ports
@@ -180,7 +177,7 @@ paths:
                   description: Whether the IP address is static/stable
                 total_flops:
                   type: object
-                  description: Total TFLOPs from all GPUs
+                  description: Total theoretical GPU compute performance (TFLOPs) across all GPUs.
                 os_version:
                   type: object
                   description: Host machine Ubuntu OS version
@@ -326,19 +323,26 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '401':
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: invalid_request
+                  msg:
+                    type: string
+                    example: Invalid json body
+        
+        '404':
           description: Unauthorized - invalid or missing API key
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '429':
-          description: Too many requests
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+                type: object
+                properties:
+                  error: 
+                    type: string
+                    example: auth_error
+                    msg: Invalid user key
       tags:
       - Search
 components:
@@ -347,25 +351,6 @@ components:
       type: http
       scheme: bearer
       description: API key must be provided in the Authorization header
-  schemas:
-    Error:
-      type: object
-      required:
-      - success
-      - error
-      - msg
-      properties:
-        success:
-          type: boolean
-          example: false
-        error:
-          type: string
-          description: Error code
-          example: invalid_query
-        msg:
-          type: string
-          description: Human readable error message
-          example: Invalid query parameters
 x-tags:
 - name: Search
   description: Endpoints for searching offers

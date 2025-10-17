@@ -140,7 +140,7 @@ paths:
                   description: Deep Learning performance score
                 driver_version:
                   type: object
-                  description: NVIDIA driver version as 3 digit string
+                  description: NVIDIA driver version in the format "XXX.XX.XX
                 duration:
                   type: object
                   description: Maximum rental duration in seconds
@@ -162,9 +162,6 @@ paths:
                 gpu_frac:
                   type: object
                   description: Ratio of GPUs in offer to GPUs in system
-                gpu_display_active:
-                  type: object
-                  description: Whether GPU has a display attached
                 pci_gen:
                   type: object
                   description: PCIe generation
@@ -177,7 +174,7 @@ paths:
                 total_flops:
                   type: object
                   description: Total TFLOPs from all GPUs
-                ubuntu_version:
+                os_version:
                   type: object
                   description: Host machine Ubuntu OS version
                 vms_enabled:
@@ -296,7 +293,7 @@ paths:
                         driver_version:
                           type: string
                           description: NVIDIA driver version
-                        ubuntu_version:
+                        os_version:
                           type: string
                           description: Ubuntu OS version
         '400':

@@ -782,7 +782,7 @@ paths:
       description: 'Retrieves all API keys associated with the authenticated user.
 
 
-        CLI Usage: vastai show api-keys'
+        CLI Usage: `vastai show api-keys`'
       security:
       - BearerAuth: []
       responses:
@@ -976,7 +976,7 @@ paths:
         user.
 
 
-        CLI Usage: vastai show workergroups'
+        CLI Usage: `vastai show workergroups`'
       security:
       - BearerAuth: []
       responses:
@@ -1182,7 +1182,10 @@ paths:
       - Serverless
     get:
       summary: show endpoints
-      description: Retrieve a list of endpoint jobs for the authenticated user.
+      description: 'Retrieve a list of endpoint jobs for the authenticated user.
+
+
+        CLI Usage: `vastai show endpoints`'
       security:
       - BearerAuth: []
       responses:
@@ -1446,7 +1449,7 @@ paths:
         user.
 
 
-        CLI Usage: vast-ai show env-vars [-s]'
+        CLI Usage: `vastai show env-vars [-s]`'
       security:
       - BearerAuth: []
       responses:
@@ -1495,7 +1498,7 @@ paths:
         authenticated user.
 
 
-        CLI Usage: vast-ai set env-var KEY VALUE'
+        CLI Usage: `vastai update env-var <key> <value>`'
       security:
       - BearerAuth: []
       requestBody:
@@ -1929,9 +1932,10 @@ paths:
     post:
       summary: list network-volume
       description: 'Lists a network disk for rent as network volumes, or updates an
-        existing listing with a new price/size/end date/discount
+        existing listing with a new price/size/end date/discount.
 
-        CLI Usage: vast list network-volume <disk_id> [options]'
+
+        CLI Usage: `vastai list network-volume <disk_id> [options]`'
       security:
       - BearerAuth: []
       requestBody:
@@ -2102,8 +2106,11 @@ paths:
       - Accounts
     get:
       summary: show ssh keys
-      description: Retrieve a list of SSH keys associated with the authenticated user's
-        account.
+      description: 'Retrieve a list of SSH keys associated with the authenticated
+        user''s account.
+
+
+        CLI Usage: `vastai show ssh-keys`'
       operationId: getSshKeysUser
       parameters:
       - name: Authorization
@@ -2286,7 +2293,7 @@ paths:
       description: 'Updates the user data for the authenticated user.
 
 
-        CLI Usage: vast set user --file {file_path}'
+        CLI Usage: `vastai set user --file <file_path>`'
       security:
       - BearerAuth: []
       requestBody:
@@ -2447,10 +2454,8 @@ paths:
     delete:
       summary: destroy team
       description: 'Deletes a team and all associated data including API keys, rights,
-
-        invitations, memberships and metadata. The team owner''s master API key
-
-        is converted to a normal client key.
+        invitations, memberships and metadata. The team owner''s master API key is
+        converted to a normal client key.
 
 
         CLI Usage: `vastai destroy team`'
@@ -2728,7 +2733,7 @@ paths:
         matching templates.
 
 
-        CLI Usage: vast search templates'
+        CLI Usage: `vastai search templates`'
       parameters:
       - name: query
         in: query
@@ -2987,7 +2992,7 @@ paths:
         provided parameters.
 
 
-        CLI Usage: vastai update workergroup <ID> [OPTIONS]'
+        CLI Usage: `vastai update workergroup <id> [options]`'
       security:
       - BearerAuth: []
       parameters:
@@ -3195,108 +3200,6 @@ paths:
                     example: API requests too frequent endpoint threshold=3.0
       tags:
       - Serverless
-    put:
-      summary: update endpoint
-      description: 'Updates the specified endpoint group with the provided parameters.
-
-
-        CLI Usage: vastai update endpoint ID [OPTIONS]'
-      security:
-      - BearerAuth: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        description: ID of the endpoint group to update
-        schema:
-          type: integer
-          example: 4242
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                min_load:
-                  type: number
-                  description: Minimum floor load in perf units/s (token/s for LLMs)
-                  example: 0.0
-                target_util:
-                  type: number
-                  description: Target capacity utilization (fraction, max 1.0)
-                  example: 0.9
-                cold_mult:
-                  type: number
-                  description: Cold/stopped instance capacity target as multiple of
-                    hot capacity target
-                  example: 2.5
-                cold_workers:
-                  type: integer
-                  description: Min number of workers to keep 'cold' when you have
-                    no load
-                  example: 5
-                max_workers:
-                  type: integer
-                  description: Max number of workers your endpoint group can have
-                  example: 20
-                endpoint_name:
-                  type: string
-                  description: Deployment endpoint name
-                  example: my_endpoint
-      responses:
-        '200':
-          description: Success response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-        '400':
-          description: Bad Request
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: false
-                  error:
-                    type: string
-                    example: invalid_args
-                  msg:
-                    type: string
-                    example: Endpointgroup not found for user
-        '401':
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: false
-                  error:
-                    type: string
-                  msg:
-                    type: string
-        '429':
-          description: Too Many Requests
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  detail:
-                    type: string
-                    example: API requests too frequent endpoint threshold=2.0
-      tags:
-      - Serverless
   /api/v0/ssh/{id}/:
     delete:
       summary: delete ssh key
@@ -3368,7 +3271,7 @@ paths:
       description: 'Updates the specified SSH key with the provided value.
 
 
-        CLI Usage: vastai update ssh-key id ssh_key'
+        CLI Usage: `vastai update ssh-key <id> <ssh_key>`'
       security:
       - BearerAuth: []
       parameters:
@@ -3426,7 +3329,10 @@ paths:
   /api/v0/volumes/:
     delete:
       summary: delete volume
-      description: 'Delete a volume by its ID. CLI Usage: vastai delete volume VOLUME_ID'
+      description: 'Delete a volume by its ID.
+
+
+        CLI Usage: `vastai delete volume <volume_id>`'
       security:
       - BearerAuth: []
       requestBody:
@@ -3501,8 +3407,10 @@ paths:
       - Volumes
     put:
       summary: rent volume
-      description: 'Rent/create a new volume with specified parameters. CLI Usage:
-        vastai create volume ID --size SIZE_GB'
+      description: 'Rent/create a new volume with specified parameters.
+
+
+        CLI Usage: `vastai create volume <id> --size <size_gb>`'
       security:
       - BearerAuth: []
       requestBody:
@@ -3541,11 +3449,12 @@ paths:
       - Volumes
     get:
       summary: list volumes
-      description: 'Retrieve information about all volumes rented by you. CLI Usage:
-        vastai show volumes'
+      description: 'Retrieve information about all volumes rented by you.
+
+
+        CLI Usage: `vastai show volumes`'
       security:
       - BearerAuth: []
-      parameters: []
       responses:
         '200':
           description: Success response
@@ -3587,9 +3496,7 @@ paths:
         and will delete all data.
 
 
-        CLI Usage: vast-ai destroy instance <id>
-
-        Example: vast-ai destroy instance 4242'
+        CLI Usage: `vastai destroy instance <id>`'
       parameters:
       - in: path
         name: id
@@ -3674,11 +3581,11 @@ paths:
 
         CLI Usage:
 
-        - To stop: vastai stop instance <ID>
+        - To stop: `vastai stop instance <id>`
 
-        - To start: vastai start instance <ID>
+        - To start: `vastai start instance <id>`
 
-        - To label: vastai label instance <ID> <label>'
+        - To label: `vastai label instance <id> <label>`'
       security:
       - BearerAuth: []
       parameters:
@@ -3752,7 +3659,10 @@ paths:
         user.
 
         This endpoint returns detailed information including SSH connection parameters,
-        instance state, resource utilization, template data, and pricing details.'
+        instance state, resource utilization, template data, and pricing details.
+
+
+        CLI Usage: `vastai show instance [--api-key <api_key>] [--raw]`'
       security:
       - BearerAuth: []
       parameters:
@@ -3801,16 +3711,10 @@ paths:
     delete:
       summary: detach ssh-key
       description: 'Detaches an SSH key from a specified instance, removing SSH access
-        for
-
-        that key.
+        for that key.
 
 
-
-        CLI Usage: vastai detach <instance_id> <ssh_key_id>
-
-
-        Example: vastai detach 99999 12345'
+        CLI Usage: `vastai detach <instance_id> <ssh_key_id>`'
       security:
       - BearerAuth: []
       parameters:
@@ -3913,9 +3817,7 @@ paths:
         The command output can be retrieved from the returned result URL.
 
 
-        CLI Usage: vastai execute <instance_id> <command>
-
-        Example: vastai execute 12345 "ls -l"'
+        CLI Usage: `vastai execute <instance_id> <command>`'
       security:
       - BearerAuth: []
       parameters:
@@ -4028,7 +3930,10 @@ paths:
       - url: https://run.vast.ai
         description: Production server
       summary: get workergroup logs
-      description: Retrieves logs for a specific workergroup by ID.
+      description: 'Retrieves logs for a specific workergroup by ID.
+
+
+        CLI Usage: `vastai get workergroup logs <id> [--tail <num_lines>]`'
       security:
       - BearerAuth: []
       requestBody:
@@ -4081,13 +3986,7 @@ paths:
       servers:
       - url: https://run.vast.ai
         description: Production server
-      summary: 'get workergroup workers
-
-
-        Useful for monitoring, debugging connectivity issues, and understanding resource
-        usage within a workergroup.
-
-        '''
+      summary: get workergroup workers
       description: 'Retrieves the current list and status of workers for a specific
         workergroup.
 
@@ -4159,7 +4058,10 @@ paths:
       - url: https://run.vast.ai
         description: Production server
       summary: get endpoint logs
-      description: Retrieves logs for a specific endpoint by name.
+      description: 'Retrieves logs for a specific endpoint by name.
+
+
+        CLI Usage: `vastai get endpoint logs <endpoint_name> [--tail <num_lines>]`'
       security:
       - BearerAuth: []
       requestBody:
@@ -4213,9 +4115,11 @@ paths:
       description: 'Retrieves the current list and status of workers for a specific
         endpoint.
 
-
         Useful for monitoring, debugging connectivity issues, and understanding resource
-        usage.'
+        usage.
+
+
+        CLI Usage: `vastai get endpoint workers <id>`'
       security:
       - BearerAuth: []
       requestBody:
@@ -4277,7 +4181,6 @@ paths:
     post:
       summary: invite team member
       description: 'Sends an invitation email to the specified user to join the team
-
         with the given role.
 
 
@@ -4368,7 +4271,7 @@ paths:
         Allows setting pricing, minimum GPU requirements, end date and discount rates.
 
 
-        CLI Usage: vast list machine <machine_id> [options]'
+        CLI Usage: `vastai list machine <machine_id> [options]`'
       security:
       - BearerAuth: []
       requestBody:
@@ -4466,14 +4369,12 @@ paths:
     put:
       summary: show logs
       description: 'Request logs from a specific instance. The logs will be uploaded
-        to S3 and
-
-        can be retrieved from a generated URL. Supports both container logs and daemon
-
-        system logs.
+        to S3 and can be retrieved from a generated URL. Supports both container logs
+        and daemon system logs.
 
 
-        CLI Usage: vast logs INSTANCE_ID [--tail LINES] [--filter GREP] [--daemon-logs]'
+        CLI Usage: `vastai show logs <instance_id> [--tail <lines>] [--filter <grep>]
+        [--daemon-logs]`'
       parameters:
       - name: id
         in: path
@@ -4555,14 +4456,10 @@ paths:
       description: 'Deposit credits into a reserved instance to receive usage discounts.
 
         The discount rate is calculated based on how many months of usage the prepaid
-        amount covers.
-
-        Maximum discount is typically 40%.
+        amount covers. Maximum discount is typically 40%.
 
 
-        CLI Usage: vastai prepay instance <ID> <AMOUNT>
-
-        Example: vastai prepay instance 1234 500.0'
+        CLI Usage: `vastai prepay instance <id> <amount>`'
       security:
       - BearerAuth: []
       parameters:
@@ -4649,12 +4546,11 @@ paths:
     put:
       summary: reboot instance
       description: 'Stops and starts a container without losing GPU priority. Updates
-        container status to ''rebooting''
+        container status to ''rebooting'' and executes docker stop/start commands
+        on the host machine.
 
-        and executes docker stop/start commands on the host machine.
 
-
-        CLI Usage: vastai reboot instance <ID>'
+        CLI Usage: `vastai reboot instance <id>`'
       security:
       - BearerAuth: []
       parameters:
@@ -4721,7 +4617,7 @@ paths:
         commands on the host machine.
 
 
-        CLI Usage: vastai recycle instance <ID>'
+        CLI Usage: `vastai recycle instance <id>`'
       security:
       - BearerAuth: []
       parameters:
@@ -4785,7 +4681,7 @@ paths:
         machine.
 
 
-        CLI Usage: `vastai remove defjob {machine_id}`'
+        CLI Usage: `vastai remove defjob <machine_id>`'
       security:
       - BearerAuth: []
       parameters:
@@ -4835,9 +4731,7 @@ paths:
     delete:
       summary: remove team member
       description: 'Removes a member from the team by revoking their team-related
-        API keys and updating membership status.
-
-        Cannot remove the team owner.
+        API keys and updating membership status. Cannot remove the team owner.
 
 
         CLI Usage: `vastai remove team-member <id>`'
@@ -5043,7 +4937,7 @@ paths:
         the issue, and the timestamp when the report was created.
 
 
-        CLI Usage: vastai reports <machine_id>'
+        CLI Usage: `vastai reports <machine_id>`'
       security:
       - BearerAuth: []
       parameters:
@@ -5096,9 +4990,11 @@ paths:
       description: 'Calls on the serverless engine to retrieve a GPU instance address
         within your endpoint for processing a request.
 
-
         The engine will return either a ready worker URL or status information if
-        no workers are available.'
+        no workers are available.
+
+
+        CLI Usage: `vastai route <endpoint> <cost>`'
       security:
       - BearerAuth: []
       requestBody:
@@ -5204,8 +5100,8 @@ paths:
         clients.
 
 
-        CLI Usage: vast-ai schedule maint {machine_id} --sdate {sdate} --duration
-        {duration}'
+        CLI Usage: `vastai schedule maint <machine_id> --sdate <sdate> --duration
+        <duration>`'
       security:
       - BearerAuth: []
       parameters:
@@ -5300,7 +5196,7 @@ paths:
       description: 'Retrieve benchmark data based on search parameters.
 
 
-        CLI Usage: vast-ai search benchmarks'
+        CLI Usage: `vastai search benchmarks`'
       security:
       - BearerAuth: []
       parameters:
@@ -5372,7 +5268,6 @@ paths:
     get:
       summary: search invoices
       description: 'This endpoint allows users to search and retrieve invoices based
-
         on specified filters.
 
 
@@ -5456,11 +5351,11 @@ paths:
   /api/v0/network_volumes/search/:
     post:
       summary: search network volumes
-      description: 'Search for available GPU machine offers with advanced filtering
+      description: 'Search for available network volume offers with advanced filtering
         and sorting.
 
-        CLI Usage: ``` vast search network-volumes --order=storage_cost ''reliability
-        > 0.99 geolocation in [US, CA]''```'
+
+        CLI Usage: `vastai search network-volumes <query> [--order <field>]`'
       security:
       - BearerAuth: []
       requestBody:
@@ -5929,8 +5824,10 @@ paths:
   /api/v0/volumes/search/:
     post:
       summary: search volumes
-      description: 'Search for available volumes based on specified criteria. CLI
-        Usage: vastai search volumes <query> [OPTIONS]'
+      description: 'Search for available volumes based on specified criteria.
+
+
+        CLI Usage: `vastai search volumes <query> [options]`'
       security:
       - BearerAuth: []
       parameters:
@@ -6009,8 +5906,8 @@ paths:
         with the given parameters.
 
 
-        CLI Usage: vast set defjob {machine_id} --price_gpu {price} --price_inetu
-        {price} --price_inetd {price} --image {image} [--args {args}]'
+        CLI Usage: `vastai set defjob <machine_id> --price_gpu <price> --price_inetu
+        <price> --price_inetd <price> --image <image> [--args <args>]`'
       security:
       - BearerAuth: []
       requestBody:
@@ -6107,7 +6004,7 @@ paths:
       description: 'Sets the minimum bid price for a specified machine.
 
 
-        CLI Usage: vast set min-bid {machine_id} --price {price}'
+        CLI Usage: `vastai set min-bid <machine_id> --price <price>`'
       security:
       - BearerAuth: []
       parameters:
@@ -6176,7 +6073,7 @@ paths:
         user.
 
 
-        CLI Usage: vastai show connections'
+        CLI Usage: `vastai show connections`'
       security:
       - BearerAuth: []
       responses:
@@ -6222,7 +6119,7 @@ paths:
       description: 'Retrieves the deposit details for a specified instance.
 
 
-        CLI Usage: vast show deposit {ID}'
+        CLI Usage: `vastai show deposit <id>`'
       security:
       - BearerAuth: []
       parameters:
@@ -6280,7 +6177,7 @@ paths:
         optionally per machine.
 
 
-        CLI Usage: vastai show earnings [OPTIONS]'
+        CLI Usage: `vastai show earnings [options]`'
       security:
       - BearerAuth: []
       parameters:
@@ -6409,7 +6306,10 @@ paths:
   /api/v0/instances/{instance_id}/ssh/:
     get:
       summary: show ssh-keys
-      description: Retrieves the SSH keys associated with a specific instance.
+      description: 'Retrieves the SSH keys associated with a specific instance.
+
+
+        CLI Usage: `vastai show ssh-keys <instance_id>`'
       security:
       - BearerAuth: []
       parameters:
@@ -6462,7 +6362,7 @@ paths:
       description: 'Retrieve a list of instances for the authenticated user.
 
 
-        CLI Usage: vast-ai show instances [OPTIONS] [--api-key API_KEY] [--raw]'
+        CLI Usage: `vastai show instances [options] [--api-key <api_key>] [--raw]`'
       security:
       - BearerAuth: []
       responses:
@@ -6519,7 +6419,7 @@ paths:
         user, including charges and credits.
 
 
-        CLI Usage: vast-ai show invoices'
+        CLI Usage: `vastai show invoices`'
       security:
       - BearerAuth: []
       parameters:
@@ -6686,7 +6586,7 @@ paths:
         the authenticated user.
 
 
-        CLI Usage: vast-ai show ipaddrs'
+        CLI Usage: `vastai show ipaddrs`'
       security:
       - BearerAuth: []
       parameters:
@@ -6753,8 +6653,11 @@ paths:
   /api/v0/machines/:
     get:
       summary: show machines
-      description: Fetches data for multiple machines associated with the authenticated
+      description: 'Fetches data for multiple machines associated with the authenticated
         user.
+
+
+        CLI Usage: `vastai show machines [--user_id <user_id>]`'
       operationId: getMachines
       parameters:
       - name: user_id
@@ -6797,7 +6700,7 @@ paths:
         user''s account.
 
 
-        CLI Usage: vast-ai show subaccounts'
+        CLI Usage: `vastai show subaccounts`'
       security:
       - BearerAuth: []
       responses:
@@ -6915,7 +6818,7 @@ paths:
       description: 'Retrieve details of a specific team role by its name.
 
 
-        CLI Usage: vastai show team-role NAME'
+        CLI Usage: `vastai show team-role <name>`'
       security:
       - BearerAuth: []
       parameters:
@@ -6963,8 +6866,7 @@ paths:
       description: 'Update an existing team role with new name and permissions.
 
 
-        CLI Usage: `vastai update team-role <role id> --name <new_name> --permissions
-        <new_permissions_json>`'
+        CLI Usage: `vastai update team-role <id> --name <new_name> --permissions <new_permissions_json>`'
       parameters:
       - name: id
         in: path
@@ -7071,7 +6973,7 @@ paths:
         the API key.
 
 
-        CLI Usage: vastai show user'
+        CLI Usage: `vastai show user`'
       security:
       - BearerAuth: []
       responses:
@@ -7122,10 +7024,11 @@ paths:
       description: 'Transfers specified amount of credits from the authenticated user''s
         account to another user''s account.
 
+
         The recipient can be specified by either email address or user ID.
 
 
-        CLI Usage: vast.py transfer credit <recipient_email> <amount>'
+        CLI Usage: `vastai transfer credit <recipient_email> <amount>`'
       security:
       - BearerAuth: []
       parameters: []
@@ -7212,7 +7115,7 @@ paths:
         effectively unlisting it from being available for rent.
 
 
-        CLI Usage: vastai unlist machine <id>'
+        CLI Usage: `vastai unlist machine <id>`'
       security:
       - BearerAuth: []
       parameters:
@@ -7266,7 +7169,7 @@ paths:
   /api/v0/network_volumes/unlist/:
     post:
       summary: unlist network-volume
-      description: 'Unlists a network volume for rent
+      description: 'Unlists a network volume for rent.
 
 
         CLI Usage: `vastai unlist volume <offer_id>`'
@@ -7336,8 +7239,10 @@ paths:
   /api/v0/volumes/unlist/:
     post:
       summary: unlist volume
-      description: 'Remove a volume listing from the marketplace. CLI Usage: vastai
-        unlist volume VOLUME_ID'
+      description: 'Remove a volume listing from the marketplace.
+
+
+        CLI Usage: `vastai unlist volume <volume_id>`'
       security:
       - BearerAuth: []
       requestBody:

@@ -30,7 +30,6 @@ paths:
 
         Default filters applied unless --no-default:
         - verified: true
-        - external: false  
         - rentable: true
         - rented: false
 
@@ -60,14 +59,6 @@ paths:
                       type: boolean
                   default:
                     eq: true
-                external:
-                  type: object
-                  description: External machine status
-                  properties:
-                    eq:
-                      type: boolean
-                  default:
-                    eq: false
                 rented:
                   type: object
                   description: Current rental status
@@ -76,6 +67,13 @@ paths:
                       type: boolean
                   default:
                     eq: false
+                type:
+                  type: string
+                  enum:
+                  - on-demand
+                  - bid
+                  - reserved
+                  description: Contract type filter
                 gpu_name:
                   type: object
                   description: GPU model name
@@ -109,9 +107,6 @@ paths:
                 geolocation:
                   type: object
                   description: Machine location (two letter country code)
-                bw_nvlink:
-                  type: object
-                  description: Bandwidth NVLink
                 compute_cap:
                   type: object
                   description: CUDA compute capability*100 (650 for 6.5, 700 for
@@ -125,12 +120,21 @@ paths:
                 cpu_ghz:
                   type: object
                   description: CPU clock speed in GHz
+                cpu_ram:
+                  type: object
+                  description: RAM in MB
                 datacenter:
                   type: object
                   description: Show only datacenter offers
+                  properties:
+                    eq:
+                      type: boolean
                 disk_bw:
                   type: object
                   description: Disk read bandwidth in MB/s
+                bw_nvlink:
+                  type: object
+                  description: NVLink bandwidth
                 dlperf:
                   type: object
                   description: Deep Learning performance score
@@ -167,9 +171,6 @@ paths:
                 gpu_display_active:
                   type: object
                   description: Whether GPU has a display attached
-                has_avx:
-                  type: object
-                  description: CPU supports AVX instruction set
                 pci_gen:
                   type: object
                   description: PCIe generation
@@ -198,13 +199,6 @@ paths:
                     items:
                       type: string
                   description: Sort fields and directions
-                type:
-                  type: string
-                  enum:
-                  - on-demand
-                  - bid
-                  - reserved
-                  description: Contract type filter
                 limit:
                   type: integer
                   description: Max results to return
@@ -250,7 +244,7 @@ paths:
                           description: Available CPU cores
                         cpu_ram:
                           type: number
-                          description: RAM in GB
+                          description: RAM in MB
                         disk_space:
                           type: number
                           description: Storage space in GB

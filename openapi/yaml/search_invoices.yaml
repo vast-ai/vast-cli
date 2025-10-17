@@ -10,28 +10,25 @@ paths:
   /api/v0/invoices:
     get:
       summary: search invoices
-      description: 'This endpoint allows users to search and retrieve invoices based
-        on specified filters.
+      description: |
+        This endpoint allows users to search and retrieve invoices based on specified filters.
 
-
-        CLI Usage: vast-ai search invoices
-
-        '
+        CLI Usage: `vastai search invoices`
       security:
       - BearerAuth: []
-      parameters:
-      - name: select_filters
-        in: query
-        required: false
-        schema:
-          type: object
-        description: Filters to apply to the invoice selection.
-      - name: type
-        in: query
-        required: false
-        schema:
-          type: string
-        description: Type of invoices to retrieve (e.g., charge).
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  description: Type of invoices to retrieve
+                  example: charge
+                select_filters:
+                  type: object
+                  description: Filters to apply to the invoice selection.
       responses:
         '200':
           description: Success response

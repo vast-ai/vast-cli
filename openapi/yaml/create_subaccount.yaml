@@ -10,16 +10,10 @@ paths:
   /api/v0/users/:
     post:
       summary: create subaccount
-      description: 'Creates either a standalone user account or a subaccount under
-        a parent account.
+      description: |
+        Creates either a standalone user account or a subaccount under a parent account. Subaccounts can be restricted to host-only functionality.
 
-        Subaccounts can be restricted to host-only functionality.
-
-
-        CLI Usage: vastai create subaccount --email EMAIL --username USERNAME --password
-        PASSWORD --type host
-
-        '
+        CLI Usage: `vastai create subaccount --email <email> --username <username> --password <password> [--type host]`
       security:
       - BearerAuth: []
       requestBody:
@@ -30,7 +24,7 @@ paths:
               type: object
               required:
               - email
-              - username
+              - username 
               - password
               properties:
                 email:
@@ -82,14 +76,14 @@ paths:
                     type: string
                   email:
                     type: string
-                  api_key:
-                    type: string
+                  key_id:
+                    type: integer
                     description: API key for the new account
                 example:
                   id: 12345
                   username: testuser
                   email: user@example.com
-                  api_key: abc123def456
+                  key_id: 67890
         '400':
           description: Bad Request
           content:

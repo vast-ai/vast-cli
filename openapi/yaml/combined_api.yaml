@@ -16,7 +16,8 @@ paths:
       description: 'Adds a network disk to be used to create network volume offers,
         or adds machines to an existing network disk.
 
-        CLI Usage: vast add network_disk <machine_id>... <mount_point> [options]'
+
+        CLI Usage: `vastai add network_disk <machine_id>... <mount_point> [options]`'
       security:
       - BearerAuth: []
       requestBody:
@@ -95,7 +96,7 @@ paths:
         using the provided key.
 
 
-        CLI Usage: vast attach instance_id ssh_key'
+        CLI Usage: `vastai attach ssh <instance_id> <ssh_key>`'
       security:
       - BearerAuth: []
       parameters:
@@ -153,8 +154,11 @@ paths:
   /api/v0/commands/copy_direct/:
     delete:
       summary: cancel copy
-      description: Cancel a remote copy operation specified by the destination ID
+      description: 'Cancel a remote copy operation specified by the destination ID
         (dst_id).
+
+
+        CLI Usage: `vastai cancel copy --dst_id <destination_id>`'
       operationId: cancelRemoteRsync
       requestBody:
         required: true
@@ -218,8 +222,11 @@ paths:
       - Instances
     put:
       summary: copy
-      description: Initiate a remote copy operation to transfer data from one instance
+      description: 'Initiate a remote copy operation to transfer data from one instance
         to another or between an instance and the local machine.
+
+
+        CLI Usage: `vastai copy <src_id> <dst_id> <src_path> <dst_path>`'
       operationId: initiateRemoteRsync
       requestBody:
         required: true
@@ -298,7 +305,10 @@ paths:
   /api/v0/machines/{machine_id}/cancel_maint/:
     put:
       summary: cancel maint
-      description: Cancel a scheduled maintenance window for a specified machine.
+      description: 'Cancel a scheduled maintenance window for a specified machine.
+
+
+        CLI Usage: `vastai cancel maint <machine_id>`'
       parameters:
       - name: machine_id
         in: path
@@ -355,7 +365,10 @@ paths:
       description: 'Cancels an in-progress remote sync operation identified by the
         destination instance ID.
 
-        This operation cannot be resumed once canceled and must be restarted if needed.'
+        This operation cannot be resumed once canceled and must be restarted if needed.
+
+
+        CLI Usage: `vastai cancel sync --dst_id <destination_id>`'
       requestBody:
         required: true
         content:
@@ -420,8 +433,11 @@ paths:
       - Instances
     post:
       summary: cloud copy
-      description: Starts a cloud copy operation by sending a command to the remote
+      description: 'Starts a cloud copy operation by sending a command to the remote
         server. The operation can transfer data between an instance and a cloud service.
+
+
+        CLI Usage: `vastai cloud copy <instance_id> <src> <dst> [options]`'
       requestBody:
         required: true
         content:
@@ -487,7 +503,8 @@ paths:
       summary: change bid
       description: 'Change the current bid price of an instance to a specified price.
 
-        CLI Usage: vastai change bid id [--price PRICE]'
+
+        CLI Usage: `vastai change bid <id> --price <price>`'
       security:
       - BearerAuth: []
       parameters:
@@ -581,7 +598,7 @@ paths:
         freeing up space.
 
 
-        CLI Usage: vast-ai cleanup machine {machine_id}'
+        CLI Usage: `vastai cleanup machine <machine_id>`'
       security:
       - BearerAuth: []
       parameters:
@@ -662,13 +679,8 @@ paths:
         user.
 
 
-        CLI Usage: vast create api-key --name NAME --permission_file PERMISSIONS [--key_params
-        PARAMS]
-
-
-        Example:
-
-        vast create api-key --name "read-only" --permission_file permissions.json'
+        CLI Usage: `vastai create api-key --name <name> --permission_file <permissions_file>
+        [--key_params <params>]`'
       security:
       - BearerAuth: []
       requestBody:
@@ -792,9 +804,6 @@ paths:
                         user_id:
                           type: integer
                           example: 456
-                        key:
-                          type: string
-                          example: your-api-key-value
                         rights:
                           type: string
                           example: read
@@ -839,8 +848,8 @@ paths:
         for a serverless endpoint.
 
 
-        CLI Usage: vast-ai create workergroup --template_hash <HASH> --endpoint_name
-        <NAME> [options]'
+        CLI Usage: `vastai create workergroup --template_hash <hash> --endpoint_name
+        <name> [options]`'
       security:
       - BearerAuth: []
       requestBody:
@@ -1080,7 +1089,7 @@ paths:
         parameters.
 
 
-        CLI Usage: vast-ai create endpoint'
+        CLI Usage: `vastai create endpoint [options]`'
       security:
       - BearerAuth: []
       requestBody:
@@ -1280,7 +1289,7 @@ paths:
         There is a limit on the total number of environment variables per user.
 
 
-        CLI Usage: vast create env-var KEY VALUE'
+        CLI Usage: `vastai create env-var <key> <value>`'
       security:
       - BearerAuth: []
       requestBody:
@@ -1368,7 +1377,7 @@ paths:
         The variable must exist and belong to the requesting user.
 
 
-        CLI Usage: vastai delete env-var <name>'
+        CLI Usage: `vastai delete env-var <name>`'
       operationId: deleteUserSecret
       security:
       - BearerAuth: []
@@ -1561,11 +1570,15 @@ paths:
     put:
       summary: create instance
       description: 'Creates a new instance by accepting an "ask" contract from a provider.
+
         This is the main endpoint for launching new instances on Vast.ai.
 
-        CLI Usage: vast create instance <offer_id> [options]'
+
+        CLI Usage: `vastai create instance <offer_id> [options]`'
       security:
       - BearerAuth: []
+      tags:
+      - Instances
       parameters:
       - name: id
         in: path
@@ -1579,7 +1592,14 @@ paths:
           application/json:
             schema:
               type: object
+              required:
+              - image
               properties:
+                image:
+                  type: string
+                  description: Docker image to use for the instance
+                  example: tensorflow/tensorflow:latest-gpu
+                  maxLength: 1024
                 template_id:
                   type: integer
                   description: Optional template ID to use for instance configuration
@@ -1588,11 +1608,6 @@ paths:
                   type: string
                   description: Optional template hash ID to use for instance configuration
                   example: abc123def456
-                image:
-                  type: string
-                  description: Docker image to use for the instance
-                  example: tensorflow/tensorflow:latest-gpu
-                  maxLength: 1024
                 disk:
                   type: number
                   description: Storage space in GB
@@ -1834,14 +1849,13 @@ paths:
                   detail:
                     type: string
                     example: API requests too frequent endpoint threshold=4.5
-      tags:
-      - Instances
   /api/v0/network_volume/:
     put:
       summary: create network-volume
-      description: 'Creates a network volume from an offer
+      description: 'Creates a network volume from an offer.
 
-        CLI Usage: vast create network-volume <offer_id>'
+
+        CLI Usage: `vastai create network-volume <offer_id> <size> [--name <name>]`'
       security:
       - BearerAuth: []
       requestBody:
@@ -2000,9 +2014,7 @@ paths:
         The key will be automatically added to all your current instances.
 
 
-        CLI Usage: vast create ssh-key <ssh_key>
-
-        Example: vast create ssh-key "ssh-rsa AAAAB3NzaC1..."'
+        CLI Usage: `vastai create ssh-key <ssh_key>`'
       security:
       - BearerAuth: []
       requestBody:
@@ -2142,13 +2154,11 @@ paths:
     post:
       summary: create subaccount
       description: 'Creates either a standalone user account or a subaccount under
-        a parent account.
-
-        Subaccounts can be restricted to host-only functionality.
+        a parent account. Subaccounts can be restricted to host-only functionality.
 
 
-        CLI Usage: vastai create subaccount --email EMAIL --username USERNAME --password
-        PASSWORD --type host'
+        CLI Usage: `vastai create subaccount --email <email> --username <username>
+        --password <password> [--type host]`'
       security:
       - BearerAuth: []
       requestBody:
@@ -2211,14 +2221,14 @@ paths:
                     type: string
                   email:
                     type: string
-                  api_key:
-                    type: string
+                  key_id:
+                    type: integer
                     description: API key for the new account
                 example:
                   id: 12345
                   username: testuser
                   email: user@example.com
-                  api_key: abc123def456
+                  key_id: 67890
         '400':
           description: Bad Request
           content:
@@ -2349,7 +2359,7 @@ paths:
     post:
       summary: create team
       description: 'Creates a new [team](https://docs.vast.ai/documentation/teams/teams-overview)
-        with given name and following default roles
+        with given name and following default roles:
 
         - **Owner**: Full access to all team resources, settings, and member management.
         The team owner is the user who creates the team.
@@ -2361,7 +2371,7 @@ paths:
 
 
         - The API key used to create the team becomes the team key and is used for
-        all team operations (e.g, creating roles, deleting the team).
+        all team operations (e.g., creating roles, deleting the team).
 
         - You can optionally transfer credits from your personal account to the new
         team account using the `transfer_credit` field.
@@ -2510,7 +2520,6 @@ paths:
     post:
       summary: create team role
       description: 'Creates a new role within a team. Only team owners or managers
-
         with the appropriate permissions can perform this operation.
 
 
@@ -2592,12 +2601,11 @@ paths:
     post:
       summary: create template
       description: 'Creates a new template for launching instances. If an identical
-        template already exists,
+        template already exists, returns the existing template instead of creating
+        a duplicate.
 
-        returns the existing template instead of creating a duplicate.
 
-
-        CLI Usage: vast create template [options]'
+        CLI Usage: `vastai create template [options]`'
       tags:
       - Templates
       security:
@@ -2798,7 +2806,7 @@ paths:
         The API key is soft-deleted by setting a deleted_at timestamp.
 
 
-        CLI Usage: vastai delete api-key ID'
+        CLI Usage: `vastai delete api-key <id>`'
       security:
       - BearerAuth: []
       parameters:
@@ -2866,76 +2874,13 @@ paths:
                     example: API requests too frequent endpoint threshold=2.0
       tags:
       - Accounts
-    get:
-      summary: show api key
-      description: 'Retrieves an existing API key belonging to the authenticated user.
-
-
-        CLI Usage: vastai show api-key ID'
-      security:
-      - BearerAuth: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        description: ID of the API key to retrieve
-        schema:
-          type: integer
-          minimum: 1
-        example: 123
-      responses:
-        '200':
-          description: API key successfully retrieved
-          content:
-            application/json:
-              schema:
-                type: string
-                example: your-api-key-value
-        '401':
-          description: Unauthorized - Invalid or missing authentication
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '403':
-          description: Forbidden - API key belongs to a different user
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  msg:
-                    type: string
-                    example: You do not have permission to access this key.
-        '404':
-          description: Not Found - API key does not exist
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  msg:
-                    type: string
-                    example: API Key not found.
-        '429':
-          description: Too Many Requests
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  detail:
-                    type: string
-                    example: API requests too frequent endpoint threshold=1.0
-      tags:
-      - Accounts
   /api/v0/workergroups/{id}/:
     delete:
       summary: delete workergroup
       description: 'Deletes an existing workergroup.
 
 
-        CLI Usage: vastai delete workergroup <ID>'
+        CLI Usage: `vastai delete workergroup <id>`'
       security:
       - BearerAuth: []
       parameters:
@@ -3167,7 +3112,7 @@ paths:
         also be deleted.
 
 
-        CLI Usage: vastai delete endpoint <ID>'
+        CLI Usage: `vastai delete endpoint <id>`'
       security:
       - BearerAuth: []
       parameters:
@@ -3357,7 +3302,8 @@ paths:
       summary: delete ssh key
       description: 'Removes an SSH key from the authenticated user''s account
 
-        CLI Usage: vastai delete ssh-key <id>`'
+
+        CLI Usage: `vastai delete ssh-key <id>`'
       operationId: deleteSshKey
       security:
       - BearerAuth: []
@@ -3477,7 +3423,7 @@ paths:
                     example: API requests too frequent endpoint threshold=1.0
       tags:
       - Accounts
-  /api/v0/volumes:
+  /api/v0/volumes/:
     delete:
       summary: delete volume
       description: 'Delete a volume by its ID. CLI Usage: vastai delete volume VOLUME_ID'
@@ -3541,6 +3487,87 @@ paths:
                   msg:
                     type: string
                     example: Volume with that ID does not exist.
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=5.5
+      tags:
+      - Volumes
+    put:
+      summary: rent volume
+      description: 'Rent/create a new volume with specified parameters. CLI Usage:
+        vastai create volume ID --size SIZE_GB'
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - id
+              properties:
+                id:
+                  type: integer
+                  description: ID for the volume
+                  example: 420
+                size:
+                  type: integer
+                  description: Size in GB (Defaults to 15)
+                  example: 15
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  volume_name:
+                    type: string
+                    description: Name of the created/resized volume
+                    example: V.20118481
+      tags:
+      - Volumes
+    get:
+      summary: list volumes
+      description: 'Retrieve information about all volumes rented by you. CLI Usage:
+        vastai show volumes'
+      security:
+      - BearerAuth: []
+      parameters: []
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  volumes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Volume'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: Authentication credentials were not provided.
         '429':
           description: Too Many Requests
           content:
@@ -4054,13 +4081,21 @@ paths:
       servers:
       - url: https://run.vast.ai
         description: Production server
-      summary: get workergroup workers
-      description: 'Retrieves the current list and status of workers for a specific
-        workergroup.
+      summary: 'get workergroup workers
 
 
         Useful for monitoring, debugging connectivity issues, and understanding resource
-        usage within a workergroup.'
+        usage within a workergroup.
+
+        '''
+      description: 'Retrieves the current list and status of workers for a specific
+        workergroup.
+
+        Useful for monitoring, debugging connectivity issues, and understanding resource
+        usage within a workergroup.
+
+
+        CLI Usage: `vastai get workergroup workers <id>`'
       security:
       - BearerAuth: []
       requestBody:
@@ -4743,14 +4778,14 @@ paths:
                     example: API requests too frequent endpoint threshold=1.0
       tags:
       - Instances
-  /api/v0/machines/{machine_id}/defjob:
+  /api/v0/machines/{machine_id}/defjob/:
     delete:
       summary: remove defjob
       description: 'Deletes the default job (background instances) for a specified
         machine.
 
 
-        CLI Usage: vast-ai remove defjob {machine_id}'
+        CLI Usage: `vastai remove defjob {machine_id}`'
       security:
       - BearerAuth: []
       parameters:
@@ -5000,89 +5035,7 @@ paths:
                   msg:
                     type: string
                     example: Specified role not found
-  /api/v0/volumes/:
-    put:
-      summary: rent volume
-      description: 'Rent/create a new volume with specified parameters. CLI Usage:
-        vastai create volume ID --size SIZE_GB'
-      security:
-      - BearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-              - id
-              properties:
-                id:
-                  type: integer
-                  description: ID for the volume
-                  example: 420
-                size:
-                  type: integer
-                  description: Size in GB (Defaults to 15)
-                  example: 15
-      responses:
-        '200':
-          description: Success response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  volume_name:
-                    type: string
-                    description: Name of the created/resized volume
-                    example: V.20118481
-      tags:
-      - Volumes
-    get:
-      summary: list volumes
-      description: 'Retrieve information about all volumes rented by you. CLI Usage:
-        vastai show volumes'
-      security:
-      - BearerAuth: []
-      parameters: []
-      responses:
-        '200':
-          description: Success response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  volumes:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Volume'
-        '401':
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  detail:
-                    type: string
-                    example: Authentication credentials were not provided.
-        '429':
-          description: Too Many Requests
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  detail:
-                    type: string
-                    example: API requests too frequent endpoint threshold=5.5
-      tags:
-      - Volumes
-  /api/v0/machines/{machine_id}/reports:
+  /api/v0/machines/{machine_id}/reports/:
     get:
       summary: show reports
       description: 'Retrieves a list of the most recent reports for a given machine.
@@ -5134,62 +5087,6 @@ paths:
                 $ref: '#/components/schemas/Error'
       tags:
       - Machines
-  /api/v0/commands/reset_apikey/:
-    put:
-      summary: reset api key
-      description: 'Resets the API key for the authenticated user. This operation
-        generates a new API key and invalidates the old one.
-
-
-        CLI Usage: vast-ai reset api-key'
-      security:
-      - BearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-              - client_id
-              properties:
-                client_id:
-                  type: string
-                  description: The ID of the client whose API key is being reset.
-                  example: me
-      responses:
-        '200':
-          description: Success response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  sent:
-                    type: boolean
-                    example: true
-                  key:
-                    type: string
-                    description: The new API key.
-                    example: new_api_key_value
-        '404':
-          description: Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '429':
-          description: Too Many Requests
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  detail:
-                    type: string
-                    example: API requests too frequent endpoint threshold=3.0
-      tags:
-      - Accounts
   /route/:
     post:
       servers:
@@ -5475,25 +5372,26 @@ paths:
     get:
       summary: search invoices
       description: 'This endpoint allows users to search and retrieve invoices based
+
         on specified filters.
 
 
-        CLI Usage: vast-ai search invoices'
+        CLI Usage: `vastai search invoices`'
       security:
       - BearerAuth: []
-      parameters:
-      - name: select_filters
-        in: query
-        required: false
-        schema:
-          type: object
-        description: Filters to apply to the invoice selection.
-      - name: type
-        in: query
-        required: false
-        schema:
-          type: string
-        description: Type of invoices to retrieve (e.g., charge).
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  description: Type of invoices to retrieve
+                  example: charge
+                select_filters:
+                  type: object
+                  description: Filters to apply to the invoice selection.
       responses:
         '200':
           description: Success response
@@ -6203,7 +6101,7 @@ paths:
                     example: API requests too frequent endpoint threshold=2.8
       tags:
       - Machines
-  /api/v0/machines/{machine_id}/minbid:
+  /api/v0/machines/{machine_id}/minbid/:
     put:
       summary: set min-bid
       description: 'Sets the minimum bid price for a specified machine.
@@ -6921,9 +6819,9 @@ paths:
                         parent_id:
                           type: integer
                           description: The ID of the parent account.
-                        api_key:
-                          type: string
-                          description: The API key associated with the subaccount.
+                        key_id:
+                          type: integer
+                          description: The API key ID associated with the subaccount.
                         created_at:
                           type: string
                           format: date-time
@@ -7187,6 +7085,9 @@ paths:
                   id:
                     type: integer
                     description: The unique identifier of the user.
+                  key_id:
+                    type: integer
+                    description: The API key ID associated with the user.
                   email:
                     type: string
                     description: The email address of the user.
@@ -7304,7 +7205,7 @@ paths:
                     example: API requests too frequent endpoint threshold=2.5
       tags:
       - Accounts
-  /api/v0/machines/{machine_id}/asks:
+  /api/v0/machines/{machine_id}/asks/:
     delete:
       summary: unlist machine
       description: 'Removes all ''ask'' type offer contracts for a specified machine,
@@ -7362,12 +7263,13 @@ paths:
                     example: API requests too frequent endpoint threshold=1.8
       tags:
       - Machines
-  /api/v0/network_volume/unlist:
+  /api/v0/network_volumes/unlist/:
     post:
       summary: unlist network-volume
       description: 'Unlists a network volume for rent
 
-        CLI Usage: vast unlist network-volume <offer_id>'
+
+        CLI Usage: `vastai unlist volume <offer_id>`'
       security:
       - BearerAuth: []
       requestBody:
@@ -7431,7 +7333,7 @@ paths:
                       to perform this action.
       tags:
       - Network Volumes
-  /api/v0/volumes/unlist:
+  /api/v0/volumes/unlist/:
     post:
       summary: unlist volume
       description: 'Remove a volume listing from the marketplace. CLI Usage: vastai

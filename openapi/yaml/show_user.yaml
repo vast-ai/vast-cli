@@ -10,13 +10,10 @@ paths:
   /api/v0/users/current/:
     get:
       summary: show user
-      description: 'Retrieve information about the current authenticated user, excluding
-        the API key.
+      description: |
+        Retrieve information about the current authenticated user, excluding the API key.
 
-
-        CLI Usage: vastai show user
-
-        '
+        CLI Usage: `vastai show user`
       security:
       - BearerAuth: []
       responses:
@@ -30,6 +27,9 @@ paths:
                   id:
                     type: integer
                     description: The unique identifier of the user.
+                  key_id:
+                    type: integer
+                    description: The API key ID associated with the user.
                   email:
                     type: string
                     description: The email address of the user.

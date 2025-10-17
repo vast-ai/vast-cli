@@ -10,8 +10,10 @@ paths:
       - url: https://run.vast.ai
         description: Production server
       summary: get workergroup logs
-      description: 'Retrieves logs for a specific workergroup by ID.
-        '
+      description: |
+        Retrieves logs for a specific workergroup by ID.
+
+        CLI Usage: `vastai get workergroup logs <id> [--tail <num_lines>]`
       security:
       - BearerAuth: []
       requestBody:

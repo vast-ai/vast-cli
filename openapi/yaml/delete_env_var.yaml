@@ -15,15 +15,11 @@ paths:
   /api/v0/secrets/:
     delete:
       summary: delete env var
-      description: 'Deletes an environment variable associated with the authenticated
-        user.
-
+      description: |
+        Deletes an environment variable associated with the authenticated user.
         The variable must exist and belong to the requesting user.
 
-
-        CLI Usage: vastai delete env-var <name>
-
-        '
+        CLI Usage: `vastai delete env-var <name>`
       operationId: deleteUserSecret
       security:
       - BearerAuth: []

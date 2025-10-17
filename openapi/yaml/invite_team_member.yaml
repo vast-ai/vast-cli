@@ -11,8 +11,7 @@ paths:
     post:
       summary: invite team member
       description: |
-        Sends an invitation email to the specified user to join the team
-        with the given role.
+        Sends an invitation email to the specified user to join the team with the given role.
 
         CLI Usage: `vastai invite team-member --email <email> --role <role>`
       security:

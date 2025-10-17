@@ -10,7 +10,10 @@ paths:
   /api/v0/endptjobs/:
     get:
       summary: show endpoints
-      description: Retrieve a list of endpoint jobs for the authenticated user.
+      description: |
+        Retrieve a list of endpoint jobs for the authenticated user.
+
+        CLI Usage: `vastai show endpoints`
       security:
       - BearerAuth: []
       responses:

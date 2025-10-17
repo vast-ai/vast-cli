@@ -7,16 +7,13 @@ servers:
 - url: https://console.vast.ai
   description: Production server
 paths:
-  /api/v0/machines/{machine_id}/asks:
+  /api/v0/machines/{machine_id}/asks/:
     delete:
       summary: unlist machine
-      description: 'Removes all ''ask'' type offer contracts for a specified machine,
-        effectively unlisting it from being available for rent.
+      description: |
+        Removes all 'ask' type offer contracts for a specified machine, effectively unlisting it from being available for rent.
 
-
-        CLI Usage: vastai unlist machine <id>
-
-        '
+        CLI Usage: `vastai unlist machine <id>`
       security:
       - BearerAuth: []
       parameters:

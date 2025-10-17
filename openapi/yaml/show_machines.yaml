@@ -6,8 +6,10 @@ paths:
   /api/v0/machines/:
     get:
       summary: show machines
-      description: Fetches data for multiple machines associated with the authenticated
-        user.
+      description: |
+        Fetches data for multiple machines associated with the authenticated user.
+
+        CLI Usage: `vastai show machines [--user_id <user_id>]`
       operationId: getMachines
       parameters:
       - name: user_id

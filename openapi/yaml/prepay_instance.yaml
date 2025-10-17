@@ -2,10 +2,7 @@ openapi: 3.0.0
 info:
   title: Instance Prepayment API
   version: 1.0.0
-  description: "API endpoint for prepaying an instance to receive discounted rates.\
-    \ \nThe discount rate is calculated based on the prepayment amount and instance\
-    \ usage cost.\nLarger prepayments relative to monthly costs result in higher discount\
-    \ rates.\n"
+  description: API endpoint for prepaying an instance to receive discounted rates.
 servers:
 - url: https://console.vast.ai
   description: Production server
@@ -13,19 +10,11 @@ paths:
   /api/v0/instances/prepay/{id}/:
     put:
       summary: prepay instance
-      description: 'Deposit credits into a reserved instance to receive usage discounts.
+      description: |
+        Deposit credits into a reserved instance to receive usage discounts.
+        The discount rate is calculated based on how many months of usage the prepaid amount covers. Maximum discount is typically 40%.
 
-        The discount rate is calculated based on how many months of usage the prepaid
-        amount covers.
-
-        Maximum discount is typically 40%.
-
-
-        CLI Usage: vastai prepay instance <ID> <AMOUNT>
-
-        Example: vastai prepay instance 1234 500.0
-
-        '
+        CLI Usage: `vastai prepay instance <id> <amount>`
       security:
       - BearerAuth: []
       parameters:

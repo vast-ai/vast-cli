@@ -10,12 +10,10 @@ paths:
   /api/v0/ssh/{id}/:
     put:
       summary: update ssh key
-      description: 'Updates the specified SSH key with the provided value.
+      description: |
+        Updates the specified SSH key with the provided value.
 
-
-        CLI Usage: vastai update ssh-key id ssh_key
-
-        '
+        CLI Usage: `vastai update ssh-key <id> <ssh_key>`
       security:
       - BearerAuth: []
       parameters:

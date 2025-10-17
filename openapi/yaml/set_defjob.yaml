@@ -10,14 +10,10 @@ paths:
   /api/v0/machines/create_bids/:
     put:
       summary: set defjob
-      description: 'Creates default jobs (background instances) for a specified machine
-        with the given parameters.
+      description: |
+        Creates default jobs (background instances) for a specified machine with the given parameters.
 
-
-        CLI Usage: vast set defjob {machine_id} --price_gpu {price} --price_inetu
-        {price} --price_inetd {price} --image {image} [--args {args}]
-
-        '
+        CLI Usage: `vastai set defjob <machine_id> --price_gpu <price> --price_inetu <price> --price_inetd <price> --image <image> [--args <args>]`
       security:
       - BearerAuth: []
       requestBody:

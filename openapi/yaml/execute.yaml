@@ -10,16 +10,11 @@ paths:
   /api/v0/instances/command/{id}/:
     put:
       summary: execute
-      description: 'Executes a constrained remote command on a specified instance.
-
+      description: |
+        Executes a constrained remote command on a specified instance.
         The command output can be retrieved from the returned result URL.
 
-
-        CLI Usage: vastai execute <instance_id> <command>
-
-        Example: vastai execute 12345 "ls -l"
-
-        '
+        CLI Usage: `vastai execute <instance_id> <command>`
       security:
       - BearerAuth: []
       parameters:

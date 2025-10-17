@@ -10,9 +10,10 @@ paths:
       - url: https://run.vast.ai
         description: Production server
       summary: get endpoint logs
-      description: 'Retrieves logs for a specific endpoint by name.
+      description: |
+        Retrieves logs for a specific endpoint by name.
 
-        '
+        CLI Usage: `vastai get endpoint logs <endpoint_name> [--tail <num_lines>]`
       security:
       - BearerAuth: []
       requestBody:

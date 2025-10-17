@@ -10,9 +10,10 @@ paths:
   /api/v0/instances/bid_price/{id}/:
     put:
       summary: change bid
-      description: 'Change the current bid price of an instance to a specified price.
+      description: |
+        Change the current bid price of an instance to a specified price.
 
-        CLI Usage: vastai change bid id [--price PRICE]'
+        CLI Usage: `vastai change bid <id> --price <price>`
       security:
       - BearerAuth: []
       parameters:

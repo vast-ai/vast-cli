@@ -10,13 +10,12 @@ paths:
   /api/v0/commands/transfer_credit/:
     put:
       summary: transfer credit
-      description: 'Transfers specified amount of credits from the authenticated user''s
-        account to another user''s account.
+      description: |
+        Transfers specified amount of credits from the authenticated user's account to another user's account.
 
         The recipient can be specified by either email address or user ID.
 
-
-        CLI Usage: vast.py transfer credit <recipient_email> <amount>'
+        CLI Usage: `vastai transfer credit <recipient_email> <amount>`
       security:
       - ApiKeyAuth: []
       parameters:

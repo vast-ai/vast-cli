@@ -10,14 +10,10 @@ paths:
   /api/v0/workergroups/:
     post:
       summary: create workergroup
-      description: 'Creates a new workergroup configuration that manages worker
-        instances for a serverless endpoint.
+      description: |
+        Creates a new workergroup configuration that manages worker instances for a serverless endpoint.
 
-
-        CLI Usage: vast-ai create workergroup --template_hash <HASH> --endpoint_name
-        <NAME> [options]
-
-        '
+        CLI Usage: `vastai create workergroup --template_hash <hash> --endpoint_name <name> [options]`
       security:
       - BearerAuth: []
       requestBody:

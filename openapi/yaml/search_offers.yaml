@@ -43,6 +43,9 @@ paths:
             schema:
               type: object
               properties:
+                limit:
+                  type: integer
+                  description: Max results to return
                 verified:
                   type: object
                   description: Machine verification status
@@ -67,25 +70,21 @@ paths:
                       type: boolean
                   default:
                     eq: false
-                gpu_name:
-                  type: object
-                  description: GPU model name
                 type:
                   type: string
                   enum:
                   - on-demand
                   - bid
                   - reserved
-                  description: Contract type filter
+                gpu_name:
+                  type: object
+                  description: GPU model name
                 reliability:
                   type: object
                   description: Machine reliability score (Any decimal number between 0-1)
                 num_gpus:
                   type: object
                   description: Number of GPUs
-                limit:
-                  type: integer
-                  description: Max results to return
                 cuda_max_good:
                   type: object
                   description: Maximum CUDA version
@@ -177,9 +176,6 @@ paths:
                 os_version:
                   type: object
                   description: Host machine Ubuntu OS version
-                vms_enabled:
-                  type: object
-                  description: Whether the machine is a VM instance
                 machine_id:
                   type: object
                   description: Filter by specific host machine ID
@@ -201,101 +197,114 @@ paths:
           description: Successful search response
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  offers:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: integer
-                          description: Unique offer ID
-                        cuda_max_good:
-                          type: number
-                          description: Maximum CUDA version
-                        num_gpus:
-                          type: integer
-                          description: Number of GPUs
-                        gpu_name:
-                          type: string
-                          description: GPU model name
-                        pcie_bw:
-                          type: number
-                          description: PCIe bandwidth
-                        cpu_cores_effective:
-                          type: number
-                          description: Available CPU cores
-                        cpu_ram:
-                          type: number
-                          description: RAM in MB
-                        disk_space:
-                          type: number
-                          description: Storage space in GB
-                        dph_total:
-                          type: number
-                          description: Total dollars per hour
-                        dlperf:
-                          type: number
-                          description: Deep learning performance score
-                        dlperf_per_dphtotal:
-                          type: number
-                          description: DLPerf per dollar per hour
-                        inet_up:
-                          type: number
-                          description: Upload bandwidth (MB/s)
-                        inet_down:
-                          type: number
-                          description: Download bandwidth (MB/s)
-                        reliability:
-                          type: number
-                          description: Score  (0-1)
-                        verified:
-                          type: boolean
-                          description: Verification status
-                        rentable:
-                          type: boolean
-                          description: Rental availability
-                        rented:
-                          type: boolean
-                          description: Current rental status
-                        machine_id:
-                          type: integer
-                          description: Host machine ID
-                        geolocation:
-                          type: string
-                          description: Geographic location
-                        direct_port_count:
-                          type: integer
-                          description: Number of direct ports
-                        max_bid:
-                          type: number
-                          description: Maximum bid allowed
-                        min_bid:
-                          type: number
-                          description: Minimum bid required
-                        bw_nvlink:
-                          type: number
-                          description: NVLink bandwidth
-                        compute_cap:
-                          type: integer
-                          description: CUDA compute capability
-                        cpu_arch:
-                          type: string
-                          description: CPU architecture
-                        gpu_arch:
-                          type: string
-                          description: GPU architecture
-                        driver_version:
-                          type: string
-                          description: NVIDIA driver version
-                        os_version:
-                          type: string
-                          description: Ubuntu OS version
+              example:
+                offers:
+                  id: 12345678
+                  ask_contract_id: 12345678
+                  bundle_id: 987654321
+                  bundled_results: null
+                  bw_nvlink: 0
+                  compute_cap: 900
+                  cpu_arch: "amd64"
+                  cpu_cores: 64
+                  cpu_cores_effective: 32
+                  cpu_ghz: 2.99
+                  cpu_name: "QuantumX 128-Core Processor"
+                  cpu_ram: 65536
+                  credit_discount_max: 0.15
+                  cuda_max_good: 11.2
+                  direct_port_count: 42
+                  disk_bw: 1234.5
+                  disk_name: "HYPERDISK 8TB"
+                  disk_space: 2048.5
+                  dlperf: 222.22
+                  dlperf_per_dphtotal: 333.33
+                  dph_base: 0.123456
+                  dph_total: 0.234567
+                  driver_version: "999.99.99"
+                  driver_vers: 999999999
+                  duration: 1234567.89
+                  end_date: 1893456000
+                  external: null
+                  flops_per_dphtotal: 444.44
+                  geolocation: "Atlantis, AT"
+                  geolocode: 42424242
+                  gpu_arch: "nvidia"
+                  gpu_display_active: false
+                  gpu_frac: 0.75
+                  gpu_ids: [1111, 2222]
+                  gpu_lanes: 16
+                  gpu_mem_bw: 888.8
+                  gpu_name: "Imaginary RTX 9999"
+                  gpu_ram: 24576
+                  gpu_total_ram: 49152
+                  gpu_max_power: 450
+                  gpu_max_temp: 42
+                  has_avx: 1
+                  host_id: 55555
+                  hosting_type: 0
+                  hostname: null
+                  inet_down: 9876.5
+                  inet_down_cost: 0.00123
+                  inet_up: 8765.4
+                  inet_up_cost: 0.00456
+                  is_bid: false
+                  logo: "/static/logos/fake_logo.png"
+                  machine_id: 88888
+                  min_bid: 0.111111
+                  mobo_name: "FANTASY-MOBO-2025"
+                  num_gpus: 4
+                  os_version: "42.42"
+                  pci_gen: 6
+                  pcie_bw: 99.9
+                  public_ipaddr: "203.0.113.42"
+                  reliability: 0.9999
+                  reliability_mult: 0.8888
+                  rentable: true
+                  rented: false
+                  score: 1234.5678
+                  start_date: 1893450000.5
+                  static_ip: true
+                  storage_cost: 0.987654
+                  storage_total_cost: 0.123456
+                  total_flops: 999.99
+                  verification: "verified"
+                  vericode: 1
+                  vram_costperhour: 0.009876
+                  webpage: null
+                  vms_enabled: false
+                  expected_reliability: 0.5
+                  is_vm_deverified: false
+                  resource_type: "gpu"
+                  cluster_id: null
+                  avail_vol_ask_id: 333333
+                  avail_vol_dph: 0.000321
+                  avail_vol_size: 4096
+                  nw_disk_min_bw: null
+                  nw_disk_max_bw: null
+                  nw_disk_avg_bw: null
+                  rn: 1
+                  dph_total_adj: 0.345678
+                  reliability2: 0.9999
+                  discount_rate: 0.05
+                  discounted_hourly: 0.01
+                  discounted_dph_total: 0.224567
+                  search:
+                    gpuCostPerHour: 0.123456
+                    diskHour: 0.123456
+                    totalHour: 0.234567
+                    discountTotalHour: 0.01
+                    discountedTotalPerHour: 0.224567
+                  instance:
+                    gpuCostPerHour: 0.01
+                    diskHour: 0.02
+                    totalHour: 0.03
+                    discountTotalHour: 0.001
+                    discountedTotalPerHour: 0.029
+                  time_remaining: ""
+                  time_remaining_isbid: ""
+                  internet_up_cost_per_tb: 1.23
+                  internet_down_cost_per_tb: 4.56
         '400':
           description: Bad request - invalid query parameters
           content:

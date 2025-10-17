@@ -67,6 +67,9 @@ paths:
                       type: boolean
                   default:
                     eq: false
+                gpu_name:
+                  type: object
+                  description: GPU model name
                 type:
                   type: string
                   enum:
@@ -74,18 +77,15 @@ paths:
                   - bid
                   - reserved
                   description: Contract type filter
-                gpu_name:
-                  type: object
-                  description: GPU model name
-                  properties:
-                    eq:
-                      type: string
                 reliability:
                   type: object
                   description: Machine reliability score (Any decimal number between 0-1)
                 num_gpus:
                   type: object
                   description: Number of GPUs
+                limit:
+                  type: integer
+                  description: Max results to return
                 cuda_max_good:
                   type: object
                   description: Maximum CUDA version
@@ -138,18 +138,12 @@ paths:
                 dlperf:
                   type: object
                   description: Deep Learning performance score
-                dlperf_usd:
-                  type: object
-                  description: DLPerf per dollar
                 driver_version:
                   type: object
                   description: NVIDIA driver version as 3 digit string
                 duration:
                   type: object
                   description: Maximum rental duration in seconds
-                flops_usd:
-                  type: object
-                  description: TFLOPs per dollar
                 gpu_arch:
                   type: object
                   description: Host machine GPU architecture (e.g. nvidia, amd)
@@ -164,7 +158,7 @@ paths:
                   description: GPU memory bandwidth in GB/s
                 gpu_total_ram:
                   type: object
-                  description: Total GPU RAM across all GPUs in GB
+                  description: Total GPU RAM across all GPUs in MB
                 gpu_frac:
                   type: object
                   description: Ratio of GPUs in offer to GPUs in system
@@ -199,9 +193,6 @@ paths:
                     items:
                       type: string
                   description: Sort fields and directions
-                limit:
-                  type: integer
-                  description: Max results to return
                 disable_bundling:
                   type: boolean
                   description: Disable offer bundling

@@ -10,12 +10,10 @@ paths:
   /api/v0/instances/{id}/:
     put:
       summary: stop instance
-      description: 'Stops a running container and updates its status to ''stopped''.
+      description: |
+        Stops a running container and updates its status to 'stopped'.
 
-
-        CLI Usage: vastai stop instance <ID>
-
-        '
+        CLI Usage: `vastai stop instance <id>`
       security:
       - BearerAuth: []
       parameters:

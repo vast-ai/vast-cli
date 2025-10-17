@@ -10,8 +10,10 @@ paths:
   /api/v0/volumes/:
     put:
       summary: rent volume
-      description: 'Rent/create a new volume with specified parameters.
-        CLI Usage: vastai create volume ID --size SIZE_GB'
+      description: |
+        Rent/create a new volume with specified parameters.
+
+        CLI Usage: `vastai create volume <id> --size <size_gb>`
       security:
       - ApiKeyQuery: []
       requestBody:

@@ -17,18 +17,12 @@ paths:
   /api/v0/secrets/:
     post:
       summary: create env-var
-      description: 'Creates a new encrypted environment variable for the authenticated
-        user.
-
-        Keys are automatically converted to uppercase. Values are encrypted before
-        storage.
-
+      description: |
+        Creates a new encrypted environment variable for the authenticated user.
+        Keys are automatically converted to uppercase. Values are encrypted before storage.
         There is a limit on the total number of environment variables per user.
 
-
-        CLI Usage: vast create env-var KEY VALUE
-
-        '
+        CLI Usage: `vastai create env-var <key> <value>`
       security:
       - BearerAuth: []
       requestBody:

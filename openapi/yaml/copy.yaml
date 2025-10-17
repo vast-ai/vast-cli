@@ -7,8 +7,10 @@ paths:
   /api/v0/commands/copy_direct/:
     put:
       summary: copy
-      description: Initiate a remote copy operation to transfer data from one instance
-        to another or between an instance and the local machine.
+      description: |
+        Initiate a remote copy operation to transfer data from one instance to another or between an instance and the local machine.
+
+        CLI Usage: `vastai copy <src_id> <dst_id> <src_path> <dst_path>`
       operationId: initiateRemoteRsync
       requestBody:
         required: true

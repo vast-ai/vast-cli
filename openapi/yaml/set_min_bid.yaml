@@ -7,15 +7,13 @@ servers:
 - url: https://console.vast.ai
   description: Production server
 paths:
-  /api/v0/machines/{machine_id}/minbid:
+  /api/v0/machines/{machine_id}/minbid/:
     put:
       summary: set min-bid
-      description: 'Sets the minimum bid price for a specified machine.
+      description: |
+        Sets the minimum bid price for a specified machine.
 
-
-        CLI Usage: vast set min-bid {machine_id} --price {price}
-
-        '
+        CLI Usage: `vastai set min-bid <machine_id> --price <price>`
       security:
       - BearerAuth: []
       parameters:

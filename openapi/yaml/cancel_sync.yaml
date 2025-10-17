@@ -6,12 +6,11 @@ paths:
   /api/v0/commands/rclone/:
     delete:
       summary: cancel sync
-      description: 'Cancels an in-progress remote sync operation identified by the
-        destination instance ID.
-
+      description: |
+        Cancels an in-progress remote sync operation identified by the destination instance ID.
         This operation cannot be resumed once canceled and must be restarted if needed.
 
-        '
+        CLI Usage: `vastai cancel sync --dst_id <destination_id>`
       requestBody:
         required: true
         content:

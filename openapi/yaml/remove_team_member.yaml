@@ -11,8 +11,7 @@ paths:
     delete:
       summary: remove team member
       description: |
-        Removes a member from the team by revoking their team-related API keys and updating membership status.
-        Cannot remove the team owner.
+        Removes a member from the team by revoking their team-related API keys and updating membership status. Cannot remove the team owner.
 
         CLI Usage: `vastai remove team-member <id>`
       parameters:

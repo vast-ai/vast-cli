@@ -10,13 +10,10 @@ paths:
   /api/v0/users/cloud_integrations/:
     get:
       summary: show connections
-      description: 'Retrieves the list of cloud connections associated with the authenticated
-        user.
+      description: |
+        Retrieves the list of cloud connections associated with the authenticated user.
 
-
-        CLI Usage: vastai show connections
-
-        '
+        CLI Usage: `vastai show connections`
       security:
       - BearerAuth: []
       responses:

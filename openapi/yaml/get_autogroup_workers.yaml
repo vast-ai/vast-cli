@@ -10,12 +10,11 @@ paths:
       - url: https://run.vast.ai
         description: Production server
       summary: get workergroup workers
-      description: 'Retrieves the current list and status of workers for a specific workergroup.
-
-
+      description: |
+        Retrieves the current list and status of workers for a specific workergroup.
         Useful for monitoring, debugging connectivity issues, and understanding resource usage within a workergroup.
 
-        '
+        CLI Usage: `vastai get workergroup workers <id>`
       security:
       - BearerAuth: []
       requestBody:

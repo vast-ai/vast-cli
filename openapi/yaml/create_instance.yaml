@@ -10,12 +10,15 @@ paths:
   /api/v0/asks/{id}/:
     put:
       summary: create instance
-      description: 'Creates a new instance by accepting an "ask" contract from a provider.
+      description: |
+        Creates a new instance by accepting an "ask" contract from a provider.
         This is the main endpoint for launching new instances on Vast.ai.
 
-        CLI Usage: vast create instance <offer_id> [options]'
+        CLI Usage: `vastai create instance <offer_id> [options]`
       security:
-      - ApiKeyAuth: []
+      - BearerAuth: []
+      tags:
+      - Instances
       parameters:
       - name: id
         in: path
@@ -35,7 +38,14 @@ paths:
           application/json:
             schema:
               type: object
+              required: 
+              - image
               properties:
+                image:
+                  type: string
+                  description: Docker image to use for the instance
+                  example: tensorflow/tensorflow:latest-gpu
+                  maxLength: 1024
                 template_id:
                   type: integer
                   description: Optional template ID to use for instance configuration
@@ -44,11 +54,6 @@ paths:
                   type: string
                   description: Optional template hash ID to use for instance configuration
                   example: abc123def456
-                image:
-                  type: string
-                  description: Docker image to use for the instance
-                  example: tensorflow/tensorflow:latest-gpu
-                  maxLength: 1024
                 disk:
                   type: number
                   description: Storage space in GB

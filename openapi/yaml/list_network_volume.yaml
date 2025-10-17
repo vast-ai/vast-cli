@@ -10,12 +10,10 @@ paths:
   /api/v0/network_volume/:
     post:
       summary: list network-volume
-      description: 'Lists a network disk for rent as network volumes,
-        or updates an existing listing with a new price/size/end date/discount
+      description: |
+        Lists a network disk for rent as network volumes, or updates an existing listing with a new price/size/end date/discount.
 
-        CLI Usage: vast list network-volume <disk_id> [options]
-
-        '
+        CLI Usage: `vastai list network-volume <disk_id> [options]`
       security:
       - BearerAuth: []
       requestBody:

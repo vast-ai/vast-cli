@@ -12,12 +12,10 @@ paths:
   /api/v0/instances/{id}/:
     put:
       summary: label instance
-      description: 'Updates the text label associated with the specified instance.
+      description: |
+        Updates the text label associated with the specified instance.
 
-
-        CLI Usage: vast-ai label instance <id> <label>
-
-        '
+        CLI Usage: `vastai label instance <id> <label>`
       security:
       - BearerAuth: []
       parameters:

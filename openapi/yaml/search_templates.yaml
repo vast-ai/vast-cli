@@ -11,13 +11,10 @@ paths:
   /api/v0/template/:
     get:
       summary: search templates
-      description: 'Searches for templates based on query parameters and retrieves
-        matching templates.
+      description: |
+        Searches for templates based on query parameters and retrieves matching templates.
 
-
-        CLI Usage: vast search templates
-
-        '
+        CLI Usage: `vastai search templates`
       parameters:
       - name: query
         in: query

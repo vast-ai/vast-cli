@@ -10,12 +10,10 @@ paths:
   /api/v0/instances/balance/{id}/:
     get:
       summary: show deposit
-      description: 'Retrieves the deposit details for a specified instance.
+      description: |
+        Retrieves the deposit details for a specified instance.
 
-
-        CLI Usage: vast show deposit {ID}
-
-        '
+        CLI Usage: `vastai show deposit <id>`
       security:
       - BearerAuth: []
       parameters:

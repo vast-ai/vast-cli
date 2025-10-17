@@ -3945,7 +3945,7 @@ invoices_fields = {
 @parser.command(
     argument("query", help="Search query in simple query syntax (see below)", nargs="*", default=None),
     usage="vastai search invoices [--help] [--api-key API_KEY] [--raw] <query>",
-    help="Search for benchmark results using custom query",
+    help="Search for invoices using custom query",
     epilog=deindent("""
         Query syntax:
 

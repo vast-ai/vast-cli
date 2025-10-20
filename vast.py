@@ -7036,12 +7036,12 @@ def check_requirements(machine_id, api_key, args):
             unmet_reasons.append("PCIe bandwidth <= 2.85")
 
         # 5. Download speed
-        if safe_float(top_offer.get('inet_down')) <= 10:
-            unmet_reasons.append("Download speed <= 10 Mb/s")
+        if safe_float(top_offer.get('inet_down')) < 500:
+            unmet_reasons.append("Download speed < 500 Mb/s")
 
         # 6. Upload speed
-        if safe_float(top_offer.get('inet_up')) <= 10:
-            unmet_reasons.append("Upload speed <= 10 Mb/s")
+        if safe_float(top_offer.get('inet_up')) < 500:
+            unmet_reasons.append("Upload speed < 500 Mb/s")
 
         # 7. GPU RAM
         if safe_float(top_offer.get('gpu_ram')) <= 7:

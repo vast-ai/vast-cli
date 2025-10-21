@@ -14,7 +14,7 @@ paths:
         Creates a new instance by accepting an "ask" contract from a provider.
         This is the main endpoint for launching new instances on Vast.ai.
 
-        CLI Usage: `vastai create instance <offer_id> [options]`
+        CLI Usage: `vastai create instance <offer_id> <image> [options]`
       security:
       - BearerAuth: []
       tags:
@@ -178,7 +178,7 @@ paths:
                       description: Label for the new volume
       responses:
         '200':
-          description: Instance creation successful
+          description: Instance created successfully
           content:
             application/json:
               schema:

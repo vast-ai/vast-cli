@@ -3200,6 +3200,108 @@ paths:
                     example: API requests too frequent endpoint threshold=3.0
       tags:
       - Serverless
+    put:
+      summary: update endpoint
+      description: 'Updates the specified endpoint group with the provided parameters.
+
+
+        CLI Usage: `vastai update endpoint <id> [options]`'
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: ID of the endpoint group to update
+        schema:
+          type: integer
+          example: 4242
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                min_load:
+                  type: number
+                  description: Minimum floor load in perf units/s (token/s for LLMs)
+                  example: 0.0
+                target_util:
+                  type: number
+                  description: Target capacity utilization (fraction, max 1.0)
+                  example: 0.9
+                cold_mult:
+                  type: number
+                  description: Cold/stopped instance capacity target as multiple of
+                    hot capacity target
+                  example: 2.5
+                cold_workers:
+                  type: integer
+                  description: Min number of workers to keep 'cold' when you have
+                    no load
+                  example: 5
+                max_workers:
+                  type: integer
+                  description: Max number of workers your endpoint group can have
+                  example: 20
+                endpoint_name:
+                  type: string
+                  description: Deployment endpoint name
+                  example: my_endpoint
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: invalid_args
+                  msg:
+                    type: string
+                    example: Endpointgroup not found for user
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                  msg:
+                    type: string
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=2.0
+      tags:
+      - Serverless
   /api/v0/ssh/{id}/:
     delete:
       summary: delete ssh key
@@ -4370,11 +4472,10 @@ paths:
       summary: show logs
       description: 'Request logs from a specific instance. The logs will be uploaded
         to S3 and can be retrieved from a generated URL. Supports both container logs
-        and daemon system logs.
+        and extra debug system logs.
 
 
-        CLI Usage: `vastai show logs <instance_id> [--tail <lines>] [--filter <grep>]
-        [--daemon-logs]`'
+        CLI Usage: `vastai logs [instance_id]`'
       parameters:
       - name: id
         in: path
@@ -4398,10 +4499,11 @@ paths:
                 filter:
                   type: string
                   description: Grep filter to apply to log entries
-                daemon_logs:
+                extra_debug_logs:
                   type: string
                   enum:
                   - 'true'
+                  - 'false'
                   description: If "true", fetch daemon system logs instead of container
                     logs
       responses:
@@ -4836,7 +4938,7 @@ paths:
       - BearerAuth: []
       tags:
       - Team
-  /api/v0/team/roles/{id}:
+  /api/v0/team/roles/{id}/:
     delete:
       summary: remove team role
       description: 'Removes a role from the team. Cannot remove the team owner role.
@@ -4853,7 +4955,7 @@ paths:
         required: true
         schema:
           type: string
-        description: Name of the role to remove
+        description: Id of the role to remove
         example: developer
       responses:
         '200':
@@ -4929,6 +5031,95 @@ paths:
                   msg:
                     type: string
                     example: Specified role not found
+    get:
+      summary: show team role
+      description: 'Retrieve details of a specific team role by its name.
+
+
+        CLI Usage: `vastai show team-role <name>`'
+      security:
+      - BearerAuth: []
+      tags:
+      - Team
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: ID of the team role
+        schema:
+          type: string
+        example: admin
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    description: Role ID
+                    example: 1
+                  name:
+                    type: string
+                    description: Name of the role
+                    example: admin
+                  permissions:
+                    type: array
+                    description: Permissions associated with the role
+                    items:
+                      type: string
+                    example:
+                    - read
+                    - write
+        '404':
+          description: Role not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      summary: update team role
+      description: 'Update an existing team role with new name and permissions.
+
+
+        CLI Usage: `vastai update team-role <id> --name <new_name> --permissions <new_permissions_json>`'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: ID of the role to update.
+        schema:
+          type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: New name for the role.
+                permissions:
+                  type: object
+                  description: JSON encoded permissions for the role.
+              required:
+              - name
+              - permissions
+      responses:
+        '200':
+          description: Successfully updated team role.
+          content:
+            application/json:
+              schema:
+                type: string
+                example: Successfully Updated Team Role For <role_name>
+      security:
+      - BearerAuth: []
+      tags:
+      - Team
   /api/v0/machines/{machine_id}/reports/:
     get:
       summary: show reports
@@ -6869,96 +7060,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-      tags:
-      - Team
-  /api/v0/team/roles/{id}/:
-    get:
-      summary: show team role
-      description: 'Retrieve details of a specific team role by its name.
-
-
-        CLI Usage: `vastai show team-role <name>`'
-      security:
-      - BearerAuth: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        description: Name of the team role
-        schema:
-          type: string
-        example: admin
-      responses:
-        '200':
-          description: Success response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id:
-                    type: integer
-                    description: Role ID
-                    example: 1
-                  name:
-                    type: string
-                    description: Name of the role
-                    example: admin
-                  permissions:
-                    type: array
-                    description: Permissions associated with the role
-                    items:
-                      type: string
-                    example:
-                    - read
-                    - write
-        '404':
-          description: Role not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-      tags:
-      - Accounts
-    put:
-      summary: update team role
-      description: 'Update an existing team role with new name and permissions.
-
-
-        CLI Usage: `vastai update team-role <id> --name <new_name> --permissions <new_permissions_json>`'
-      parameters:
-      - name: id
-        in: path
-        required: true
-        description: ID of the role to update.
-        schema:
-          type: integer
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                name:
-                  type: string
-                  description: New name for the role.
-                permissions:
-                  type: object
-                  description: JSON encoded permissions for the role.
-              required:
-              - name
-              - permissions
-      responses:
-        '200':
-          description: Successfully updated team role.
-          content:
-            application/json:
-              schema:
-                type: string
-                example: Successfully Updated Team Role For <role_name>
-      security:
-      - BearerAuth: []
       tags:
       - Team
   /api/v0/team/roles-full/:

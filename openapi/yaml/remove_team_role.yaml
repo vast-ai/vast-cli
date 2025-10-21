@@ -20,7 +20,7 @@ paths:
       - Team
       parameters:
       - in: path
-        id: id
+        name: id
         required: true
         schema:
           type: string

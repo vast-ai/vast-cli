@@ -48,25 +48,30 @@ paths:
                   maxLength: 1024
                 template_id:
                   type: integer
-                  description: Optional template ID to use for instance configuration
+                  description: Template ID to use for instance configuration
                   example: 89
                 template_hash_id:
                   type: string
-                  description: Optional template hash ID to use for instance configuration
+                  description: Template hash ID to use for instance configuration
                   example: abc123def456
                 disk:
                   type: number
-                  description: Storage space in GB
+                  description: Amount of storage (in GB) to allocate to the instance
                   minimum: 8.0
                   default: 10.0
                   example: 32.0
+                price:
+                  type: number
+                  description: Bid price per hour for interruptible instances
+                  minimum: 0.001
+                  maximum: 128.0
+                  example: 0.4
                 env:
                   type: object
                   description: Environment variables and port mappings
                   example:
                     JUPYTER_TOKEN: abc123
                     PORTAL_CONFIG: '{"ports": [8080, 8081]}'
-                  maxLength: 256
                 runtype:
                   type: string
                   description: Instance run type
@@ -79,6 +84,17 @@ paths:
                   - jupyter_proxy
                   - jupyter_direct
                   example: jupyter
+                target_reliability:
+                  type: number
+                  description: Target reliability (0.0 to 1.0)
+                  minimum: 0
+                  maximum: 1
+                  default: 0.0
+                  example: 0.9
+                last_known_min_bid:
+                  type: number
+                  description: Last known minimum bid price
+                  example: 0.35
                 onstart:
                   type: string
                   description: Commands to run when instance starts
@@ -93,12 +109,6 @@ paths:
                   type: string
                   description: Docker registry credentials if needed
                   example: -u username -p password docker.io
-                price:
-                  type: number
-                  description: Bid price per hour for interruptible instances
-                  minimum: 0.001
-                  maximum: 128.0
-                  example: 0.4
                 target_state:
                   type: string
                   description: Desired initial state of the instance
@@ -115,26 +125,16 @@ paths:
                   type: boolean
                   description: Whether this is a VM instance
                   default: false
-                client_id:
-                  type: string
-                  description: Client identifier (usually "me")
-                  example: me
-                apikey_id:
-                  type: string
-                  description: Optional API key identifier for audit logging
                 args:
                   type: array
                   items:
                     type: string
                   description: Arguments to pass to the container entrypoint
                   example: ["-c", "echo hello; sleep infinity;"]
-                entrypoint:
+                args_str:
                   type: string
-                  description: Override entrypoint for args launch instance
-                  example: bash
-                use_ssh:
-                  type: boolean
-                  description: Launch as an SSH instance type (deprecated, use runtype instead)
+                  description: Command line arguments as a string (alternative to args array)
+                  example: "-c 'echo hello; sleep infinity;'"
                 python_utf8:
                   type: boolean
                   description: Set python's locale to C.UTF-8
@@ -147,6 +147,10 @@ paths:
                 jupyter_dir:
                   type: string
                   description: Directory in instance to use to launch jupyter
+                bid_test:
+                  type: boolean
+                  description: Test if bid price is valid without creating instance
+                  example: false
                 force:
                   type: boolean
                   description: Skip sanity checks when creating from an existing instance
@@ -174,7 +178,7 @@ paths:
                       description: Label for the new volume
       responses:
         '200':
-          description: Instance created successfully
+          description: Instance creation successful
           content:
             application/json:
               schema:
@@ -182,6 +186,7 @@ paths:
                 properties:
                   success:
                     type: boolean
+                    description: If the instance was created successfully
                     example: true
                   new_contract:
                     type: integer

@@ -34,6 +34,7 @@ paths:
                   type: string
                   description: The SSH key to attach to the instance
                   example: ssh-rsa AAAAB3NzaC1yc2EAAA...
+                  minLength: 1
       responses:
         '200':
           description: SSH key attached successfully

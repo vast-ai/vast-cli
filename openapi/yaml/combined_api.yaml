@@ -117,6 +117,7 @@ paths:
                   type: string
                   description: The SSH key to attach to the instance
                   example: ssh-rsa AAAAB3NzaC1yc2EAAA...
+                  minLength: 1
       responses:
         '200':
           description: SSH key attached successfully
@@ -1577,7 +1578,7 @@ paths:
         This is the main endpoint for launching new instances on Vast.ai.
 
 
-        CLI Usage: `vastai create instance <offer_id> [options]`'
+        CLI Usage: `vastai create instance <offer_id> <image> [options]`'
       security:
       - BearerAuth: []
       tags:
@@ -1601,34 +1602,27 @@ paths:
                 image:
                   type: string
                   description: Docker image to use for the instance
-                  example: tensorflow/tensorflow:latest-gpu
+                  default: tensorflow/tensorflow:latest-gpu
                   maxLength: 1024
                 template_id:
                   type: integer
                   description: Template ID to use for instance configuration
-                  example: 89
                 template_hash_id:
                   type: string
                   description: Template hash ID to use for instance configuration
-                  example: abc123def456
                 disk:
                   type: number
                   description: Amount of storage (in GB) to allocate to the instance
                   minimum: 8.0
                   default: 10.0
-                  example: 32.0
                 price:
                   type: number
                   description: Bid price per hour for interruptible instances
                   minimum: 0.001
                   maximum: 128.0
-                  example: 0.4
                 env:
                   type: object
                   description: Environment variables and port mappings
-                  example:
-                    JUPYTER_TOKEN: abc123
-                    PORTAL_CONFIG: '{"ports": [8080, 8081]}'
                 runtype:
                   type: string
                   description: Instance run type
@@ -1640,32 +1634,25 @@ paths:
                   - ssh_direct
                   - jupyter_proxy
                   - jupyter_direct
-                  example: jupyter
                 target_reliability:
                   type: number
                   description: Target reliability (0.0 to 1.0)
                   minimum: 0
                   maximum: 1
-                  default: 0.0
-                  example: 0.9
                 last_known_min_bid:
                   type: number
                   description: Last known minimum bid price
-                  example: 0.35
                 onstart:
                   type: string
                   description: Commands to run when instance starts
                   maxLength: 4096
-                  example: pip install -r requirements.txt
                 label:
                   type: string
                   description: User-defined label for the instance
                   maxLength: 256
-                  example: training-job-1
                 image_login:
                   type: string
                   description: Docker registry credentials if needed
-                  example: -u username -p password docker.io
                 target_state:
                   type: string
                   description: Desired initial state of the instance
@@ -1673,13 +1660,11 @@ paths:
                   - running
                   - stopped
                   default: running
-                  example: running
                 cancel_unavail:
                   type: boolean
                   description: Whether to cancel if instance cannot start immediately.
                     Defaults to false for interruptibles, true for on-demand with
                     target_state='running'
-                  example: true
                 vm:
                   type: boolean
                   description: Whether this is a VM instance
@@ -1689,14 +1674,10 @@ paths:
                   items:
                     type: string
                   description: Arguments to pass to the container entrypoint
-                  example:
-                  - -c
-                  - echo hello; sleep infinity;
                 args_str:
                   type: string
                   description: Command line arguments as a string (alternative to
                     args array)
-                  example: -c 'echo hello; sleep infinity;'
                 python_utf8:
                   type: boolean
                   description: Set python's locale to C.UTF-8
@@ -1713,7 +1694,6 @@ paths:
                 bid_test:
                   type: boolean
                   description: Test if bid price is valid without creating instance
-                  example: false
                 force:
                   type: boolean
                   description: Skip sanity checks when creating from an existing instance
@@ -1741,9 +1721,12 @@ paths:
                     name:
                       type: string
                       description: Label for the new volume
+            example:
+              id: 1234567
+              image: tensorflow/tensorflow:latest-gpu
       responses:
         '200':
-          description: Instance creation successful
+          description: Instance created successfully
           content:
             application/json:
               schema:
@@ -3663,9 +3646,6 @@ paths:
       description: 'Retrieves the details of a specific instance for the authenticated
         user.
 
-        This endpoint returns detailed information including SSH connection parameters,
-        instance state, resource utilization, template data, and pricing details.
-
 
         CLI Usage: `vastai show instance [--api-key <api_key>] [--raw]`'
       security:
@@ -3673,11 +3653,10 @@ paths:
       parameters:
       - name: id
         in: path
-        description: The ID of the instance to retrieve.
+        description: The instance (contract) ID to retrieve.
         required: true
         schema:
           type: integer
-        example: 123
       responses:
         '200':
           description: Success response with instance details.
@@ -3700,6 +3679,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                success: false
+                error: auth_error
+                msg: Invalid user key
         '429':
           description: "Too Many Requests \u2013 API requests are too frequent."
           content:
@@ -3712,7 +3695,7 @@ paths:
                     example: API requests too frequent endpoint threshold=2.0
       tags:
       - Instances
-  /api/v0/instances/{id}/ssh/{key}/:
+  /api/v0/instances/{id}/ssh/{ssh_key_id}/:
     delete:
       summary: detach ssh-key
       description: 'Detaches an SSH key from a specified instance, removing SSH access
@@ -3730,10 +3713,13 @@ paths:
         schema:
           type: integer
           example: 99999
-      - name: key
+      - name: ssh_key_id
         in: path
         required: true
-        description: Numeric ID of the SSH key to detach
+        description: 'Numeric ID of the SSH key to detach. Obtainable via `show ssh-keys`
+          command
+
+          '
         schema:
           type: integer
           example: 12345
@@ -4841,7 +4827,7 @@ paths:
       - BearerAuth: []
       tags:
       - Team
-  /api/v0/team/roles/{id}:
+  /api/v0/team/roles/{name}:
     delete:
       summary: remove team role
       description: 'Removes a role from the team. Cannot remove the team owner role.
@@ -4854,7 +4840,7 @@ paths:
       - Team
       parameters:
       - in: path
-        name: id
+        name: name
         required: true
         schema:
           type: string
@@ -6426,7 +6412,7 @@ paths:
       description: 'Retrieve a list of instances for the authenticated user.
 
 
-        CLI Usage: `vastai show instances [options] [--api-key <api_key>] [--raw]`'
+        CLI Usage: `vastai show instances [OPTIONS] [--api-key API_KEY] [--raw]`'
       security:
       - BearerAuth: []
       responses:
@@ -6437,27 +6423,376 @@ paths:
               schema:
                 type: object
                 properties:
+                  instances_found:
+                    type: integer
+                    description: Number of instances found for the user.
+                    example: 11
                   instances:
                     type: array
+                    description: List of instance objects.
                     items:
                       type: object
                       properties:
                         id:
                           type: integer
-                          example: 123
+                          example: 312
+                        actual_status:
+                          type: string
+                          nullable: true
+                          example: running
+                        cur_state:
+                          type: string
+                          example: running
+                        next_state:
+                          type: string
+                          example: running
+                        intended_status:
+                          type: string
+                          example: running
+                        label:
+                          type: string
+                          example: ML Training Job 2025
+                        template_id:
+                          type: integer
+                          nullable: true
+                          example: 2048
+                        template_hash_id:
+                          type: string
+                          nullable: true
+                          example: abcde12345
+                        template_name:
+                          type: string
+                          nullable: true
+                          example: Tensorflow GPU Template
+                        image_uuid:
+                          type: string
+                          example: nvidia/cuda:11.0.3-devel-ubuntu18.04
+                        image_args:
+                          type: array
+                          items:
+                            type: string
+                          example:
+                          - bash
+                          - -c
+                          - apt update; apt install -y wget libpci3 xz-utils; wget
+                            ...
+                        image_runtype:
+                          type: string
+                          example: ssh ssh_direc ssh_proxy
+                        extra_env:
+                          type: array
+                          items:
+                            type: array
+                            items:
+                              type: string
+                          example:
+                          - - DOG
+                            - CAT
+                          - - -p 70001:70001
+                            - '1'
+                          - - -p 70002:70002
+                            - '1'
+                        onstart:
+                          type: string
+                          example: echo 'hello'; echo $DOG; echo 'goodbye';
+                        jupyter_token:
+                          type: string
+                          example: df77e27085bd4b3bd5d9024bdefb9e6df614b27adb0689e9d8f066fce5e01f0c
+                        status_msg:
+                          type: string
+                          example: success, running nvidia/cuda_11.0.3-devel-ubuntu18.04/ssh
+                        public_ipaddr:
+                          type: string
+                          example: 192.0.2.45
+                        local_ipaddrs:
+                          type: string
+                          example: 10.0.0.5 172.17.0.2
+                        ssh_host:
+                          type: string
+                          example: ssh123.vast.ai
+                        ssh_idx:
+                          type: string
+                          example: '6'
+                        ssh_port:
+                          type: integer
+                          example: 10600
+                        machine_dir_ssh_port:
+                          type: integer
+                          example: 21000
+                        machine_id:
+                          type: integer
+                          example: 12
                         start_date:
                           type: number
                           format: float
-                          example: 1633036800.0
+                          example: 1668804745.1223178
+                        end_date:
+                          type: number
+                          format: float
+                          example: 1735689600.0
+                        uptime_mins:
+                          type: number
+                          nullable: true
+                          example: null
                         duration:
                           type: number
                           format: float
-                          example: 3600.0
-                        extra_env:
+                          example: -25323348.860099316
+                        cpu_arch:
+                          type: string
+                          example: amd64
+                        cpu_cores:
+                          type: integer
+                          example: 4
+                        cpu_cores_effective:
+                          type: number
+                          format: float
+                          example: 4.0
+                        cpu_name:
+                          type: string
+                          example: "Core\u2122 i5-6500"
+                        cpu_ram:
+                          type: integer
+                          example: 15989
+                        cpu_util:
+                          type: number
+                          format: float
+                          example: 0.0
+                        mem_limit:
+                          type: number
+                          nullable: true
+                          example: 15.71815424
+                        mem_usage:
+                          type: number
+                          nullable: true
+                          example: 0.00996352
+                        vmem_usage:
+                          type: number
+                          nullable: true
+                          example: 0.543945
+                        gpu_name:
+                          type: string
+                          example: GTX 1070
+                        gpu_arch:
+                          type: string
+                          example: nvidia
+                        gpu_totalram:
+                          type: integer
+                          example: 16222
+                        gpu_ram:
+                          type: integer
+                          example: 8111
+                        gpu_util:
+                          type: number
+                          nullable: true
+                          example: 0.0
+                        gpu_temp:
+                          type: number
+                          nullable: true
+                          example: 38.999981
+                        gpu_frac:
+                          type: number
+                          format: float
+                          example: 1.0
+                        gpu_lanes:
+                          type: integer
+                          example: 16
+                        gpu_mem_bw:
+                          type: number
+                          format: float
+                          example: 187.1
+                        bw_nvlink:
+                          type: number
+                          format: float
+                          example: 0.0
+                        disk_name:
+                          type: string
+                          example: Seagate ST4000DM000
+                        disk_space:
+                          type: number
+                          format: float
+                          example: 10.08
+                        disk_bw:
+                          type: number
+                          format: float
+                          example: 159.98852679060644
+                        disk_util:
+                          type: number
+                          format: float
+                          example: 0.05400000140070915
+                        disk_usage:
+                          type: number
+                          format: float
+                          example: 0.05400000140070915
+                        direct_port_count:
+                          type: integer
+                          example: 1001
+                        direct_port_start:
+                          type: integer
+                          example: 20000
+                        direct_port_end:
+                          type: integer
+                          example: 20002
+                        ports:
                           type: object
                           additionalProperties:
-                            type: string
-                            example: value
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                HostIp:
+                                  type: string
+                                HostPort:
+                                  type: string
+                          example:
+                            8888/tcp:
+                            - HostIp: 0.0.0.0
+                              HostPort: '8888'
+                            22/tcp:
+                            - HostIp: 0.0.0.0
+                              HostPort: '20000'
+                        static_ip:
+                          type: boolean
+                          example: false
+                        geolocation:
+                          type: string
+                          example: California, United States
+                        verification:
+                          type: string
+                          example: verified
+                        rentable:
+                          type: boolean
+                          example: true
+                        host_id:
+                          type: integer
+                          example: 7
+                        min_bid:
+                          type: number
+                          format: float
+                          example: 0.296
+                        is_bid:
+                          type: boolean
+                          example: false
+                        dph_base:
+                          type: number
+                          format: float
+                          example: 0.8
+                        dph_total:
+                          type: number
+                          format: float
+                          example: 0.8021
+                        dlperf:
+                          type: number
+                          nullable: true
+                          example: null
+                        dlperf_per_dphtotal:
+                          type: number
+                          nullable: true
+                          example: null
+                        flops_per_dphtotal:
+                          type: number
+                          format: float
+                          example: 15.41170427627478
+                        total_flops:
+                          type: number
+                          format: float
+                          example: 12.361728000000001
+                        score:
+                          type: number
+                          nullable: true
+                          example: null
+                        reliability2:
+                          type: number
+                          format: float
+                          example: 0.9686655
+                        os_version:
+                          type: string
+                          nullable: true
+                          example: null
+                        mobo_name:
+                          type: string
+                          example: Z170M Extreme4
+                        pci_gen:
+                          type: number
+                          format: float
+                          example: 3.0
+                        pcie_bw:
+                          type: number
+                          format: float
+                          example: 11.6
+                        num_gpus:
+                          type: integer
+                          example: 2
+                        webpage:
+                          type: string
+                          nullable: true
+                          example: null
+                        search:
+                          type: object
+                          example:
+                            gpuCostPerHour: 0.8
+                            diskHour: 0.0021
+                            totalHour: 0.8021
+                            discountTotalHour: 0
+                            discountedTotalPerHour: 0.8013181279189862
+                        instance:
+                          type: object
+                          example:
+                            gpuCostPerHour: 0.8
+                            diskHour: 0.001318127918986086
+                            totalHour: 0.8021
+                            discountTotalHour: 0
+                            discountedTotalPerHour: 0.5034620970565428
+                        storage_cost:
+                          type: number
+                          format: float
+                          example: 0.15
+                        storage_total_cost:
+                          type: number
+                          format: float
+                          example: 0.0021
+                        vram_costperhour:
+                          type: number
+                          format: float
+                          example: 4.944519787942301e-05
+                        credit_balance:
+                          type: number
+                          nullable: true
+                          example: 4792.991450253207
+                        credit_discount:
+                          type: number
+                          nullable: true
+                          example: 0.3723200385780543
+                        credit_discount_max:
+                          type: number
+                          nullable: true
+                          example: 0.4
+                        client_run_time:
+                          type: number
+                          format: float
+                          example: 100000000.0
+                        host_run_time:
+                          type: number
+                          format: float
+                          example: 1.0
+                        external:
+                          type: boolean
+                          example: false
+                        time_remaining:
+                          type: string
+                          example: 12 Mon 24 D 16 Hr
+                        time_remaining_isbid:
+                          type: string
+                          example: 11 Mon 26 D 6 Hr
+                        country_code:
+                          type: string
+                          nullable: true
+                          example: null
+                        volume_info:
+                          type: array
+                          items:
+                            type: object
+                          example: []
         '401':
           description: Unauthorized
           content:
@@ -7529,195 +7864,434 @@ components:
       properties:
         id:
           type: integer
-          example: 123
           description: Unique identifier for the instance.
-        ssh_idx:
-          type: string
-          example: ssh1
-          description: Identifier for the SSH forwarder used.
-        ssh_host:
-          type: string
-          nullable: true
-          example: 192.168.1.10
-          description: Host (or IP) used for SSH connection.
-        ssh_port:
-          type: integer
-          nullable: true
-          example: 22
-          description: Port used for SSH connection.
+          example: 883
         actual_status:
           type: string
-          enum:
-          - running
-          - stopped
-          - frozen
-          - loading
-          - unknown
-          - offline
-          - rebooting
-          - recycling
-          example: running
+          nullable: true
           description: Current status of the instance container.
+          example: running
         intended_status:
           type: string
-          enum:
-          - running
-          - stopped
-          - frozen
-          example: running
           description: Intended status of the instance container.
+          example: running
         cur_state:
           type: string
-          enum:
-          - running
-          - stopped
-          - unloaded
-          example: running
           description: Current state of the machine contract.
+          example: running
         next_state:
           type: string
-          enum:
-          - running
-          - stopped
-          - unloaded
-          example: running
           description: Next scheduled state for the machine contract.
+          example: running
+        label:
+          type: string
+          nullable: true
+          description: User-defined label for the instance.
+          example: null
         template_id:
           type: integer
-          example: 45
+          nullable: true
           description: Identifier for the instance template.
+          example: null
         template_hash_id:
           type: string
-          example: abc123
+          nullable: true
           description: Hash identifier for the instance template.
+          example: null
+        template_name:
+          type: string
+          nullable: true
+          description: Name of the template (if available).
+          example: null
         image_uuid:
           type: string
-          example: uuid-1234
-          description: Unique identifier for the instance image.
+          description: Docker image used for the instance.
+          example: tensorflow/tensorflow:latest-gpu
         image_args:
-          type: string
-          example: --arg1 value
-          description: Arguments used when launching the instance image.
+          type: array
+          items:
+            type: string
+          description: Arguments passed to the container.
+          example: []
         image_runtype:
           type: string
-          enum:
-          - ssh
-          - args
+          description: How the container is launched (ssh, jupyter, etc.).
           example: ssh
-          description: How the instance image is executed.
         extra_env:
           type: array
           items:
             type: string
-          example:
-          - VAR1=value1
-          - VAR2=value2
           description: Additional environment variables.
+          example: []
         onstart:
           type: string
-          example: init.sh
-          description: Script or command executed when the instance starts.
-        label:
-          type: string
-          example: Instance 123
-          description: A human-readable label for the instance.
+          nullable: true
+          description: Script or command run at container start.
+          example: null
         jupyter_token:
           type: string
-          example: token123
-          description: Jupyter token if the instance provides a Jupyter environment.
+          description: Jupyter token for the instance.
+          example: 53fc448d6644aa7535c6fa5498cdbedc782753e88d81b44090e54dcf1332ed30
         status_msg:
           type: string
-          example: Running normally
-          description: A message describing the current status.
-        gpu_util:
-          type: number
-          format: float
-          example: 0.75
-          description: Current GPU utilization as a fraction.
-        gpu_arch:
-          type: string
-          example: Volta
-          description: GPU architecture of the instance.
-        disk_util:
-          type: number
-          format: float
-          example: 75
-          description: Disk utilization percentage.
-        disk_usage:
-          type: number
-          format: float
-          example: 75
-          description: Disk usage percentage.
-        gpu_temp:
-          type: number
-          format: float
-          example: 65
-          description: Current GPU temperature in Celsius.
-        cuda_max_good:
-          type: number
-          format: float
-          example: 11.2
-          description: Maximum CUDA version that is considered optimal.
-        driver_version:
-          type: string
-          example: 460.32.03
-          description: Version of the GPU driver installed.
-        public_ipaddr:
-          type: string
-          example: 203.0.113.1
-          description: Public IP address of the instance.
+          nullable: true
+          description: Status message for the instance.
+          example: null
         local_ipaddrs:
-          type: array
-          items:
-            type: string
-          example:
-          - 192.168.1.5
-          description: List of local IP addresses for the instance.
-        direct_port_end:
+          type: string
+          description: Local IP addresses for the instance (space-separated).
+          example: "10.2.202.31 172.17.0.1 \n"
+        ssh_host:
+          type: string
+          description: Host (or IP) used for SSH connection.
+          example: ssh2281.vast.ai
+        ssh_idx:
+          type: string
+          description: Identifier for the SSH forwarder used.
+          example: '2281'
+        ssh_port:
           type: integer
-          example: 8001
-          description: The ending port number for direct connections.
-        direct_port_start:
+          description: Port used for SSH connection.
+          example: 10882
+        machine_dir_ssh_port:
           type: integer
-          example: 8000
-          description: The starting port number for direct connections.
+          description: Calculated SSH port for accessing the machine directory.
+          example: 5300
+        machine_id:
+          type: integer
+          description: ID of the physical machine.
+          example: 178
+        bundle_id:
+          type: integer
+          description: ID of the bundle this instance belongs to.
+          example: 617
+        start_date:
+          type: number
+          format: float
+          description: Instance start time (epoch seconds).
+          example: 1761008618.225083
+        end_date:
+          type: number
+          format: float
+          description: Instance end time (epoch seconds).
+          example: 2034617753.0
+        uptime_mins:
+          type: number
+          nullable: true
+          description: Uptime of the instance in minutes.
+          example: null
+        duration:
+          type: number
+          format: float
+          description: Duration of the instance in seconds.
+          example: 273608757.18784523
+        cpu_arch:
+          type: string
+          description: CPU architecture.
+          example: amd64
+        cpu_cores:
+          type: integer
+          description: Number of CPU cores.
+          example: 32
+        cpu_cores_effective:
+          type: number
+          format: float
+          description: Effective number of CPU cores allocated.
+          example: 4.0
+        cpu_name:
+          type: string
+          description: Name of the CPU.
+          example: "Xeon\xAE Silver 4110"
+        cpu_ram:
+          type: integer
+          description: Total system RAM in MB.
+          example: 128576
         cpu_util:
           type: number
           format: float
-          example: 0.65
           description: CPU utilization as a fraction.
-        mem_usage:
-          type: number
-          format: float
-          example: 4096
-          description: Memory usage in megabytes.
+          example: 0.0
         mem_limit:
           type: number
-          format: float
-          example: 8192
+          nullable: true
           description: Memory limit in megabytes.
+          example: null
+        mem_usage:
+          type: number
+          nullable: true
+          description: Memory usage in megabytes.
+          example: null
         vmem_usage:
           type: number
-          format: float
-          example: 4096
+          nullable: true
           description: Virtual memory usage in megabytes.
-        machine_dir_ssh_port:
+          example: null
+        gpu_name:
+          type: string
+          description: Name of the GPU.
+          example: RTX A5000
+        gpu_arch:
+          type: string
+          description: GPU architecture.
+          example: nvidia
+        gpu_totalram:
           type: integer
-          example: 2222
-          description: Calculated SSH port for accessing the machine directory.
-        uptime_mins:
+          description: Total GPU RAM in MB.
+          example: 24564
+        gpu_ram:
+          type: integer
+          description: Allocated GPU RAM in MB.
+          example: 24564
+        gpu_util:
+          type: number
+          nullable: true
+          description: GPU utilization as a fraction.
+          example: null
+        gpu_temp:
+          type: number
+          nullable: true
+          description: Current GPU temperature in Celsius.
+          example: null
+        gpu_frac:
           type: number
           format: float
-          example: 120
-          description: Uptime of the instance in minutes.
+          description: Fraction of GPU allocated.
+          example: 0.125
+        gpu_lanes:
+          type: integer
+          description: Number of PCIe lanes for the GPU.
+          example: 16
+        gpu_mem_bw:
+          type: number
+          format: float
+          description: GPU memory bandwidth in GB/s.
+          example: 628.8
+        bw_nvlink:
+          type: number
+          format: float
+          description: NVLink bandwidth in GB/s.
+          example: 0.0
+        disk_name:
+          type: string
+          description: Name of the disk.
+          example: Samsung SSD 860
+        disk_space:
+          type: number
+          format: float
+          description: Disk space allocated in GB.
+          example: 10.0
+        disk_bw:
+          type: number
+          format: float
+          description: Disk bandwidth in MB/s.
+          example: 500.55
+        disk_util:
+          type: number
+          format: float
+          description: Disk utilization percentage.
+          example: -1
+        disk_usage:
+          type: number
+          format: float
+          description: Disk usage percentage.
+          example: -1
+        direct_port_count:
+          type: integer
+          description: Number of direct ports available.
+          example: 12
+        direct_port_start:
+          type: integer
+          description: Start of direct port range.
+          example: -1
+        direct_port_end:
+          type: integer
+          description: End of direct port range.
+          example: -1
         ports:
           type: array
           items:
             type: integer
+          description: List of additional ports exposed by the instance.
           example:
           - 8080
           - 8081
-          description: List of additional ports exposed by the instance.
+        static_ip:
+          type: boolean
+          description: Whether the instance has a static public IP.
+          example: true
+        public_ipaddr:
+          type: string
+          description: Public IP address of the instance.
+          example: 63.135.50.11
+        geolocation:
+          type: string
+          description: Geographical location of the instance.
+          example: Washington, US
+        verification:
+          type: string
+          description: Verification status of the instance.
+          example: verified
+        rentable:
+          type: boolean
+          description: Whether the instance is currently rentable.
+          example: true
+        host_id:
+          type: integer
+          description: Host ID for the instance.
+          example: 2
+        hosting_type:
+          type: integer
+          description: Hosting type code.
+          example: 1
+        min_bid:
+          type: number
+          format: float
+          description: Minimum bid price for the instance.
+          example: 0.02
+        is_bid:
+          type: boolean
+          description: Whether the instance was created via bidding.
+          example: false
+        dph_base:
+          type: number
+          format: float
+          description: Base dollars per hour.
+          example: 1.0
+        dph_total:
+          type: number
+          format: float
+          description: Total dollars per hour.
+          example: 1.0020740740740741
+        dlperf:
+          type: number
+          format: float
+          description: Deep learning performance score.
+          example: 22.229415
+        dlperf_per_dphtotal:
+          type: number
+          format: float
+          description: DLPerf per total DPH.
+          example: 22.183404974866942
+        flops_per_dphtotal:
+          type: number
+          format: float
+          description: FLOPS per total DPH.
+          example: 27.46814902424601
+        total_flops:
+          type: number
+          format: float
+          description: Total FLOPS.
+          example: 27.52512
+        score:
+          type: number
+          format: float
+          description: Instance score.
+          example: 22.043656178546772
+        reliability2:
+          type: number
+          format: float
+          description: Reliability score.
+          example: 0.9993661
+        os_version:
+          type: string
+          description: Operating system version.
+          example: 18.04
+        mobo_name:
+          type: string
+          description: Motherboard name.
+          example: S7109GM2NR
+        pci_gen:
+          type: number
+          format: float
+          description: PCIe generation.
+          example: 3.0
+        pcie_bw:
+          type: number
+          format: float
+          description: PCIe bandwidth in GB/s.
+          example: 11.7
+        num_gpus:
+          type: integer
+          description: Number of GPUs allocated.
+          example: 1
+        logo:
+          type: string
+          description: URL to the logo image.
+          example: /static/logos/vastai_small2.png
+        webpage:
+          type: string
+          nullable: true
+          description: URL to the instance's webpage, if available.
+          example: null
+        search:
+          type: object
+          description: Search pricing details.
+          example:
+            gpuCostPerHour: 1.0
+            diskHour: 0.002074074074074074
+            totalHour: 1.0020740740740741
+            discountTotalHour: 0
+            discountedTotalPerHour: 1.0020740740740741
+        instance:
+          type: object
+          description: Instance pricing details.
+          example:
+            gpuCostPerHour: 0
+            diskHour: 0.002074074074074074
+            totalHour: 0.002074074074074074
+            discountTotalHour: 0
+            discountedTotalPerHour: 0.002074074074074074
+        storage_cost:
+          type: number
+          format: float
+          description: Storage cost per hour.
+          example: 0.14933333333333335
+        storage_total_cost:
+          type: number
+          format: float
+          description: Total storage cost.
+          example: 0.002074074074074074
+        vram_costperhour:
+          type: number
+          format: float
+          description: VRAM cost per hour.
+          example: 4.079441760601181e-05
+        credit_balance:
+          type: number
+          nullable: true
+          description: User's credit balance.
+          example: null
+        credit_discount:
+          type: number
+          nullable: true
+          description: User's credit discount.
+          example: null
+        credit_discount_max:
+          type: number
+          description: Maximum credit discount.
+          example: 0.4
+        client_run_time:
+          type: number
+          format: float
+          description: Client run time in hours.
+          example: 1.1
+        host_run_time:
+          type: number
+          format: float
+          description: Host run time in hours.
+          example: 2592000.0
+        external:
+          type: boolean
+          description: Whether the instance is external.
+          example: false
+        time_remaining:
+          type: string
+          description: Time remaining for the instance (if applicable).
+          example: ''
+        time_remaining_isbid:
+          type: string
+          description: Time remaining for the instance if it is a bid.
+          example: ''
     Volume:
       type: object
       properties:

@@ -11,7 +11,7 @@ paths:
 
         CLI Usage: `vastai update team-role <id> --name <new_name> --permissions <new_permissions_json>`
       parameters:
-      - name: id
+      - id: id
         in: path
         required: true
         description: ID of the role to update.

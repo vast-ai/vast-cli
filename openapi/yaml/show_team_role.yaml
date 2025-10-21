@@ -16,11 +16,13 @@ paths:
         CLI Usage: `vastai show team-role <name>`
       security:
       - BearerAuth: []
+      tags: 
+      - Team
       parameters:
-      - name: id
+      - id: id
         in: path
         required: true
-        description: Name of the team role
+        description: ID of the team role
         schema:
           type: string
         example: admin
@@ -54,8 +56,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-      tags:
-      - Accounts
 components:
   securitySchemes:
     BearerAuth:

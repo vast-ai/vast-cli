@@ -7,7 +7,7 @@ servers:
 - url: https://console.vast.ai
   description: Production server
 paths:
-  /api/v0/team/roles/{id}:
+  /api/v0/team/roles/{id}/:
     delete:
       summary: remove team role
       description: |
@@ -20,11 +20,11 @@ paths:
       - Team
       parameters:
       - in: path
-        name: id
+        id: id
         required: true
         schema:
           type: string
-        description: Name of the role to remove
+        description: Id of the role to remove
         example: developer
       responses:
         '200':
@@ -100,10 +100,6 @@ paths:
                   msg:
                     type: string
                     example: Specified role not found
-      security:
-      - BearerAuth: []
-      tags:
-      - Team
 components:
   securitySchemes:
     BearerAuth:

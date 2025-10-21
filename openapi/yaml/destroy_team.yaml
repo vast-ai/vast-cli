@@ -80,7 +80,7 @@ components:
     BearerAuth:
       type: http
       scheme: bearer
-      description: API key must be provided in the Authorization header
+      description: The team API key for the team to be destroyed
   schemas:
     Error:
       type: object

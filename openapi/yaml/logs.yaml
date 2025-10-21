@@ -11,9 +11,9 @@ paths:
     put:
       summary: show logs
       description: |
-        Request logs from a specific instance. The logs will be uploaded to S3 and can be retrieved from a generated URL. Supports both container logs and daemon system logs.
+        Request logs from a specific instance. The logs will be uploaded to S3 and can be retrieved from a generated URL. Supports both container logs and extra debug system logs.
 
-        CLI Usage: `vastai show logs <instance_id> [--tail <lines>] [--filter <grep>] [--daemon-logs]`
+        CLI Usage: `vastai logs [instance_id]`
       parameters:
       - name: id
         in: path
@@ -37,10 +37,11 @@ paths:
                 filter:
                   type: string
                   description: Grep filter to apply to log entries
-                daemon_logs:
+                extra_debug_logs:
                   type: string
                   enum:
                   - 'true'
+                  - 'false'
                   description: If "true", fetch daemon system logs instead of container
                     logs
       responses:

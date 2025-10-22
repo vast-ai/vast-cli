@@ -44,34 +44,27 @@ paths:
                 image:
                   type: string
                   description: Docker image to use for the instance
-                  example: tensorflow/tensorflow:latest-gpu
+                  default: tensorflow/tensorflow:latest-gpu
                   maxLength: 1024
                 template_id:
                   type: integer
                   description: Template ID to use for instance configuration
-                  example: 89
                 template_hash_id:
                   type: string
                   description: Template hash ID to use for instance configuration
-                  example: abc123def456
                 disk:
                   type: number
                   description: Amount of storage (in GB) to allocate to the instance
                   minimum: 8.0
                   default: 10.0
-                  example: 32.0
                 price:
                   type: number
                   description: Bid price per hour for interruptible instances
                   minimum: 0.001
                   maximum: 128.0
-                  example: 0.4
                 env:
                   type: object
                   description: Environment variables and port mappings
-                  example:
-                    JUPYTER_TOKEN: abc123
-                    PORTAL_CONFIG: '{"ports": [8080, 8081]}'
                 runtype:
                   type: string
                   description: Instance run type
@@ -83,32 +76,25 @@ paths:
                   - ssh_direct
                   - jupyter_proxy
                   - jupyter_direct
-                  example: jupyter
                 target_reliability:
                   type: number
                   description: Target reliability (0.0 to 1.0)
                   minimum: 0
                   maximum: 1
-                  default: 0.0
-                  example: 0.9
                 last_known_min_bid:
                   type: number
                   description: Last known minimum bid price
-                  example: 0.35
                 onstart:
                   type: string
                   description: Commands to run when instance starts
                   maxLength: 4096
-                  example: pip install -r requirements.txt
                 label:
                   type: string
                   description: User-defined label for the instance
                   maxLength: 256
-                  example: training-job-1
                 image_login:
                   type: string
                   description: Docker registry credentials if needed
-                  example: -u username -p password docker.io
                 target_state:
                   type: string
                   description: Desired initial state of the instance
@@ -116,11 +102,9 @@ paths:
                   - running
                   - stopped
                   default: running
-                  example: running
                 cancel_unavail:
                   type: boolean
                   description: Whether to cancel if instance cannot start immediately. Defaults to false for interruptibles, true for on-demand with target_state='running'
-                  example: true
                 vm:
                   type: boolean
                   description: Whether this is a VM instance
@@ -130,11 +114,9 @@ paths:
                   items:
                     type: string
                   description: Arguments to pass to the container entrypoint
-                  example: ["-c", "echo hello; sleep infinity;"]
                 args_str:
                   type: string
                   description: Command line arguments as a string (alternative to args array)
-                  example: "-c 'echo hello; sleep infinity;'"
                 python_utf8:
                   type: boolean
                   description: Set python's locale to C.UTF-8
@@ -150,7 +132,6 @@ paths:
                 bid_test:
                   type: boolean
                   description: Test if bid price is valid without creating instance
-                  example: false
                 force:
                   type: boolean
                   description: Skip sanity checks when creating from an existing instance

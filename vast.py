@@ -3442,8 +3442,8 @@ def logs(args):
     json_blob = {'filter': args.filter} if args.filter else {}
     if args.tail:
         json_blob.update({'tail': args.tail})
-    if args.daemon_logs:
-        json_blob.update({'daemon_logs': 'true'})
+    if args.extra_debug_logs:
+        json_blob.update({'extra_debug_logs': 'true'})
     if args.explain:
         print("request json: ")
         print(json_blob)

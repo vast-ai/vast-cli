@@ -42,7 +42,7 @@ paths:
                   enum:
                   - 'true'
                   - 'false'
-                  description: If "true", fetch daemon system logs instead of container
+                  description: If "true", fetch extra debug system logs instead of container
                     logs
       responses:
         '200':

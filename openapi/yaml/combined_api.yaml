@@ -4504,8 +4504,8 @@ paths:
                   enum:
                   - 'true'
                   - 'false'
-                  description: If "true", fetch daemon system logs instead of container
-                    logs
+                  description: If "true", fetch extra debug system logs instead of
+                    container logs
       responses:
         '200':
           description: Success response with S3 URL for log retrieval

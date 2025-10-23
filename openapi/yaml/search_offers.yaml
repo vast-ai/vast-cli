@@ -183,11 +183,18 @@ paths:
                   description: Host machine Ubuntu OS version
                 order:
                   type: array
+                  description: |
+                    List of sort fields and directions.
+                    Each entry should contain two elements:
+                    1. The field name to sort by (string)
+                    2. The sort direction ("asc" or "desc")
                   items:
                     type: array
                     items:
                       type: string
-                  description: Sort fields and directions
+                    minItems: 2
+                    maxItems: 2
+                    example: ["reliability", "desc"]
                 disable_bundling:
                   type: boolean
                   description: Disable offer bundling

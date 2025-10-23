@@ -34,8 +34,6 @@ paths:
         - rented: false
 
         CLI Usage: `vastai search offers 'reliability > 0.99 num_gpus>=4' --order=dph_total`
-      security:
-      - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -352,12 +350,6 @@ paths:
                     msg: Invalid user key
       tags:
       - Search
-components:
-  securitySchemes:
-    BearerAuth:
-      type: http
-      scheme: bearer
-      description: API key must be provided in the Authorization header
 x-tags:
 - name: Search
   description: Endpoints for searching offers

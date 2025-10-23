@@ -5551,8 +5551,6 @@ paths:
 
 
         CLI Usage: `vastai search offers ''reliability > 0.99 num_gpus>=4'' --order=dph_total`'
-      security:
-      - BearerAuth: []
       requestBody:
         required: true
         content:

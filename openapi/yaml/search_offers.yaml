@@ -28,14 +28,9 @@ paths:
         | `in`     | Value is in a list     | `{ "in": ["RTX_3090", "RTX_4090"] }` |
         | `nin`    | Value is not in a list | `{ "nin": ["TW", "SE"] }`      |
 
-        Default filters applied unless --no-default:
-        - verified: true
-        - rentable: true
-        - rented: false
+        Default filters: verified=true, rentable=true, rented=false (unless --no-default is used)
 
         CLI Usage: `vastai search offers 'reliability > 0.99 num_gpus>=4' --order=dph_total`
-      security:
-      - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -183,11 +178,18 @@ paths:
                   description: Host machine Ubuntu OS version
                 order:
                   type: array
+                  description: |
+                    List of sort fields and directions.
+                    Each entry should contain two elements:
+                    1. The field name to sort by (string)
+                    2. The sort direction ("asc" or "desc")
                   items:
                     type: array
                     items:
                       type: string
-                  description: Sort fields and directions
+                    minItems: 2
+                    maxItems: 2
+                    example: ["reliability", "desc"]
                 disable_bundling:
                   type: boolean
                   description: Disable offer bundling
@@ -345,12 +347,6 @@ paths:
                     msg: Invalid user key
       tags:
       - Search
-components:
-  securitySchemes:
-    BearerAuth:
-      type: http
-      scheme: bearer
-      description: API key must be provided in the Authorization header
 x-tags:
 - name: Search
   description: Endpoints for searching offers

@@ -7,7 +7,7 @@ servers:
   - url: https://console.vast.ai
     description: Production server
 paths:
-  /api/v0/instances/{id}/ssh/{key}/:
+  /api/v0/instances/{id}/ssh/{ssh_key_id}/:
     delete:
       summary: detach ssh-key
       description: |
@@ -24,10 +24,11 @@ paths:
           schema:
             type: integer
             example: 99999
-        - name: key
+        - name: ssh_key_id
           in: path
           required: true
-          description: Numeric ID of the SSH key to detach
+          description: |
+            Numeric ID of the SSH key to detach. Obtainable via `show ssh-keys` command
           schema:
             type: integer
             example: 12345

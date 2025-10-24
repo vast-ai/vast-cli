@@ -5831,55 +5831,55 @@ def filter_invoice_items(args: argparse.Namespace, rows: List) -> Dict:
 
 
 
-#@parser.command(
-#    argument("-q", "--quiet", action="store_true", help="only display numeric ids"),
-#    argument("-s", "--start_date", help="start date and time for report. Many formats accepted (optional)", type=str),
-#    argument("-e", "--end_date", help="end date and time for report. Many formats accepted (optional)", type=str),
-#    argument("-c", "--only_charges", action="store_true", help="Show only charge items."),
-#    argument("-p", "--only_credits", action="store_true", help="Show only credit items."),
-#    usage="vastai generate pdf-invoices [OPTIONS]",
-#)
-#def generate__pdf_invoices(args):
-#    """
-#    Makes a PDF version of the data returned by the "show invoices" command. Takes the same command line args as that
-#    command.
-#
-#    :param argparse.Namespace args: should supply all the command-line options
-#    :rtype:
-#    """
-#
-#    try:
-#        import vast_pdf
-#    except ImportError:
-#        print("""\nWARNING: The 'vast_pdf' library is not present. This library is used to print invoices in PDF format. If
-#        you do not need this feature you can ignore this message. To get the library you should download the vast-python
-#        github repository. Just do 'git@github.com:vast-ai/vast-python.git' and then 'cd vast-python'. Once in that
-#        directory you can run 'vast.py' and it will have access to 'vast_pdf.py'. The library depends on a Python
-#        package called Borb to make the PDF files. To install this package do 'pip3 install borb'.\n""")
-#
-#    sdate,edate = convert_dates_to_timestamps(args)
-#    req_url_inv = apiurl(args, "/users/me/invoices", {"owner": "me", "sdate":sdate, "edate":edate})
-#
-#    r_inv = http_get(args, req_url_inv, headers=headers)
-#    r_inv.raise_for_status()
-#    rows_inv = r_inv.json()["invoices"]
-#    invoice_filter_data = filter_invoice_items(args, rows_inv)
-#    rows_inv = invoice_filter_data["rows"]
-#    req_url = apiurl(args, "/users/current", {"owner": "me"})
-#    r = http_get(args, req_url)
-#    r.raise_for_status()
-#    user_blob = r.json()
-#    user_blob = translate_null_strings_to_blanks(user_blob)
-#
-#    if args.raw:
-#        print(json.dumps(rows_inv, indent=1, sort_keys=True))
-#        print("Current: ", user_blob)
-#        print("Raw mode")
-#    else:
-#        display_table(rows_inv, invoice_fields)
-#        vast_pdf.generate_invoice(user_blob, rows_inv, invoice_filter_data)
-#
-#
+@parser.command(
+   argument("-q", "--quiet", action="store_true", help="only display numeric ids"),
+   argument("-s", "--start_date", help="start date and time for report. Many formats accepted (optional)", type=str),
+   argument("-e", "--end_date", help="end date and time for report. Many formats accepted (optional)", type=str),
+   argument("-c", "--only_charges", action="store_true", help="Show only charge items."),
+   argument("-p", "--only_credits", action="store_true", help="Show only credit items."),
+   usage="vastai generate pdf-invoices [OPTIONS]",
+)
+def generate__pdf_invoices(args):
+   """
+   Makes a PDF version of the data returned by the "show invoices" command. Takes the same command line args as that
+   command.
+
+   :param argparse.Namespace args: should supply all the command-line options
+   :rtype:
+   """
+
+   try:
+       import vast_pdf
+   except ImportError:
+       print("""\nWARNING: The 'vast_pdf' library is not present. This library is used to print invoices in PDF format. If
+       you do not need this feature you can ignore this message. To get the library you should download the vast-python
+       github repository. Just do 'git@github.com:vast-ai/vast-python.git' and then 'cd vast-python'. Once in that
+       directory you can run 'vast.py' and it will have access to 'vast_pdf.py'. The library depends on a Python
+       package called Borb to make the PDF files. To install this package do 'pip3 install borb'.\n""")
+
+   sdate,edate = convert_dates_to_timestamps(args)
+   req_url_inv = apiurl(args, "/users/me/invoices", {"owner": "me", "sdate":sdate, "edate":edate})
+
+   r_inv = http_get(args, req_url_inv, headers=headers)
+   r_inv.raise_for_status()
+   rows_inv = r_inv.json()["invoices"]
+   invoice_filter_data = filter_invoice_items(args, rows_inv)
+   rows_inv = invoice_filter_data["rows"]
+   req_url = apiurl(args, "/users/current", {"owner": "me"})
+   r = http_get(args, req_url)
+   r.raise_for_status()
+   user_blob = r.json()
+   user_blob = translate_null_strings_to_blanks(user_blob)
+
+   if args.raw:
+       print(json.dumps(rows_inv, indent=1, sort_keys=True))
+       print("Current: ", user_blob)
+       print("Raw mode")
+   else:
+       display_table(rows_inv, invoice_fields)
+       vast_pdf.generate_invoice(user_blob, rows_inv, invoice_filter_data)
+
+
 
 
 @parser.command(

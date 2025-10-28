@@ -5709,6 +5709,11 @@ paths:
                     items:
                       type: string
                   description: Sort fields and directions
+                  minItems: 2
+                  maxItems: 2
+                  example:
+                  - reliability
+                  - desc
                 disable_bundling:
                   type: boolean
                   description: Disable offer bundling

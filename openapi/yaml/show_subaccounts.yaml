@@ -11,13 +11,10 @@ paths:
   /api/v0/subaccounts/:
     get:
       summary: show subaccounts
-      description: 'Retrieve a list of subaccounts associated with the authenticated
-        user''s account.
+      description: |
+        Retrieve a list of subaccounts associated with the authenticated user's account.
 
-
-        CLI Usage: vast-ai show subaccounts
-
-        '
+        CLI Usage: `vastai show subaccounts`
       security:
       - BearerAuth: []
       responses:
@@ -39,9 +36,9 @@ paths:
                         parent_id:
                           type: integer
                           description: The ID of the parent account.
-                        api_key:
-                          type: string
-                          description: The API key associated with the subaccount.
+                        key_id:
+                          type: integer
+                          description: The API key ID associated with the subaccount.
                         created_at:
                           type: string
                           format: date-time

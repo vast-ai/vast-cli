@@ -11,13 +11,10 @@ paths:
   /api/v0/users/{user_id}/invoices/:
     get:
       summary: show invoices
-      description: 'This endpoint retrieves billing history reports for the authenticated
-        user, including charges and credits.
+      description: |
+        This endpoint retrieves billing history reports for the authenticated user, including charges and credits.
 
-
-        CLI Usage: vast-ai show invoices
-
-        '
+        CLI Usage: `vastai show invoices`
       security:
       - BearerAuth: []
       parameters:

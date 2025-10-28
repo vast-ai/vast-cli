@@ -1162,10 +1162,6 @@ def parse_vast_url(url_str):
             (instance_id, path) = url_parts
         else:
             raise VRLException("Invalid VRL (Vast resource locator).")
-        try:
-            instance_id = int(instance_id)
-        except:
-            raise VRLException("Instance id must be an integer.")
     else:
         try:
             instance_id = int(path)
@@ -1445,27 +1441,38 @@ def clone__volume(args: argparse.Namespace):
 
 
 @parser.command(
-    argument("src", help="instance_id:/path to source of object to copy", type=str),
-    argument("dst", help="instance_id:/path to target of copy operation", type=str),
+    argument("src", help="Source location for copy operation (supports multiple formats)", type=str),
+    argument("dst", help="Target location for copy operation (supports multiple formats)", type=str),
     argument("-i", "--identity", help="Location of ssh private key", type=str),
     usage="vastai copy SRC DST",
     help="Copy directories between instances and/or local",
     epilog=deindent("""
         Copies a directory from a source location to a target location. Each of source and destination
         directories can be either local or remote, subject to appropriate read and write
-        permissions required to carry out the action. The format for both src and dst is [instance_id:]path.
-                    
+        permissions required to carry out the action.
+
+        Supported location formats:
+        - [instance_id:]path               (legacy format, still supported)
+        - C.instance_id:path              (container copy format)
+        - cloud_service:path              (cloud service format)
+        - cloud_service.cloud_service_id:path  (cloud service with ID)
+        - local:path                      (explicit local path)
+
         You should not copy to /root or / as a destination directory, as this can mess up the permissions on your instance ssh folder, breaking future copy operations (as they use ssh authentication)
         You can see more information about constraints here: https://vast.ai/docs/gpu-instances/data-movement#constraints
-                    
+
         Examples:
          vast copy 6003036:/workspace/ 6003038:/workspace/
-         vast copy 11824:/data/test data/test
-         vast copy data/test 11824:/data/test
+         vast copy C.11824:/data/test local:data/test
+         vast copy local:data/test C.11824:/data/test
+         vast copy drive:/folder/file.txt C.6003036:/workspace/
+         vast copy s3.101:/data/ C.6003036:/workspace/
 
         The first example copy syncs all files from the absolute directory '/workspace' on instance 6003036 to the directory '/workspace' on instance 6003038.
-        The second example copy syncs the relative directory 'data/test' on the local machine from '/data/test' in instance 11824.
-        The third example copy syncs the directory '/data/test' in instance 11824 from the relative directory 'data/test' on the local machine.
+        The second example copy syncs files from container 11824 to the local machine using structured syntax.
+        The third example copy syncs files from local to container 11824 using structured syntax.
+        The fourth example copy syncs files from Google Drive to an instance.
+        The fifth example copy syncs files from S3 bucket with id 101 to an instance.
     """),
 )
 def copy(args: argparse.Namespace):
@@ -1504,27 +1511,27 @@ def copy(args: argparse.Namespace):
     if (r.status_code == 200):
         rj = r.json()
         #print(json.dumps(rj, indent=1, sort_keys=True))
-        if (rj["success"]) and ((src_id is None) or (dst_id is None)):
+        if (rj["success"]) and ((src_id is None or src_id == "local") or (dst_id is None or dst_id == "local")):
             homedir = subprocess.getoutput("echo $HOME")
             #print(f"homedir: {homedir}")
             remote_port = None
-            identity = args.identity if (args.identity is not None) else f"{homedir}/.ssh/id_rsa"
-            if (src_id is None):
+            identity = f"-i {args.identity}" if (args.identity is not None) else ""
+            if (src_id is None or src_id == "local"):
                 #result = subprocess.run(f"mkdir -p {src_path}", shell=True)
                 remote_port = rj["dst_port"]
                 remote_addr = rj["dst_addr"]
-                cmd = f"sudo rsync -arz -v --progress --rsh=ssh -e 'sudo ssh -i {identity} -p {remote_port} -o StrictHostKeyChecking=no' {src_path} vastai_kaalia@{remote_addr}::{dst_id}/{dst_path}"
+                cmd = f"rsync -arz -v --progress --rsh=ssh -e 'ssh {identity} -p {remote_port} -o StrictHostKeyChecking=no' {src_path} vastai_kaalia@{remote_addr}::{dst_id}/{dst_path}"
                 print(cmd)
                 result = subprocess.run(cmd, shell=True)
                 #result = subprocess.run(["sudo", "rsync" "-arz", "-v", "--progress", "-rsh=ssh", "-e 'sudo ssh -i {homedir}/.ssh/id_rsa -p {remote_port} -o StrictHostKeyChecking=no'", src_path, "vastai_kaalia@{remote_addr}::{dst_id}"], shell=True)
-            elif (dst_id is None):
+            elif (dst_id is None or dst_id == "local"):
                 result = subprocess.run(f"mkdir -p {dst_path}", shell=True)
                 remote_port = rj["src_port"]
                 remote_addr = rj["src_addr"]
-                cmd = f"sudo rsync -arz -v --progress --rsh=ssh -e 'sudo ssh -i {identity} -p {remote_port} -o StrictHostKeyChecking=no' vastai_kaalia@{remote_addr}::{src_id}/{src_path} {dst_path}"
+                cmd = f"rsync -arz -v --progress --rsh=ssh -e 'ssh -i {identity} -p {remote_port} -o StrictHostKeyChecking=no' vastai_kaalia@{remote_addr}::{src_id}/{src_path} {dst_path}"
                 print(cmd)
                 result = subprocess.run(cmd, shell=True)
-                #result = subprocess.run(["sudo", "rsync" "-arz", "-v", "--progress", "-rsh=ssh", "-e 'sudo ssh -i {homedir}/.ssh/id_rsa -p {remote_port} -o StrictHostKeyChecking=no'", "vastai_kaalia@{remote_addr}::{src_id}", dst_path], shell=True)
+                #result = subprocess.run(["sudo", "rsync" "-arz", "-v", "--progress", "-rsh=ssh", "-e 'ssh -i {homedir}/.ssh/id_rsa -p {remote_port} -o StrictHostKeyChecking=no'", "vastai_kaalia@{remote_addr}::{src_id}", dst_path], shell=True)
         else:
             if (rj["success"]):
                 print("Remote to Remote copy initiated - check instance status bar for progress updates (~30 seconds delayed).")
@@ -2112,6 +2119,7 @@ def generate_ssh_key(auto_yes=False):
     argument("--min_load", help="[NOTE: this field isn't currently used at the workergroup level] minimum floor load in perf units/s  (token/s for LLms)", type=float),
     argument("--target_util", help="[NOTE: this field isn't currently used at the workergroup level] target capacity utilization (fraction, max 1.0, default 0.9)", type=float),
     argument("--cold_mult",   help="[NOTE: this field isn't currently used at the workergroup level]cold/stopped instance capacity target as multiple of hot capacity target (default 2.0)", type=float),
+    argument("--cold_workers",   help="min number of workers to keep 'cold' for this workergroup", type=int),
     argument("--auto_instance", help="unused", type=str, default="prod"),
     usage="vastai workergroup create [OPTIONS]",
     help="Create a new autoscale group",
@@ -2134,7 +2142,7 @@ def create__workergroup(args):
         #query = {"verified": {"eq": True}, "external": {"eq": False}, "rentable": {"eq": True}, "rented": {"eq": False}}
     search_params = (args.search_params if args.search_params is not None else "" + query).strip()
 
-    json_blob = {"client_id": "me", "min_load": args.min_load, "target_util": args.target_util, "cold_mult": args.cold_mult, "test_workers" : args.test_workers, "template_hash": args.template_hash, "template_id": args.template_id, "search_params": search_params, "launch_args": args.launch_args, "gpu_ram": args.gpu_ram, "endpoint_name": args.endpoint_name, "endpoint_id": args.endpoint_id, "autoscaler_instance": args.auto_instance}
+    json_blob = {"client_id": "me", "min_load": args.min_load, "target_util": args.target_util, "cold_mult": args.cold_mult, "cold_workers" : args.cold_workers, "test_workers" : args.test_workers, "template_hash": args.template_hash, "template_id": args.template_id, "search_params": search_params, "launch_args": args.launch_args, "gpu_ram": args.gpu_ram, "endpoint_name": args.endpoint_name, "endpoint_id": args.endpoint_id, "autoscaler_instance": args.auto_instance}
 
     if (args.explain):
         print("request json: ")
@@ -2716,6 +2724,7 @@ def delete__cluster(args: argparse.Namespace):
 
 @parser.command(
     argument("id", help="id of group to delete", type=int),
+    argument("--auto_instance", help=argparse.SUPPRESS, type=str, default="prod"),
     usage="vastai delete workergroup ID ",
     help="Delete a workergroup group",
     epilog=deindent("""
@@ -2726,7 +2735,7 @@ def delete__cluster(args: argparse.Namespace):
 def delete__workergroup(args):
     id  = args.id
     url = apiurl(args, f"/autojobs/{id}/" )
-    json_blob = {"client_id": "me", "autojob_id": args.id}
+    json_blob = {"client_id": "me", "autojob_id": args.id, "autoscaler_instance": args.auto_instance}
     if (args.explain):
         print("request json: ")
         print(json_blob)
@@ -2745,17 +2754,17 @@ def delete__workergroup(args):
 
 @parser.command(
     argument("id", help="id of endpoint group to delete", type=int),
+    argument("--auto_instance", help=argparse.SUPPRESS, type=str, default="prod"),
     usage="vastai delete endpoint ID ",
     help="Delete an endpoint group",
     epilog=deindent("""
-        Note that deleting an endpoint group doesn't automatically destroy all the instances that are associated with your endpoint group, nor all the workergroups.
         Example: vastai delete endpoint 4242
     """),
 )
 def delete__endpoint(args):
     id  = args.id
     url = apiurl(args, f"/endptjobs/{id}/" )
-    json_blob = {"client_id": "me", "endptjob_id": args.id}
+    json_blob = {"client_id": "me", "endptjob_id": args.id, "autoscaler_instance": args.auto_instance}
     if (args.explain):
         print("request json: ")
         print(json_blob)
@@ -3940,7 +3949,7 @@ invoices_fields = {
 @parser.command(
     argument("query", help="Search query in simple query syntax (see below)", nargs="*", default=None),
     usage="vastai search invoices [--help] [--api-key API_KEY] [--raw] <query>",
-    help="Search for benchmark results using custom query",
+    help="Search for invoices using custom query",
     epilog=deindent("""
         Query syntax:
 
@@ -5435,6 +5444,7 @@ def transfer__credit(args: argparse.Namespace):
     argument("--min_load", help="minimum floor load in perf units/s  (token/s for LLms)", type=float),
     argument("--target_util",      help="target capacity utilization (fraction, max 1.0, default 0.9)", type=float),
     argument("--cold_mult",   help="cold/stopped instance capacity target as multiple of hot capacity target (default 2.5)", type=float),
+    argument("--cold_workers",   help="min number of workers to keep 'cold' for this workergroup", type=int),
     argument("--test_workers",help="number of workers to create to get an performance estimate for while initializing workergroup (default 3)", type=int),
     argument("--gpu_ram",   help="estimated GPU RAM req  (independent of search string)", type=float),
     argument("--template_hash",   help="template hash (**Note**: if you use this field, you can skip search_params, as they are automatically inferred from the template)", type=str),
@@ -5459,7 +5469,7 @@ def update__workergroup(args):
         query = " verified=True rentable=True rented=False"
     if args.search_params is not None:
         query = args.search_params + query
-    json_blob = {"client_id": "me", "autojob_id": args.id, "min_load": args.min_load, "target_util": args.target_util, "cold_mult": args.cold_mult, "test_workers" : args.test_workers, "template_hash": args.template_hash, "template_id": args.template_id, "search_params": query, "launch_args": args.launch_args, "gpu_ram": args.gpu_ram, "endpoint_name": args.endpoint_name, "endpoint_id": args.endpoint_id}
+    json_blob = {"client_id": "me", "autojob_id": args.id, "min_load": args.min_load, "target_util": args.target_util, "cold_mult": args.cold_mult, "cold_workers": args.cold_workers, "test_workers" : args.test_workers, "template_hash": args.template_hash, "template_id": args.template_id, "search_params": query, "launch_args": args.launch_args, "gpu_ram": args.gpu_ram, "endpoint_name": args.endpoint_name, "endpoint_id": args.endpoint_id}
     if (args.explain):
         print("request json: ")
         print(json_blob)
@@ -7408,12 +7418,12 @@ def check_requirements(machine_id, api_key, args):
             unmet_reasons.append("PCIe bandwidth <= 2.85")
 
         # 5. Download speed
-        if safe_float(top_offer.get('inet_down')) <= 10:
-            unmet_reasons.append("Download speed <= 10 Mb/s")
+        if safe_float(top_offer.get('inet_down')) < 500:
+            unmet_reasons.append("Download speed < 500 Mb/s")
 
         # 6. Upload speed
-        if safe_float(top_offer.get('inet_up')) <= 10:
-            unmet_reasons.append("Upload speed <= 10 Mb/s")
+        if safe_float(top_offer.get('inet_up')) < 500:
+            unmet_reasons.append("Upload speed < 500 Mb/s")
 
         # 7. GPU RAM
         if safe_float(top_offer.get('gpu_ram')) <= 7:

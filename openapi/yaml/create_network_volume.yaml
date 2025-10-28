@@ -10,10 +10,10 @@ paths:
   /api/v0/network_volume/:
     put:
       summary: create network-volume
-      description: 'Creates a network volume from an offer
-        
-       CLI Usage: vast create network-volume <offer_id>
-        '
+      description: |
+        Creates a network volume from an offer.
+
+        CLI Usage: `vastai create network-volume <offer_id> <size> [--name <name>]`
       security:
       - BearerAuth: []
       requestBody:

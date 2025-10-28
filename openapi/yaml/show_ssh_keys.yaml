@@ -7,8 +7,10 @@ paths:
   /api/v0/ssh/:
     get:
       summary: show ssh keys
-      description: Retrieve a list of SSH keys associated with the authenticated user's
-        account.
+      description: |
+        Retrieve a list of SSH keys associated with the authenticated user's account.
+
+        CLI Usage: `vastai show ssh-keys`
       operationId: getSshKeysUser
       parameters:
       - name: Authorization

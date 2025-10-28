@@ -10,13 +10,10 @@ paths:
   /api/v0/team/members/:
     get:
       summary: show team members
-      description: 'Retrieve a list of team members associated with the authenticated
-        user''s team.
+      description: |
+        Retrieve a list of team members associated with the authenticated user's team.
 
-
-        CLI Usage: vastai show team-members
-
-        '
+        CLI Usage: `vastai show team-members`
       security:
       - BearerAuth: []
       responses:
@@ -41,6 +38,10 @@ paths:
                       type: string
                       description: Email of the team member
                       example: johndoe@example.com
+                    fullname:
+                      type: string
+                      description: Full name of the team member
+                      example: John Doe
                     roles:
                       type: array
                       description: Roles assigned to the team member

@@ -10,7 +10,10 @@ paths:
   /api/v0/instances/{instance_id}/ssh/:
     get:
       summary: show ssh-keys
-      description: 'Retrieves the SSH keys associated with a specific instance.'
+      description: |
+        Retrieves the SSH keys associated with a specific instance.
+
+        CLI Usage: `vastai show ssh-keys <instance_id>`
       security:
       - BearerAuth: []
       parameters:

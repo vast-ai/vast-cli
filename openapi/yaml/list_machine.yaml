@@ -10,15 +10,11 @@ paths:
   /api/v0/machines/create_asks/:
     put:
       summary: list machine
-      description: 'Creates or updates ask contracts for a machine to list it for
-        rent on the vast.ai platform.
-
+      description: |
+        Creates or updates ask contracts for a machine to list it for rent on the vast.ai platform.
         Allows setting pricing, minimum GPU requirements, end date and discount rates.
 
-
-        CLI Usage: vast list machine <machine_id> [options]
-
-        '
+        CLI Usage: `vastai list machine <machine_id> [options]`
       security:
       - BearerAuth: []
       requestBody:

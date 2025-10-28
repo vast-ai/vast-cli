@@ -7,15 +7,10 @@ paths:
   /api/v0/template/:
     post:
       summary: create template
-      description: 'Creates a new template for launching instances. If an identical
-        template already exists,
+      description: |
+        Creates a new template for launching instances. If an identical template already exists, returns the existing template instead of creating a duplicate.
 
-        returns the existing template instead of creating a duplicate.
-
-
-        CLI Usage: vast create template [options]
-
-        '
+        CLI Usage: `vastai create template [options]`
       tags:
       - Templates
       security:
@@ -27,8 +22,14 @@ paths:
             schema:
               type: object
               properties:
+                name:
+                  type: string
+                  maxLength: 256
+                  description: Name of the template
+                  example: My Template
                 image:
                   type: string
+                  maxLength: 1024
                   description: Docker image path
                   example: ghcr.io/huggingface/text-generation-inference:1.0.3
                 tag:
@@ -36,10 +37,12 @@ paths:
                   description: Docker image tag
                 env:
                   type: string
+                  maxLength: 1024
                   description: Docker environment variables and run arguments
                   example: -p 3000:3000 -e MODEL_ARGS='--model-id TheBloke/Llama-2-7B-chat-GPTQ'
                 onstart:
                   type: string
+                  maxLength: 2048
                   description: Command to run on instance startup
                 jup_direct:
                   type: boolean
@@ -62,6 +65,7 @@ paths:
                   description: Enable SSH access
                 jupyter_dir:
                   type: string
+                  maxLength: 256
                   description: Jupyter notebook directory
                 docker_login_repo:
                   type: string
@@ -73,6 +77,7 @@ paths:
                   type: number
                   description: Recommended disk space in GB
               required:
+              - name
               - image
       responses:
         '200':
@@ -88,10 +93,14 @@ paths:
                   msg:
                     type: string
                     description: Status message
+                    example: "Template Created Successfully! New Template ID: 123456"
                   template:
                     type: object
                     description: Template details
                     properties:
+                      name:
+                        type: string
+                        description: Template name
                       id:
                         type: integer
                         description: Template ID
@@ -108,9 +117,12 @@ paths:
                   success:
                     type: boolean
                     example: false
+                  error:
+                    type: string
+                    example: invalid_args
                   msg:
                     type: string
-                    example: Template Failed to be Created
+                    example: Template name is required 
         '429':
           description: Rate limit exceeded
         '401':

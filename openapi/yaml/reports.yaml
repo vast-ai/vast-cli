@@ -7,17 +7,13 @@ servers:
 - url: https://console.vast.ai
   description: Production server
 paths:
-  /api/v0/machines/{machine_id}/reports:
+  /api/v0/machines/{machine_id}/reports/:
     get:
       summary: show reports
-      description: 'Retrieves a list of the most recent reports for a given machine.
-        Each report includes details such as the problem identified, a message describing
-        the issue, and the timestamp when the report was created.
+      description: |
+        Retrieves a list of the most recent reports for a given machine. Each report includes details such as the problem identified, a message describing the issue, and the timestamp when the report was created.
 
-
-        CLI Usage: vastai reports <machine_id>
-
-        '
+        CLI Usage: `vastai reports <machine_id>`
       security:
       - BearerAuth: []
       parameters:

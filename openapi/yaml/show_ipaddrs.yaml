@@ -10,13 +10,10 @@ paths:
   /api/v0/users/{user_id}/ipaddrs/:
     get:
       summary: show ipaddrs
-      description: 'This endpoint retrieves the history of IP address accesses for
-        the authenticated user.
+      description: |
+        This endpoint retrieves the history of IP address accesses for the authenticated user.
 
-
-        CLI Usage: vast-ai show ipaddrs
-
-        '
+        CLI Usage: `vastai show ipaddrs`
       security:
       - BearerAuth: []
       parameters:

@@ -10,7 +10,10 @@ paths:
   /api/v0/workergroups/{id}/:
     delete:
       summary: delete workergroup
-      description: "Deletes an existing workergroup. \n\nCLI Usage: vastai delete workergroup <ID>\n"
+      description: |
+        Deletes an existing workergroup.
+
+        CLI Usage: `vastai delete workergroup <id>`
       security:
       - BearerAuth: []
       parameters:

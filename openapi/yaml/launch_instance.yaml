@@ -22,10 +22,9 @@ paths:
     put:
       summary: launch instance
       description: |
-        This endpoint launches an instance based on the specified parameters,
-        selecting the first available offer that meets the criteria.
+        This endpoint launches an instance based on the specified parameters, selecting the first available offer that meets the criteria.
 
-        CLI Usage: vast-ai launch instance {parameters}
+        CLI Usage: `vastai launch instance <parameters>`
       security:
       - BearerAuth: []
       requestBody:

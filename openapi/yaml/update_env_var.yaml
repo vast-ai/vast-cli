@@ -10,13 +10,10 @@ paths:
   /api/v0/secrets/:
     put:
       summary: update env var
-      description: 'Updates the value of an existing environment variable for the
-        authenticated user.
+      description: |
+        Updates the value of an existing environment variable for the authenticated user.
 
-
-        CLI Usage: vast-ai set env-var KEY VALUE
-
-        '
+        CLI Usage: `vastai update env-var <key> <value>`
       security:
       - BearerAuth: []
       requestBody:

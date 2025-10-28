@@ -7,13 +7,13 @@ servers:
 - url: https://console.vast.ai
   description: Production server
 paths:
-  /api/v0/network_volume/unlist:
+  /api/v0/network_volumes/unlist/:
     post:
       summary: unlist network-volume
-      description: 'Unlists a network volume for rent
-        
-       CLI Usage: vast unlist network-volume <offer_id>
-        '
+      description: |
+        Unlists a network volume for rent.
+
+        CLI Usage: `vastai unlist volume <offer_id>`
       security:
       - BearerAuth: []
       requestBody:

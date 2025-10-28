@@ -10,12 +10,10 @@ paths:
   /api/v0/team/roles/{id}/:
     get:
       summary: show team role
-      description: 'Retrieve details of a specific team role by its name.
+      description: |
+        Retrieve details of a specific team role by its name.
 
-
-        CLI Usage: vastai show team-role NAME
-
-        '
+        CLI Usage: `vastai show team-role <name>`
       security:
       - BearerAuth: []
       parameters:

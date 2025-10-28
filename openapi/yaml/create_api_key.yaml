@@ -15,19 +15,10 @@ paths:
   /api/v0/auth/apikeys/:
     post:
       summary: create api-key
-      description: 'Creates a new API key with specified permissions for the authenticated
-        user.
+      description: |
+        Creates a new API key with specified permissions for the authenticated user.
 
-
-        CLI Usage: vast create api-key --name NAME --permission_file PERMISSIONS [--key_params
-        PARAMS]
-
-
-        Example:
-
-        vast create api-key --name "read-only" --permission_file permissions.json
-
-        '
+        CLI Usage: `vastai create api-key --name <name> --permission_file <permissions_file> [--key_params <params>]`
       security:
       - BearerAuth: []
       requestBody:

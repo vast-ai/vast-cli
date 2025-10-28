@@ -16,7 +16,8 @@ paths:
       description: 'Adds a network disk to be used to create network volume offers,
         or adds machines to an existing network disk.
 
-        CLI Usage: vast add network_disk <machine_id>... <mount_point> [options]'
+
+        CLI Usage: `vastai add network_disk <machine_id>... <mount_point> [options]`'
       security:
       - BearerAuth: []
       requestBody:
@@ -95,7 +96,7 @@ paths:
         using the provided key.
 
 
-        CLI Usage: vast attach instance_id ssh_key'
+        CLI Usage: `vastai attach ssh <instance_id> <ssh_key>`'
       security:
       - BearerAuth: []
       parameters:
@@ -153,8 +154,11 @@ paths:
   /api/v0/commands/copy_direct/:
     delete:
       summary: cancel copy
-      description: Cancel a remote copy operation specified by the destination ID
+      description: 'Cancel a remote copy operation specified by the destination ID
         (dst_id).
+
+
+        CLI Usage: `vastai cancel copy --dst_id <destination_id>`'
       operationId: cancelRemoteRsync
       requestBody:
         required: true
@@ -218,8 +222,11 @@ paths:
       - Instances
     put:
       summary: copy
-      description: Initiate a remote copy operation to transfer data from one instance
+      description: 'Initiate a remote copy operation to transfer data from one instance
         to another or between an instance and the local machine.
+
+
+        CLI Usage: `vastai copy <src_id> <dst_id> <src_path> <dst_path>`'
       operationId: initiateRemoteRsync
       requestBody:
         required: true
@@ -295,10 +302,13 @@ paths:
       x-rateLimit: 3.5
       tags:
       - Instances
-  /api/v0/machines/{machine_id}/cancel_maint:
+  /api/v0/machines/{machine_id}/cancel_maint/:
     put:
       summary: cancel maint
-      description: Cancel a scheduled maintenance window for a specified machine.
+      description: 'Cancel a scheduled maintenance window for a specified machine.
+
+
+        CLI Usage: `vastai cancel maint <machine_id>`'
       parameters:
       - name: machine_id
         in: path
@@ -355,7 +365,10 @@ paths:
       description: 'Cancels an in-progress remote sync operation identified by the
         destination instance ID.
 
-        This operation cannot be resumed once canceled and must be restarted if needed.'
+        This operation cannot be resumed once canceled and must be restarted if needed.
+
+
+        CLI Usage: `vastai cancel sync --dst_id <destination_id>`'
       requestBody:
         required: true
         content:
@@ -420,8 +433,11 @@ paths:
       - Instances
     post:
       summary: cloud copy
-      description: Starts a cloud copy operation by sending a command to the remote
+      description: 'Starts a cloud copy operation by sending a command to the remote
         server. The operation can transfer data between an instance and a cloud service.
+
+
+        CLI Usage: `vastai cloud copy <instance_id> <src> <dst> [options]`'
       requestBody:
         required: true
         content:
@@ -487,7 +503,8 @@ paths:
       summary: change bid
       description: 'Change the current bid price of an instance to a specified price.
 
-        CLI Usage: vastai change bid id [--price PRICE]'
+
+        CLI Usage: `vastai change bid <id> --price <price>`'
       security:
       - BearerAuth: []
       parameters:
@@ -574,14 +591,14 @@ paths:
                     example: API requests too frequent endpoint threshold=5.5
       tags:
       - Instances
-  /api/v0/machines/{machine_id}/cleanup:
+  /api/v0/machines/{machine_id}/cleanup/:
     put:
       summary: cleanup machine
       description: 'This endpoint removes expired contracts on a specified machine,
         freeing up space.
 
 
-        CLI Usage: vast-ai cleanup machine {machine_id}'
+        CLI Usage: `vastai cleanup machine <machine_id>`'
       security:
       - BearerAuth: []
       parameters:
@@ -662,13 +679,8 @@ paths:
         user.
 
 
-        CLI Usage: vast create api-key --name NAME --permission_file PERMISSIONS [--key_params
-        PARAMS]
-
-
-        Example:
-
-        vast create api-key --name "read-only" --permission_file permissions.json'
+        CLI Usage: `vastai create api-key --name <name> --permission_file <permissions_file>
+        [--key_params <params>]`'
       security:
       - BearerAuth: []
       requestBody:
@@ -770,7 +782,7 @@ paths:
       description: 'Retrieves all API keys associated with the authenticated user.
 
 
-        CLI Usage: vastai show api-keys'
+        CLI Usage: `vastai show api-keys`'
       security:
       - BearerAuth: []
       responses:
@@ -792,9 +804,6 @@ paths:
                         user_id:
                           type: integer
                           example: 456
-                        key:
-                          type: string
-                          example: your-api-key-value
                         rights:
                           type: string
                           example: read
@@ -839,8 +848,8 @@ paths:
         for a serverless endpoint.
 
 
-        CLI Usage: vast-ai create workergroup --template_hash <HASH> --endpoint_name
-        <NAME> [options]'
+        CLI Usage: `vastai create workergroup --template_hash <hash> --endpoint_name
+        <name> [options]`'
       security:
       - BearerAuth: []
       requestBody:
@@ -967,7 +976,7 @@ paths:
         user.
 
 
-        CLI Usage: vastai show workergroups'
+        CLI Usage: `vastai show workergroups`'
       security:
       - BearerAuth: []
       responses:
@@ -1080,7 +1089,7 @@ paths:
         parameters.
 
 
-        CLI Usage: vast-ai create endpoint'
+        CLI Usage: `vastai create endpoint [options]`'
       security:
       - BearerAuth: []
       requestBody:
@@ -1173,7 +1182,10 @@ paths:
       - Serverless
     get:
       summary: show endpoints
-      description: Retrieve a list of endpoint jobs for the authenticated user.
+      description: 'Retrieve a list of endpoint jobs for the authenticated user.
+
+
+        CLI Usage: `vastai show endpoints`'
       security:
       - BearerAuth: []
       responses:
@@ -1280,7 +1292,7 @@ paths:
         There is a limit on the total number of environment variables per user.
 
 
-        CLI Usage: vast create env-var KEY VALUE'
+        CLI Usage: `vastai create env-var <key> <value>`'
       security:
       - BearerAuth: []
       requestBody:
@@ -1368,7 +1380,7 @@ paths:
         The variable must exist and belong to the requesting user.
 
 
-        CLI Usage: vastai delete env-var <name>'
+        CLI Usage: `vastai delete env-var <name>`'
       operationId: deleteUserSecret
       security:
       - BearerAuth: []
@@ -1437,7 +1449,7 @@ paths:
         user.
 
 
-        CLI Usage: vast-ai show env-vars [-s]'
+        CLI Usage: `vastai show env-vars [-s]`'
       security:
       - BearerAuth: []
       responses:
@@ -1486,7 +1498,7 @@ paths:
         authenticated user.
 
 
-        CLI Usage: vast-ai set env-var KEY VALUE'
+        CLI Usage: `vastai update env-var <key> <value>`'
       security:
       - BearerAuth: []
       requestBody:
@@ -1561,11 +1573,15 @@ paths:
     put:
       summary: create instance
       description: 'Creates a new instance by accepting an "ask" contract from a provider.
+
         This is the main endpoint for launching new instances on Vast.ai.
 
-        CLI Usage: vast create instance <offer_id> [options]'
+
+        CLI Usage: `vastai create instance <offer_id> [options]`'
       security:
       - BearerAuth: []
+      tags:
+      - Instances
       parameters:
       - name: id
         in: path
@@ -1579,7 +1595,14 @@ paths:
           application/json:
             schema:
               type: object
+              required:
+              - image
               properties:
+                image:
+                  type: string
+                  description: Docker image to use for the instance
+                  example: tensorflow/tensorflow:latest-gpu
+                  maxLength: 1024
                 template_id:
                   type: integer
                   description: Optional template ID to use for instance configuration
@@ -1588,11 +1611,6 @@ paths:
                   type: string
                   description: Optional template hash ID to use for instance configuration
                   example: abc123def456
-                image:
-                  type: string
-                  description: Docker image to use for the instance
-                  example: tensorflow/tensorflow:latest-gpu
-                  maxLength: 1024
                 disk:
                   type: number
                   description: Storage space in GB
@@ -1834,14 +1852,13 @@ paths:
                   detail:
                     type: string
                     example: API requests too frequent endpoint threshold=4.5
-      tags:
-      - Instances
   /api/v0/network_volume/:
     put:
       summary: create network-volume
-      description: 'Creates a network volume from an offer
+      description: 'Creates a network volume from an offer.
 
-        CLI Usage: vast create network-volume <offer_id>'
+
+        CLI Usage: `vastai create network-volume <offer_id> <size> [--name <name>]`'
       security:
       - BearerAuth: []
       requestBody:
@@ -1915,9 +1932,10 @@ paths:
     post:
       summary: list network-volume
       description: 'Lists a network disk for rent as network volumes, or updates an
-        existing listing with a new price/size/end date/discount
+        existing listing with a new price/size/end date/discount.
 
-        CLI Usage: vast list network-volume <disk_id> [options]'
+
+        CLI Usage: `vastai list network-volume <disk_id> [options]`'
       security:
       - BearerAuth: []
       requestBody:
@@ -2000,9 +2018,7 @@ paths:
         The key will be automatically added to all your current instances.
 
 
-        CLI Usage: vast create ssh-key <ssh_key>
-
-        Example: vast create ssh-key "ssh-rsa AAAAB3NzaC1..."'
+        CLI Usage: `vastai create ssh-key <ssh_key>`'
       security:
       - BearerAuth: []
       requestBody:
@@ -2090,8 +2106,11 @@ paths:
       - Accounts
     get:
       summary: show ssh keys
-      description: Retrieve a list of SSH keys associated with the authenticated user's
-        account.
+      description: 'Retrieve a list of SSH keys associated with the authenticated
+        user''s account.
+
+
+        CLI Usage: `vastai show ssh-keys`'
       operationId: getSshKeysUser
       parameters:
       - name: Authorization
@@ -2142,13 +2161,11 @@ paths:
     post:
       summary: create subaccount
       description: 'Creates either a standalone user account or a subaccount under
-        a parent account.
-
-        Subaccounts can be restricted to host-only functionality.
+        a parent account. Subaccounts can be restricted to host-only functionality.
 
 
-        CLI Usage: vastai create subaccount --email EMAIL --username USERNAME --password
-        PASSWORD --type host'
+        CLI Usage: `vastai create subaccount --email <email> --username <username>
+        --password <password> [--type host]`'
       security:
       - BearerAuth: []
       requestBody:
@@ -2211,14 +2228,14 @@ paths:
                     type: string
                   email:
                     type: string
-                  api_key:
-                    type: string
+                  key_id:
+                    type: integer
                     description: API key for the new account
                 example:
                   id: 12345
                   username: testuser
                   email: user@example.com
-                  api_key: abc123def456
+                  key_id: 67890
         '400':
           description: Bad Request
           content:
@@ -2276,7 +2293,7 @@ paths:
       description: 'Updates the user data for the authenticated user.
 
 
-        CLI Usage: vast set user --file {file_path}'
+        CLI Usage: `vastai set user --file <file_path>`'
       security:
       - BearerAuth: []
       requestBody:
@@ -2345,28 +2362,30 @@ paths:
                     example: API requests too frequent endpoint threshold=5.0
       tags:
       - Accounts
-  /api/v0/team:
+  /api/v0/team/:
     post:
       summary: create team
-      description: 'Creates a new team with the authenticated user as the owner. The
-        user''s existing API key
+      description: 'Creates a new [team](https://docs.vast.ai/documentation/teams/teams-overview)
+        with given name and following default roles:
 
-        becomes the owner key for the team. The user cannot already be a team or be
-        a member of another team.
+        - **Owner**: Full access to all team resources, settings, and member management.
+        The team owner is the user who creates the team.
 
+        - **Manager**: All permissions of owner except team deletion.
 
-        The operation:
-
-        1. Converts the user into a team
-
-        2. Creates default team roles (member, manager, owner)
-
-        3. Converts user''s API key into the owner key
-
-        4. Adds the creating user as a team member
+        - **Member**: Can view, create, and interact with instances, but cannot access
+        billing, team management, autoscaler, or machines.
 
 
-        CLI Usage: vast create team --name <team_name>'
+        - The API key used to create the team becomes the team key and is used for
+        all team operations (e.g., creating roles, deleting the team).
+
+        - You can optionally transfer credits from your personal account to the new
+        team account using the `transfer_credit` field.
+
+
+        CLI Usage: `vastai create team --team_name <team_name> [--transfer_credit
+        <amount>]`'
       security:
       - BearerAuth: []
       tags:
@@ -2383,28 +2402,23 @@ paths:
               properties:
                 team_name:
                   type: string
-                  description: Name for the new team
                   example: my-awesome-team
-                permissions:
-                  type: object
-                  description: JSON object containing role and permission definitions.
-                    https://vast.ai/docs/cli/roles-and-permissions
-                  example:
-                    api:
-                      misc: {}
-                      user_read: {}
-                      instance_read: {}
-                      instance_write: {}
-                      billing_read: {}
-                      billing_write: {}
+                transfer_credit:
+                  type: number
+                  format: float
+                  description: Credits to transfer from personal account to team
+                  example: 0
       responses:
         '200':
-          description: Team created successfully
+          description: Team Successfully Created!
           content:
             application/json:
               schema:
                 type: object
                 properties:
+                  success:
+                    type: boolean
+                    example: true
                   msg:
                     type: string
                     example: Team Successfully Created!
@@ -2418,40 +2432,103 @@ paths:
                   success:
                     type: boolean
                     example: false
-                  error:
-                    type: string
-                    enum:
-                    - already_team
-                    - team_member
                   msg:
                     type: string
-                    example: Cannot create a team within a team
+                    example: Team name already exists
+        '401':
+          description: Unauthorized - Invalid or missing API key
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: auth_error
+                  msg:
+                    type: string
+                    example: Invalid user key
+    delete:
+      summary: destroy team
+      description: 'Deletes a team and all associated data including API keys, rights,
+        invitations, memberships and metadata. The team owner''s master API key is
+        converted to a normal client key.
+
+
+        CLI Usage: `vastai destroy team`'
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Team successfully deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  msg:
+                    type: string
+                    example: Team Successfully Deleted!
+                  pkey_id:
+                    type: integer
+                    description: ID of the user's team API key which was converted
+                      back to a client key.
+                    example: 12345
         '401':
           description: Unauthorized - Invalid or missing API key
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                success: false
+                error: auth_error
+                msg: Invalid user key
         '403':
-          description: Forbidden - User is blacklisted
+          description: Forbidden - Only the Team's Owner may delete the team
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                success: false
+                error: not_allowed
+                msg: Only the Team's Owner may delete the team
         '404':
-          description: User's master API key not found
+          description: Not Found - Team does not exist or user is not a team account
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-  /api/v0/team/role:
+              examples:
+                not_a_team:
+                  summary: User is not a team account
+                  value:
+                    success: false
+                    error: not_found
+                    msg: Cannot Delete Team. User is not a team account
+                owner_not_found:
+                  summary: Team owner not found
+                  value:
+                    success: false
+                    error: not_found
+                    msg: Team owner not found
+      tags:
+      - Team
+  /api/v0/team/roles/:
     post:
       summary: create team role
       description: 'Creates a new role within a team. Only team owners or managers
         with the appropriate permissions can perform this operation.
 
 
-        CLI Usage: vast create team role --name <role_name> --permissions <permissions_json>'
+        CLI Usage: `vastai create team role --name <role_name> --permissions <permissions_json>`'
       security:
       - BearerAuth: []
       tags:
@@ -2473,10 +2550,22 @@ paths:
                 permissions:
                   type: object
                   description: JSON object containing permission definitions
-                  example:
+                  properties:
                     api:
-                      user_read: {}
-                      instance_write: {}
+                      type: object
+                      description: API permissions
+                      allOf:
+                      - title: User Read
+                        type: object
+                        properties:
+                          user_read:
+                            type: object
+                            description: Permission to read user info
+                            default: {}
+                          instance_write:
+                            type: object
+                            description: Permission to write instances
+                            default: {}
       responses:
         '200':
           description: Role created successfully
@@ -2487,7 +2576,7 @@ paths:
                 properties:
                   msg:
                     type: string
-                    example: Role Successfully Created!
+                    example: success
         '400':
           description: Bad Request
           content:
@@ -2498,12 +2587,9 @@ paths:
                   success:
                     type: boolean
                     example: false
-                  error:
-                    type: string
-                    example: invalid_role_name
                   msg:
                     type: string
-                    example: Role name is invalid
+                    example: Missing permissions parameter
         '401':
           description: Unauthorized - Invalid or missing API key
           content:
@@ -2520,12 +2606,11 @@ paths:
     post:
       summary: create template
       description: 'Creates a new template for launching instances. If an identical
-        template already exists,
+        template already exists, returns the existing template instead of creating
+        a duplicate.
 
-        returns the existing template instead of creating a duplicate.
 
-
-        CLI Usage: vast create template [options]'
+        CLI Usage: `vastai create template [options]`'
       tags:
       - Templates
       security:
@@ -2537,8 +2622,14 @@ paths:
             schema:
               type: object
               properties:
+                name:
+                  type: string
+                  maxLength: 256
+                  description: Name of the template
+                  example: My Template
                 image:
                   type: string
+                  maxLength: 1024
                   description: Docker image path
                   example: ghcr.io/huggingface/text-generation-inference:1.0.3
                 tag:
@@ -2546,10 +2637,12 @@ paths:
                   description: Docker image tag
                 env:
                   type: string
+                  maxLength: 1024
                   description: Docker environment variables and run arguments
                   example: -p 3000:3000 -e MODEL_ARGS='--model-id TheBloke/Llama-2-7B-chat-GPTQ'
                 onstart:
                   type: string
+                  maxLength: 2048
                   description: Command to run on instance startup
                 jup_direct:
                   type: boolean
@@ -2572,6 +2665,7 @@ paths:
                   description: Enable SSH access
                 jupyter_dir:
                   type: string
+                  maxLength: 256
                   description: Jupyter notebook directory
                 docker_login_repo:
                   type: string
@@ -2583,6 +2677,7 @@ paths:
                   type: number
                   description: Recommended disk space in GB
               required:
+              - name
               - image
       responses:
         '200':
@@ -2598,10 +2693,14 @@ paths:
                   msg:
                     type: string
                     description: Status message
+                    example: 'Template Created Successfully! New Template ID: 123456'
                   template:
                     type: object
                     description: Template details
                     properties:
+                      name:
+                        type: string
+                        description: Template name
                       id:
                         type: integer
                         description: Template ID
@@ -2618,9 +2717,12 @@ paths:
                   success:
                     type: boolean
                     example: false
+                  error:
+                    type: string
+                    example: invalid_args
                   msg:
                     type: string
-                    example: Template Failed to be Created
+                    example: Template name is required
         '429':
           description: Rate limit exceeded
         '401':
@@ -2631,7 +2733,7 @@ paths:
         matching templates.
 
 
-        CLI Usage: vast search templates'
+        CLI Usage: `vastai search templates`'
       parameters:
       - name: query
         in: query
@@ -2709,7 +2811,7 @@ paths:
         The API key is soft-deleted by setting a deleted_at timestamp.
 
 
-        CLI Usage: vastai delete api-key ID'
+        CLI Usage: `vastai delete api-key <id>`'
       security:
       - BearerAuth: []
       parameters:
@@ -2777,76 +2879,13 @@ paths:
                     example: API requests too frequent endpoint threshold=2.0
       tags:
       - Accounts
-    get:
-      summary: show api key
-      description: 'Retrieves an existing API key belonging to the authenticated user.
-
-
-        CLI Usage: vastai show api-key ID'
-      security:
-      - BearerAuth: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        description: ID of the API key to retrieve
-        schema:
-          type: integer
-          minimum: 1
-        example: 123
-      responses:
-        '200':
-          description: API key successfully retrieved
-          content:
-            application/json:
-              schema:
-                type: string
-                example: your-api-key-value
-        '401':
-          description: Unauthorized - Invalid or missing authentication
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '403':
-          description: Forbidden - API key belongs to a different user
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  msg:
-                    type: string
-                    example: You do not have permission to access this key.
-        '404':
-          description: Not Found - API key does not exist
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  msg:
-                    type: string
-                    example: API Key not found.
-        '429':
-          description: Too Many Requests
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  detail:
-                    type: string
-                    example: API requests too frequent endpoint threshold=1.0
-      tags:
-      - Accounts
   /api/v0/workergroups/{id}/:
     delete:
       summary: delete workergroup
       description: 'Deletes an existing workergroup.
 
 
-        CLI Usage: vastai delete workergroup <ID>'
+        CLI Usage: `vastai delete workergroup <id>`'
       security:
       - BearerAuth: []
       parameters:
@@ -2953,7 +2992,7 @@ paths:
         provided parameters.
 
 
-        CLI Usage: vastai update workergroup <ID> [OPTIONS]'
+        CLI Usage: `vastai update workergroup <id> [options]`'
       security:
       - BearerAuth: []
       parameters:
@@ -3078,7 +3117,7 @@ paths:
         also be deleted.
 
 
-        CLI Usage: vastai delete endpoint <ID>'
+        CLI Usage: `vastai delete endpoint <id>`'
       security:
       - BearerAuth: []
       parameters:
@@ -3161,114 +3200,13 @@ paths:
                     example: API requests too frequent endpoint threshold=3.0
       tags:
       - Serverless
-    put:
-      summary: update endpoint
-      description: 'Updates the specified endpoint group with the provided parameters.
-
-
-        CLI Usage: vastai update endpoint ID [OPTIONS]'
-      security:
-      - BearerAuth: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        description: ID of the endpoint group to update
-        schema:
-          type: integer
-          example: 4242
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                min_load:
-                  type: number
-                  description: Minimum floor load in perf units/s (token/s for LLMs)
-                  example: 0.0
-                target_util:
-                  type: number
-                  description: Target capacity utilization (fraction, max 1.0)
-                  example: 0.9
-                cold_mult:
-                  type: number
-                  description: Cold/stopped instance capacity target as multiple of
-                    hot capacity target
-                  example: 2.5
-                cold_workers:
-                  type: integer
-                  description: Min number of workers to keep 'cold' when you have
-                    no load
-                  example: 5
-                max_workers:
-                  type: integer
-                  description: Max number of workers your endpoint group can have
-                  example: 20
-                endpoint_name:
-                  type: string
-                  description: Deployment endpoint name
-                  example: my_endpoint
-      responses:
-        '200':
-          description: Success response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-        '400':
-          description: Bad Request
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: false
-                  error:
-                    type: string
-                    example: invalid_args
-                  msg:
-                    type: string
-                    example: Endpointgroup not found for user
-        '401':
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: false
-                  error:
-                    type: string
-                  msg:
-                    type: string
-        '429':
-          description: Too Many Requests
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  detail:
-                    type: string
-                    example: API requests too frequent endpoint threshold=2.0
-      tags:
-      - Serverless
   /api/v0/ssh/{id}/:
     delete:
       summary: delete ssh key
       description: 'Removes an SSH key from the authenticated user''s account
 
-        CLI Usage: vastai delete ssh-key <id>`'
+
+        CLI Usage: `vastai delete ssh-key <id>`'
       operationId: deleteSshKey
       security:
       - BearerAuth: []
@@ -3333,7 +3271,7 @@ paths:
       description: 'Updates the specified SSH key with the provided value.
 
 
-        CLI Usage: vastai update ssh-key id ssh_key'
+        CLI Usage: `vastai update ssh-key <id> <ssh_key>`'
       security:
       - BearerAuth: []
       parameters:
@@ -3388,10 +3326,13 @@ paths:
                     example: API requests too frequent endpoint threshold=1.0
       tags:
       - Accounts
-  /api/v0/volumes:
+  /api/v0/volumes/:
     delete:
       summary: delete volume
-      description: 'Delete a volume by its ID. CLI Usage: vastai delete volume VOLUME_ID'
+      description: 'Delete a volume by its ID.
+
+
+        CLI Usage: `vastai delete volume <volume_id>`'
       security:
       - BearerAuth: []
       requestBody:
@@ -3464,6 +3405,90 @@ paths:
                     example: API requests too frequent endpoint threshold=5.5
       tags:
       - Volumes
+    put:
+      summary: rent volume
+      description: 'Rent/create a new volume with specified parameters.
+
+
+        CLI Usage: `vastai create volume <id> --size <size_gb>`'
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - id
+              properties:
+                id:
+                  type: integer
+                  description: ID for the volume
+                  example: 420
+                size:
+                  type: integer
+                  description: Size in GB (Defaults to 15)
+                  example: 15
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  volume_name:
+                    type: string
+                    description: Name of the created/resized volume
+                    example: V.20118481
+      tags:
+      - Volumes
+    get:
+      summary: list volumes
+      description: 'Retrieve information about all volumes rented by you.
+
+
+        CLI Usage: `vastai show volumes`'
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  volumes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Volume'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: Authentication credentials were not provided.
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=5.5
+      tags:
+      - Volumes
   /api/v0/instances/{id}/:
     delete:
       summary: destroy instance
@@ -3471,9 +3496,7 @@ paths:
         and will delete all data.
 
 
-        CLI Usage: vast-ai destroy instance <id>
-
-        Example: vast-ai destroy instance 4242'
+        CLI Usage: `vastai destroy instance <id>`'
       parameters:
       - in: path
         name: id
@@ -3558,11 +3581,11 @@ paths:
 
         CLI Usage:
 
-        - To stop: vastai stop instance <ID>
+        - To stop: `vastai stop instance <id>`
 
-        - To start: vastai start instance <ID>
+        - To start: `vastai start instance <id>`
 
-        - To label: vastai label instance <ID> <label>'
+        - To label: `vastai label instance <id> <label>`'
       security:
       - BearerAuth: []
       parameters:
@@ -3636,7 +3659,10 @@ paths:
         user.
 
         This endpoint returns detailed information including SSH connection parameters,
-        instance state, resource utilization, template data, and pricing details.'
+        instance state, resource utilization, template data, and pricing details.
+
+
+        CLI Usage: `vastai show instance [--api-key <api_key>] [--raw]`'
       security:
       - BearerAuth: []
       parameters:
@@ -3681,74 +3707,14 @@ paths:
                     example: API requests too frequent endpoint threshold=2.0
       tags:
       - Instances
-  /api/v0/team/:
-    delete:
-      summary: destroy team
-      description: 'Deletes a team and all associated data including API keys, rights,
-        invitations,
-
-        memberships and metadata. The team owner''s master API key is converted to
-        a normal client key.
-
-
-        CLI Usage: vast-ai destroy team'
-      security:
-      - BearerAuth: []
-      responses:
-        '200':
-          description: Team successfully deleted
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  msg:
-                    type: string
-                    example: Team Successfully Deleted!
-        '401':
-          description: Unauthorized - Invalid or missing API key
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '403':
-          description: Forbidden - User is blacklisted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '404':
-          description: Not Found - Team does not exist
-          content:
-            application/json:
-              schema:
-                allOf:
-                - $ref: '#/components/schemas/Error'
-                - type: object
-                  properties:
-                    error:
-                      type: string
-                      enum:
-                      - no_such_user
-                    msg:
-                      type: string
-                      example: No such user.
-      tags:
-      - Team
   /api/v0/instances/{id}/ssh/{key}/:
     delete:
       summary: detach ssh-key
       description: 'Detaches an SSH key from a specified instance, removing SSH access
-        for
-
-        that key.
+        for that key.
 
 
-
-        CLI Usage: vastai detach <instance_id> <ssh_key_id>
-
-
-        Example: vastai detach 99999 12345'
+        CLI Usage: `vastai detach <instance_id> <ssh_key_id>`'
       security:
       - BearerAuth: []
       parameters:
@@ -3851,9 +3817,7 @@ paths:
         The command output can be retrieved from the returned result URL.
 
 
-        CLI Usage: vastai execute <instance_id> <command>
-
-        Example: vastai execute 12345 "ls -l"'
+        CLI Usage: `vastai execute <instance_id> <command>`'
       security:
       - BearerAuth: []
       parameters:
@@ -3966,7 +3930,10 @@ paths:
       - url: https://run.vast.ai
         description: Production server
       summary: get workergroup logs
-      description: Retrieves logs for a specific workergroup by ID.
+      description: 'Retrieves logs for a specific workergroup by ID.
+
+
+        CLI Usage: `vastai get workergroup logs <id> [--tail <num_lines>]`'
       security:
       - BearerAuth: []
       requestBody:
@@ -4023,9 +3990,11 @@ paths:
       description: 'Retrieves the current list and status of workers for a specific
         workergroup.
 
-
         Useful for monitoring, debugging connectivity issues, and understanding resource
-        usage within a workergroup.'
+        usage within a workergroup.
+
+
+        CLI Usage: `vastai get workergroup workers <id>`'
       security:
       - BearerAuth: []
       requestBody:
@@ -4089,7 +4058,10 @@ paths:
       - url: https://run.vast.ai
         description: Production server
       summary: get endpoint logs
-      description: Retrieves logs for a specific endpoint by name.
+      description: 'Retrieves logs for a specific endpoint by name.
+
+
+        CLI Usage: `vastai get endpoint logs <endpoint_name> [--tail <num_lines>]`'
       security:
       - BearerAuth: []
       requestBody:
@@ -4143,9 +4115,11 @@ paths:
       description: 'Retrieves the current list and status of workers for a specific
         endpoint.
 
-
         Useful for monitoring, debugging connectivity issues, and understanding resource
-        usage.'
+        usage.
+
+
+        CLI Usage: `vastai get endpoint workers <id>`'
       security:
       - BearerAuth: []
       requestBody:
@@ -4210,7 +4184,7 @@ paths:
         with the given role.
 
 
-        CLI Usage: vast-ai invite team-member --email EMAIL --role ROLE'
+        CLI Usage: `vastai invite team-member --email <email> --role <role>`'
       security:
       - BearerAuth: []
       requestBody:
@@ -4232,10 +4206,6 @@ paths:
                   type: string
                   description: Role to assign to the new team member
                   example: developer
-                api_key:
-                  type: string
-                  description: API key of the inviting user
-                  example: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
       responses:
         '200':
           description: Invitation sent successfully
@@ -4244,6 +4214,9 @@ paths:
               schema:
                 type: object
                 properties:
+                  success:
+                    type: boolean
+                    example: true
                   msg:
                     type: string
                     example: New invitation sent to ${email}
@@ -4298,7 +4271,7 @@ paths:
         Allows setting pricing, minimum GPU requirements, end date and discount rates.
 
 
-        CLI Usage: vast list machine <machine_id> [options]'
+        CLI Usage: `vastai list machine <machine_id> [options]`'
       security:
       - BearerAuth: []
       requestBody:
@@ -4396,14 +4369,12 @@ paths:
     put:
       summary: show logs
       description: 'Request logs from a specific instance. The logs will be uploaded
-        to S3 and
-
-        can be retrieved from a generated URL. Supports both container logs and daemon
-
-        system logs.
+        to S3 and can be retrieved from a generated URL. Supports both container logs
+        and daemon system logs.
 
 
-        CLI Usage: vast logs INSTANCE_ID [--tail LINES] [--filter GREP] [--daemon-logs]'
+        CLI Usage: `vastai show logs <instance_id> [--tail <lines>] [--filter <grep>]
+        [--daemon-logs]`'
       parameters:
       - name: id
         in: path
@@ -4485,14 +4456,10 @@ paths:
       description: 'Deposit credits into a reserved instance to receive usage discounts.
 
         The discount rate is calculated based on how many months of usage the prepaid
-        amount covers.
-
-        Maximum discount is typically 40%.
+        amount covers. Maximum discount is typically 40%.
 
 
-        CLI Usage: vastai prepay instance <ID> <AMOUNT>
-
-        Example: vastai prepay instance 1234 500.0'
+        CLI Usage: `vastai prepay instance <id> <amount>`'
       security:
       - BearerAuth: []
       parameters:
@@ -4579,12 +4546,11 @@ paths:
     put:
       summary: reboot instance
       description: 'Stops and starts a container without losing GPU priority. Updates
-        container status to ''rebooting''
+        container status to ''rebooting'' and executes docker stop/start commands
+        on the host machine.
 
-        and executes docker stop/start commands on the host machine.
 
-
-        CLI Usage: vastai reboot instance <ID>'
+        CLI Usage: `vastai reboot instance <id>`'
       security:
       - BearerAuth: []
       parameters:
@@ -4651,7 +4617,7 @@ paths:
         commands on the host machine.
 
 
-        CLI Usage: vastai recycle instance <ID>'
+        CLI Usage: `vastai recycle instance <id>`'
       security:
       - BearerAuth: []
       parameters:
@@ -4708,14 +4674,14 @@ paths:
                     example: API requests too frequent endpoint threshold=1.0
       tags:
       - Instances
-  /api/v0/machines/{machine_id}/defjob:
+  /api/v0/machines/{machine_id}/defjob/:
     delete:
       summary: remove defjob
       description: 'Deletes the default job (background instances) for a specified
         machine.
 
 
-        CLI Usage: vast-ai remove defjob {machine_id}'
+        CLI Usage: `vastai remove defjob <machine_id>`'
       security:
       - BearerAuth: []
       parameters:
@@ -4765,14 +4731,10 @@ paths:
     delete:
       summary: remove team member
       description: 'Removes a member from the team by revoking their team-related
-        API keys and updating membership status.
-
-        Cannot remove the team owner.
+        API keys and updating membership status. Cannot remove the team owner.
 
 
-        CLI Usage: vast-ai remove team-member ID
-
-        Example: vast-ai remove team-member 12345'
+        CLI Usage: `vastai remove team-member <id>`'
       parameters:
       - in: path
         name: id
@@ -4880,9 +4842,11 @@ paths:
       description: 'Removes a role from the team. Cannot remove the team owner role.
 
 
-        CLI Usage: vast-ai remove team-role NAME
-
-        Example: vast-ai remove team-role developer'
+        CLI Usage: `vastai remove team-role <name>`'
+      security:
+      - BearerAuth: []
+      tags:
+      - Team
       parameters:
       - in: path
         name: id
@@ -4965,93 +4929,7 @@ paths:
                   msg:
                     type: string
                     example: Specified role not found
-      security:
-      - BearerAuth: []
-      tags:
-      - Team
-  /api/v0/volumes/:
-    put:
-      summary: rent volume
-      description: 'Rent/create a new volume with specified parameters. CLI Usage:
-        vastai create volume ID --size SIZE_GB'
-      security:
-      - BearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-              - id
-              properties:
-                id:
-                  type: integer
-                  description: ID for the volume
-                  example: 420
-                size:
-                  type: integer
-                  description: Size in GB (Defaults to 15)
-                  example: 15
-      responses:
-        '200':
-          description: Success response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  volume_name:
-                    type: string
-                    description: Name of the created/resized volume
-                    example: V.20118481
-      tags:
-      - Volumes
-    get:
-      summary: list volumes
-      description: 'Retrieve information about all volumes rented by you. CLI Usage:
-        vastai show volumes'
-      security:
-      - BearerAuth: []
-      parameters: []
-      responses:
-        '200':
-          description: Success response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  volumes:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Volume'
-        '401':
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  detail:
-                    type: string
-                    example: Authentication credentials were not provided.
-        '429':
-          description: Too Many Requests
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  detail:
-                    type: string
-                    example: API requests too frequent endpoint threshold=5.5
-      tags:
-      - Volumes
-  /api/v0/machines/{machine_id}/reports:
+  /api/v0/machines/{machine_id}/reports/:
     get:
       summary: show reports
       description: 'Retrieves a list of the most recent reports for a given machine.
@@ -5059,7 +4937,7 @@ paths:
         the issue, and the timestamp when the report was created.
 
 
-        CLI Usage: vastai reports <machine_id>'
+        CLI Usage: `vastai reports <machine_id>`'
       security:
       - BearerAuth: []
       parameters:
@@ -5103,62 +4981,6 @@ paths:
                 $ref: '#/components/schemas/Error'
       tags:
       - Machines
-  /api/v0/commands/reset_apikey/:
-    put:
-      summary: reset api key
-      description: 'Resets the API key for the authenticated user. This operation
-        generates a new API key and invalidates the old one.
-
-
-        CLI Usage: vast-ai reset api-key'
-      security:
-      - BearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-              - client_id
-              properties:
-                client_id:
-                  type: string
-                  description: The ID of the client whose API key is being reset.
-                  example: me
-      responses:
-        '200':
-          description: Success response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  sent:
-                    type: boolean
-                    example: true
-                  key:
-                    type: string
-                    description: The new API key.
-                    example: new_api_key_value
-        '404':
-          description: Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '429':
-          description: Too Many Requests
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  detail:
-                    type: string
-                    example: API requests too frequent endpoint threshold=3.0
-      tags:
-      - Accounts
   /route/:
     post:
       servers:
@@ -5168,9 +4990,11 @@ paths:
       description: 'Calls on the serverless engine to retrieve a GPU instance address
         within your endpoint for processing a request.
 
-
         The engine will return either a ready worker URL or status information if
-        no workers are available.'
+        no workers are available.
+
+
+        CLI Usage: `vastai route <endpoint> <cost>`'
       security:
       - BearerAuth: []
       requestBody:
@@ -5276,8 +5100,8 @@ paths:
         clients.
 
 
-        CLI Usage: vast-ai schedule maint {machine_id} --sdate {sdate} --duration
-        {duration}'
+        CLI Usage: `vastai schedule maint <machine_id> --sdate <sdate> --duration
+        <duration>`'
       security:
       - BearerAuth: []
       parameters:
@@ -5372,7 +5196,7 @@ paths:
       description: 'Retrieve benchmark data based on search parameters.
 
 
-        CLI Usage: vast-ai search benchmarks'
+        CLI Usage: `vastai search benchmarks`'
       security:
       - BearerAuth: []
       parameters:
@@ -5447,22 +5271,22 @@ paths:
         on specified filters.
 
 
-        CLI Usage: vast-ai search invoices'
+        CLI Usage: `vastai search invoices`'
       security:
       - BearerAuth: []
-      parameters:
-      - name: select_filters
-        in: query
-        required: false
-        schema:
-          type: object
-        description: Filters to apply to the invoice selection.
-      - name: type
-        in: query
-        required: false
-        schema:
-          type: string
-        description: Type of invoices to retrieve (e.g., charge).
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  description: Type of invoices to retrieve
+                  example: charge
+                select_filters:
+                  type: object
+                  description: Filters to apply to the invoice selection.
       responses:
         '200':
           description: Success response
@@ -5527,11 +5351,11 @@ paths:
   /api/v0/network_volumes/search/:
     post:
       summary: search network volumes
-      description: 'Search for available GPU machine offers with advanced filtering
+      description: 'Search for available network volume offers with advanced filtering
         and sorting.
 
-        CLI Usage: ``` vast search network-volumes --order=storage_cost ''reliability
-        > 0.99 geolocation in [US, CA]''```'
+
+        CLI Usage: `vastai search network-volumes <query> [--order <field>]`'
       security:
       - BearerAuth: []
       requestBody:
@@ -5681,20 +5505,47 @@ paths:
                 $ref: '#/components/schemas/Error'
       tags:
       - Network Volumes
-  /api/v0/search/asks/:
-    put:
+  /api/v0/bundles/:
+    post:
       summary: search offers
       description: 'Search for available GPU machine offers with advanced filtering
         and sorting.
 
-        Default filters applied unless --no-default: - verified: true - external:
-        false - rentable: true - rented: false
 
-        CLI Usage Examples: ``` vast search offers ''reliability > 0.99 num_gpus>=4''
-        vast search offers ''gpu_name=RTX_3090'' --order=dph_total vast search offers
-        ''cuda_vers>=11.0'' --no-default ```'
-      security:
-      - BearerAuth: []
+        Each filter parameter (such as `verified`, `gpu_name`, `num_gpus`, etc.) should
+        be an object specifying the operator and value you want to match.
+
+
+        **Filter operators:**
+
+
+        | Operator | Meaning                | Example                        |
+
+        |:---------|:-----------------------|:-------------------------------|
+
+        | `eq`     | Equal to               | `{ "eq": true }`               |
+
+        | `neq`    | Not equal to           | `{ "neq": false }`             |
+
+        | `gt`     | Greater than           | `{ "gt": 0.99 }`               |
+
+        | `lt`     | Less than              | `{ "lt": 10000 }`              |
+
+        | `gte`    | Greater than or equal  | `{ "gte": 4 }`                 |
+
+        | `lte`    | Less than or equal     | `{ "lte": 8 }`                 |
+
+        | `in`     | Value is in a list     | `{ "in": ["RTX_3090", "RTX_4090"] }`
+        |
+
+        | `nin`    | Value is not in a list | `{ "nin": ["TW", "SE"] }`      |
+
+
+        Default filters: verified=true, rentable=true, rented=false (unless --no-default
+        is used)
+
+
+        CLI Usage: `vastai search offers ''reliability > 0.99 num_gpus>=4'' --order=dph_total`'
       requestBody:
         required: true
         content:
@@ -5702,250 +5553,190 @@ paths:
             schema:
               type: object
               properties:
-                select_cols:
-                  type: array
-                  items:
-                    type: string
-                  example:
-                  - '*'
-                  description: Columns to select, defaults to all
-                q:
+                limit:
+                  type: integer
+                  description: Max offers to return
+                type:
+                  type: string
+                  enum:
+                  - on-demand
+                  - bid
+                  - reserved
+                  description: 'Instance type for the offer
+
+
+                    - **on-demand**: High priority, fixed pricing, guaranteed resources.
+                    Best for production workloads and time-sensitive tasks.
+
+                    - **reserved**: High priority, discounted rates with pre-payment.
+                    Ideal for long-term projects and predictable workloads.
+
+                    - **bid** (interruptible): Low priority, lowest cost, may be paused
+                    if outbid. Suitable for batch processing, development, and fault-tolerant
+                    workloads.
+
+                    '
+                verified:
                   type: object
+                  description: Machine verification status
                   properties:
-                    verified:
-                      type: object
-                      description: Machine verification status
-                      example:
-                        eq: true
-                    rentable:
-                      type: object
-                      description: Whether machine is rentable
-                      example:
-                        eq: true
-                    external:
-                      type: object
-                      description: External machine status
-                      example:
-                        eq: false
-                    rented:
-                      type: object
-                      description: Current rental status
-                      example:
-                        eq: false
-                    order:
-                      type: array
-                      items:
-                        type: array
-                        items:
-                          type: string
-                      description: Sort fields and directions
-                      example:
-                      - - dph_total
-                        - asc
-                    type:
-                      type: string
-                      enum:
-                      - on-demand
-                      - bid
-                      - reserved
-                      description: Contract type filter
-                    limit:
-                      type: integer
-                      description: Max results to return
-                    disable_bundling:
+                    eq:
                       type: boolean
-                      description: Disable offer bundling
-                    allocated_storage:
-                      type: number
-                      description: Required storage in GB
-                    reliability2:
-                      type: object
-                      description: Machine reliability score (0-1)
-                      example:
-                        gt: 0.98
-                    num_gpus:
-                      type: object
-                      description: Number of GPUs
-                      example:
-                        gte: 4
-                    gpu_name:
-                      type: object
-                      description: GPU model name
-                      example:
-                        eq: RTX 3090
-                    cuda_max_good:
-                      type: object
-                      description: Maximum CUDA version
-                      example:
-                        gte: 11.0
-                    gpu_ram:
-                      type: object
-                      description: GPU memory in MB
-                      example:
-                        gte: 24000
-                    dlperf_per_dphtotal:
-                      type: object
-                      description: DLPerf per dollar per hour
-                      example:
-                        gt: 50.0
-                    inet_down:
-                      type: object
-                      description: Download bandwidth (MB/s)
-                      example:
-                        gt: 100.0
-                    inet_up:
-                      type: object
-                      description: Upload bandwidth (MB/s)
-                      example:
-                        gt: 100.0
-                    direct_port_count:
-                      type: object
-                      description: Number of direct ports
-                      example:
-                        gt: 1
-                    geolocation:
-                      type: object
-                      description: Machine location (two letter country code)
-                      example:
-                        in:
-                        - TW
-                        - SE
-                    bw_nvlink:
-                      type: object
-                      description: Bandwidth NVLink
-                      example:
-                        gt: 100.0
-                    compute_cap:
-                      type: object
-                      description: CUDA compute capability*100 (650 for 6.5, 700 for
-                        7.0)
-                      example:
-                        gte: 700
-                    cpu_arch:
-                      type: object
-                      description: Host machine CPU architecture (e.g. amd64, arm64)
-                      example:
-                        eq: amd64
-                    cpu_cores:
-                      type: object
-                      description: Number of virtual CPUs
-                      example:
-                        gte: 8
-                    cpu_ghz:
-                      type: object
-                      description: CPU clock speed in GHz
-                      example:
-                        gt: 3.0
-                    datacenter:
-                      type: object
-                      description: Show only datacenter offers
-                      example:
-                        eq: true
-                    disk_bw:
-                      type: object
-                      description: Disk read bandwidth in MB/s
-                      example:
-                        gt: 500
-                    dlperf:
-                      type: object
-                      description: Deep Learning performance score
-                      example:
-                        gt: 20.0
-                    dlperf_usd:
-                      type: object
-                      description: DLPerf per dollar
-                      example:
-                        gt: 10.0
-                    driver_version:
-                      type: object
-                      description: NVIDIA driver version as 3 digit string
-                      example:
-                        gte: 535.86.05
-                    duration:
-                      type: object
-                      description: Maximum rental duration in days
-                      example:
-                        gte: 30
-                    flops_usd:
-                      type: object
-                      description: TFLOPs per dollar
-                      example:
-                        gt: 1.0
-                    gpu_arch:
-                      type: object
-                      description: Host machine GPU architecture (e.g. nvidia, amd)
-                      example:
-                        eq: nvidia
-                    gpu_max_power:
-                      type: object
-                      description: GPU power limit in watts
-                      example:
-                        lte: 300
-                    gpu_max_temp:
-                      type: object
-                      description: GPU temperature limit in Celsius
-                      example:
-                        lte: 85
-                    gpu_mem_bw:
-                      type: object
-                      description: GPU memory bandwidth in GB/s
-                      example:
-                        gt: 500
-                    gpu_total_ram:
-                      type: object
-                      description: Total GPU RAM across all GPUs in GB
-                      example:
-                        gte: 48
-                    gpu_frac:
-                      type: object
-                      description: Ratio of GPUs in offer to GPUs in system
-                      example:
-                        eq: 1.0
-                    gpu_display_active:
-                      type: object
-                      description: Whether GPU has a display attached
-                      example:
-                        eq: false
-                    has_avx:
-                      type: object
-                      description: CPU supports AVX instruction set
-                      example:
-                        eq: true
-                    pci_gen:
-                      type: object
-                      description: PCIe generation
-                      example:
-                        gte: 4
-                    storage_cost:
-                      type: object
-                      description: Storage cost in $/GB/month
-                      example:
-                        lte: 0.1
-                    static_ip:
-                      type: object
-                      description: Whether the IP address is static/stable
-                      example:
-                        eq: true
-                    total_flops:
-                      type: object
-                      description: Total TFLOPs from all GPUs
-                      example:
-                        gt: 100
-                    ubuntu_version:
-                      type: object
-                      description: Host machine Ubuntu OS version
-                      example:
-                        eq: '20.04'
-                    vms_enabled:
-                      type: object
-                      description: Whether the machine is a VM instance
-                      example:
-                        eq: false
-                    machine_id:
-                      type: object
-                      description: Filter by specific host machine ID
-                      example:
-                        eq: 12345
+                  default:
+                    eq: true
+                rentable:
+                  type: object
+                  description: Whether machine is rentable
+                  properties:
+                    eq:
+                      type: boolean
+                  default:
+                    eq: true
+                rented:
+                  type: object
+                  description: Current rental status
+                  properties:
+                    eq:
+                      type: boolean
+                  default:
+                    eq: false
+                gpu_name:
+                  type: object
+                  description: GPU model name
+                reliability:
+                  type: object
+                  description: Machine reliability score (Any decimal number between
+                    0-1)
+                num_gpus:
+                  type: object
+                  description: Number of GPUs
+                gpu_ram:
+                  type: object
+                  description: GPU memory in MB
+                duration:
+                  type: object
+                  description: Minimum required rental duration in seconds (the offer
+                    must be available for at least this long from now).
+                machine_id:
+                  type: object
+                  description: Filter by specific host machine ID
+                dlperf_per_dphtotal:
+                  type: object
+                  description: DLPerf per dollar per hour
+                geolocation:
+                  type: object
+                  description: Machine location (two letter country code)
+                gpu_arch:
+                  type: object
+                  description: Host machine GPU architecture (e.g. nvidia, amd)
+                dlperf:
+                  type: object
+                  description: Deep Learning performance score
+                cuda_max_good:
+                  type: object
+                  description: Maximum supported CUDA version
+                inet_down:
+                  type: object
+                  description: Download bandwidth (MB/s)
+                inet_up:
+                  type: object
+                  description: Upload bandwidth (MB/s)
+                driver_version:
+                  type: object
+                  description: NVIDIA driver version in the format "XXX.XX.XX
+                compute_cap:
+                  type: object
+                  description: "CUDA compute capability x 100. Use 650 for compute\
+                    \ capability 6.5 or 700 for 7.0.\u201D"
+                cpu_arch:
+                  type: object
+                  description: Host machine CPU architecture (Default is amd64)
+                cpu_cores:
+                  type: object
+                  description: Number of virtual CPUs
+                cpu_ghz:
+                  type: object
+                  description: CPU clock speed in GHz
+                cpu_ram:
+                  type: object
+                  description: CPU RAM in MB
+                datacenter:
+                  type: object
+                  description: Show only datacenter offers
+                disk_bw:
+                  type: object
+                  description: Disk read bandwidth in MB/s
+                bw_nvlink:
+                  type: object
+                  description: NVLink interconnect bandwidth in GB/s. Use when filtering
+                    for multi-GPU systems with high-speed NVLink.
+                gpu_max_power:
+                  type: object
+                  description: GPU power limit in watts
+                gpu_max_temp:
+                  type: object
+                  description: GPU temperature limit in Celsius
+                gpu_mem_bw:
+                  type: object
+                  description: GPU memory bandwidth in GB/s
+                gpu_total_ram:
+                  type: object
+                  description: Total GPU RAM across all GPUs in MB
+                gpu_frac:
+                  type: object
+                  description: Fraction of the total GPU resources being offered
+                direct_port_count:
+                  type: object
+                  description: Number of direct ports
+                pci_gen:
+                  type: object
+                  description: PCIe generation
+                storage_cost:
+                  type: object
+                  description: Storage cost in $/GB/month
+                static_ip:
+                  type: object
+                  description: Whether the IP address is static/stable
+                total_flops:
+                  type: object
+                  description: Total theoretical GPU compute performance (TFLOPs)
+                    across all GPUs.
+                os_version:
+                  type: object
+                  description: Host machine Ubuntu OS version
+                order:
+                  type: array
+                  description: 'List of sort fields and directions.
+
+                    Each entry should contain two elements:
+
+                    1. The field name to sort by (string)
+
+                    2. The sort direction ("asc" or "desc")
+
+                    '
+                  items:
+                    type: array
+                    items:
+                      type: string
+                    minItems: 2
+                    maxItems: 2
+                    example:
+                    - reliability
+                    - desc
+                disable_bundling:
+                  type: boolean
+                  description: Disable offer bundling
+                allocated_storage:
+                  type: number
+                  description: 'Storage allocation size in GB for the instance.
+
+                    This sets the disk size when creating the instance and cannot
+                    be changed later.
+
+                    Default is 8GB.
+
+                    '
       responses:
         '200':
           description: Successful search response
@@ -5954,123 +5745,154 @@ paths:
               schema:
                 type: object
                 properties:
-                  success:
-                    type: boolean
-                    example: true
                   offers:
                     type: array
                     items:
                       type: object
-                      properties:
-                        id:
-                          type: integer
-                          description: Unique offer ID
-                        cuda_max_good:
-                          type: number
-                          description: Maximum CUDA version
-                        num_gpus:
-                          type: integer
-                          description: Number of GPUs
-                        gpu_name:
-                          type: string
-                          description: GPU model name
-                        pcie_bw:
-                          type: number
-                          description: PCIe bandwidth
-                        cpu_cores_effective:
-                          type: number
-                          description: Available CPU cores
-                        cpu_ram:
-                          type: number
-                          description: RAM in GB
-                        disk_space:
-                          type: number
-                          description: Storage space in GB
-                        dph_total:
-                          type: number
-                          description: Total dollars per hour
-                        dlperf:
-                          type: number
-                          description: Deep learning performance score
-                        dlperf_per_dphtotal:
-                          type: number
-                          description: DLPerf per dollar per hour
-                        inet_up:
-                          type: number
-                          description: Upload bandwidth (MB/s)
-                        inet_down:
-                          type: number
-                          description: Download bandwidth (MB/s)
-                        reliability2:
-                          type: number
-                          description: Reliability score (0-1)
-                        verified:
-                          type: boolean
-                          description: Verification status
-                        rentable:
-                          type: boolean
-                          description: Rental availability
-                        rented:
-                          type: boolean
-                          description: Current rental status
-                        machine_id:
-                          type: integer
-                          description: Host machine ID
-                        geolocation:
-                          type: string
-                          description: Geographic location
-                        direct_port_count:
-                          type: integer
-                          description: Number of direct ports
-                        max_bid:
-                          type: number
-                          description: Maximum bid allowed
-                        min_bid:
-                          type: number
-                          description: Minimum bid required
-                        bw_nvlink:
-                          type: number
-                          description: NVLink bandwidth
-                        compute_cap:
-                          type: integer
-                          description: CUDA compute capability
-                        cpu_arch:
-                          type: string
-                          description: CPU architecture
-                        gpu_arch:
-                          type: string
-                          description: GPU architecture
-                        driver_version:
-                          type: string
-                          description: NVIDIA driver version
-                        ubuntu_version:
-                          type: string
-                          description: Ubuntu OS version
+                      additionalProperties: true
+              example:
+                offers:
+                  id: 12345678
+                  ask_contract_id: 12345678
+                  bundle_id: 987654321
+                  bundled_results: null
+                  bw_nvlink: 0
+                  compute_cap: 900
+                  cpu_arch: amd64
+                  cpu_cores: 64
+                  cpu_cores_effective: 32
+                  cpu_ghz: 2.99
+                  cpu_name: QuantumX 128-Core Processor
+                  cpu_ram: 65536
+                  credit_discount_max: 0.15
+                  cuda_max_good: 11.2
+                  direct_port_count: 42
+                  disk_bw: 1234.5
+                  disk_name: HYPERDISK 8TB
+                  disk_space: 2048.5
+                  dlperf: 222.22
+                  dlperf_per_dphtotal: 333.33
+                  dph_base: 0.123456
+                  dph_total: 0.234567
+                  driver_version: 999.99.99
+                  driver_vers: 999999999
+                  duration: 1234567.89
+                  end_date: 1893456000
+                  external: null
+                  flops_per_dphtotal: 444.44
+                  geolocation: Atlantis, AT
+                  geolocode: 42424242
+                  gpu_arch: nvidia
+                  gpu_display_active: false
+                  gpu_frac: 0.75
+                  gpu_ids:
+                  - 1111
+                  - 2222
+                  gpu_lanes: 16
+                  gpu_mem_bw: 888.8
+                  gpu_name: Imaginary RTX 9999
+                  gpu_ram: 24576
+                  gpu_total_ram: 49152
+                  gpu_max_power: 450
+                  gpu_max_temp: 42
+                  has_avx: 1
+                  host_id: 55555
+                  hosting_type: 0
+                  hostname: null
+                  inet_down: 9876.5
+                  inet_down_cost: 0.00123
+                  inet_up: 8765.4
+                  inet_up_cost: 0.00456
+                  is_bid: false
+                  logo: /static/logos/fake_logo.png
+                  machine_id: 88888
+                  min_bid: 0.111111
+                  mobo_name: FANTASY-MOBO-2025
+                  num_gpus: 4
+                  os_version: '42.42'
+                  pci_gen: 6
+                  pcie_bw: 99.9
+                  public_ipaddr: 203.0.113.42
+                  reliability: 0.9999
+                  reliability_mult: 0.8888
+                  rentable: true
+                  rented: false
+                  score: 1234.5678
+                  start_date: 1893450000.5
+                  static_ip: true
+                  storage_cost: 0.987654
+                  storage_total_cost: 0.123456
+                  total_flops: 999.99
+                  verification: verified
+                  vericode: 1
+                  vram_costperhour: 0.009876
+                  webpage: null
+                  vms_enabled: false
+                  expected_reliability: 0.5
+                  is_vm_deverified: false
+                  resource_type: gpu
+                  cluster_id: null
+                  avail_vol_ask_id: 333333
+                  avail_vol_dph: 0.000321
+                  avail_vol_size: 4096
+                  nw_disk_min_bw: null
+                  nw_disk_max_bw: null
+                  nw_disk_avg_bw: null
+                  rn: 1
+                  dph_total_adj: 0.345678
+                  reliability2: 0.9999
+                  discount_rate: 0.05
+                  discounted_hourly: 0.01
+                  discounted_dph_total: 0.224567
+                  search:
+                    gpuCostPerHour: 0.123456
+                    diskHour: 0.123456
+                    totalHour: 0.234567
+                    discountTotalHour: 0.01
+                    discountedTotalPerHour: 0.224567
+                  instance:
+                    gpuCostPerHour: 0.01
+                    diskHour: 0.02
+                    totalHour: 0.03
+                    discountTotalHour: 0.001
+                    discountedTotalPerHour: 0.029
+                  time_remaining: ''
+                  time_remaining_isbid: ''
+                  internet_up_cost_per_tb: 1.23
+                  internet_down_cost_per_tb: 4.56
         '400':
           description: Bad request - invalid query parameters
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '401':
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: invalid_request
+                  msg:
+                    type: string
+                    example: Invalid json body
+        '404':
           description: Unauthorized - invalid or missing API key
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '429':
-          description: Too many requests
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: auth_error
+                    msg: Invalid user key
       tags:
       - Search
   /api/v0/volumes/search/:
     post:
       summary: search volumes
-      description: 'Search for available volumes based on specified criteria. CLI
-        Usage: vastai search volumes <query> [OPTIONS]'
+      description: 'Search for available volumes based on specified criteria.
+
+
+        CLI Usage: `vastai search volumes <query> [options]`'
       security:
       - BearerAuth: []
       parameters:
@@ -6149,8 +5971,8 @@ paths:
         with the given parameters.
 
 
-        CLI Usage: vast set defjob {machine_id} --price_gpu {price} --price_inetu
-        {price} --price_inetd {price} --image {image} [--args {args}]'
+        CLI Usage: `vastai set defjob <machine_id> --price_gpu <price> --price_inetu
+        <price> --price_inetd <price> --image <image> [--args <args>]`'
       security:
       - BearerAuth: []
       requestBody:
@@ -6241,13 +6063,13 @@ paths:
                     example: API requests too frequent endpoint threshold=2.8
       tags:
       - Machines
-  /api/v0/machines/{machine_id}/minbid:
+  /api/v0/machines/{machine_id}/minbid/:
     put:
       summary: set min-bid
       description: 'Sets the minimum bid price for a specified machine.
 
 
-        CLI Usage: vast set min-bid {machine_id} --price {price}'
+        CLI Usage: `vastai set min-bid <machine_id> --price <price>`'
       security:
       - BearerAuth: []
       parameters:
@@ -6316,7 +6138,7 @@ paths:
         user.
 
 
-        CLI Usage: vastai show connections'
+        CLI Usage: `vastai show connections`'
       security:
       - BearerAuth: []
       responses:
@@ -6362,7 +6184,7 @@ paths:
       description: 'Retrieves the deposit details for a specified instance.
 
 
-        CLI Usage: vast show deposit {ID}'
+        CLI Usage: `vastai show deposit <id>`'
       security:
       - BearerAuth: []
       parameters:
@@ -6420,7 +6242,7 @@ paths:
         optionally per machine.
 
 
-        CLI Usage: vastai show earnings [OPTIONS]'
+        CLI Usage: `vastai show earnings [options]`'
       security:
       - BearerAuth: []
       parameters:
@@ -6549,7 +6371,10 @@ paths:
   /api/v0/instances/{instance_id}/ssh/:
     get:
       summary: show ssh-keys
-      description: Retrieves the SSH keys associated with a specific instance.
+      description: 'Retrieves the SSH keys associated with a specific instance.
+
+
+        CLI Usage: `vastai show ssh-keys <instance_id>`'
       security:
       - BearerAuth: []
       parameters:
@@ -6602,7 +6427,7 @@ paths:
       description: 'Retrieve a list of instances for the authenticated user.
 
 
-        CLI Usage: vast-ai show instances [OPTIONS] [--api-key API_KEY] [--raw]'
+        CLI Usage: `vastai show instances [options] [--api-key <api_key>] [--raw]`'
       security:
       - BearerAuth: []
       responses:
@@ -6659,7 +6484,7 @@ paths:
         user, including charges and credits.
 
 
-        CLI Usage: vast-ai show invoices'
+        CLI Usage: `vastai show invoices`'
       security:
       - BearerAuth: []
       parameters:
@@ -6826,7 +6651,7 @@ paths:
         the authenticated user.
 
 
-        CLI Usage: vast-ai show ipaddrs'
+        CLI Usage: `vastai show ipaddrs`'
       security:
       - BearerAuth: []
       parameters:
@@ -6893,8 +6718,11 @@ paths:
   /api/v0/machines/:
     get:
       summary: show machines
-      description: Fetches data for multiple machines associated with the authenticated
+      description: 'Fetches data for multiple machines associated with the authenticated
         user.
+
+
+        CLI Usage: `vastai show machines [--user_id <user_id>]`'
       operationId: getMachines
       parameters:
       - name: user_id
@@ -6937,7 +6765,7 @@ paths:
         user''s account.
 
 
-        CLI Usage: vast-ai show subaccounts'
+        CLI Usage: `vastai show subaccounts`'
       security:
       - BearerAuth: []
       responses:
@@ -6959,9 +6787,9 @@ paths:
                         parent_id:
                           type: integer
                           description: The ID of the parent account.
-                        api_key:
-                          type: string
-                          description: The API key associated with the subaccount.
+                        key_id:
+                          type: integer
+                          description: The API key ID associated with the subaccount.
                         created_at:
                           type: string
                           format: date-time
@@ -6998,7 +6826,7 @@ paths:
         user''s team.
 
 
-        CLI Usage: vastai show team-members'
+        CLI Usage: `vastai show team-members`'
       security:
       - BearerAuth: []
       responses:
@@ -7023,6 +6851,10 @@ paths:
                       type: string
                       description: Email of the team member
                       example: johndoe@example.com
+                    fullname:
+                      type: string
+                      description: Full name of the team member
+                      example: John Doe
                     roles:
                       type: array
                       description: Roles assigned to the team member
@@ -7051,7 +6883,7 @@ paths:
       description: 'Retrieve details of a specific team role by its name.
 
 
-        CLI Usage: vastai show team-role NAME'
+        CLI Usage: `vastai show team-role <name>`'
       security:
       - BearerAuth: []
       parameters:
@@ -7096,7 +6928,10 @@ paths:
       - Accounts
     put:
       summary: update team role
-      description: Update an existing team role with new name and permissions.
+      description: 'Update an existing team role with new name and permissions.
+
+
+        CLI Usage: `vastai update team-role <id> --name <new_name> --permissions <new_permissions_json>`'
       parameters:
       - name: id
         in: path
@@ -7128,12 +6963,6 @@ paths:
               schema:
                 type: string
                 example: Successfully Updated Team Role For <role_name>
-        '400':
-          description: Bad Request - Missing or invalid parameters.
-        '403':
-          description: Forbidden - User does not have permission to update this role.
-        '404':
-          description: Not Found - API key not found.
       security:
       - BearerAuth: []
       tags:
@@ -7141,11 +6970,11 @@ paths:
   /api/v0/team/roles-full/:
     get:
       summary: show team roles
-      description: 'Retrieve a list of all roles for a team, excluding the ''team_owner''
+      description: 'Retrieve a list of all roles for a team, excluding the owner''
         role.
 
 
-        CLI Usage: vastai show team-roles'
+        CLI Usage: `vastai show team-roles`'
       security:
       - BearerAuth: []
       responses:
@@ -7158,10 +6987,6 @@ paths:
                 items:
                   type: object
                   properties:
-                    id:
-                      type: integer
-                      description: Role ID
-                      example: 1
                     name:
                       type: string
                       description: Name of the role
@@ -7178,12 +7003,32 @@ paths:
                       type: string
                       description: Unique identifier for the role
                       example: admin_role
+                    id:
+                      type: integer
+                      description: Role ID
+                      example: 1234
         '401':
           description: Unauthorized
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '404':
+          description: Invalid API key
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: auth_error
+                  msg:
+                    type: string
+                    example: Invalid user key
       tags:
       - Team
   /api/v0/users/current/:
@@ -7193,7 +7038,7 @@ paths:
         the API key.
 
 
-        CLI Usage: vastai show user'
+        CLI Usage: `vastai show user`'
       security:
       - BearerAuth: []
       responses:
@@ -7207,6 +7052,9 @@ paths:
                   id:
                     type: integer
                     description: The unique identifier of the user.
+                  key_id:
+                    type: integer
+                    description: The API key ID associated with the user.
                   email:
                     type: string
                     description: The email address of the user.
@@ -7241,10 +7089,11 @@ paths:
       description: 'Transfers specified amount of credits from the authenticated user''s
         account to another user''s account.
 
+
         The recipient can be specified by either email address or user ID.
 
 
-        CLI Usage: vast.py transfer credit <recipient_email> <amount>'
+        CLI Usage: `vastai transfer credit <recipient_email> <amount>`'
       security:
       - BearerAuth: []
       parameters: []
@@ -7324,14 +7173,14 @@ paths:
                     example: API requests too frequent endpoint threshold=2.5
       tags:
       - Accounts
-  /api/v0/machines/{machine_id}/asks:
+  /api/v0/machines/{machine_id}/asks/:
     delete:
       summary: unlist machine
       description: 'Removes all ''ask'' type offer contracts for a specified machine,
         effectively unlisting it from being available for rent.
 
 
-        CLI Usage: vastai unlist machine <id>'
+        CLI Usage: `vastai unlist machine <id>`'
       security:
       - BearerAuth: []
       parameters:
@@ -7382,12 +7231,13 @@ paths:
                     example: API requests too frequent endpoint threshold=1.8
       tags:
       - Machines
-  /api/v0/network_volume/unlist:
+  /api/v0/network_volumes/unlist/:
     post:
       summary: unlist network-volume
-      description: 'Unlists a network volume for rent
+      description: 'Unlists a network volume for rent.
 
-        CLI Usage: vast unlist network-volume <offer_id>'
+
+        CLI Usage: `vastai unlist volume <offer_id>`'
       security:
       - BearerAuth: []
       requestBody:
@@ -7451,11 +7301,13 @@ paths:
                       to perform this action.
       tags:
       - Network Volumes
-  /api/v0/volumes/unlist:
+  /api/v0/volumes/unlist/:
     post:
       summary: unlist volume
-      description: 'Remove a volume listing from the marketplace. CLI Usage: vastai
-        unlist volume VOLUME_ID'
+      description: 'Remove a volume listing from the marketplace.
+
+
+        CLI Usage: `vastai unlist volume <volume_id>`'
       security:
       - BearerAuth: []
       requestBody:

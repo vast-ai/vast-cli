@@ -10,12 +10,11 @@ paths:
       - url: https://run.vast.ai
         description: Production server
       summary: route
-      description: 'Calls on the serverless engine to retrieve a GPU instance address within your endpoint for processing a request.
-
-
+      description: |
+        Calls on the serverless engine to retrieve a GPU instance address within your endpoint for processing a request.
         The engine will return either a ready worker URL or status information if no workers are available.
 
-        '
+        CLI Usage: `vastai route <endpoint> <cost>`
       security:
       - BearerAuth: []
       requestBody:

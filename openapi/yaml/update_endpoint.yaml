@@ -10,12 +10,15 @@ paths:
   /api/v0/endptjobs/{id}/:
     put:
       summary: update endpoint
-      description: 'Updates the specified endpoint group with the provided parameters.
 
 
         CLI Usage: vastai update endpoint ID [OPTIONS]
 
         '
+      description: |
+        Updates the specified endpoint group with the provided parameters.
+
+        CLI Usage: `vastai update endpoint <id> [options]`
       security:
       - BearerAuth: []
       parameters:

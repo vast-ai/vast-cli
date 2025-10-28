@@ -10,12 +10,10 @@ paths:
   /api/v0/auth/apikeys/:
     get:
       summary: show api keys
-      description: 'Retrieves all API keys associated with the authenticated user.
+      description: |
+        Retrieves all API keys associated with the authenticated user.
 
-
-        CLI Usage: vastai show api-keys
-
-        '
+        CLI Usage: `vastai show api-keys`
       security:
       - BearerAuth: []
       responses:
@@ -37,9 +35,6 @@ paths:
                         user_id:
                           type: integer
                           example: 456
-                        key:
-                          type: string
-                          example: your-api-key-value
                         rights:
                           type: string
                           example: read

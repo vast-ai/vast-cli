@@ -6,7 +6,10 @@ paths:
   /api/v0/instances/{id}/:
     put:
       summary: start instance
-      description: Change the state of an instance to "running".
+      description: |
+        Change the state of an instance to "running".
+
+        CLI Usage: `vastai start instance <id>`
       parameters:
       - name: id
         in: path

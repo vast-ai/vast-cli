@@ -14,16 +14,11 @@ paths:
   /api/v0/ssh/:
     post:
       summary: create ssh-key
-      description: 'Creates a new SSH key and associates it with your account.
-
+      description: |
+        Creates a new SSH key and associates it with your account.
         The key will be automatically added to all your current instances.
 
-
-        CLI Usage: vast create ssh-key <ssh_key>
-
-        Example: vast create ssh-key "ssh-rsa AAAAB3NzaC1..."
-
-        '
+        CLI Usage: `vastai create ssh-key <ssh_key>`
       security:
       - BearerAuth: []
       requestBody:

@@ -11,13 +11,9 @@ paths:
     delete:
       summary: detach ssh-key
       description: |
-        Detaches an SSH key from a specified instance, removing SSH access for
-        that key.
-        
-        
-        CLI Usage: vastai detach <instance_id> <ssh_key_id>
+        Detaches an SSH key from a specified instance, removing SSH access for that key.
 
-        Example: vastai detach 99999 12345
+        CLI Usage: `vastai detach <instance_id> <ssh_key_id>`
       security:
         - BearerAuth: []
       parameters:

@@ -10,13 +10,10 @@ paths:
   /api/v0/team/roles-full/:
     get:
       summary: show team roles
-      description: 'Retrieve a list of all roles for a team, excluding the ''team_owner''
-        role.
+      description: |
+        Retrieve a list of all roles for a team, excluding the owner' role.
 
-
-        CLI Usage: vastai show team-roles
-
-        '
+        CLI Usage: `vastai show team-roles`
       security:
       - BearerAuth: []
       responses:
@@ -29,10 +26,6 @@ paths:
                 items:
                   type: object
                   properties:
-                    id:
-                      type: integer
-                      description: Role ID
-                      example: 1
                     name:
                       type: string
                       description: Name of the role
@@ -49,12 +42,32 @@ paths:
                       type: string
                       description: Unique identifier for the role
                       example: admin_role
+                    id:
+                      type: integer
+                      description: Role ID
+                      example: 1234
         '401':
           description: Unauthorized
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '404':
+          description: Invalid API key 
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: auth_error
+                  msg:
+                    type: string
+                    example: Invalid user key
       tags:
       - Team
 components:

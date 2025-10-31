@@ -4669,12 +4669,16 @@ def _ssh_url(args, protocol):
         rows = r.json()["instances"]
 
         if args.id:
-            instance, = [r for r in rows if r['id'] == args.id]
+            matches = [r for r in rows if r['id'] == args.id]
+            if not matches:
+                print(f"error: no instance found with id {args.id}")
+                return 1
+            instance = matches[0]
         elif len(rows) > 1:
             print("Found multiple running instances")
             return 1
         else:
-            instance, = rows
+            instance = rows[0]
 
         ports     = instance.get("ports",{})
         port_22d  = ports.get("22/tcp",None)

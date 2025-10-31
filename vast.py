@@ -1212,16 +1212,14 @@ def get_ssh_key(argstr):
 @parser.command(
     argument("instance_id", help="id of instance to attach to", type=int),
     argument("ssh_key", help="ssh key to attach to instance", type=str),
-    usage="vastai attach instance_id ssh_key",
+    usage="vastai attach ssh",
     help="Attach an ssh key to an instance. This will allow you to connect to the instance with the ssh key",
     epilog=deindent("""
         Attach an ssh key to an instance. This will allow you to connect to the instance with the ssh key.
 
         Examples:
-         vast attach 12371 ssh-rsa AAAAB3NzaC1yc2EAAA...
-         vast attach 12371 ssh-rsa $(cat ~/.ssh/id_rsa)
-
-        The first example attaches the ssh key to instance 12371
+         vastai attach ssh 12371 ssh-rsa AAAAB3NzaC1yc2EAAA...
+         vastai attach ssh 12371 ssh-rsa $(cat ~/.ssh/id_rsa)
     """),
 )
 def attach__ssh(args):
@@ -2439,12 +2437,27 @@ def create__subaccount(args):
     usage="vastai create-team --team_name TEAM_NAME",
     help="Create a new team",
     epilog=deindent("""
-        As of right now creating a team account will convert your current account into a team account. 
-        Once you convert your user account into a team account, this change is permanent and cannot be reversed. 
-        The created team account will inherit all aspects of your existing user account, including billing information, cloud services, and any other account settings.
-        The user who initiates the team creation becomes the team owner. 
-        Carefully evaluate the decision to convert your user account into a team account, as this change is permanent.
-        For more information see: https://vast.ai/docs/team/introduction
+         Creates a new team under your account. 
+
+        Unlike legacy teams, this command does NOT convert your personal account into a team.
+        Each team is created as a separate account, and you can be a member of multiple teams.
+
+        When you create a team:
+          - You become the team owner.
+          - The team starts as an independent account with its own billing, credits, and resources.
+          - Default roles (owner, manager, member) are automatically created.
+          - You can invite others, assign roles, and manage resources within the team.
+
+        Optional:
+          You can transfer a portion of your existing personal credits to the team by using 
+          the `--transfer_credit` flag. Example:
+              vastai create-team --team_name myteam --transfer_credit 25
+
+        Notes:
+          - You cannot create a team from within another team account.
+
+        For more details, see:
+        https://vast.ai/docs/teams-quickstart
     """)
 )
 

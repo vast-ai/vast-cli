@@ -4663,10 +4663,11 @@ def _ssh_url(args, protocol):
         port   = json_object["port"]
 
     if ipaddr is None or ipaddr.endswith('.vast.ai'):
-        req_url = apiurl(args, "/instances", {"owner": "me"});
-        r = http_get(args, req_url);
+        req_url = apiurl(args, "/instances", {"owner": "me"})
+        r = http_get(args, req_url)
         r.raise_for_status()
         rows = r.json()["instances"]
+
         if args.id:
             instance, = [r for r in rows if r['id'] == args.id]
         elif len(rows) > 1:
@@ -5695,18 +5696,23 @@ def update__template(args):
         #print(r.text)
         print(r.status_code)
 
-
-
 @parser.command(
     argument("id", help="id of the ssh key to update", type=int),
-    argument("ssh_key", help="value of the ssh_key", type=str),
-    usage="vastai update ssh-key id ssh_key",
-    help="Update an existing ssh key",
+    argument("ssh_key", help="new public key value", type=str),
+    usage="vastai update ssh-key ID SSH_KEY",
+    help="Update an existing SSH key",
 )
 def update__ssh_key(args):
+    """Updates an existing SSH key for the authenticated user."""
     ssh_key = get_ssh_key(args.ssh_key)
-    url = apiurl(args, "/ssh/{id}/".format(id=args.id))
-    r = http_put(args, url,  headers=headers, json={"ssh_key": ssh_key})
+    url = apiurl(args, f"/ssh/{args.id}/")
+
+    payload = {
+        "id": args.id,
+        "ssh_key": ssh_key,
+    }
+
+    r = http_put(args, url, json=payload)
     r.raise_for_status()
     print(r.json())
 

@@ -87,7 +87,7 @@ paths:
                   description: Additional machine search filters
                 recommended_disk_space:
                   type: number
-                  description: Recommended disk space in GB
+                  description: Recommended disk space in GB. Defaults to 16GB if not specified.
             example:
               name: My Template
               image: vastai/base-image

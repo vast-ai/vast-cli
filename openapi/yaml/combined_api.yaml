@@ -1575,7 +1575,11 @@ paths:
       summary: create instance
       description: 'Creates a new instance by accepting an "ask" contract from a provider.
 
-        This is the main endpoint for launching new instances on Vast.ai.
+
+        - Use the search offers endpoint to discover available machines.
+
+        - If `template_id` or `template_hash_id` is provided, those template defaults
+        are either merged or overridden by parameters specified in the request body.
 
 
         CLI Usage: `vastai create instance <offer_id> <image> [options]`'
@@ -1589,7 +1593,7 @@ paths:
         required: true
         schema:
           type: integer
-        description: ID of the offer to accept
+        description: ID of the offer to accept (ask_id)
       requestBody:
         required: true
         content:
@@ -1601,31 +1605,42 @@ paths:
               properties:
                 image:
                   type: string
-                  description: Docker image to use for the instance
-                  default: tensorflow/tensorflow:latest-gpu
-                  maxLength: 1024
+                  default: vastai/base-image:@vastai-automatic-tag
+                  description: 'Docker image to use for the instance.
+
+                    '
                 template_id:
                   type: integer
-                  description: Template ID to use for instance configuration
+                  description: 'ID of an existing template to use for instance configuration.
+                    Alternative to providing template_hash_id.
+
+
+                    Example : `62897`
+
+                    '
                 template_hash_id:
                   type: string
-                  description: Template hash ID to use for instance configuration
+                  description: 'Hash ID of a template. Alternative to providing template_id
+
+
+                    Example : `4e17788f74f075dd9aab7d0d4427968f`
+
+                    '
+                label:
+                  type: string
+                  description: Custom name for the instance
                 disk:
                   type: number
-                  description: Amount of storage (in GB) to allocate to the instance
-                  minimum: 8.0
-                  default: 10.0
-                price:
-                  type: number
-                  description: Bid price per hour for interruptible instances
-                  minimum: 0.001
-                  maximum: 128.0
-                env:
-                  type: object
-                  description: Environment variables and port mappings
+                  format: float
+                  description: 'Size of local disk partition (in GB)
+
+                    '
                 runtype:
                   type: string
-                  description: Instance run type
+                  description: 'Launch mode for the instance. If omitted, defaults
+                    to ''ssh'' unless `args/args_str` is provided.
+
+                    '
                   enum:
                   - ssh
                   - jupyter
@@ -1634,66 +1649,75 @@ paths:
                   - ssh_direct
                   - jupyter_proxy
                   - jupyter_direct
-                target_reliability:
-                  type: number
-                  description: Target reliability (0.0 to 1.0)
-                  minimum: 0
-                  maximum: 1
-                last_known_min_bid:
-                  type: number
-                  description: Last known minimum bid price
-                onstart:
-                  type: string
-                  description: Commands to run when instance starts
-                  maxLength: 4096
-                label:
-                  type: string
-                  description: User-defined label for the instance
-                  maxLength: 256
-                image_login:
-                  type: string
-                  description: Docker registry credentials if needed
                 target_state:
                   type: string
-                  description: Desired initial state of the instance
+                  description: 'Desired initial state of the instance
+
+                    '
                   enum:
                   - running
                   - stopped
-                  default: running
+                price:
+                  type: number
+                  description: Bid price per machine (in $/hour). Only for interruptible
+                    instances
+                  minimum: 0.001
+                  maximum: 128.0
+                env:
+                  type: object
+                  description: "Environment variables\n\nExample :\n`\n{ \n  \"HF_TOKEN\"\
+                    : \"hf_xxx123456789\",\n  \"MODEL_ID\": \"TheBloke/Llama-2-7B-Chat-GPTQ\"\
+                    ,\n}`\n"
                 cancel_unavail:
                   type: boolean
                   description: Whether to cancel if instance cannot start immediately.
-                    Defaults to false for interruptibles, true for on-demand with
-                    target_state='running'
+                    Defaults to false for interruptibles. Defaults to true for on-demand
+                    with target_state='running'
                 vm:
                   type: boolean
                   description: Whether this is a VM instance
-                  default: false
+                onstart:
+                  type: string
+                  description: "Commands to run when instance starts\n\nExample :\
+                    \ `env | grep _ >> /etc/environment; echo 'starting up'` \n"
                 args:
                   type: array
                   items:
                     type: string
-                  description: Arguments to pass to the container entrypoint
+                  description: 'Arguments array to passed to the image entrypoint
+
+
+                    Example : `["bash", "-c", "env | grep _ >> /etc/environment; echo
+                    ''starting up''"]`
+
+                    '
                 args_str:
                   type: string
-                  description: Command line arguments as a string (alternative to
-                    args array)
-                python_utf8:
-                  type: boolean
-                  description: Set python's locale to C.UTF-8
-                lang_utf8:
-                  type: boolean
-                  description: Install and generate locales before instance launch,
-                    set locale to C.UTF-8
+                  description: 'Arguments string to pass to the entrypoint (alternative
+                    to args)
+
+
+                    Example : `args_str: bash -c "env | grep _ >> /etc/environment;
+                    echo ''starting up''"`
+
+                    '
                 use_jupyter_lab:
                   type: boolean
                   description: Launch instance with jupyter lab instead of notebook
                 jupyter_dir:
                   type: string
-                  description: Directory in instance to use to launch jupyter
-                bid_test:
+                  description: 'Directory to launch Jupyter from
+
+
+                    Example : `/home/notebooks`
+
+                    '
+                python_utf8:
                   type: boolean
-                  description: Test if bid price is valid without creating instance
+                  description: Set python's locale to C.UTF-8
+                lang_utf8:
+                  type: boolean
+                  description: Set locale to C.UTF-8
                 force:
                   type: boolean
                   description: Skip sanity checks when creating from an existing instance
@@ -1701,6 +1725,9 @@ paths:
                   type: string
                   description: User to use with docker create (breaks some images,
                     use with caution)
+                image_login:
+                  type: string
+                  description: Docker registry credentials if needed
                 volume_info:
                   type: object
                   description: Volume creation/linking information
@@ -1718,12 +1745,8 @@ paths:
                     mount_path:
                       type: string
                       description: Mount path for the volume inside the container
-                    name:
-                      type: string
-                      description: Label for the new volume
             example:
-              id: 1234567
-              image: tensorflow/tensorflow:latest-gpu
+              image: vastai/base-image:@vastai-automatic-tag
       responses:
         '200':
           description: Instance created successfully
@@ -2593,12 +2616,10 @@ paths:
   /api/v0/template/:
     post:
       summary: create template
-      description: 'Creates a new template for launching instances. If an identical
-        template already exists, returns the existing template instead of creating
-        a duplicate.
+      description: 'Creates a new template for launching instances.
 
 
-        CLI Usage: `vastai create template [options]`'
+        CLI Usage: `vastai create template <name> <image> [options]`'
       tags:
       - Templates
       security:
@@ -2609,64 +2630,84 @@ paths:
           application/json:
             schema:
               type: object
+              required:
+              - name
+              - image
               properties:
                 name:
                   type: string
-                  maxLength: 256
+                  default: My Template
                   description: Name of the template
-                  example: My Template
                 image:
                   type: string
-                  maxLength: 1024
-                  description: Docker image path
-                  example: ghcr.io/huggingface/text-generation-inference:1.0.3
+                  default: vastai/base-image
+                  description: Docker image path. Used when launching instances from
+                    this template.
                 tag:
                   type: string
-                  description: Docker image tag
+                  default: '@vastai-automatic-tag'
+                  description: 'Docker image tag specifying version of the image
+
+                    This can be included in the image instead of here
+
+                    '
                 env:
-                  type: string
-                  maxLength: 1024
-                  description: Docker environment variables and run arguments
-                  example: -p 3000:3000 -e MODEL_ARGS='--model-id TheBloke/Llama-2-7B-chat-GPTQ'
+                  type: object
+                  description: 'Environment variables
+
+
+                    Example : `{ "HF_TOKEN": "hf_xxx123456789", "MODEL_ID": "TheBloke/Llama-2-7B-Chat-GPTQ",
+                    }`
+
+                    '
                 onstart:
                   type: string
-                  maxLength: 2048
-                  description: Command to run on instance startup
-                jup_direct:
-                  type: boolean
-                  description: Enable direct Jupyter connection
-                ssh_direct:
-                  type: boolean
-                  description: Enable direct SSH connection
-                use_jupyter_lab:
-                  type: boolean
-                  description: Use JupyterLab instead of Jupyter Notebook
+                  description: "Commands to run when instance starts\n\nExample :\
+                    \ `env | grep _ >> /etc/environment; echo 'starting up'` \n"
                 runtype:
                   type: string
                   enum:
-                  - jupyter
                   - ssh
+                  - jupyter
                   - args
                   description: Type of instance runtime
-                use_ssh:
+                ssh_direct:
                   type: boolean
-                  description: Enable SSH access
+                  description: Enable direct SSH connection
+                jup_direct:
+                  type: boolean
+                  description: Enable direct Jupyter connection
                 jupyter_dir:
                   type: string
-                  maxLength: 256
-                  description: Jupyter notebook directory
+                  description: 'Directory to launch Jupyter from
+
+
+                    Example : `/home/notebooks`
+
+                    '
+                use_jupyter_lab:
+                  type: boolean
+                  description: Use JupyterLab instead of Jupyter Notebook
                 docker_login_repo:
                   type: string
-                  description: Docker repository requiring authentication
+                  description: Name of the private Docker repo (i.e docker.io)
+                docker_login_user:
+                  type: string
+                  description: Username for private Docker repo
+                docker_login_pass:
+                  type: string
+                  description: Access token or password for private Docker repo.
                 extra_filters:
                   type: object
                   description: Additional machine search filters
                 recommended_disk_space:
                   type: number
-                  description: Recommended disk space in GB
-              required:
-              - name
-              - image
+                  description: Recommended disk space in GB. Defaults to 16GB if not
+                    specified.
+            example:
+              name: My Template
+              image: vastai/base-image
+              tag: '@vastai-automatic-tag'
       responses:
         '200':
           description: Template created or existing template found
@@ -5532,15 +5573,6 @@ paths:
         | `nin`    | Value is not in a list | `{ "nin": ["TW", "SE"] }`      |
 
 
-        Default filters applied unless --no-default:
-
-        - verified: true
-
-        - rentable: true
-
-        - rented: false
-
-
         CLI Usage: `vastai search offers ''reliability > 0.99 num_gpus>=4'' --order=dph_total`'
       security:
       - BearerAuth: []
@@ -5711,9 +5743,6 @@ paths:
                   description: Sort fields and directions
                   minItems: 2
                   maxItems: 2
-                  example:
-                  - reliability
-                  - desc
                 disable_bundling:
                   type: boolean
                   description: Disable offer bundling
@@ -5727,6 +5756,15 @@ paths:
                     Default is 8GB.
 
                     '
+            example:
+              limit: 50
+              type: on-demand
+              verified:
+                eq: true
+              rentable:
+                eq: true
+              rented:
+                eq: false
       responses:
         '200':
           description: Successful search response
@@ -5872,7 +5910,6 @@ paths:
                 properties:
                   error:
                     type: string
-                    example: auth_error
                     msg: Invalid user key
       tags:
       - Search

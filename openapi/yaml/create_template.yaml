@@ -8,9 +8,9 @@ paths:
     post:
       summary: create template
       description: |
-        Creates a new template for launching instances. If an identical template already exists, returns the existing template instead of creating a duplicate.
+        Creates a new template for launching instances.
 
-        CLI Usage: `vastai create template [options]`
+        CLI Usage: `vastai create template <name> <image> [options]`
       tags:
       - Templates
       security:
@@ -21,64 +21,77 @@ paths:
           application/json:
             schema:
               type: object
+              required:
+              - name
+              - image
               properties:
                 name:
                   type: string
-                  maxLength: 256
+                  default: My Template
                   description: Name of the template
-                  example: My Template
                 image:
                   type: string
-                  maxLength: 1024
-                  description: Docker image path
-                  example: ghcr.io/huggingface/text-generation-inference:1.0.3
+                  default: vastai/base-image
+                  description: Docker image path. Used when launching instances from this template.
                 tag:
                   type: string
-                  description: Docker image tag
+                  default: '@vastai-automatic-tag'
+                  description: |
+                    Docker image tag specifying version of the image
+                    This can be included in the image instead of here
                 env:
-                  type: string
-                  maxLength: 1024
-                  description: Docker environment variables and run arguments
-                  example: -p 3000:3000 -e MODEL_ARGS='--model-id TheBloke/Llama-2-7B-chat-GPTQ'
+                  type: object
+                  description: |
+                    Environment variables
+
+                    Example : `{ "HF_TOKEN": "hf_xxx123456789", "MODEL_ID": "TheBloke/Llama-2-7B-Chat-GPTQ", }`
                 onstart:
                   type: string
-                  maxLength: 2048
-                  description: Command to run on instance startup
-                jup_direct:
-                  type: boolean
-                  description: Enable direct Jupyter connection
-                ssh_direct:
-                  type: boolean
-                  description: Enable direct SSH connection
-                use_jupyter_lab:
-                  type: boolean
-                  description: Use JupyterLab instead of Jupyter Notebook
+                  description: |
+                    Commands to run when instance starts
+
+                    Example : `env | grep _ >> /etc/environment; echo 'starting up'` 
                 runtype:
                   type: string
                   enum:
-                  - jupyter
                   - ssh
+                  - jupyter
                   - args
                   description: Type of instance runtime
-                use_ssh:
+                ssh_direct:
                   type: boolean
-                  description: Enable SSH access
+                  description: Enable direct SSH connection
+                jup_direct:
+                  type: boolean
+                  description: Enable direct Jupyter connection
                 jupyter_dir:
                   type: string
-                  maxLength: 256
-                  description: Jupyter notebook directory
+                  description: |
+                    Directory to launch Jupyter from
+
+                    Example : `/home/notebooks`
+                use_jupyter_lab:
+                  type: boolean
+                  description: Use JupyterLab instead of Jupyter Notebook
                 docker_login_repo:
                   type: string
-                  description: Docker repository requiring authentication
+                  description: Name of the private Docker repo (i.e docker.io)
+                docker_login_user:
+                  type: string
+                  description: Username for private Docker repo 
+                docker_login_pass:
+                  type: string
+                  description: Access token or password for private Docker repo.
                 extra_filters:
                   type: object
                   description: Additional machine search filters
                 recommended_disk_space:
                   type: number
-                  description: Recommended disk space in GB
-              required:
-              - name
-              - image
+                  description: Recommended disk space in GB. Defaults to 16GB if not specified.
+            example:
+              name: My Template
+              image: vastai/base-image
+              tag: '@vastai-automatic-tag'
       responses:
         '200':
           description: Template created or existing template found

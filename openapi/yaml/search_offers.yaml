@@ -28,8 +28,6 @@ paths:
         | `in`     | Value is in a list     | `{ "in": ["RTX_3090", "RTX_4090"] }` |
         | `nin`    | Value is not in a list | `{ "nin": ["TW", "SE"] }`      |
 
-        Default filters: verified=true, rentable=true, rented=false (unless --no-default is used)
-
         CLI Usage: `vastai search offers 'reliability > 0.99 num_gpus>=4' --order=dph_total`
       requestBody:
         required: true
@@ -187,9 +185,9 @@ paths:
                     type: array
                     items:
                       type: string
-                    minItems: 2
-                    maxItems: 2
-                    example: ["reliability", "desc"]
+                  description: Sort fields and directions
+                  minItems: 2
+                  maxItems: 2
                 disable_bundling:
                   type: boolean
                   description: Disable offer bundling
@@ -199,6 +197,15 @@ paths:
                       Storage allocation size in GB for the instance.
                       This sets the disk size when creating the instance and cannot be changed later.
                       Default is 8GB.
+            example:
+              limit: 100
+              type: on-demand
+              verified: 
+                eq: true
+              rentable: 
+                eq: true
+              rented: 
+                eq: false
       responses:
         '200':
           description: Successful search response
@@ -343,7 +350,6 @@ paths:
                 properties:
                   error: 
                     type: string
-                    example: auth_error
                     msg: Invalid user key
       tags:
       - Search

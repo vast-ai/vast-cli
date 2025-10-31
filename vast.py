@@ -1212,7 +1212,7 @@ def get_ssh_key(argstr):
 @parser.command(
     argument("instance_id", help="id of instance to attach to", type=int),
     argument("ssh_key", help="ssh key to attach to instance", type=str),
-    usage="vastai attach ssh",
+    usage="vastai attach ssh instance_id ssh_key",
     help="Attach an ssh key to an instance. This will allow you to connect to the instance with the ssh key",
     epilog=deindent("""
         Attach an ssh key to an instance. This will allow you to connect to the instance with the ssh key.

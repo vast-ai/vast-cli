@@ -5574,8 +5574,6 @@ paths:
 
 
         CLI Usage: `vastai search offers ''reliability > 0.99 num_gpus>=4'' --order=dph_total`'
-      security:
-      - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -5736,6 +5734,15 @@ paths:
                   description: Host machine Ubuntu OS version
                 order:
                   type: array
+                  description: 'List of sort fields and directions.
+
+                    Each entry should contain two elements:
+
+                    1. The field name to sort by (string)
+
+                    2. The sort direction ("asc" or "desc")
+
+                    '
                   items:
                     type: array
                     items:

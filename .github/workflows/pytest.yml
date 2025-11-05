@@ -1,4 +1,4 @@
-name: Test Vast CLI with Poetry
+name: Test Vast CLI (PEP 621 + Poetry Backend)
 
 on:
   push:
@@ -13,29 +13,27 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"   # or 3.11 if your CLI requires it
+          python-version: "3.12"
 
-      - name: Install Poetry
-        uses: abatilo/actions-poetry@v3
-        with:
-          poetry-version: "1.7.1"  # stable version
+      - name: Install Poetry and plugin
+        run: |
+          pip install poetry==1.8.3 poetry-dynamic-versioning[plugin] build
 
-      - name: Cache Poetry virtualenv and dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            .venv
-            .cache/pypoetry
-          key: ${{ runner.os }}-poetry-${{ hashFiles('poetry.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-poetry-
+      - name: Build wheel
+        run: |
+          python -m build
+          ls -l dist/
 
-      - name: Install dependencies
-        run: poetry install --no-interaction
+      - name: Install built package
+        run: |
+          pip install dist/*.whl
+          pip install pytest
 
       - name: Run tests
-        run: poetry run pytest -v
+        run: pytest -v

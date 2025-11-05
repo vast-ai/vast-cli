@@ -22,7 +22,7 @@ jobs:
       - name: Install Poetry
         uses: abatilo/actions-poetry@v3
         with:
-          poetry-version: "1.8.3"  # stable version
+          poetry-version: "1.7.1"  # stable version
 
       - name: Cache Poetry virtualenv and dependencies
         uses: actions/cache@v4
@@ -35,7 +35,7 @@ jobs:
             ${{ runner.os }}-poetry-
 
       - name: Install dependencies
-        run: poetry install --no-interaction --no-root
+        run: poetry install --no-interaction
 
       - name: Run tests
         run: poetry run pytest -v

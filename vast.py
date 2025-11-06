@@ -1523,7 +1523,7 @@ def copy(args: argparse.Namespace):
                 result = subprocess.run(f"mkdir -p {dst_path}", shell=True)
                 remote_port = rj["src_port"]
                 remote_addr = rj["src_addr"]
-                cmd = f"rsync -arz -v --progress --rsh=ssh -e 'ssh -i {identity} -p {remote_port} -o StrictHostKeyChecking=no' vastai_kaalia@{remote_addr}::{src_id}/{src_path} {dst_path}"
+                cmd = f"rsync -arz -v --progress --rsh=ssh -e 'ssh {identity} -p {remote_port} -o StrictHostKeyChecking=no' vastai_kaalia@{remote_addr}::{src_id}/{src_path} {dst_path}"
                 print(cmd)
                 result = subprocess.run(cmd, shell=True)
                 #result = subprocess.run(["sudo", "rsync" "-arz", "-v", "--progress", "-rsh=ssh", "-e 'ssh -i {homedir}/.ssh/id_rsa -p {remote_port} -o StrictHostKeyChecking=no'", "vastai_kaalia@{remote_addr}::{src_id}", dst_path], shell=True)

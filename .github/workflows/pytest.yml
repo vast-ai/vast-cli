@@ -1,0 +1,39 @@
+name: Test Vast CLI (PEP 621 + Poetry Backend)
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry and plugin
+        run: |
+          pip install poetry==1.8.3 poetry-dynamic-versioning[plugin] build
+
+      - name: Build wheel
+        run: |
+          python -m build
+          ls -l dist/
+
+      - name: Install built package
+        run: |
+          pip install dist/*.whl
+          pip install pytest
+
+      - name: Run tests
+        run: pytest -v

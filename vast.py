@@ -280,6 +280,10 @@ def string_to_unix_epoch(date_string):
         date_object = datetime.strptime(date_string, "%m/%d/%Y")
         return time.mktime(date_object.timetuple())
 
+def unix_to_readable(ts):
+    # ts: integer or float, Unix timestamp
+    return datetime.fromtimestamp(ts).strftime('%H:%M:%S|%h-%d-%Y')
+
 def fix_date_fields(query: Dict[str, Dict], date_fields: List[str]):
     """Takes in a query and date fields to correct and returns query with appropriate epoch dates"""
     new_query: Dict[str, Dict] = {}
@@ -295,10 +299,10 @@ def fix_date_fields(query: Dict[str, Dict], date_fields: List[str]):
 
 
 class argument(object):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, mutex_group=None, **kwargs):
         self.args = args
         self.kwargs = kwargs
-
+        self.mutex_group = mutex_group  # Name of the mutually exclusive group this arg belongs to
 
 class hidden_aliases(object):
     # just a bit of a hack
@@ -441,20 +445,8 @@ class apwrap(object):
             setattr(func, "mysignature_help", help_)
 
             self.subparser_objs.append(sp)
-            for arg in arguments:
-                tsp = sp.add_argument(*arg.args, **arg.kwargs)
-                myCompleter= None
-                comparator = arg.args[0].lower()
-                if comparator.startswith('machine'):
-                  myCompleter = complete_instance_machine
-                elif comparator.startswith('id') or comparator.endswith('id'):
-                  myCompleter = complete_instance
-                elif comparator.startswith('ssh'):
-                  myCompleter = complete_sshkeys
-                  
-                if myCompleter:
-                  setattr(tsp, 'completer', myCompleter)
-
+            
+            self._process_arguments_with_groups(sp, arguments)
 
             sp.set_defaults(func=func)
             return func
@@ -478,6 +470,53 @@ class apwrap(object):
         for func in self.post_setup:
             func(args)
         return args
+
+    def _process_arguments_with_groups(self, parser_obj, arguments):
+        """Process arguments and handle mutually exclusive groups"""
+        mutex_groups_to_required = {}
+        arg_to_group = {}
+        
+        # Determine if any mutex groups are required
+        for arg in arguments:
+            key = arg.args[0]
+            if arg.mutex_group:
+                is_required = arg.kwargs.pop('required', False)
+                group_name = arg.mutex_group
+                arg_to_group[key] = group_name
+                if mutex_groups_to_required.get(group_name):
+                    continue  # if marked as required then it stays required
+                else:
+                    mutex_groups_to_required[group_name] = is_required
+        
+        name_to_group_parser = {}  # Create mutually exclusive group parsers
+        for group_name, is_required in mutex_groups_to_required.items():
+            mutex_group = parser_obj.add_mutually_exclusive_group(required=is_required)
+            name_to_group_parser[group_name] = mutex_group
+
+        for arg in arguments:  # Add args via the appropriate parser
+            key = arg.args[0]
+            if arg_to_group.get(key):
+                group_parser = name_to_group_parser[arg_to_group[key]]
+                tsp = group_parser.add_argument(*arg.args, **arg.kwargs)
+            else:
+                tsp = parser_obj.add_argument(*arg.args, **arg.kwargs)
+            self._add_completer(tsp, arg)
+            
+
+    def _add_completer(self, tsp, arg):
+        """Helper function to add completers based on argument names"""
+        myCompleter = None
+        comparator = arg.args[0].lower()
+        if comparator.startswith('machine'):
+            myCompleter = complete_instance_machine
+        elif comparator.startswith('id') or comparator.endswith('id'):
+            myCompleter = complete_instance
+        elif comparator.startswith('ssh'):
+            myCompleter = complete_sshkeys
+            
+        if myCompleter:
+            setattr(tsp, 'completer', myCompleter)
+
 
 class MyWideHelpFormatter(argparse.RawTextHelpFormatter):
     def __init__(self, prog):
@@ -1137,6 +1176,20 @@ def display_table(rows: list, fields: Tuple, replace_spaces: bool = True) -> Non
             out.append(s)
         print("  ".join(out))
 
+
+def print_or_page(args, text):
+    """ Print text to terminal, or pipe to pager_cmd if too long. """
+    line_threshold = shutil.get_terminal_size(fallback=(80, 24)).lines
+    lines = text.splitlines()
+    if not args.full and len(lines) > line_threshold:
+        pager_cmd = 'less' if shutil.which('less') else None
+        if pager_cmd:
+            proc = subprocess.Popen([pager_cmd], stdin=subprocess.PIPE)
+            proc.communicate(input=text.encode())
+        else:
+            print(text)
+    else:
+        print(text)
 
 class VRLException(Exception):
     pass
@@ -7535,6 +7588,7 @@ def main():
     parser.add_argument("--url", help="server REST api url", default=server_url_default)
     parser.add_argument("--retry", help="retry limit", default=3)
     parser.add_argument("--raw", action="store_true", help="output machine-readable json")
+    parser.add_argument("--full", action="store_true", help="print full results instead of paging with `less`")
     parser.add_argument("--explain", action="store_true", help="output verbose explanation of mapping of CLI calls to HTTPS API endpoints")
     parser.add_argument("--curl", action="store_true", help="show a curl equivalency to the call")
     parser.add_argument("--api-key", help="api key. defaults to using the one stored in {}".format(APIKEY_FILE), type=str, required=False, default=os.getenv("VAST_API_KEY", api_key_guard))

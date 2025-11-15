@@ -393,7 +393,10 @@ class apwrap(object):
         if not kw.get("parent_only"):
             for x in self.subparser_objs:
                 try:
-                    x.add_argument(*a, **kw)
+                    # Create a global options group for better visual separation
+                    if not hasattr(x, '_global_options_group'):
+                        x._global_options_group = x.add_argument_group('Global options (available for all commands)')
+                    x._global_options_group.add_argument(*a, **kw)
                 except argparse.ArgumentError:
                     # duplicate - or maybe other things, hopefully not
                     pass
@@ -563,6 +566,8 @@ def apiurl(args: argparse.Namespace, subpath: str, query_args: Dict = None) -> s
         query_args = {}
     if args.api_key is not None:
         query_args["api_key"] = args.api_key
+    if not re.match(r"^/api/v(\d)+/", subpath):
+        subpath = "/api/v0" + subpath
     
     query_json = None
 
@@ -580,15 +585,15 @@ def apiurl(args: argparse.Namespace, subpath: str, query_args: Dict = None) -> s
             "{x}={y}".format(x=x, y=quote_plus(y if isinstance(y, str) else json.dumps(y))) for x, y in
             query_args.items())
         
-        result = args.url + "/api/v0" + subpath + "?" + query_json
+        result = args.url + subpath + "?" + query_json
     else:
-        result = args.url + "/api/v0" + subpath
+        result = args.url + subpath
 
     if (args.explain):
         print("query args:")
         print(query_args)
         print("")
-        print(f"base: {args.url + '/api/v0' + subpath + '?'} + query: ")
+        print(f"base: {args.url + subpath + '?'} + query: ")
         print(result)
         print("")
     return result
@@ -7622,7 +7627,7 @@ def main():
 
     try:
         res = args.func(args)
-        if args.raw:
+        if args.raw and res:
             # There's two types of responses right now
             try:
                 print(json.dumps(res, indent=1, sort_keys=True))

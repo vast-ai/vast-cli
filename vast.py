@@ -33,6 +33,17 @@ import warnings
 import importlib.metadata
 
 
+import copy
+from rich.console import Console
+from rich.text import Text
+from rich.table import Table
+from rich.tree import Tree
+from rich import box
+from rich.panel import Panel
+from rich.padding import Padding
+from rich.prompt import Confirm
+
+
 PYPI_BASE_PATH = "https://pypi.org"
 # INFO - Change to False if you don't want to check for update each run.
 should_check_for_update = False
@@ -1187,14 +1198,17 @@ def print_or_page(args, text):
     line_threshold = shutil.get_terminal_size(fallback=(80, 24)).lines
     lines = text.splitlines()
     if not args.full and len(lines) > line_threshold:
-        pager_cmd = 'less' if shutil.which('less') else None
+        pager_cmd = ['less', '-R'] if shutil.which('less') else None
         if pager_cmd:
-            proc = subprocess.Popen([pager_cmd], stdin=subprocess.PIPE)
+            proc = subprocess.Popen(pager_cmd, stdin=subprocess.PIPE)
             proc.communicate(input=text.encode())
+            return True
         else:
             print(text)
+            return False
     else:
         print(text)
+        return False
 
 class VRLException(Exception):
     pass
@@ -5093,8 +5107,8 @@ def show__env_vars(args):
     argument("-c", "--only_charges", action="store_true", help="Show only charge items"),
     argument("-p", "--only_credits", action="store_true", help="Show only credit items"),
     argument("--instance_label", help="Filter charges on a particular instance label (useful for autoscaler groups)"),
-    usage="vastai show invoices [OPTIONS]",
-    help="Get billing history reports",
+    usage="(DEPRECATED) vastai show invoices [OPTIONS]",
+    help="(DEPRECATED) Get billing history reports",
 )
 def show__invoices(args):
     """
@@ -5164,6 +5178,247 @@ def show__invoices(args):
         display_table(rows, invoice_fields)
         print(f"Total: ${sum(rows, 'amount')}")
         print("Current: ", current_charges)
+
+# Helper to convert date string or int to timestamp
+def to_timestamp_(val):
+    if isinstance(val, int):
+        return val
+    if isinstance(val, str):
+        if val.isdigit():
+            return int(val)
+        return int(datetime.strptime(val, '%Y-%m-%d').timestamp())
+    raise ValueError("Invalid date format")
+
+@parser.command(
+    argument('-i', '--invoices', mutex_group='grp', action='store_true', required=True, help='Show invoices instead of charges'),
+    argument('-c', '--charges', mutex_group='grp', action='store_true', required=True, help='Show charges instead of invoices'),
+    argument('-a', '--include-serverless', action='store_true', help='Include serverless charges'),
+    argument('-s', '--start-date', help='Start date (YYYY-MM-DD or timestamp)'),
+    argument('-e', '--end-date', help='End date (YYYY-MM-DD or timestamp)'),
+    argument('-l', '--limit', type=int, default=20, help='Number of results per page (default: 20, max: 100)'),
+    argument('-t', '--next-token', help='Pagination token for next page'),
+    argument('-f', '--format', choices=['table', 'tree'], default='table', help='Output format for charges (default: table)'),
+    argument('-v', '--verbose', action='store_true', help='Include full Instance Charge details and Invoice Metadata'),
+    argument('--latest-first', action='store_true', help='Sort by latest first'),
+    usage="vastai show invoices-v1 [OPTIONS]",
+)
+def show__invoices_v1(args):
+    output_lines = []
+
+    # Handle default start and end date values
+    if not args.start_date and not args.end_date:
+        args.end_date = int(time.time())  # Set end date to current time if both are missing
+    if not args.start_date:
+        args.start_date = args.end_date - 7 * 24*60*60  # Default to 7 days before given end date
+    elif not args.end_date:
+        args.end_date = args.start_date + 7 * 24*60*60  # Default to 7 days after given start date
+    
+    try:
+        # Parse dates - handle both YYYY-MM-DD format and timestamps
+        start_timestamp = to_timestamp_(args.start_date)
+        end_timestamp = to_timestamp_(args.end_date)
+    except Exception as e:
+        print(f"Error parsing dates: {e}")
+        print("Use format YYYY-MM-DD or UNIX timestamp")
+        return
+
+    if not args.no_color:
+        print("(use --no-color to disable colored output)\n")
+    
+    start_date = convert_timestamp_to_date(start_timestamp)
+    end_date = convert_timestamp_to_date(end_timestamp)
+    data_type = "Instance Charges" if args.charges else "Invoices"
+    output_lines.append(f"Fetching {data_type} from {start_date} to {end_date}...")
+
+    # Build request parameters
+    col = 'day' if args.charges else 'when'
+    params = {
+        'select_filters': {col: {'gte': start_timestamp, 'lte': end_timestamp}},
+        'latest_first': args.latest_first,
+        'limit': min(args.limit, 100)  # Enforce max limit of 100
+    }
+    if args.charges:
+        params['include_serverless'] = args.include_serverless
+        params['format'] = args.format
+    if args.next_token:
+        params['after_token'] = args.next_token
+
+    endpoint = '/api/v0/charges/' if args.charges else '/api/v1/invoices/'
+    url = apiurl(args, endpoint, query_args=params)
+
+    found_results, found_count = [], 0
+    looping = True
+    while looping:
+        response = http_get(args, url)
+        response.raise_for_status()
+        response = response.json()
+
+        found_results += response.get('results', [])
+        found_count += response.get('count', 0)
+        total = response.get('total', 0)
+        next_token = response.get('next_token')
+        
+        if args.raw:
+            output_lines.append("Raw response:\n" + json.dumps(response, indent=2))
+            if next_token:
+                print(f"Next page token: {next_token}\n")
+        elif not found_results:
+            output_lines.append("No results found")
+        else:  # Display results
+            formatted_results = format_invoices_charges_results(args, copy.deepcopy(found_results))
+            if args.invoices:
+                rich_obj = create_rich_table_for_invoices(formatted_results)
+            elif args.format == 'tree':
+                rich_obj = create_charges_tree(formatted_results)
+            else:
+                rich_obj = create_rich_table_for_charges(args, formatted_results)
+
+            output_lines.append(rich_object_to_string(rich_obj, no_color=args.no_color))
+            output_lines.append(f"Showing {found_count} of {total} results")
+            if next_token:
+                output_lines.append(f"Next page token: {next_token}\n")
+        
+        paging = print_or_page(args, '\n'.join(output_lines))
+
+        if next_token and not paging:
+            ans = Confirm.ask("Fetch next page?", show_default=False, default=False)
+            if ans:
+                params['after_token'] = next_token
+                url = apiurl(args, endpoint, query_args=params)
+                output_lines.clear()
+                args.full = True
+            else:
+                looping = False
+        else:
+            looping = False
+
+def format_invoices_charges_results(args, results):
+    indices_to_remove = []
+    for i,item in enumerate(results):
+        item['start'] = convert_timestamp_to_date(item['start']) if item['start'] else None
+        item['end'] = convert_timestamp_to_date(item['end']) if item['end'] else None
+        if item['amount'] == 0:
+            indices_to_remove.append(i)  # Removing items that don't contribute to the total
+        elif args.invoices:
+            if item['type'] not in {'transfer', 'payout'}:
+                item['amount'] *= -1  # present amounts intuitively as related to balance
+            item['amount_str'] = f"${item['amount']:.2f}" if item['amount'] > 0 else f"-${abs(item['amount']):.2f}"
+        else:
+            item['amount'] = f"${item['amount']:.3f}"
+
+        if args.charges:
+            if item['type'] in {'instance','volume'} and not args.verbose:
+                item['items'] = []  # Remove instance charge details if verbose is not set
+            if item['source'] and '-' in item['source']:
+                item['type'], item['source'] = item['source'].capitalize().split('-')
+        
+        item['items'] = format_invoices_charges_results(args, item['items'])
+    
+    for i in reversed(indices_to_remove):  # Remove in reverse order to avoid index shifting
+        del results[i]
+    
+    return results
+
+def rich_object_to_string(rich_obj, no_color=True):
+    """ Render a Rich object (Table or Tree) to a string. """
+    buffer = StringIO()  # Use an in-memory stream to suppress visible output
+    console = Console(record=True, file=buffer)
+    console.print(rich_obj)
+    return console.export_text(clear=True, styles=not no_color)
+
+def create_charges_tree(results, parent=None, title="Charges Breakdown"):
+    """ Build and return a Rich Tree from nested charge results. """
+    if parent is None:  # Create root node if this is the first call
+        root = Tree(Text(title, style="bold red"))
+        create_charges_tree(results, root)
+        return Panel(root, style="white on #000000", expand=False)
+    
+    top_level = (parent.label.plain == title)
+    for item in results:
+        label = Text.assemble(
+            (item["type"], "bold cyan"),
+            (f" {item['source']}" if item.get('source') else "", "gold1"), " → ",
+            (f"{item['amount']}", 'bold green1' if top_level else 'green1'),
+            (f" — {item['description']}", "bright_white" if top_level else "dim white"),
+            (f"  ({item['start']} → {item['end']})", "bold bright_white" if top_level else "white")
+        )
+        node = parent.add(label, guide_style="blue3")
+        if item.get("items"):
+            create_charges_tree(item["items"], node)
+    return parent
+
+def create_rich_table_for_charges(args, results):
+    """ Build and return a Rich Table from charge results. """
+    table = Table(style="white", header_style="bold bright_yellow", box=box.DOUBLE_EDGE, row_styles=["on grey11", "none"])
+    table.add_column(Text("Type", justify="center"), style="bold steel_blue1", justify="center")
+    table.add_column(Text("ID", justify="center"), style="gold1", justify="center")
+    table.add_column(Text("Amount", justify="center"), style="sea_green2", justify="right")
+    table.add_column(Text("Start", justify="center"), style="bright_white", justify="center")
+    table.add_column(Text("End", justify="center"), style="bright_white", justify="center")
+    if args.include_serverless:
+        table.add_column(Text("Endpoint", justify="center"), style="bright_red", justify="center")
+        table.add_column(Text("Workergroup", justify="center"), style="orchid", justify="center")
+    for item in results:
+        row = [item['type'].capitalize(), item['source'], item['amount'], item['start'], item['end']]
+        if args.include_serverless:
+            row.append(str(item['metadata'].get('endpoint_id', '')))
+            row.append(str(item['metadata'].get('workergroup_id', '')))
+        table.add_row(*row)
+    return Padding(table, (1, 2), style="on #000000", expand=False)  # Print with a black background
+
+def create_rich_table_for_invoices(results):
+    """ Build and return a Rich Table from invoice results. """
+    invoice_type_to_color = {
+        "credit": "green1",
+        "transfer": "gold1",
+        "payout": "orchid",
+        "reserved": "sky_blue1",
+        "refund": "bright_red",
+    }
+    table = Table(style="white", header_style="bold bright_yellow", box=box.DOUBLE_EDGE, row_styles=["on grey11", "none"])
+    table.add_column(Text("ID", justify="center"), style="bright_white", justify="center")
+    table.add_column(Text("Created", justify="center"), style="yellow3", justify="center")
+    table.add_column(Text("Paid", justify="center"), style="yellow3", justify="center")
+    table.add_column(Text("Type", justify="center"), justify="center")
+    table.add_column(Text("Result", justify="center"), justify="right")
+    table.add_column(Text("Source", justify="center"), style="bright_cyan", justify="center")
+    table.add_column(Text("Description", justify="center"), style="bright_white", justify="left")
+    for item in results:
+        table.add_row(
+            str(item['metadata']['invoice_id']),
+            item['start'],
+            item['end'] if item['end'] else 'N/A',
+            Text(item['type'].capitalize(), style=invoice_type_to_color.get(item['type'], "white")),
+            Text(item['amount_str'], style="sea_green2" if item['amount'] > 0 else "bright_red"),
+            item['source'].capitalize() if item['type'] != 'transfer' else item['source'],
+            item['description'],
+        )
+    return Padding(table, (1, 2), style="on #000000", expand=False)  # Print with a black background
+
+def create_rich_table_from_rows(rows, headers=None, title='', sort_key=None):
+    """ (Generic) Creates a Rich table from a list of dict rows. """
+    if not isinstance(rows, list):
+        raise ValueError("Invalid Data Type: rows must be a list")
+    # Handle list of dictionaries
+    if isinstance(rows[0], dict):
+        headers = headers or list(rows[0].keys())
+        rows = [[row_dict.get(h, "") for h in headers] for row_dict in rows]
+    elif headers is None:
+        raise ValueError("Headers must be provided if rows are not dictionaries")
+    # Sort rows if requested
+    if sort_key:
+        rows = sorted(rows, key=sort_key)
+    # Create the Rich table
+    table = Table(title=title, style="white", header_style="bold bright_yellow", box=box.DOUBLE_EDGE)
+    # Add columns
+    for header in headers:
+        # You can customize alignment and style here per column
+        table.add_column(header, justify="left", style="bright_white", no_wrap=True)
+    # Add rows
+    for row in rows:
+        # Convert everything to string to avoid type issues
+        table.add_row(*[str(cell) for cell in row])
+    return table
 
 
 @parser.command(
@@ -7592,12 +7847,13 @@ def main():
     global ARGS
     parser.add_argument("--url", help="server REST api url", default=server_url_default)
     parser.add_argument("--retry", help="retry limit", default=3)
+    parser.add_argument("--explain", action="store_true", help="output verbose explanation of mapping of CLI calls to HTTPS API endpoints")
     parser.add_argument("--raw", action="store_true", help="output machine-readable json")
     parser.add_argument("--full", action="store_true", help="print full results instead of paging with `less`")
-    parser.add_argument("--explain", action="store_true", help="output verbose explanation of mapping of CLI calls to HTTPS API endpoints")
     parser.add_argument("--curl", action="store_true", help="show a curl equivalency to the call")
     parser.add_argument("--api-key", help="api key. defaults to using the one stored in {}".format(APIKEY_FILE), type=str, required=False, default=os.getenv("VAST_API_KEY", api_key_guard))
     parser.add_argument("--version", help="show version", action="version", version=VERSION)
+    parser.add_argument("--no-color", action="store_true", help="disable colored output")
 
     ARGS = args = parser.parse_args()
     #print(args.api_key)

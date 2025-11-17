@@ -1524,9 +1524,11 @@ def clone__volume(args: argparse.Namespace):
         - cloud_service:path              (cloud service format)
         - cloud_service.cloud_service_id:path  (cloud service with ID)
         - local:path                      (explicit local path)
+        - V.volume_id:path                (volume copy, see restrictions)
 
         You should not copy to /root or / as a destination directory, as this can mess up the permissions on your instance ssh folder, breaking future copy operations (as they use ssh authentication)
         You can see more information about constraints here: https://vast.ai/docs/gpu-instances/data-movement#constraints
+        Volume copy is currently only supported for copying to other volumes or instances, not cloud services or local.
 
         Examples:
          vast copy 6003036:/workspace/ 6003038:/workspace/
@@ -1534,6 +1536,7 @@ def clone__volume(args: argparse.Namespace):
          vast copy local:data/test C.11824:/data/test
          vast copy drive:/folder/file.txt C.6003036:/workspace/
          vast copy s3.101:/data/ C.6003036:/workspace/
+         vast copy V.1234:/file C.5678:/workspace/
 
         The first example copy syncs all files from the absolute directory '/workspace' on instance 6003036 to the directory '/workspace' on instance 6003038.
         The second example copy syncs files from container 11824 to the local machine using structured syntax.

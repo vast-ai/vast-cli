@@ -33,7 +33,7 @@ import warnings
 import importlib.metadata
 
 
-import copy
+from copy import deepcopy
 from rich.console import Console
 from rich.text import Text
 from rich.table import Table
@@ -5268,7 +5268,7 @@ def show__invoices_v1(args):
         elif not found_results:
             output_lines.append("No results found")
         else:  # Display results
-            formatted_results = format_invoices_charges_results(args, copy.deepcopy(found_results))
+            formatted_results = format_invoices_charges_results(args, deepcopy(found_results))
             if args.invoices:
                 rich_obj = create_rich_table_for_invoices(formatted_results)
             elif args.format == 'tree':

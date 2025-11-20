@@ -34,15 +34,6 @@ import importlib.metadata
 
 
 from copy import deepcopy
-from rich.console import Console
-from rich.text import Text
-from rich.table import Table
-from rich.tree import Tree
-from rich import box
-from rich.panel import Panel
-from rich.padding import Padding
-from rich.prompt import Confirm
-
 
 PYPI_BASE_PATH = "https://pypi.org"
 # INFO - Change to False if you don't want to check for update each run.
@@ -5205,6 +5196,8 @@ def to_timestamp_(val):
     usage="vastai show invoices-v1 [OPTIONS]",
 )
 def show__invoices_v1(args):
+    from rich.prompt import Confirm
+
     output_lines = []
 
     # Handle default start and end date values
@@ -5321,8 +5314,10 @@ def format_invoices_charges_results(args, results):
     
     return results
 
+
 def rich_object_to_string(rich_obj, no_color=True):
     """ Render a Rich object (Table or Tree) to a string. """
+    from rich.console import Console
     buffer = StringIO()  # Use an in-memory stream to suppress visible output
     console = Console(record=True, file=buffer)
     console.print(rich_obj)
@@ -5330,6 +5325,9 @@ def rich_object_to_string(rich_obj, no_color=True):
 
 def create_charges_tree(results, parent=None, title="Charges Breakdown"):
     """ Build and return a Rich Tree from nested charge results. """
+    from rich.text import Text
+    from rich.tree import Tree
+    from rich.panel import Panel
     if parent is None:  # Create root node if this is the first call
         root = Tree(Text(title, style="bold red"))
         create_charges_tree(results, root)
@@ -5351,6 +5349,10 @@ def create_charges_tree(results, parent=None, title="Charges Breakdown"):
 
 def create_rich_table_for_charges(args, results):
     """ Build and return a Rich Table from charge results. """
+    from rich.table import Table
+    from rich.text import Text
+    from rich import box
+    from rich.padding import Padding
     table = Table(style="white", header_style="bold bright_yellow", box=box.DOUBLE_EDGE, row_styles=["on grey11", "none"])
     table.add_column(Text("Type", justify="center"), style="bold steel_blue1", justify="center")
     table.add_column(Text("ID", justify="center"), style="gold1", justify="center")
@@ -5370,6 +5372,9 @@ def create_rich_table_for_charges(args, results):
 
 def create_rich_table_for_invoices(results):
     """ Build and return a Rich Table from invoice results. """
+    from rich.table import Table
+    from rich.text import Text
+    from rich import box
     invoice_type_to_color = {
         "credit": "green1",
         "transfer": "gold1",
@@ -5399,6 +5404,8 @@ def create_rich_table_for_invoices(results):
 
 def create_rich_table_from_rows(rows, headers=None, title='', sort_key=None):
     """ (Generic) Creates a Rich table from a list of dict rows. """
+    from rich import box
+    from rich.table import Table
     if not isinstance(rows, list):
         raise ValueError("Invalid Data Type: rows must be a list")
     # Handle list of dictionaries

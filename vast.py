@@ -2190,7 +2190,7 @@ def generate_ssh_key(auto_yes=False):
     argument("--target_util", help="[NOTE: this field isn't currently used at the workergroup level] target capacity utilization (fraction, max 1.0, default 0.9)", type=float),
     argument("--cold_mult",   help="[NOTE: this field isn't currently used at the workergroup level]cold/stopped instance capacity target as multiple of hot capacity target (default 2.0)", type=float),
     argument("--cold_workers",   help="min number of workers to keep 'cold' for this workergroup", type=int),
-    argument("--auto_instance", help="unused", type=str, default="prod"),
+    argument("--auto_instance", help=argparse.SUPPRESS, type=str, default="prod"),
     usage="vastai workergroup create [OPTIONS]",
     help="Create a new autoscale group",
     epilog=deindent("""
@@ -2233,12 +2233,13 @@ def create__workergroup(args):
 
 @parser.command(
     argument("--min_load", help="minimum floor load in perf units/s  (token/s for LLms)", type=float, default=0.0),
+    argument("--min_cold_load", help="minimum floor load in perf units/s (token/s for LLms), but allow handling with cold workers", type=float, default=0.0),
     argument("--target_util", help="target capacity utilization (fraction, max 1.0, default 0.9)", type=float, default=0.9),
     argument("--cold_mult",   help="cold/stopped instance capacity target as multiple of hot capacity target (default 2.5)", type=float, default=2.5),
     argument("--cold_workers", help="min number of workers to keep 'cold' when you have no load (default 5)", type=int, default=5),
     argument("--max_workers", help="max number of workers your endpoint group can have (default 20)", type=int, default=20),
     argument("--endpoint_name", help="deployment endpoint name (allows multiple autoscale groups to share same deployment endpoint)", type=str),
-    argument("--auto_instance", help="unused", type=str, default="prod"),
+    argument("--auto_instance", help=argparse.SUPPRESS, type=str, default="prod"),
 
     usage="vastai create endpoint [OPTIONS]",
     help="Create a new endpoint group",
@@ -2251,7 +2252,7 @@ def create__workergroup(args):
 def create__endpoint(args):
     url = apiurl(args, "/endptjobs/" )
 
-    json_blob = {"client_id": "me", "min_load": args.min_load, "target_util": args.target_util, "cold_mult": args.cold_mult, "cold_workers" : args.cold_workers, "max_workers" : args.max_workers, "endpoint_name": args.endpoint_name, "autoscaler_instance": args.auto_instance}
+    json_blob = {"client_id": "me", "min_load": args.min_load, "min_cold_load":args.min_cold_load, "target_util": args.target_util, "cold_mult": args.cold_mult, "cold_workers" : args.cold_workers, "max_workers" : args.max_workers, "endpoint_name": args.endpoint_name, "autoscaler_instance": args.auto_instance}
 
     if (args.explain):
         print("request json: ")
@@ -2809,7 +2810,6 @@ def delete__cluster(args: argparse.Namespace):
 
 @parser.command(
     argument("id", help="id of group to delete", type=int),
-    argument("--auto_instance", help=argparse.SUPPRESS, type=str, default="prod"),
     usage="vastai delete workergroup ID ",
     help="Delete a workergroup group",
     epilog=deindent("""
@@ -2820,7 +2820,7 @@ def delete__cluster(args: argparse.Namespace):
 def delete__workergroup(args):
     id  = args.id
     url = apiurl(args, f"/autojobs/{id}/" )
-    json_blob = {"client_id": "me", "autojob_id": args.id, "autoscaler_instance": args.auto_instance}
+    json_blob = {"client_id": "me", "autojob_id": args.id}
     if (args.explain):
         print("request json: ")
         print(json_blob)
@@ -2839,7 +2839,6 @@ def delete__workergroup(args):
 
 @parser.command(
     argument("id", help="id of endpoint group to delete", type=int),
-    argument("--auto_instance", help=argparse.SUPPRESS, type=str, default="prod"),
     usage="vastai delete endpoint ID ",
     help="Delete an endpoint group",
     epilog=deindent("""
@@ -2849,7 +2848,7 @@ def delete__workergroup(args):
 def delete__endpoint(args):
     id  = args.id
     url = apiurl(args, f"/endptjobs/{id}/" )
-    json_blob = {"client_id": "me", "endptjob_id": args.id, "autoscaler_instance": args.auto_instance}
+    json_blob = {"client_id": "me", "endptjob_id": args.id}
     if (args.explain):
         print("request json: ")
         print(json_blob)
@@ -5820,6 +5819,9 @@ def update__workergroup(args):
 @parser.command(
     argument("id", help="id of endpoint group to update", type=int),
     argument("--min_load", help="minimum floor load in perf units/s  (token/s for LLms)", type=float),
+    argument("--min_cold_load", help="minimum floor load in perf units/s  (token/s for LLms), but allow handling with cold workers", type=float),
+    argument("--endpoint_state", help="active, suspended, or stopped", type=str),
+    argument("--auto_instance", help=argparse.SUPPRESS, type=str, default="prod"),
     argument("--target_util",      help="target capacity utilization (fraction, max 1.0, default 0.9)", type=float),
     argument("--cold_mult",   help="cold/stopped instance capacity target as multiple of hot capacity target (default 2.5)", type=float),
     argument("--cold_workers", help="min number of workers to keep 'cold' when you have no load (default 5)", type=int),
@@ -5834,7 +5836,7 @@ def update__workergroup(args):
 def update__endpoint(args):
     id  = args.id
     url = apiurl(args, f"/endptjobs/{id}/" )
-    json_blob = {"client_id": "me", "endptjob_id": args.id, "min_load": args.min_load, "target_util": args.target_util, "cold_mult": args.cold_mult, "cold_workers": args.cold_workers, "max_workers" : args.max_workers, "endpoint_name": args.endpoint_name}
+    json_blob = {"client_id": "me", "endptjob_id": args.id, "min_load": args.min_load, "min_cold_load":args.min_cold_load,"target_util": args.target_util, "cold_mult": args.cold_mult, "cold_workers": args.cold_workers, "max_workers" : args.max_workers, "endpoint_name": args.endpoint_name, "endpoint_state": args.endpoint_state, "autoscaler_instance":args.auto_instance}
     if (args.explain):
         print("request json: ")
         print(json_blob)

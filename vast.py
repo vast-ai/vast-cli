@@ -4311,7 +4311,7 @@ def search__offers(args):
         rows = new_rows
 
     if args.raw:
-        print(json.dumps(rows, indent=1))
+        print(rows)
         return 0
     else:
         if args.type == "reserved":           

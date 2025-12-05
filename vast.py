@@ -4311,7 +4311,8 @@ def search__offers(args):
         rows = new_rows
 
     if args.raw:
-        return rows
+        print(rows)
+        return 0
     else:
         if args.type == "reserved":           
             display_table(rows, displayable_fields_reserved)

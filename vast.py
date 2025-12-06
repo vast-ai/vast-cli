@@ -5183,23 +5183,62 @@ def to_timestamp_(val):
         return int(datetime.strptime(val, '%Y-%m-%d').timestamp())
     raise ValueError("Invalid date format")
 
+charge_types = ['instance','volume','serverless', 'i', 'v', 's']
+invoice_types = {
+    "transfers": "stripe_payments",
+    "stripe": "transfer",
+    "bitpay": "bitpay",
+    "coinbase": "coinbase",
+    "crypto.com": "crypto.com",
+    "reserved": "instance_prepay",
+    "payout_paypal": "paypal_manual",
+    "payout_wise": "wise_manual"
+}
+
 @parser.command(
     argument('-i', '--invoices', mutex_group='grp', action='store_true', required=True, help='Show invoices instead of charges'),
+    argument('-it', '--invoice-type', choices=invoice_types.keys(), nargs='+', metavar='type', help=f'Filter which types of invoices to show: {{{", ".join(invoice_types.keys())}}}'),
     argument('-c', '--charges', mutex_group='grp', action='store_true', required=True, help='Show charges instead of invoices'),
-    argument('-a', '--include-serverless', action='store_true', help='Include serverless charges'),
+    argument('-ct', '--charge-type', choices=charge_types, nargs='+', metavar='type', help='Filter which types of charges to show: {i|instance, v|volume, s|serverless}'),
     argument('-s', '--start-date', help='Start date (YYYY-MM-DD or timestamp)'),
     argument('-e', '--end-date', help='End date (YYYY-MM-DD or timestamp)'),
     argument('-l', '--limit', type=int, default=20, help='Number of results per page (default: 20, max: 100)'),
     argument('-t', '--next-token', help='Pagination token for next page'),
     argument('-f', '--format', choices=['table', 'tree'], default='table', help='Output format for charges (default: table)'),
-    argument('-v', '--verbose', action='store_true', help='Include full Instance Charge details and Invoice Metadata'),
+    argument('-v', '--verbose', action='store_true', help='Include full Instance Charge details and Invoice Metadata (tree view only)'),
     argument('--latest-first', action='store_true', help='Sort by latest first'),
     usage="vastai show invoices-v1 [OPTIONS]",
+    epilog=deindent("""
+        This command supports colored output and rich formatting if the 'rich' python module is installed!
+
+        Examples:
+            # Show the first 20 invoices in the last week  (note: default window is a 7 day period ending today)
+            vastai show invoices-v1 --invoices
+    
+            # Show the first 50 charges over a 7 day period starting from 2025-11-30 in tree format
+            vastai show invoices-v1 --charges -s 2025-11-30 -f tree -l 50
+
+            # Show the first 20 invoices of specific types for the month of November 2025
+            vastai show invoices-v1 -i -it stripe bitpay transfers --start-date 2025-11-01 --end-date 2025-11-30
+
+            # Show the first 20 charges for only volumes and serverless instances between two dates, including all details and metadata
+            vastai show invoices-v1 -c --charge-type v s -s 2025-11-01 -e 2025-11-05 --format tree --verbose
+
+            # Get the next page of paginated invoices, limit to 50 per page  (note: type/date filters MUST match previous request for pagination to work)
+            vastai show invoices-v1 --invoices --limit 50 --next-token eyJ2YWx1ZXMiOiB7ImlkIjogMjUwNzgyMzR9LCAib3NfcGFnZSI6IDB9
+
+            # Show the last 10 instance (only) charges over a 7 day period ending in 2025-12-25, sorted by latest charges first
+            vastai show invoices-v1 --charges -ct instance --end-date 2025-12-25 -l 10 --latest-first
+    """)
 )
 def show__invoices_v1(args):
-    from rich.prompt import Confirm
-
     output_lines = []
+    try:
+        from rich.prompt import Confirm
+        has_rich = True
+    except ImportError:
+        output_lines.append("NOTE: To view results in color and table/tree format please install the 'rich' python module with 'pip install rich'\n")
+        has_rich = False
 
     # Handle default start and end date values
     if not args.start_date and not args.end_date:
@@ -5218,7 +5257,7 @@ def show__invoices_v1(args):
         print("Use format YYYY-MM-DD or UNIX timestamp")
         return
 
-    if not args.no_color:
+    if has_rich and not args.no_color:
         print("(use --no-color to disable colored output)\n")
     
     start_date = convert_timestamp_to_date(start_timestamp)
@@ -5227,15 +5266,25 @@ def show__invoices_v1(args):
     output_lines.append(f"Fetching {data_type} from {start_date} to {end_date}...")
 
     # Build request parameters
-    col = 'day' if args.charges else 'when'
+    date_col = 'day' if args.charges else 'when'
     params = {
-        'select_filters': {col: {'gte': start_timestamp, 'lte': end_timestamp}},
+        'select_filters': {date_col: {'gte': start_timestamp, 'lte': end_timestamp}},
         'latest_first': args.latest_first,
-        'limit': min(args.limit, 100)  # Enforce max limit of 100
+        'limit': min(args.limit, 100) if args.limit > 0 else 20,  # Enforce max limit of 100
     }
     if args.charges:
-        params['include_serverless'] = args.include_serverless
         params['format'] = args.format
+        for ct in args.charge_type or []:
+            filters = params['select_filters'].setdefault('type', {}).setdefault('in', [])
+            if   ct in {'i','instance'}:   filters.append('instance')
+            elif ct in {'v','volume'}:     filters.append('volume')
+            elif ct in {'s','serverless'}: filters.append('serverless')
+    
+    if args.invoices:
+        for it in args.invoice_type or []:
+            filters = params['select_filters'].setdefault('service', {}).setdefault('in', [])
+            filters.append(invoice_types[it])
+    
     if args.next_token:
         params['after_token'] = args.next_token
 
@@ -5254,7 +5303,7 @@ def show__invoices_v1(args):
         total = response.get('total', 0)
         next_token = response.get('next_token')
         
-        if args.raw:
+        if args.raw or has_rich is False:
             output_lines.append("Raw response:\n" + json.dumps(response, indent=2))
             if next_token:
                 print(f"Next page token: {next_token}\n")
@@ -5277,7 +5326,10 @@ def show__invoices_v1(args):
         paging = print_or_page(args, '\n'.join(output_lines))
 
         if next_token and not paging:
-            ans = Confirm.ask("Fetch next page?", show_default=False, default=False)
+            if has_rich:
+                ans = Confirm.ask("Fetch next page?", show_default=False, default=False)
+            else:
+                ans = input("Fetch next page? (y/N): ").strip().lower() == 'y'
             if ans:
                 params['after_token'] = next_token
                 url = apiurl(args, endpoint, query_args=params)
@@ -5336,12 +5388,13 @@ def create_charges_tree(results, parent=None, title="Charges Breakdown"):
     
     top_level = (parent.label.plain == title)
     for item in results:
+        end_date = f" → {item['end']}" if item['start'] != item['end'] else ""
         label = Text.assemble(
             (item["type"], "bold cyan"),
             (f" {item['source']}" if item.get('source') else "", "gold1"), " → ",
             (f"{item['amount']}", 'bold green1' if top_level else 'green1'),
             (f" — {item['description']}", "bright_white" if top_level else "dim white"),
-            (f"  ({item['start']} → {item['end']})", "bold bright_white" if top_level else "white")
+            (f"  ({item['start']}{end_date})", "bold bright_white" if top_level else "white")
         )
         node = parent.add(label, guide_style="blue3")
         if item.get("items"):
@@ -5360,12 +5413,12 @@ def create_rich_table_for_charges(args, results):
     table.add_column(Text("Amount", justify="center"), style="sea_green2", justify="right")
     table.add_column(Text("Start", justify="center"), style="bright_white", justify="center")
     table.add_column(Text("End", justify="center"), style="bright_white", justify="center")
-    if args.include_serverless:
+    if not args.charge_type or 'serverless' in args.charge_type:
         table.add_column(Text("Endpoint", justify="center"), style="bright_red", justify="center")
         table.add_column(Text("Workergroup", justify="center"), style="orchid", justify="center")
     for item in results:
         row = [item['type'].capitalize(), item['source'], item['amount'], item['start'], item['end']]
-        if args.include_serverless:
+        if not args.charge_type or 'serverless' in args.charge_type:
             row.append(str(item['metadata'].get('endpoint_id', '')))
             row.append(str(item['metadata'].get('workergroup_id', '')))
         table.add_row(*row)
@@ -5376,6 +5429,7 @@ def create_rich_table_for_invoices(results):
     from rich.table import Table
     from rich.text import Text
     from rich import box
+    from rich.padding import Padding
     invoice_type_to_color = {
         "credit": "green1",
         "transfer": "gold1",
@@ -7858,15 +7912,15 @@ except:
 
 def main():
     global ARGS
-    parser.add_argument("--url", help="server REST api url", default=server_url_default)
-    parser.add_argument("--retry", help="retry limit", default=3)
-    parser.add_argument("--explain", action="store_true", help="output verbose explanation of mapping of CLI calls to HTTPS API endpoints")
-    parser.add_argument("--raw", action="store_true", help="output machine-readable json")
-    parser.add_argument("--full", action="store_true", help="print full results instead of paging with `less`")
-    parser.add_argument("--curl", action="store_true", help="show a curl equivalency to the call")
-    parser.add_argument("--api-key", help="api key. defaults to using the one stored in {}".format(APIKEY_FILE), type=str, required=False, default=os.getenv("VAST_API_KEY", api_key_guard))
-    parser.add_argument("--version", help="show version", action="version", version=VERSION)
-    parser.add_argument("--no-color", action="store_true", help="disable colored output")
+    parser.add_argument("--url", help="Server REST API URL", default=server_url_default)
+    parser.add_argument("--retry", help="Retry limit", default=3)
+    parser.add_argument("--explain", action="store_true", help="Output verbose explanation of mapping of CLI calls to HTTPS API endpoints")
+    parser.add_argument("--raw", action="store_true", help="Output machine-readable json")
+    parser.add_argument("--full", action="store_true", help="Print full results instead of paging with `less` for commands that support it")
+    parser.add_argument("--curl", action="store_true", help="Show a curl equivalency to the call")
+    parser.add_argument("--api-key", help="API Key to use. defaults to using the one stored in {}".format(APIKEY_FILE), type=str, required=False, default=os.getenv("VAST_API_KEY", api_key_guard))
+    parser.add_argument("--version", help="Show CLI version", action="version", version=VERSION)
+    parser.add_argument("--no-color", action="store_true", help="Disable colored output for commands that support it (Note: the 'rich' python module is required for colored output)")
 
     ARGS = args = parser.parse_args()
     #print(args.api_key)

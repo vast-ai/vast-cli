@@ -4311,8 +4311,7 @@ def search__offers(args):
         rows = new_rows
 
     if args.raw:
-        print(rows)
-        return 0
+        return rows
     else:
         if args.type == "reserved":           
             display_table(rows, displayable_fields_reserved)
@@ -7896,7 +7895,7 @@ def main():
 
     try:
         res = args.func(args)
-        if args.raw and res:
+        if args.raw and res is not None:
             # There's two types of responses right now
             try:
                 print(json.dumps(res, indent=1, sort_keys=True))

@@ -50,16 +50,25 @@ def combine_yaml_files(directory):
         directory.mkdir(parents=True, exist_ok=True)
     
     master_doc = {
-        'openapi': '3.0.0',
+        'openapi': '3.1.0',
         'info': {
             'title': 'Vast.ai API',
             'description': 'Welcome to Vast.ai \'s API documentation. Our API allows you to programmatically manage GPU instances, handle machine operations, and automate your AI/ML workflow. Whether you\'re running individual GPU instances or managing a fleet of machines, our API provides comprehensive control over all Vast.ai  platform features.',
-            'version': '1.0.0'
+            'version': '1.0.0',
+            'contact': {
+                'name': 'Vast.ai Support',
+                'url': 'https://discord.gg/vast'
+            }
         },
         'servers': [
             {
                 'url': 'https://console.vast.ai',
                 'description': 'Production server'
+            }
+        ],
+        'security': [
+            {
+                'BearerAuth': []
             }
         ],
         'paths': {},

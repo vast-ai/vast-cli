@@ -95,14 +95,12 @@ paths:
                     - Port mappings : Use "-p host_port:container_port" as key and use dummy value "1"
 
                     Example :
-                    ```json
+                    `
                     { 
                       "-p 8080:8080" : "1",
                       "HF_TOKEN": "hf_xxx123456789",
-                      "MODEL_ID": "TheBloke/Llama-2-7B-Chat-GPTQ",
-                      ""
                     }
-                    ```
+                    `
                 cancel_unavail:
                   type: boolean
                   description: Whether to cancel if instance cannot start immediately. Defaults to false for interruptibles. Defaults to true for on-demand with target_state='running'

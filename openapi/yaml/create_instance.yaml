@@ -27,7 +27,7 @@ paths:
         required: true
         schema:
           type: integer
-        description: ID of the offer to accept (ask_id)
+        description: ID of the instance type to launch (returned from search offers)
       requestBody:
         required: true
         content:
@@ -41,7 +41,7 @@ paths:
                   type: string
                   default: vastai/base-image:@vastai-automatic-tag
                   description: |
-                    Docker image to use for the instance.
+                    Docker container image to launch
                 template_id:
                   type: integer
                   description: |
@@ -89,14 +89,18 @@ paths:
                 env:
                   type: object
                   description: |
-                    Environment variables
+                    Environment variables and port mappings
+                    
+                    - Environment variables : "KEY":"VALUE"
+                    - Port mappings : Use "-p host_port:container_port" as key and use dummy value "1"
 
                     Example :
                     `
                     { 
+                      "-p 8080:8080" : "1",
                       "HF_TOKEN": "hf_xxx123456789",
-                      "MODEL_ID": "TheBloke/Llama-2-7B-Chat-GPTQ",
-                    }`
+                    }
+                    `
                 cancel_unavail:
                   type: boolean
                   description: Whether to cancel if instance cannot start immediately. Defaults to false for interruptibles. Defaults to true for on-demand with target_state='running'
@@ -146,7 +150,7 @@ paths:
                   description: User to use with docker create (breaks some images, use with caution)
                 image_login:
                   type: string
-                  description: Docker registry credentials if needed
+                  description: Docker login arguments for private repo authentication
                 volume_info:
                   type: object
                   description: Volume creation/linking information

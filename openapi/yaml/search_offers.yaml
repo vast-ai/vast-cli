@@ -86,7 +86,7 @@ paths:
                   description: Number of GPUs
                 gpu_ram:
                   type: object
-                  description: GPU memory in MB
+                  description: GPU RAM in GB
                 duration:
                   type: object
                   description: Minimum required rental duration in seconds (the offer must be available for at least this long from now).
@@ -131,7 +131,7 @@ paths:
                   description: CPU clock speed in GHz
                 cpu_ram:
                   type: object
-                  description: CPU RAM in MB
+                  description: CPU RAM in GB
                 datacenter:
                   type: object
                   description: Show only datacenter offers

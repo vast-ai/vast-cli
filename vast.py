@@ -5030,7 +5030,7 @@ def show__earnings(args):
             start_date_txt = start_date.isoformat()
             start_timestamp = start_date.timestamp()
             sday = start_timestamp / Days
-        except ValueError:
+        except ValueError as e:
             print(f"Warning: Invalid start date format! Ignoring start date! \n {str(e)}")
 
     req_url = apiurl(args, "/users/me/machine-earnings", {"owner": "me", "sday": sday, "eday": eday, "machid" :args.machine_id});

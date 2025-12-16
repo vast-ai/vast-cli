@@ -5000,10 +5000,10 @@ def show__earnings(args):
     :rtype:
     """
 
-    Minutes = 60.0;
-    Hours	= 60.0*Minutes;
-    Days	= 24.0*Hours;
-    Years	= 365.0*Days;
+    Minutes = 60.0
+    Hours	= 60.0*Minutes
+    Days	= 24.0*Hours
+    Years	= 365.0*Days
     cday    = time.time() / Days
     sday = cday - 1.0
     eday = cday - 1.0
@@ -5040,6 +5040,8 @@ def show__earnings(args):
     r.raise_for_status()
     rows = r.json()
 
+    if args.raw:
+        return rows
     print(json.dumps(rows, indent=1, sort_keys=True))
 
 

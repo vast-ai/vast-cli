@@ -5033,8 +5033,6 @@ def show__earnings(args):
         except ValueError:
             print(f"Warning: Invalid start date format! Ignoring start date! \n {str(e)}")
 
-
-
     req_url = apiurl(args, "/users/me/machine-earnings", {"owner": "me", "sday": sday, "eday": eday, "machid" :args.machine_id});
     r = http_get(args, req_url)
     r.raise_for_status()

@@ -45,13 +45,13 @@ paths:
                 template_id:
                   type: integer
                   description: |
-                    ID of an existing template to use for instance configuration. Alternative to providing template_hash_id.
+                    ID of the template to use for the instance. If the template is private, please use template_hash_id instead.
 
                     Example : `62897`
                 template_hash_id:
                   type: string
                   description: |
-                    Hash ID of a template. Alternative to providing template_id
+                    ID of template to use for the instance. 
 
                     Example : `4e17788f74f075dd9aab7d0d4427968f`
                 label:

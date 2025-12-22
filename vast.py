@@ -5000,10 +5000,10 @@ def show__earnings(args):
     :rtype:
     """
 
-    Minutes = 60.0;
-    Hours	= 60.0*Minutes;
-    Days	= 24.0*Hours;
-    Years	= 365.0*Days;
+    Minutes = 60.0
+    Hours	= 60.0*Minutes
+    Days	= 24.0*Hours
+    Years	= 365.0*Days
     cday    = time.time() / Days
     sday = cday - 1.0
     eday = cday - 1.0
@@ -5019,7 +5019,7 @@ def show__earnings(args):
         try:
             end_date = dateutil.parser.parse(str(args.end_date))
             end_date_txt = end_date.isoformat()
-            end_timestamp = time.mktime(end_date.timetuple())
+            end_timestamp = end_date.timestamp()
             eday = end_timestamp / Days
         except ValueError as e:
             print(f"Warning: Invalid end date format! Ignoring end date! \n {str(e)}")
@@ -5028,18 +5028,18 @@ def show__earnings(args):
         try:
             start_date = dateutil.parser.parse(str(args.start_date))
             start_date_txt = start_date.isoformat()
-            start_timestamp = time.mktime(start_date.timetuple())
+            start_timestamp = start_date.timestamp()
             sday = start_timestamp / Days
-        except ValueError:
+        except ValueError as e:
             print(f"Warning: Invalid start date format! Ignoring start date! \n {str(e)}")
-
-
 
     req_url = apiurl(args, "/users/me/machine-earnings", {"owner": "me", "sday": sday, "eday": eday, "machid" :args.machine_id});
     r = http_get(args, req_url)
     r.raise_for_status()
     rows = r.json()
 
+    if args.raw:
+        return rows
     print(json.dumps(rows, indent=1, sort_keys=True))
 
 

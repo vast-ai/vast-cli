@@ -398,7 +398,12 @@ class apwrap(object):
                     # Create a global options group for better visual separation
                     if not hasattr(x, '_global_options_group'):
                         x._global_options_group = x.add_argument_group('Global options (available for all commands)')
-                    x._global_options_group.add_argument(*a, **kw)
+                    # Use SUPPRESS as default for subparsers so they don't overwrite
+                    # values already set by the main parser when the argument is placed
+                    # before the subcommand (e.g., `vastai --url <url> get wrkgrp-logs`)
+                    subparser_kw = kw.copy()
+                    subparser_kw['default'] = argparse.SUPPRESS
+                    x._global_options_group.add_argument(*a, **subparser_kw)
                 except argparse.ArgumentError:
                     # duplicate - or maybe other things, hopefully not
                     pass

@@ -16,7 +16,7 @@ paths:
       description: |
         Gets your invoices within given timerange. 
 
-        For timerange, use the `select_filters.when` field. To filter by service type, use `select_filters.service`.
+        **Timerange is required**. Use the `select_filters.when` field. To filter by service type, use `select_filters.service`.
 
         CLI Usage: `vastai search invoices`
       security:
@@ -57,7 +57,7 @@ paths:
                     **Optional** : Filter invoices by service using `service` field.
 
                     Supported services:
-                    `transfer, instance_prepay, stripe_connect, paypal_manual, wise_manual, legion_charge`
+                    `transfer, instance_prepay, stripe_connect, paypal_manual, wise_manual, legion_charge, stripe, stripe_payments, coinbase, crypto.com, bitpay`
 
                     Supported operators:
                     - `in` : include only these services

@@ -5305,14 +5305,11 @@ paths:
       description: 'Gets your invoices within given timerange.
 
 
-        For timerange, use the `select_filters.when` field. You can also filter invoices
-        by service type using `select_filters.service`.
+        **Invoice types**: payment, payout, credit, transfer, refund, reserved, agents`.
 
 
-        Supported services:
-
-        ```transfer, instance_prepay, stripe_connect, paypal_manual, wise_manual,
-        legion_charge```
+        For timerange, use the `select_filters.when` field. To filter by service type,
+        use `select_filters.service`.
 
 
         CLI Usage: `vastai search invoices`'
@@ -5340,10 +5337,11 @@ paths:
                     \ time\n- `lte`: invoices created on or before this time\n\n**Optional**\
                     \ : Filter invoices by service using `service` field.\n\nSupported\
                     \ services:\n`transfer, instance_prepay, stripe_connect, paypal_manual,\
-                    \ wise_manual, legion_charge`\n\nSupported operators:\n- `in`\
-                    \ : include only these services\n- `notin` : exclude these services\n\
-                    - `eq` : matches a single service\n\n**Example**: Get paypal and\
-                    \ wise invoices only\n```\n\"service\": {\n  \"in\": [\"paypal_manual\"\
+                    \ wise_manual, legion_charge, stripe, stripe_payments, coinbase,\
+                    \ crypto.com, bitpay`\n\nSupported operators:\n- `in` : include\
+                    \ only these services\n- `notin` : exclude these services\n- `eq`\
+                    \ : matches a single service\n\n**Example**: Get paypal and wise\
+                    \ invoices only\n```\n\"service\": {\n  \"in\": [\"paypal_manual\"\
                     , \"wise_manual\"]\n}\n```\n"
                   required:
                   - when
@@ -5408,25 +5406,37 @@ paths:
           description: Paginated invoice results
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  count:
-                    type: integer
-                    example: 10
-                  total:
-                    type: integer
-                    example: 125
-                  results:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Invoice'
-                  next_token:
-                    nullable: true
-                    description: Pagination token for fetching the next page.
+              example:
+                success: true
+                count: 2
+                total: 42
+                results:
+                - start: 1762149123
+                  end: null
+                  type: transfer
+                  source: transfer
+                  description: Received credit from another Vast user
+                  amount: 35.5
+                  metadata:
+                    invoice_id: 4829137
+                    service: transfer
+                    sender: 182344
+                    recipient: 294771
+                  items: []
+                - start: 1761980044
+                  end: 1761980301
+                  type: payment
+                  source: stripe
+                  description: Manual billing from VISA ending in 4412
+                  amount: -19.99
+                  metadata:
+                    invoice_id: 4828771
+                    service: stripe_connect
+                    last4: '4412'
+                    network: visa
+                    transfer_group: pi_3TAbCdEfgHiJkLmN
+                  items: []
+                next_token: null
         '400':
           description: Invalid request (e.g. missing or malformed date range)
           content:

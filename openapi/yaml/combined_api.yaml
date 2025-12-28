@@ -1616,8 +1616,8 @@ paths:
                     '
                 template_id:
                   type: integer
-                  description: 'ID of an existing template to use for instance configuration.
-                    Alternative to providing template_hash_id.
+                  description: 'ID of the template to use for the instance. If the
+                    template is private, please use template_hash_id instead.
 
 
                     Example : `62897`
@@ -1625,12 +1625,8 @@ paths:
                     '
                 template_hash_id:
                   type: string
-                  description: 'Hash ID of a template. Alternative to providing template_id
-
-
-                    Example : `4e17788f74f075dd9aab7d0d4427968f`
-
-                    '
+                  description: "ID of template to use for the instance. \n\nExample\
+                    \ : `4e17788f74f075dd9aab7d0d4427968f`\n"
                 label:
                   type: string
                   description: Custom name for the instance
@@ -5303,62 +5299,136 @@ paths:
                     example: API requests too frequent endpoint threshold=3.0
       tags:
       - Search
-  /api/v0/invoices:
+  /api/v1/invoices/:
     get:
       summary: search invoices
-      description: 'This endpoint allows users to search and retrieve invoices based
-        on specified filters.
+      description: 'Gets your invoices within given timerange.
+
+
+        For timerange, use the `select_filters.when` field. You can also filter invoices
+        by service type using `select_filters.service`.
+
+
+        Supported services:
+
+        ```transfer, instance_prepay, stripe_connect, paypal_manual, wise_manual,
+        legion_charge```
 
 
         CLI Usage: `vastai search invoices`'
       security:
       - BearerAuth: []
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               type: object
+              required:
+              - select_filters
               properties:
-                type:
-                  type: string
-                  description: Type of invoices to retrieve
-                  example: charge
                 select_filters:
                   type: object
-                  description: Filters to apply to the invoice selection.
+                  description: "Searches invoices using given filters.\n\n**Required**\
+                    \ : Filter by timerange using `when` field. \n\nUse unix timestamps\
+                    \ (UTC) comparison operators.\n\n**Example** : To filter invoices\
+                    \ from June 1, 2025 to Dec 1, 2025:\n```\n\"select_filters\":\
+                    \ {\n  \"when\": {\n      \"gte\": 1748736000,\n      \"lte\"\
+                    : 1764547200 \n    }\n  }\n  ```\nComparison operators:\n- `gt`:\
+                    \ invoices created after this time\n- `gte`: invoices created\
+                    \ on or after this time\n- `lt`: invoices created before this\
+                    \ time\n- `lte`: invoices created on or before this time\n\n**Optional**\
+                    \ : Filter invoices by service using `service` field.\n\nSupported\
+                    \ services:\n`transfer, instance_prepay, stripe_connect, paypal_manual,\
+                    \ wise_manual, legion_charge`\n\nSupported operators:\n- `in`\
+                    \ : include only these services\n- `notin` : exclude these services\n\
+                    - `eq` : matches a single service\n\n**Example**: Get paypal and\
+                    \ wise invoices only\n```\n\"service\": {\n  \"in\": [\"paypal_manual\"\
+                    , \"wise_manual\"]\n}\n```\n"
+                  required:
+                  - when
+                  properties:
+                    when:
+                      type: object
+                      description: "Invoice date range filter. \n"
+                      default:
+                        gte: 1748736000
+                        lte: 1764547200
+                      properties:
+                        gte:
+                          type: integer
+                          description: 'Start time using unix timestamp (UTC).
+
+
+                            **Example** : To get invoices from June 1, 2025 onwards,
+                            set gte to `1748736000`.
+
+                            '
+                          default: 1748736000
+                        lte:
+                          type: integer
+                          description: 'End time using unix timestamp (UTC).
+
+
+                            **Example** : To get invoices up to Dec 1, 2025, set lte
+                            to `1764547200`.
+
+                            '
+                          default: 1764547200
+                latest_first:
+                  type: boolean
+                  default: true
+                  description: Sort by newest invoices first.
+                order_by:
+                  type: array
+                  description: "Sort invoices by given columns.\n\n**Example** : To\
+                    \ sort by oldest invoices first\n```\n\"order_by\": [\n  {\n \
+                    \   \"col\": \"paid_on\",\n    \"dir\": \"asc\"\n  }\n]\n```\n"
+                  default:
+                    col: paid_on
+                    dir: desc
+                  items:
+                    type: object
+                    properties:
+                      col:
+                        type: string
+                        default: paid_on
+                      dir:
+                        type: string
+                        enum:
+                        - asc
+                        - desc
+                        default: desc
+                limit:
+                  type: integer
+                  default: 60
+                  description: Maximum number of invoices to return.
       responses:
         '200':
-          description: Success response
+          description: Paginated invoice results
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    type:
-                      type: string
-                      example: charge
-                    description:
-                      type: string
-                      example: 'Instance 123 GPU charge: hours * $/hr'
-                    timestamp:
-                      type: integer
-                      example: 1633036800
-                    quantity:
-                      type: string
-                      example: '10.000'
-                    rate:
-                      type: string
-                      example: '0.1000'
-                    amount:
-                      type: string
-                      example: '1.000'
-                    instance_id:
-                      type: integer
-                      example: 123
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  count:
+                    type: integer
+                    example: 10
+                  total:
+                    type: integer
+                    example: 125
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Invoice'
+                  next_token:
+                    nullable: true
+                    description: Pagination token for fetching the next page.
         '400':
-          description: Bad Request
+          description: Invalid request (e.g. missing or malformed date range)
           content:
             application/json:
               schema:
@@ -5647,7 +5717,7 @@ paths:
                   description: Number of GPUs
                 gpu_ram:
                   type: object
-                  description: GPU memory in MB
+                  description: GPU RAM in GB
                 duration:
                   type: object
                   description: Minimum required rental duration in seconds (the offer
@@ -5694,7 +5764,7 @@ paths:
                   description: CPU clock speed in GHz
                 cpu_ram:
                   type: object
-                  description: CPU RAM in MB
+                  description: CPU RAM in GB
                 datacenter:
                   type: object
                   description: Show only datacenter offers
@@ -7775,6 +7845,43 @@ components:
         success:
           type: boolean
           example: true
+    Invoice:
+      type: object
+      description: Formatted invoice object returned to clients.
+      properties:
+        start:
+          type: integer
+          description: Invoice start timestamp (unix seconds).
+          example: 1765200000
+        end:
+          type: integer
+          nullable: true
+          description: Invoice end or paid timestamp.
+        type:
+          type: string
+          description: Invoice type (payment, payout, refund, transfer, etc.).
+          example: payout
+        source:
+          type: string
+          description: Invoice source service.
+          example: stripe
+        description:
+          type: string
+          example: ''
+        amount:
+          type: number
+          format: float
+          description: Invoice amount in USD.
+          example: 42.75
+        metadata:
+          type: object
+          description: Invoice metadata.
+          additionalProperties: true
+        items:
+          type: array
+          description: Line items associated with the invoice.
+          items:
+            type: object
     Template:
       type: object
       properties:

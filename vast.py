@@ -21,6 +21,7 @@ import subprocess
 from time import sleep
 from subprocess import PIPE
 import urllib3
+import ssl
 import atexit
 from contextlib import redirect_stdout, redirect_stderr
 from io import StringIO
@@ -7580,16 +7581,31 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
                 return False, reason
 
             # Attempt to connect to the progress endpoint
+            # Use a fresh session with custom SSL adapter to avoid state pollution
             try:
                 if args.debugging:
                     debug_print(args, f"Sending GET request to https://{ip_address}:{port}/progress")
-                response = requests.get(f'https://{ip_address}:{port}/progress', verify=False, timeout=10)
-                
-                if response.status_code == 200 and not first_connection_established:
-                    progress_print(args, "Successfully established HTTPS connection to the server.")
-                    first_connection_established = True
 
-                message = response.text.strip()
+                from requests.adapters import HTTPAdapter
+                from urllib3.util.ssl_ import create_urllib3_context
+
+                class FreshSSLAdapter(HTTPAdapter):
+                    def init_poolmanager(self, *args, **kwargs):
+                        ctx = create_urllib3_context()
+                        ctx.check_hostname = False
+                        ctx.verify_mode = ssl.CERT_NONE
+                        kwargs['ssl_context'] = ctx
+                        return super().init_poolmanager(*args, **kwargs)
+
+                with requests.Session() as session:
+                    session.mount('https://', FreshSSLAdapter())
+                    response = session.get(f'https://{ip_address}:{port}/progress', verify=False, timeout=10)
+
+                    if response.status_code == 200 and not first_connection_established:
+                        progress_print(args, "Successfully established HTTPS connection to the server.")
+                        first_connection_established = True
+
+                    message = response.text.strip()
                 if args.debugging:
                     debug_print(args, f"Received message: '{message}'")
             except requests.exceptions.RequestException as e:

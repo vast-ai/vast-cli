@@ -7135,7 +7135,7 @@ def schedule__maint(args):
     if ok.strip().lower() != "y":
         return
 
-    json_blob = {"client_id": "me", "sdate": string_to_unix_epoch(args.sdate), "duration": args.duration, "maintenance_reason": args.maintenance_reason, "maintenance_category": args.maintenance_category}
+    json_blob = {"client_id": "me", "sdate": string_to_unix_epoch(args.sdate), "duration": args.duration, "maintenance_category": args.maintenance_category}
     if (args.explain):
         print("request json: ")
         print(json_blob)

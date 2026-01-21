@@ -56,9 +56,7 @@ paths:
                     **Optional** : Filter invoices by service using `service` field.
 
                     Supported services:
-
-                    Common service values 
-                    `stripe_payments, stripe_connect, stripe_manual, paypal_manual, wise_manual, wire_manual, transfer, instance_prepay, coinbase, crypto.com, bitpay, host_charge, legion_charge`
+                    transfers, stripe, bitpay, coinbase, crypto.com, reserved, payout_paypal, payout_wise
 
                     Supported operators:
                     - `in` : include only these services
@@ -100,7 +98,7 @@ paths:
                         Filter by invoice `service`.
                         
                         Supported services:
-                        `stripe_payments, stripe_connect, stripe_manual, paypal_manual, wise_manual, wire_manual, transfer, instance_prepay, coinbase, crypto.com, bitpay, host_charge`
+                        transfers, stripe, bitpay, coinbase, crypto.com, reserved, payout_paypal, payout_wise
                       properties:
                         eq:
                           type: string

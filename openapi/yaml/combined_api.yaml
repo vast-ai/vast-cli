@@ -6866,9 +6866,8 @@ paths:
         Optionally filter by invoice service using `select_filters.service`.
 
 
-        Common service values: `stripe, stripe_payments, stripe_connect, stripe_manual,
-        paypal_manual, wise_manual, wire_manual, transfer, instance_prepay, coinbase,
-        crypto.com, bitpay, host_charge, legion_charge`.
+        Common services: transfers, stripe, bitpay, coinbase, crypto.com, reserved,
+        payout_paypal, payout_wise
 
 
         CLI Usage: `vastai show invoices-v1`'
@@ -6891,15 +6890,13 @@ paths:
                     : 1764547200 \n    }\n  }\n```\nSupported operators:\n- `gt` or\
                     \ `gte`: invoices created after this time\n- `lt` or `lte`: invoices\
                     \ created before this time\n\n**Optional** : Filter invoices by\
-                    \ service using `service` field.\n\nSupported services:\n\nCommon\
-                    \ service values \n`stripe_payments, stripe_connect, stripe_manual,\
-                    \ paypal_manual, wise_manual, wire_manual, transfer, instance_prepay,\
-                    \ coinbase, crypto.com, bitpay, host_charge, legion_charge`\n\n\
-                    Supported operators:\n- `in` : include only these services\n-\
-                    \ `notin` : exclude these services\n- `eq` : matches a single\
-                    \ service\n\n**Example**: Get paypal and wise invoices only\n\
-                    ```\n\"service\": {\n  \"in\": [\"paypal_manual\", \"wise_manual\"\
-                    ]\n}\n```\n"
+                    \ service using `service` field.\n\nSupported services:\ntransfers,\
+                    \ stripe, bitpay, coinbase, crypto.com, reserved, payout_paypal,\
+                    \ payout_wise\n\nSupported operators:\n- `in` : include only these\
+                    \ services\n- `notin` : exclude these services\n- `eq` : matches\
+                    \ a single service\n\n**Example**: Get paypal and wise invoices\
+                    \ only\n```\n\"service\": {\n  \"in\": [\"paypal_manual\", \"\
+                    wise_manual\"]\n}\n```\n"
                   required:
                   - when
                   properties:
@@ -6931,9 +6928,8 @@ paths:
 
                         Supported services:
 
-                        `stripe_payments, stripe_connect, stripe_manual, paypal_manual,
-                        wise_manual, wire_manual, transfer, instance_prepay, coinbase,
-                        crypto.com, bitpay, host_charge`
+                        transfers, stripe, bitpay, coinbase, crypto.com, reserved,
+                        payout_paypal, payout_wise
 
                         '
                       properties:

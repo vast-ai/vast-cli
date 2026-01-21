@@ -19,6 +19,8 @@ paths:
         
         Optionally filter by invoice service using `select_filters.service`.
 
+        Common service values: `stripe, stripe_payments, stripe_connect, stripe_manual, paypal_manual, wise_manual, wire_manual, transfer, instance_prepay, coinbase, crypto.com, bitpay, host_charge, legion_charge`.
+
         CLI Usage: `vastai show invoices-v1`
       requestBody:
         required: true
@@ -55,7 +57,8 @@ paths:
 
                     Supported services:
 
-                    `stripe_payments, stripe_connect, stripe_manual, paypal_manual, wise_manual, wire_manual, transfer, instance_prepay, coinbase, crypto.com, bitpay, host_charge`
+                    Common service values 
+                    `stripe_payments, stripe_connect, stripe_manual, paypal_manual, wise_manual, wire_manual, transfer, instance_prepay, coinbase, crypto.com, bitpay, host_charge, legion_charge`
 
                     Supported operators:
                     - `in` : include only these services

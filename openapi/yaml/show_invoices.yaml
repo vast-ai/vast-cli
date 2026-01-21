@@ -17,7 +17,7 @@ paths:
 
         Timerange is **required** using the `select_filters.when` field. 
         
-        Optionally filter by invoice service, use `select_filters.service`.
+        Optionally filter by invoice service using `select_filters.service`.
 
         CLI Usage: `vastai show invoices-v1`
       requestBody:
@@ -54,6 +54,7 @@ paths:
                     **Optional** : Filter invoices by service using `service` field.
 
                     Supported services:
+
                     `stripe_payments, stripe_connect, stripe_manual, paypal_manual, wise_manual, wire_manual, transfer, instance_prepay, coinbase, crypto.com, bitpay, host_charge`
 
                     Supported operators:
@@ -166,7 +167,7 @@ paths:
                     end: null
                     type: transfer
                     source: sender@vast.ai
-                    description: Received credit from another Vast user
+                    description: Received credit from sender@vast.ai
                     amount: 35.5
                     metadata:
                       invoice_id: 4829137
@@ -177,8 +178,8 @@ paths:
 
                   - start: 1761980044
                     end: 1761980301
-                    type: payout
-                    source: stripe
+                    type: credit
+                    source: stripe_payments
                     description: Manual billing from VISA ending in 4412
                     amount: -19.99
                     metadata:
@@ -196,7 +197,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-
+              example:
+                success: false
+                error: Invalid order_by parameter
+                count: 0
+                total: 0
+                results: []
+                next_token: None
         '401':
           description: Unauthorized
           content:

@@ -5185,13 +5185,13 @@ def to_timestamp_(val):
     if isinstance(val, str):
         if val.isdigit():
             return int(val)
-        return int(datetime.strptime(val, '%Y-%m-%d').timestamp())
+        return int(datetime.strptime(val + "+0000", '%Y-%m-%d%z').timestamp())
     raise ValueError("Invalid date format")
 
 charge_types = ['instance','volume','serverless', 'i', 'v', 's']
 invoice_types = {
-    "transfers": "stripe_payments",
-    "stripe": "transfer",
+    "transfers": "transfer",
+    "stripe": "stripe_payments",
     "bitpay": "bitpay",
     "coinbase": "coinbase",
     "crypto.com": "crypto.com",

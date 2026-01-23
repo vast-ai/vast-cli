@@ -19,7 +19,7 @@ paths:
         
         Optionally filter by invoice service using `select_filters.service`.
 
-        Common services: transfers, stripe, bitpay, coinbase, crypto.com, reserved, payout_paypal, payout_wise
+        Common services: transfer, stripe_payments, bitpay, coinbase, crypto.com, instance_prepay, paypal_manual, wise_manual 
 
         CLI Usage: `vastai show invoices-v1`
       requestBody:
@@ -56,7 +56,7 @@ paths:
                     **Optional** : Filter invoices by service using `service` field.
 
                     Supported services:
-                    transfers, stripe, bitpay, coinbase, crypto.com, reserved, payout_paypal, payout_wise
+                    transfer, stripe_payments, bitpay, coinbase, crypto.com, instance_prepay, paypal_manual, wise_manual 
 
                     Supported operators:
                     - `in` : include only these services
@@ -98,7 +98,7 @@ paths:
                         Filter by invoice `service`.
                         
                         Supported services:
-                        transfers, stripe, bitpay, coinbase, crypto.com, reserved, payout_paypal, payout_wise
+                        transfer, stripe_payments, bitpay, coinbase, crypto.com, instance_prepay, paypal_manual, wise_manual 
                       properties:
                         eq:
                           type: string
@@ -110,12 +110,6 @@ paths:
                           type: array
                           items:
                             type: string
-                    is_credit:
-                      type: object
-                      description: Filter by whether the invoice is a credit.
-                      properties:
-                        eq:
-                          type: boolean
                 latest_first:
                   type: boolean
                   default: true
@@ -173,14 +167,14 @@ paths:
                     metadata:
                       invoice_id: 4829137
                       service: transfer
-                      sender: sender@vast.ai
-                      recipient: recipient@vast.ai
+                      sender: 123456
+                      recipient: 789012
                     items: []
 
                   - start: 1761980044
                     end: 1761980301
                     type: credit
-                    source: stripe_payments
+                    source: stripe
                     description: Manual billing from VISA ending in 4412
                     amount: -19.99
                     metadata:

@@ -1616,8 +1616,8 @@ paths:
                     '
                 template_id:
                   type: integer
-                  description: 'ID of an existing template to use for instance configuration.
-                    Alternative to providing template_hash_id.
+                  description: 'ID of the template to use for the instance. If the
+                    template is private, please use template_hash_id instead.
 
 
                     Example : `62897`
@@ -1625,12 +1625,8 @@ paths:
                     '
                 template_hash_id:
                   type: string
-                  description: 'Hash ID of a template. Alternative to providing template_id
-
-
-                    Example : `4e17788f74f075dd9aab7d0d4427968f`
-
-                    '
+                  description: "ID of template to use for the instance. \n\nExample\
+                    \ : `4e17788f74f075dd9aab7d0d4427968f`\n"
                 label:
                   type: string
                   description: Custom name for the instance
@@ -5647,7 +5643,7 @@ paths:
                   description: Number of GPUs
                 gpu_ram:
                   type: object
-                  description: GPU memory in MB
+                  description: GPU RAM in GB
                 duration:
                   type: object
                   description: Minimum required rental duration in seconds (the offer
@@ -5694,7 +5690,7 @@ paths:
                   description: CPU clock speed in GHz
                 cpu_ram:
                   type: object
-                  description: CPU RAM in MB
+                  description: CPU RAM in GB
                 datacenter:
                   type: object
                   description: Show only datacenter offers
@@ -6858,149 +6854,167 @@ paths:
                     example: API requests too frequent endpoint threshold=2.0
       tags:
       - Instances
-  /api/v0/users/{user_id}/invoices/:
+  /api/v1/invoices/:
     get:
       summary: show invoices
-      description: 'This endpoint retrieves billing history reports for the authenticated
-        user, including charges and credits.
+      description: 'Gets your invoices within given timerange.
 
 
-        CLI Usage: `vastai show invoices`'
-      security:
-      - BearerAuth: []
-      parameters:
-      - name: user_id
-        in: path
+        Timerange is **required** using the `select_filters.when` field.
+
+
+        Optionally filter by invoice service using `select_filters.service`.
+
+
+        Common services: transfer, stripe_payments, bitpay, coinbase, crypto.com,
+        instance_prepay, paypal_manual, wise_manual
+
+
+        CLI Usage: `vastai show invoices-v1`'
+      requestBody:
         required: true
-        schema:
-          type: string
-        description: The ID of the user whose invoices are being retrieved.
-        example: me
-      - name: inc_charges
-        in: query
-        required: false
-        schema:
-          type: boolean
-        description: Include charge items in the report.
-        example: true
-      - name: only_payouts
-        in: query
-        required: false
-        schema:
-          type: boolean
-        description: Show only payout items.
-        example: false
-      - name: no_payouts
-        in: query
-        required: false
-        schema:
-          type: boolean
-        description: Exclude payout items.
-        example: false
-      - name: sdate
-        in: query
-        required: false
-        schema:
-          type: string
-        description: Start date and time for the report.
-        example: '2023-01-01T00:00:00Z'
-      - name: edate
-        in: query
-        required: false
-        schema:
-          type: string
-        description: End date and time for the report.
-        example: '2023-12-31T23:59:59Z'
-      responses:
-        '200':
-          description: Success response with billing history reports
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  invoices:
-                    type: array
-                    items:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - select_filters
+              properties:
+                select_filters:
+                  type: object
+                  description: "Shows invoices using given filters.\n\n**Required**\
+                    \ : Filter by timerange using `when` field. \n\nUse unix timestamps\
+                    \ (UTC) comparison operators.\n\n**Example** : To filter invoices\
+                    \ from June 1, 2025 to Dec 1, 2025:\n```\n\"select_filters\":\
+                    \ {\n  \"when\": {\n      \"gte\": 1748736000,\n      \"lte\"\
+                    : 1764547200 \n    }\n  }\n```\nSupported operators:\n- `gt` or\
+                    \ `gte`: invoices created after this time\n- `lt` or `lte`: invoices\
+                    \ created before this time\n\n**Optional** : Filter invoices by\
+                    \ service using `service` field.\n\nSupported services:\ntransfer,\
+                    \ stripe_payments, bitpay, coinbase, crypto.com, instance_prepay,\
+                    \ paypal_manual, wise_manual \n\nSupported operators:\n- `in`\
+                    \ : include only these services\n- `notin` : exclude these services\n\
+                    - `eq` : matches a single service\n\n**Example**: Get paypal and\
+                    \ wise invoices only\n```\n\"service\": {\n  \"in\": [\"paypal_manual\"\
+                    , \"wise_manual\"]\n}\n```\n"
+                  required:
+                  - when
+                  properties:
+                    when:
                       type: object
+                      description: "Invoice date range filter. \n\n**Example** : To\
+                        \ filter invoices between June 1, 2025 and Dec 1, 2025, set\
+                        \ gte to `1748736000` and lte to `1764547200`.\n"
+                      default:
+                        gte: 1748736000
+                        lte: 1764547200
                       properties:
-                        id:
+                        gte:
                           type: integer
-                          example: 123
-                        type:
-                          type: string
-                          example: payment
-                        service:
-                          type: string
-                          example: stripe
-                        amount:
-                          type: number
-                          format: float
-                          example: 100.0
-                        timestamp:
+                          description: 'Start time using unix timestamp (UTC).
+
+                            '
+                          default: 1748736000
+                        lte:
                           type: integer
-                          example: 1672531199
-                  username:
-                    type: string
-                    example: user@example.com
-                  bill_to:
-                    type: string
-                    example: 'John Doe
+                          description: 'End time using unix timestamp (UTC).
 
-                      123 Main St
-
-                      City, ZIP
-
-                      Country'
-                  email:
-                    type: string
-                    example: user@example.com
-                  fullname:
-                    type: string
-                    example: John Doe
-                  address1:
-                    type: string
-                    example: 123 Main St
-                  address2:
-                    type: string
-                    example: Apt 4B
-                  city:
-                    type: string
-                    example: City
-                  zip:
-                    type: string
-                    example: '12345'
-                  country:
-                    type: string
-                    example: Country
-                  taxinfo:
-                    type: string
-                    example: Tax Info
-                  current:
+                            '
+                          default: 1764547200
+                    service:
+                      type: object
+                      description: "Filter by invoice `service`.\n\nSupported services:\n\
+                        transfer, stripe_payments, bitpay, coinbase, crypto.com, instance_prepay,\
+                        \ paypal_manual, wise_manual \n"
+                      properties:
+                        eq:
+                          type: string
+                        in:
+                          type: array
+                          items:
+                            type: string
+                        notin:
+                          type: array
+                          items:
+                            type: string
+                latest_first:
+                  type: boolean
+                  default: true
+                  description: Sort by newest invoices first.
+                order_by:
+                  type: array
+                  description: "Sort invoices by given columns. \n\nSupported columns:\
+                    \ `paid_on`, `amount_cents`, `when`\n\n**Example** : To sort by\
+                    \ oldest invoices first\n```\n\"order_by\": [\n  {\n    \"col\"\
+                    : \"when\",\n    \"dir\": \"asc\"\n  }\n]\n```\n"
+                  default:
+                    col: paid_on
+                    dir: desc
+                  items:
                     type: object
                     properties:
-                      charges:
-                        type: number
-                        format: float
-                        example: 150.0
-                      service_fee:
-                        type: number
-                        format: float
-                        example: 15.0
-                      total:
-                        type: number
-                        format: float
-                        example: 165.0
-                      credit:
-                        type: number
-                        format: float
-                        example: 50.0
+                      col:
+                        type: string
+                        default: paid_on
+                      dir:
+                        type: string
+                        enum:
+                        - asc
+                        - desc
+                        default: desc
+                limit:
+                  type: integer
+                  default: 60
+                  description: Maximum number of invoices to return.
+      responses:
+        '200':
+          description: Paginated invoice results
+          content:
+            application/json:
+              example:
+                success: true
+                count: 2
+                total: 42
+                results:
+                - start: 1762149123
+                  end: null
+                  type: transfer
+                  source: sender@vast.ai
+                  description: Received credit from sender@vast.ai
+                  amount: 35.5
+                  metadata:
+                    invoice_id: 4829137
+                    service: transfer
+                    sender: 123456
+                    recipient: 789012
+                  items: []
+                - start: 1761980044
+                  end: 1761980301
+                  type: credit
+                  source: stripe
+                  description: Manual billing from VISA ending in 4412
+                  amount: -19.99
+                  metadata:
+                    invoice_id: 4828771
+                    service: stripe_payments
+                    last4: '4412'
+                    network: visa
+                    transfer_group: pi_3TAbCdEfgHiJkLmN
+                  items: []
+                next_token: null
         '400':
-          description: Bad Request
+          description: Invalid request (e.g. missing or malformed date range)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                success: false
+                error: Invalid date range
+                count: 0
+                total: 0
+                results: []
+                next_token: null
         '401':
           description: Unauthorized
           content:

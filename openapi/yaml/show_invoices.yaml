@@ -19,7 +19,7 @@ paths:
         
         Optionally filter by invoice service using `select_filters.service`.
 
-        Common services: transfer, stripe_payments, bitpay, coinbase, crypto.com, instance_prepay, paypal_manual, wise_manual 
+        **Common services** : transfer, stripe_payments, bitpay, coinbase, crypto.com, instance_prepay, paypal_manual, wise_manual 
 
         CLI Usage: `vastai show invoices-v1`
       requestBody:
@@ -119,13 +119,13 @@ paths:
                   description: |
                     Sort invoices by given columns. 
                     
-                    Supported columns: `paid_on`, `amount_cents`, `when`, `start`, `end`, `date`.
+                    Supported columns: `paid_on`, `amount_cents`, `when`
 
                     **Example** : To sort by oldest invoices first
                     ```
                     "order_by": [
                       {
-                        "col": "paid_on",
+                        "col": "when",
                         "dir": "asc"
                       }
                     ]
@@ -222,7 +222,7 @@ paths:
                 properties:
                   detail:
                     type: string
-                    example: API requests too frequent endpoint threshold=3.0
+                    example: API requests too frequent endpoint threshold=2.0
 
       tags:
         - Billing
@@ -257,7 +257,7 @@ components:
           nullable: true
 
 x-rate-limit:
-  threshold: 3.0
+  threshold: 2.0
   per: request
   description: Maximum request frequency per IP address
 

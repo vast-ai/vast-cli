@@ -6944,10 +6944,9 @@ paths:
                 order_by:
                   type: array
                   description: "Sort invoices by given columns. \n\nSupported columns:\
-                    \ `paid_on`, `amount_cents`, `when`, `start`, `end`, `date`.\n\
-                    \n**Example** : To sort by oldest invoices first\n```\n\"order_by\"\
-                    : [\n  {\n    \"col\": \"paid_on\",\n    \"dir\": \"asc\"\n  }\n\
-                    ]\n```\n"
+                    \ `paid_on`, `amount_cents`, `when`\n\n**Example** : To sort by\
+                    \ oldest invoices first\n```\n\"order_by\": [\n  {\n    \"col\"\
+                    : \"when\",\n    \"dir\": \"asc\"\n  }\n]\n```\n"
                   default:
                     col: paid_on
                     dir: desc
@@ -7037,7 +7036,7 @@ paths:
                 properties:
                   detail:
                     type: string
-                    example: API requests too frequent endpoint threshold=3.0
+                    example: API requests too frequent endpoint threshold=2.0
       tags:
       - Billing
   /api/v0/users/{user_id}/ipaddrs/:

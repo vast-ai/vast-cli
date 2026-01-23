@@ -194,11 +194,11 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 success: false
-                error: Invalid order_by parameter
+                error: Invalid date range
                 count: 0
                 total: 0
                 results: []
-                next_token: None
+                next_token: null
         '401':
           description: Unauthorized
           content:

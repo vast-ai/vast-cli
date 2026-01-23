@@ -6866,8 +6866,8 @@ paths:
         Optionally filter by invoice service using `select_filters.service`.
 
 
-        Common services: transfers, stripe, bitpay, coinbase, crypto.com, reserved,
-        payout_paypal, payout_wise
+        Common services: transfer, stripe_payments, bitpay, coinbase, crypto.com,
+        instance_prepay, paypal_manual, wise_manual
 
 
         CLI Usage: `vastai show invoices-v1`'
@@ -6890,13 +6890,13 @@ paths:
                     : 1764547200 \n    }\n  }\n```\nSupported operators:\n- `gt` or\
                     \ `gte`: invoices created after this time\n- `lt` or `lte`: invoices\
                     \ created before this time\n\n**Optional** : Filter invoices by\
-                    \ service using `service` field.\n\nSupported services:\ntransfers,\
-                    \ stripe, bitpay, coinbase, crypto.com, reserved, payout_paypal,\
-                    \ payout_wise\n\nSupported operators:\n- `in` : include only these\
-                    \ services\n- `notin` : exclude these services\n- `eq` : matches\
-                    \ a single service\n\n**Example**: Get paypal and wise invoices\
-                    \ only\n```\n\"service\": {\n  \"in\": [\"paypal_manual\", \"\
-                    wise_manual\"]\n}\n```\n"
+                    \ service using `service` field.\n\nSupported services:\ntransfer,\
+                    \ stripe_payments, bitpay, coinbase, crypto.com, instance_prepay,\
+                    \ paypal_manual, wise_manual \n\nSupported operators:\n- `in`\
+                    \ : include only these services\n- `notin` : exclude these services\n\
+                    - `eq` : matches a single service\n\n**Example**: Get paypal and\
+                    \ wise invoices only\n```\n\"service\": {\n  \"in\": [\"paypal_manual\"\
+                    , \"wise_manual\"]\n}\n```\n"
                   required:
                   - when
                   properties:
@@ -6923,15 +6923,9 @@ paths:
                           default: 1764547200
                     service:
                       type: object
-                      description: 'Filter by invoice `service`.
-
-
-                        Supported services:
-
-                        transfers, stripe, bitpay, coinbase, crypto.com, reserved,
-                        payout_paypal, payout_wise
-
-                        '
+                      description: "Filter by invoice `service`.\n\nSupported services:\n\
+                        transfer, stripe_payments, bitpay, coinbase, crypto.com, instance_prepay,\
+                        \ paypal_manual, wise_manual \n"
                       properties:
                         eq:
                           type: string
@@ -6943,12 +6937,6 @@ paths:
                           type: array
                           items:
                             type: string
-                    is_credit:
-                      type: object
-                      description: Filter by whether the invoice is a credit.
-                      properties:
-                        eq:
-                          type: boolean
                 latest_first:
                   type: boolean
                   default: true
@@ -6998,13 +6986,13 @@ paths:
                   metadata:
                     invoice_id: 4829137
                     service: transfer
-                    sender: sender@vast.ai
-                    recipient: recipient@vast.ai
+                    sender: 123456
+                    recipient: 789012
                   items: []
                 - start: 1761980044
                   end: 1761980301
                   type: credit
-                  source: stripe_payments
+                  source: stripe
                   description: Manual billing from VISA ending in 4412
                   amount: -19.99
                   metadata:
@@ -7023,11 +7011,11 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 success: false
-                error: Invalid order_by parameter
+                error: Invalid date range
                 count: 0
                 total: 0
                 results: []
-                next_token: None
+                next_token: null
         '401':
           description: Unauthorized
           content:

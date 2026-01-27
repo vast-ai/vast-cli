@@ -197,6 +197,12 @@ def check_for_update():
 APP_NAME = "vastai"
 VERSION = get_local_version()
 
+# define emoji support and fallbacks
+_HAS_EMOJI = sys.stdout.encoding and 'utf' in sys.stdout.encoding.lower()
+SUCCESS = "✅" if _HAS_EMOJI else "[OK]"
+WARN    = "⚠️" if _HAS_EMOJI else "[!]"
+FAIL    = "❌" if _HAS_EMOJI else "[X]"
+INFO    = "ℹ️" if _HAS_EMOJI else "[i]"
 
 try:
   # Although xdg-base-dirs is the newer name, there's 
@@ -323,12 +329,18 @@ class hidden_aliases(object):
     def append(self, x):
         self.l.append(x)
 
-def http_request(verb, args, req_url, headers: dict[str, str] | None = None, json = None):
+def http_request(verb, args, req_url, headers: dict[str, str] | None = None, json_data = None):
     t = 0.15
     for i in range(0, args.retry):
-        req = requests.Request(method=verb, url=req_url, headers=headers, json=json)
+        req = requests.Request(method=verb, url=req_url, headers=headers, json=json_data)
         session = requests.Session()
         prep = session.prepare_request(req)
+        if args.explain:
+            print(f"{INFO}  Prepared Request:")
+            print(f"{prep.method} {prep.url}")
+            print(f"Headers: {json.dumps(headers, indent=1)}")
+            print(f"Body: {json.dumps(json_data, indent=1)}" + "\n" + "_"*100 + "\n")
+        
         if ARGS.curl:
             as_curl = curlify.to_curl(prep)
             simple = re.sub(r" -H '[^']*'", '', as_curl)
@@ -617,7 +629,7 @@ def apiheaders(args: argparse.Namespace) -> Dict:
     return result 
 
 
-def deindent(message: str) -> str:
+def deindent(message: str, add_separator: bool = True) -> str:
     """
     Deindent a quoted string. Scans message and finds the smallest number of whitespace characters in any line and
     removes that many from the start of every line.
@@ -629,6 +641,10 @@ def deindent(message: str) -> str:
     indents = [len(x) for x in re.findall("^ *(?=[^ ])", message, re.MULTILINE) if len(x)]
     a = min(indents)
     message = re.sub(r"^ {," + str(a) + "}", "", message, flags=re.MULTILINE)
+    if add_separator:
+        # For help epilogs - cleanly separating extra help from options
+        line_width = min(150, shutil.get_terminal_size((80, 20)).columns)
+        message = "_"*line_width + "\n"*2 + message.strip() + "\n" + "_"*line_width
     return message.strip()
 
 
@@ -1260,7 +1276,7 @@ def get_ssh_key(argstr):
         has around 200 or so "base64" characters and ends with 
         some-user@some-where. "Generate public ssh key" would be 
         a good search term if you don't know how to do this.
-      """))
+      """, add_separator=False))
 
     if not ssh_key.lower().startswith('ssh'):
       raise ValueError(deindent("""
@@ -1273,7 +1289,7 @@ def get_ssh_key(argstr):
         {}
 
         And welp, that just don't look right.
-      """.format(ssh_key)))
+      """.format(ssh_key), add_separator=False))
 
     return ssh_key
 
@@ -5213,6 +5229,7 @@ invoice_types = {
     argument('-v', '--verbose', action='store_true', help='Include full Instance Charge details and Invoice Metadata (tree view only)'),
     argument('--latest-first', action='store_true', help='Sort by latest first'),
     usage="vastai show invoices-v1 [OPTIONS]",
+    help="Get billing (invoices/charges) history reports with advanced filtering and pagination",
     epilog=deindent("""
         This command supports colored output and rich formatting if the 'rich' python module is installed!
 

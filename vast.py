@@ -1482,8 +1482,8 @@ def change__bid(args: argparse.Namespace):
 )
 def clone__volume(args: argparse.Namespace):
     json_blob={
-        "source" : args.source,
-        "dest": args.dest,
+        "src_id" : args.source,
+        "dst_id": args.dest,
     }
     if args.size:
         json_blob["size"] = args.size

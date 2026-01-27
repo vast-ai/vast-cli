@@ -1482,7 +1482,7 @@ def change__bid(args: argparse.Namespace):
 )
 def clone__volume(args: argparse.Namespace):
     json_blob={
-        "source" : args.source,
+        "src_id" : args.source,
         "dest": args.dest,
     }
     if args.size:

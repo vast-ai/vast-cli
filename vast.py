@@ -337,7 +337,7 @@ def http_request(verb, args, req_url, headers: dict[str, str] | None = None, jso
         session = requests.Session()
         prep = session.prepare_request(req)
         if args.explain:
-            print(f"{INFO}  Prepared Request:")
+            print(f"\n{INFO}  Prepared Request:")
             print(f"{prep.method} {prep.url}")
             print(f"Headers: {json.dumps(headers, indent=1)}")
             print(f"Body: {json.dumps(json_data, indent=1)}" + "\n" + "_"*100 + "\n")
@@ -1163,8 +1163,13 @@ def parse_query(query_str: str, res: Dict = None, fields = {}, field_alias = {},
     #print(res)
     return res
 
+# ANSI escape codes for background/foreground colors
+BG_DARK_GRAY = '\033[40m'  # Dark gray background
+BG_LIGHT_GRAY = '\033[48;5;240m' # Light gray background
+FG_WHITE = '\033[97m'            # Bright white text
+BG_RESET = '\033[0m'             # Reset all formatting
 
-def display_table(rows: list, fields: Tuple, replace_spaces: bool = True) -> None:
+def display_table(rows: list, fields: Tuple, replace_spaces: bool = True, auto_width: bool = True) -> None:
     """Basically takes a set of field names and rows containing the corresponding data and prints a nice tidy table
     of it.
 
@@ -1195,16 +1200,51 @@ def display_table(rows: list, fields: Tuple, replace_spaces: bool = True) -> Non
             idx = len(row)
             lengths[idx] = max(len(s), lengths[idx])
             row.append(s)
-    for row in out_rows:
-        out = []
-        for l, s, f in zip(lengths, row, fields):
-            _, _, _, _, ljust = f
-            if ljust:
-                s = s.ljust(l)
-            else:
-                s = s.rjust(l)
-            out.append(s)
-        print("  ".join(out))
+    
+    if auto_width:
+        width = shutil.get_terminal_size((80, 20)).columns
+        start_col_idxs = [0]
+        total_len = 4  # +6ch for row label and -2ch for missing last sep in "  ".join()
+        for i, l in enumerate(lengths):
+            total_len += l + 2
+            if total_len > width:
+                start_col_idxs.append(i)  # index for the start of the next group
+                total_len = l + 6         # l + 2 + the 4 from the initial length
+        
+        groups = {}
+        for row in out_rows:
+            grp_num = 0
+            for i in range(len(start_col_idxs)):
+                start = start_col_idxs[i]
+                end = start_col_idxs[i+1]-1 if i+1 < len(start_col_idxs) else len(lengths)
+                groups.setdefault(grp_num, []).append(row[start:end])
+                grp_num += 1
+        
+        for i, group in groups.items():
+            idx = start_col_idxs[i]
+            group_lengths = lengths[idx:idx+len(group[0])]
+            for row_num, row in enumerate(group):
+                bg_color = BG_DARK_GRAY if (row_num - 1) % 2 else BG_LIGHT_GRAY
+                row_label = "  #" if row_num == 0 else f"{row_num:3d}"
+                out = [row_label]
+                for l, s, f in zip(group_lengths, row, fields[idx:idx+len(row)]):
+                    _, _, _, _, ljust = f
+                    if ljust: s = s.ljust(l)
+                    else:     s = s.rjust(l)
+                    out.append(s)
+                print(bg_color + FG_WHITE + "  ".join(out) + BG_RESET)
+            print()
+    else:
+        for row in out_rows:
+            out = []
+            for l, s, f in zip(lengths, row, fields):
+                _, _, _, _, ljust = f
+                if ljust:
+                    s = s.ljust(l)
+                else:
+                    s = s.rjust(l)
+                out.append(s)
+            print("  ".join(out))
 
 
 def print_or_page(args, text):
@@ -5833,107 +5873,142 @@ def handle_failed_tfa_verification(args, e):
         print("\n   The SMS code and secret have expired. Please start over:")
         print("     vastai tfa send-sms")
 
+
+def format_backup_codes(backup_codes):
+    """Format backup codes for display or file output."""
+    output_lines = [
+        "=" * 60, "  VAST.AI 2FA BACKUP CODES", "=" * 60,
+        f"\nGenerated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"\n{WARN}  WARNING: All previous backup codes are now invalid!",
+        "\nYour New Backup Codes (one-time use only):",
+        "-" * 40,
+    ]
+    
+    for i, code in enumerate(backup_codes, 1):
+        output_lines.append(f"  {i:2d}. {code}")
+    
+    output_lines.extend([
+        "-" * 40,
+        "\nIMPORTANT:",
+        " • Each code can only be used once",
+        " • Store them in a secure location",
+        " • Use these codes to log in if you lose access to your 2FA device",
+        "\n" + "=" * 60,
+    ])
+    return "\n".join(output_lines)
+
+
+def confirm_destructive_action(prompt="Are you sure? (y/n): "):
+    """Prompt user for confirmation of destructive actions"""
+    try:
+        response = input(f" {prompt}").strip().lower()
+        return 'y' in response
+    except (EOFError, KeyboardInterrupt):
+        print("\nOperation cancelled.")
+        raise
+
+def save_to_file(content, filepath):
+    """Save content to file, creating parent directories if needed."""
+    try:
+        filepath = os.path.abspath(os.path.expanduser(filepath))
+        
+        # If directory provided, this should be handled by caller
+        parent_dir = os.path.dirname(filepath)
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
+        
+        with open(filepath, "w") as f:
+            f.write(content)
+        return True
+    except (IOError, OSError) as e:
+        print(f"\n{FAIL} Error saving file: {e}")
+        return False
+
+
+def get_backup_codes_filename():
+    """Generate a timestamped filename for backup codes."""
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    return f"vastai_backup_codes_{timestamp}.txt"
+
 def save_backup_codes(backup_codes):
-    """Helper function to save or display 2FA backup codes based on user choice."""
+    """Save or display 2FA backup codes based on user choice."""
     print(f"\nBackup codes regenerated successfully! {SUCCESS}")
     print(f"\n{WARN}  WARNING: All previous backup codes are now invalid!")
     
-    # Prepare formatted content for file/display
-    def format_codes():
-        lines = []
-        lines.append("="*60)
-        lines.append("  VAST.AI 2FA BACKUP CODES")
-        lines.append("="*60)
-        lines.append(f"\nGenerated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        lines.append(f"\n{WARN}  WARNING: All previous backup codes are now invalid!")
-        lines.append("\nYour New Backup Codes (one-time use only):")
-        lines.append("-" * 40)
-        for i, code in enumerate(backup_codes, 1):
-            lines.append(f"  {i:2d}. {code}")
-        lines.append("-" * 40)
-        lines.append("\nIMPORTANT:")
-        lines.append(" • Each code can only be used once")
-        lines.append(" • Store them in a secure location")
-        lines.append(" • Use these codes to log in if you lose access to your 2FA device")
-        lines.append("\n" + "="*60)
-        return "\n".join(lines)
+    formatted_content = format_backup_codes(backup_codes)
+    filename = get_backup_codes_filename()
     
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    bc_filename = f"vastai_backup_codes_{timestamp}.txt"
-    
-    # Prompt user for how they want to save the codes
     while True:
         print("\nHow would you like to save your new backup codes?")
-        print(f"  1. Save to default location (~/Downloads/{bc_filename})")
+        print(f"  1. Save to default location (~/Downloads/{filename})")
         print(f"  2. Save to a custom path")
         print(f"  3. Print to screen ({WARN}  potentially unsafe - visible to onlookers)")
         
         try:
             choice = input("\nEnter choice (1-3): ").strip()
-            if choice == '1':
-                # Save to Downloads directory
-                downloads_dir = os.path.expanduser("~/Downloads")
-                filepath = os.path.join(downloads_dir, bc_filename)
-                
-                os.makedirs(downloads_dir, exist_ok=True)
-                with open(filepath, "w") as f:
-                    f.write(format_codes())
-                
-                print(f"\n{SUCCESS} Backup codes saved to: {filepath}")
-                print(f"\nIMPORTANT:")
-                print(f" • The file contains {len(backup_codes)} one-time use backup codes")
-                print(f" • Move this file to a secure location")
-                return
             
-            elif choice == '2':
-                # Save to custom path
-                custom_path = input("\nEnter full path for backup codes file: ").strip()
-                if not custom_path:
-                    print("Error: Path cannot be empty")
-                    continue
-                
-                custom_path = os.path.abspath(os.path.expanduser(custom_path))
-                
-                # If directory provided, add filename
-                if os.path.isdir(custom_path):
-                    custom_path = os.path.join(custom_path, bc_filename)
-                
-                # Create parent directory if needed
-                parent_dir = os.path.dirname(custom_path)
-                if parent_dir:
-                    os.makedirs(parent_dir, exist_ok=True)
-                try:
-                    with open(custom_path, "w") as f:
-                        f.write(format_codes())
+            if choice in {'1', '2'}:
+                # Determine filepath
+                if choice == '1':
+                    downloads_dir = os.path.expanduser("~/Downloads")
+                    filepath = os.path.join(downloads_dir, filename)
+                else:  # choice == '2'
+                    custom_path = input("\nEnter full path for backup codes file: ").strip()
+                    if not custom_path:
+                        print("Error: Path cannot be empty")
+                        continue
                     
-                    print(f"\n{SUCCESS} Backup codes saved to: {custom_path}")
+                    filepath = os.path.abspath(os.path.expanduser(custom_path))
+                    
+                    # If directory provided, add filename
+                    if os.path.isdir(filepath):
+                        filepath = os.path.join(filepath, filename)
+                
+                # Try to save
+                if save_to_file(formatted_content, filepath):
+                    print(f"\n{SUCCESS} Backup codes saved to: {filepath}")
                     print(f"\nIMPORTANT:")
                     print(f" • The file contains {len(backup_codes)} one-time use backup codes")
+                    if choice == '1':
+                        print(f" • Move this file to a secure location")
                     return
-                except (IOError, OSError) as e:
-                    print(f"\n{FAIL} Error saving file: {e}")
+                else:
                     print("Please try again with a different path.")
                     continue
             
             elif choice == '3':
-                # Print to screen with warning
                 print(f"\n{WARN}  WARNING: Printing sensitive codes to screen!")
-                confirm_print = input("\nAre you sure? Anyone nearby can see these codes. (yes/no): ").strip().lower()
+                confirm = input("\nAre you sure? Anyone nearby can see these codes. (yes/no): ").strip().lower()
                 
-                if confirm_print not in ['yes', 'y']:
+                if confirm in {'yes', 'y'}:
+                    print("\n" + formatted_content + "\n")
+                    return
+                else:
                     print("Cancelled. Please choose another option.")
                     continue
-                
-                print("\n" + format_codes() + "\n")
-                return
             
             else:
                 print("Invalid choice. Please enter 1, 2, or 3.")
-                
+        
         except (EOFError, KeyboardInterrupt):
             print("\n\nOperation cancelled. Your backup codes were generated but not saved.")
             print("You will need to regenerate them to get new codes.")
             raise
+
+
+def build_tfa_verification_payload(args, **kwargs):
+    """Build common payload for TFA verification requests."""
+    payload = {
+        "tfa_method_id": getattr(args, 'method_id', None),
+        "tfa_method": "sms" if getattr(args, 'sms', False) else "totp",
+        "code": getattr(args, 'code', None),
+        "backup_code": getattr(args, 'backup_code', None),
+        "secret": getattr(args, 'secret', None),
+    }
+    for key, value in kwargs.items():
+        payload[key] = value
+
+    return {k:v for k,v in payload.items() if v}
 
 @parser.command(
     argument("code", help="6-digit verification code from SMS or Authenticator app", type=str),
@@ -5969,14 +6044,7 @@ def tfa__activate(args):
     url = apiurl(args, "/api/v0/tfa/test-submit/")
     
     # Build the request payload
-    payload = {
-        "code": args.code,
-        "secret": args.secret,
-        "tfa_method": "sms" if args.phone_number or args.sms else "totp",
-        "phone_number": args.phone_number
-    }
-    if args.label:
-        payload["label"] = args.label
+    payload = build_tfa_verification_payload(args, phone_number=args.phone_number, label=args.label)
     
     r = http_post(args, url, headers=apiheaders(args), json=payload)
     r.raise_for_status()
@@ -6040,24 +6108,13 @@ def tfa__delete(args):
         return 1
     
     # Confirm action since this invalidates existing codes
-    try:
-        confirmation = input("\nAre you sure you want to delete this 2FA method? (y|n): ")
-        if 'y' not in confirmation.lower():
-            print("Operation cancelled.")
-            return
-    except (EOFError, KeyboardInterrupt):
-        print("\nOperation cancelled.")
+    prompt = "\nAre you sure you want to delete this 2FA method? (y|n): "
+    if confirm_destructive_action(prompt) == False:
+        print("Operation cancelled.")
         return
     
     # Build the request payload
-    payload = {
-        "target_id": args.id_to_delete,
-        "tfa_method_id": args.method_id,
-        "code": args.code,
-        "tfa_method": "sms" if args.sms else "totp",
-        "tfa_secret": args.secret,
-        "backup_code": args.backup_code,
-    }
+    payload = build_tfa_verification_payload(args, target_id=args.id_to_delete)
     try:
         r = http_del(args, url, headers=apiheaders(args), json=payload)
         r.raise_for_status()
@@ -6106,13 +6163,7 @@ def tfa__login(args):
     url = apiurl(args, "/api/v0/tfa/")
     
     # Build the request payload
-    payload = {
-        "tfa_method_id": args.method_id,
-        "tfa_method": "sms" if args.sms else "totp",
-        "code": args.code,
-        "backup_code": args.backup_code,
-        "secret": args.secret
-    }
+    payload = build_tfa_verification_payload(args)
 
     try:
         r = http_post(args, url, headers=apiheaders(args), json=payload)
@@ -6170,9 +6221,7 @@ def tfa__login(args):
 def tfa__resend_sms(args):
     """Resend SMS 2FA code to the user's phone."""
     url = apiurl(args, "/api/v0/tfa/resend/")
-    payload = {"secret": args.secret}
-    if args.phone_number:
-        payload["phone_number"] = args.phone_number
+    payload = build_tfa_verification_payload(args, phone_number=args.phone_number)
     
     r = http_post(args, url, headers=apiheaders(args), json=payload)
     r.raise_for_status()
@@ -6223,24 +6272,13 @@ def tfa__regen_codes(args):
     url = apiurl(args, "/api/v0/tfa/regen-backup-codes/")
     
     # Confirm action since this invalidates existing codes
-    try:
-        confirmation = input("\nThis will invalidate all existing backup codes. Continue? (y|n): ")
-        if 'y' not in confirmation.lower():
-            print("Operation cancelled.")
-            return
-    except (EOFError, KeyboardInterrupt):
-        print("\nOperation cancelled.")
+    prompt = "\nThis will invalidate all existing backup codes. Continue? (y|n): "
+    if confirm_destructive_action(prompt) == False:
+        print("Operation cancelled.")
         return
     
     # Build the request payload with verification
-    payload = {
-        "tfa_method_id": args.method_id,
-        "tfa_method": "sms" if args.sms else "totp",
-        "code": args.code,
-        "backup_code": args.backup_code,
-        "secret": args.secret
-    }
-    
+    payload = build_tfa_verification_payload(args)
     try:
         r = http_put(args, url, headers=apiheaders(args), json=payload)
         r.raise_for_status()
@@ -6322,6 +6360,7 @@ def display_tfa_methods(methods):
         method_fields = tuple(field for field in TFA_METHOD_FIELDS if field[0] != 'phone_number')
     
     display_table(methods, method_fields, replace_spaces=False)
+
 
 @parser.command(
     help="Shows the current 2FA status and configured methods",

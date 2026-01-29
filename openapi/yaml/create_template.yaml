@@ -10,7 +10,11 @@ paths:
       description: |
         Creates a new template for launching instances.
 
-        CLI Usage: `vastai create template <name> <image> [options]`
+        Templates store default configuration values that can be used when creating instances. When an instance is created with a template reference, template values serve as defaults that can be overridden by request parameters.
+
+        For detailed usage, see [Creating and Using Templates with API](/api-reference/creating-and-using-templates-with-api).
+
+        CLI Usage: `vastai create template --name <name> --image <image> [options]`
       tags:
       - Templates
       security:
@@ -27,7 +31,7 @@ paths:
               properties:
                 name:
                   type: string
-                  default: My Template
+                  default: Example Template
                   description: Name of the template
                 image:
                   type: string
@@ -35,16 +39,15 @@ paths:
                   description: Docker image path. Used when launching instances from this template.
                 tag:
                   type: string
-                  default: '@vastai-automatic-tag'
+                  default: latest
                   description: |
-                    Docker image tag specifying version of the image
-                    This can be included in the image instead of here
+                    Docker image tag specifying version of the image. Defaults to `latest`. Can also be included in the `image` field instead.
                 env:
-                  type: object
+                  type: string
                   description: |
-                    Environment variables
+                    Environment variables and port mappings in Docker flag format.
 
-                    Example : `{ "HF_TOKEN": "hf_xxx123456789", "MODEL_ID": "TheBloke/Llama-2-7B-Chat-GPTQ", }`
+                    Example: `"-e HF_TOKEN=hf_xxx123456789 -e MODEL_ID=TheBloke/Llama-2-7B-Chat-GPTQ -p 8000:8000"`
                 onstart:
                   type: string
                   description: |
@@ -57,7 +60,9 @@ paths:
                   - ssh
                   - jupyter
                   - args
-                  description: Type of instance runtime
+                  default: args
+                  description: |
+                    Launch mode for the instance. Defaults to `args`. Recommended - use `ssh` with `ssh_direct: true` for reliable SSH access.
                 ssh_direct:
                   type: boolean
                   description: Enable direct SSH connection
@@ -84,14 +89,47 @@ paths:
                   description: Access token or password for private Docker repo.
                 extra_filters:
                   type: object
-                  description: Additional machine search filters
+                  description: |
+                    Additional machine search filters. Example: `{"cuda_max_good": {"gte": 12.6}}`
                 recommended_disk_space:
                   type: number
-                  description: Recommended disk space in GB. Defaults to 16GB if not specified.
+                  description: Recommended disk space in GB. Defaults to 8GB if not specified.
+                desc:
+                  type: string
+                  description: Short description of the template
+                readme:
+                  type: string
+                  description: Longer documentation/readme content for the template
+                args_str:
+                  type: string
+                  description: Arguments string passed to the container entrypoint when runtype is `args`
+                use_ssh:
+                  type: boolean
+                  description: Enable SSH access to instances created from this template
+                href:
+                  type: string
+                  description: Link to Docker Hub or image documentation
+                repo:
+                  type: string
+                  description: Repository identifier (e.g., `library/ubuntu`)
+                private:
+                  type: boolean
+                  description: Whether the template is private (not publicly searchable)
+                volume_info:
+                  type: object
+                  nullable: true
+                  description: |
+                    UI hint for volume configuration. Note: This does not affect instance creation - use `volume_info` in the instance creation request to actually attach volumes.
+                hash_id:
+                  type: string
+                  description: Content-based hash ID of the template. Can be included when editing but will change based on new content.
             example:
-              name: My Template
+              name: Example Template
               image: vastai/base-image
-              tag: '@vastai-automatic-tag'
+              tag: latest
+              env: "-e MY_VAR=value -p 8000:8000"
+              runtype: ssh
+              ssh_direct: true
       responses:
         '200':
           description: Template created or existing template found

@@ -12,22 +12,32 @@ paths:
     get:
       summary: search templates
       description: |
-        Searches for templates based on query parameters and retrieves matching templates.
+        Searches for templates using filter-based queries.
+
+        Use `select_filters` to search by specific field conditions. Results include both your own templates and publicly shared templates.
+
+        **Available filter fields:** `creator_id`, `created_at`, `count_created`, `default_tag`, `docker_login_repo`, `id`, `image`, `jup_direct`, `hash_id`, `name`, `recent_create_date`, `recommended_disk_space`, `recommended`, `ssh_direct`, `tag`, `use_ssh`
+
+        **Operators:** `eq`, `neq`, `lt`, `lte`, `gt`, `gte`, `in`, `notin`
+
+        For detailed usage, see [Creating and Using Templates with API](/api-reference/creating-and-using-templates-with-api).
 
         CLI Usage: `vastai search templates`
       parameters:
-      - name: query
-        in: query
-        required: false
-        schema:
-          type: string
-        description: Search query string to match against template fields.
       - name: select_filters
         in: query
         required: false
         schema:
-          type: object
-        description: Filters to apply on the search results.
+          type: string
+        description: |
+          JSON-encoded filter object. Format: `{"field": {"op": value}}`. Example: `{"use_ssh": {"eq": true}, "recommended": {"eq": true}}` or `{"count_created": {"gt": 100}}`
+      - name: select_cols
+        in: query
+        required: false
+        schema:
+          type: string
+        description: |
+          JSON-encoded array of columns to return. Example: `["*"]` for all columns or `["id", "name", "hash_id"]` for specific columns.
       - name: order_by
         in: query
         required: false

@@ -1,0 +1,56 @@
+openapi: 3.0.0
+info:
+  title: Delete Template API
+  description: API endpoint for deleting templates
+  version: 1.0.0
+paths:
+  /api/v0/template/:
+    delete:
+      summary: delete template
+      description: |
+        Deletes an existing template.
+
+        Pass the template's numeric `id` (not `hash_id`) in the request body.
+
+        For detailed usage, see [Creating and Using Templates with API](/api-reference/creating-and-using-templates-with-api).
+
+        CLI Usage: `vastai delete template --template-id <id>`
+      tags:
+      - Templates
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - template_id
+              properties:
+                template_id:
+                  type: integer
+                  description: Numeric ID of the template to delete (not hash_id)
+            example:
+              template_id: 334548
+      responses:
+        '200':
+          description: Template deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '401':
+          description: Unauthorized - invalid or missing API key
+        '404':
+          description: Template not found
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key must be provided in the Authorization header

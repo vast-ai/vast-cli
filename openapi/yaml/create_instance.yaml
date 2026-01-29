@@ -14,7 +14,7 @@ paths:
         Creates a new instance by accepting an "ask" contract from a provider.
 
         - Use the search offers endpoint to discover available machines.
-        - If `template_id` or `template_hash_id` is provided, those template defaults are either merged or overridden by parameters specified in the request body.
+        - If `template_id` is provided, those template defaults are either merged or overridden by parameters specified in the request body.
 
         **Template Precedence Rules:**
         - **Scalar fields** (image, disk, runtype, etc.): Request value overrides template value
@@ -49,12 +49,6 @@ paths:
                   default: vastai/base-image:@vastai-automatic-tag
                   description: |
                     Docker image to use for the instance.
-                template_id:
-                  type: integer
-                  description: |
-                    ID of the template to use for the instance. If the template is private, please use template_hash_id instead.
-
-                    Example : `62897`
                 template_hash_id:
                   type: string
                   description: |
@@ -158,7 +152,8 @@ paths:
                       description: Set to `true` to create a new volume, `false` to link an existing volume
                     volume_id:
                       type: integer
-                      description: If `create_new` is false: existing volume ID (from `show volumes`). If `create_new` is true: volume offer ID (from `search volumes`)
+                      description: |
+                        If `create_new` is false: existing volume ID (from `show volumes`). If `create_new` is true: volume offer ID (from `search volumes`)
                     size:
                       type: integer
                       description: Size of the volume in GB. Only used when `create_new` is true

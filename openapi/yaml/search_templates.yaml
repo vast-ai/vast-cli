@@ -29,13 +29,15 @@ paths:
         required: false
         schema:
           type: string
-        description: JSON-encoded filter object. Format: `{"field": {"op": value}}`. Example: `{"use_ssh": {"eq": true}, "recommended": {"eq": true}}` or `{"count_created": {"gt": 100}}`
+        description: |
+          JSON-encoded filter object. Format: `{"field": {"op": value}}`. Example: `{"use_ssh": {"eq": true}, "recommended": {"eq": true}}` or `{"count_created": {"gt": 100}}`
       - name: select_cols
         in: query
         required: false
         schema:
           type: string
-        description: JSON-encoded array of columns to return. Example: `["*"]` for all columns or `["id", "name", "hash_id"]` for specific columns.
+        description: |
+          JSON-encoded array of columns to return. Example: `["*"]` for all columns or `["id", "name", "hash_id"]` for specific columns.
       - name: order_by
         in: query
         required: false

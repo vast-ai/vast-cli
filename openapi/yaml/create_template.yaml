@@ -61,7 +61,8 @@ paths:
                   - jupyter
                   - args
                   default: args
-                  description: Launch mode for the instance. Defaults to `args`. Recommended: use `ssh` with `ssh_direct: true` for reliable SSH access.
+                  description: |
+                    Launch mode for the instance. Defaults to `args`. Recommended - use `ssh` with `ssh_direct: true` for reliable SSH access.
                 ssh_direct:
                   type: boolean
                   description: Enable direct SSH connection
@@ -88,7 +89,8 @@ paths:
                   description: Access token or password for private Docker repo.
                 extra_filters:
                   type: object
-                  description: Additional machine search filters. Example: `{"cuda_max_good": {"gte": 12.6}}`
+                  description: |
+                    Additional machine search filters. Example: `{"cuda_max_good": {"gte": 12.6}}`
                 recommended_disk_space:
                   type: number
                   description: Recommended disk space in GB. Defaults to 8GB if not specified.
@@ -116,7 +118,8 @@ paths:
                 volume_info:
                   type: object
                   nullable: true
-                  description: UI hint for volume configuration. Note: This does not affect instance creation - use `volume_info` in the instance creation request to actually attach volumes.
+                  description: |
+                    UI hint for volume configuration. Note: This does not affect instance creation - use `volume_info` in the instance creation request to actually attach volumes.
                 hash_id:
                   type: string
                   description: Content-based hash ID of the template. Can be included when editing but will change based on new content.

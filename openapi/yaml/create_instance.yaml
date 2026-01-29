@@ -16,6 +16,13 @@ paths:
         - Use the search offers endpoint to discover available machines.
         - If `template_id` or `template_hash_id` is provided, those template defaults are either merged or overridden by parameters specified in the request body.
 
+        **Template Precedence Rules:**
+        - **Scalar fields** (image, disk, runtype, etc.): Request value overrides template value
+        - **`env`**: Merged by key. Request values win on key conflicts
+        - **`extra_filters`**: Merged by key. Request values win on key conflicts
+
+        For detailed template usage, see [Creating and Using Templates with API](/api-reference/creating-and-using-templates-with-api).
+
         CLI Usage: `vastai create instance <offer_id> <image> [options]`
       security:
       - BearerAuth: []
@@ -27,7 +34,7 @@ paths:
         required: true
         schema:
           type: integer
-        description: ID of the instance type to launch (returned from search offers)
+        description: ID of the offer to accept (ask_id)
       requestBody:
         required: true
         content:
@@ -41,7 +48,7 @@ paths:
                   type: string
                   default: vastai/base-image:@vastai-automatic-tag
                   description: |
-                    Docker container image to launch
+                    Docker image to use for the instance.
                 template_id:
                   type: integer
                   description: |
@@ -51,9 +58,9 @@ paths:
                 template_hash_id:
                   type: string
                   description: |
-                    ID of template to use for the instance. 
+                    Content-based hash ID of a template to use as base configuration. Template values are merged with or overridden by request parameters (see precedence rules in endpoint description). When using a template, the `image` field is optional as the template provides it.
 
-                    Example : `4e17788f74f075dd9aab7d0d4427968f`
+                    Example: `4e17788f74f075dd9aab7d0d4427968f`
                 label:
                   type: string
                   description: Custom name for the instance
@@ -87,20 +94,11 @@ paths:
                   minimum: 0.001
                   maximum: 128.0
                 env:
-                  type: object
+                  type: string
                   description: |
-                    Environment variables and port mappings
-                    
-                    - Environment variables : "KEY":"VALUE"
-                    - Port mappings : Use "-p host_port:container_port" as key and use dummy value "1"
+                    Environment variables and port mappings in Docker flag format. When using a template, request `env` is merged with template `env` - existing keys are retained, new keys are appended, conflicting keys use the request value.
 
-                    Example :
-                    `
-                    { 
-                      "-p 8080:8080" : "1",
-                      "HF_TOKEN": "hf_xxx123456789",
-                    }
-                    `
+                    Example: `"-e HF_TOKEN=hf_xxx123456789 -e MODEL_ID=TheBloke/Llama-2-7B-Chat-GPTQ -p 8000:8000"`
                 cancel_unavail:
                   type: boolean
                   description: Whether to cancel if instance cannot start immediately. Defaults to false for interruptibles. Defaults to true for on-demand with target_state='running'
@@ -150,23 +148,23 @@ paths:
                   description: User to use with docker create (breaks some images, use with caution)
                 image_login:
                   type: string
-                  description: Docker login arguments for private repo authentication
+                  description: Docker registry credentials if needed
                 volume_info:
                   type: object
                   description: Volume creation/linking information
                   properties:
                     create_new:
                       type: boolean
-                      description: Whether to create a new volume
+                      description: Set to `true` to create a new volume, `false` to link an existing volume
                     volume_id:
                       type: integer
-                      description: ID of existing volume to link or volume offer ID for new volume
+                      description: If `create_new` is false: existing volume ID (from `show volumes`). If `create_new` is true: volume offer ID (from `search volumes`)
                     size:
                       type: integer
-                      description: Size of the volume in GB (for new volumes)
+                      description: Size of the volume in GB. Only used when `create_new` is true
                     mount_path:
                       type: string
-                      description: Mount path for the volume inside the container
+                      description: Mount path for the volume inside the container (e.g., `/workspace`)
             example:
               image: vastai/base-image:@vastai-automatic-tag
       responses:

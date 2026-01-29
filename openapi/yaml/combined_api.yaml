@@ -5643,7 +5643,7 @@ paths:
                   description: Number of GPUs
                 gpu_ram:
                   type: object
-                  description: GPU RAM in GB
+                  description: GPU RAM in MB
                 duration:
                   type: object
                   description: Minimum required rental duration in seconds (the offer
@@ -5689,8 +5689,8 @@ paths:
                   description: NVIDIA driver version in the format "XXX.XX.XX"
                 compute_cap:
                   type: object
-                  description: CUDA compute capability x 100. Use 650 for compute capability
-                    6.5 or 700 for 7.0.
+                  description: CUDA compute capability x 100. Use 650 for compute
+                    capability 6.5 or 700 for 7.0.
                 cpu_arch:
                   type: object
                   description: Host machine CPU architecture (Default is amd64)
@@ -5708,7 +5708,7 @@ paths:
                   description: CPU clock speed in GHz
                 cpu_ram:
                   type: object
-                  description: CPU RAM in GB
+                  description: CPU RAM in MB
                 datacenter:
                   type: object
                   description: Show only datacenter offers
@@ -6918,7 +6918,7 @@ paths:
         Optionally filter by invoice service using `select_filters.service`.
 
 
-        Common services: transfer, stripe_payments, bitpay, coinbase, crypto.com,
+        **Common services** : transfer, stripe_payments, bitpay, coinbase, crypto.com,
         instance_prepay, paypal_manual, wise_manual
 
 

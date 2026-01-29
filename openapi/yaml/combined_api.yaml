@@ -1583,8 +1583,8 @@ paths:
 
         - Use the search offers endpoint to discover available machines.
 
-        - If `template_id` or `template_hash_id` is provided, those template defaults
-        are either merged or overridden by parameters specified in the request body.
+        - If `template_id` is provided, those template defaults are either merged
+        or overridden by parameters specified in the request body.
 
 
         **Template Precedence Rules:**
@@ -1625,15 +1625,6 @@ paths:
                   type: string
                   default: vastai/base-image:@vastai-automatic-tag
                   description: 'Docker image to use for the instance.
-
-                    '
-                template_id:
-                  type: integer
-                  description: 'ID of the template to use for the instance. If the
-                    template is private, please use template_hash_id instead.
-
-
-                    Example : `62897`
 
                     '
                 template_hash_id:

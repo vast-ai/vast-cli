@@ -7872,7 +7872,7 @@ def schedule__maint(args):
     """
     url = apiurl(args, "/machines/{id}/dnotify/".format(id=args.id))
 
-    dt = datetime.utcfromtimestamp(args.sdate)
+    dt = datetime.fromtimestamp(args.sdate, tz=timezone.utc)
     print(f"Scheduling maintenance window starting {dt} lasting {args.duration} hours")
     print(f"This will notify all clients of this machine.")
     ok = input("Continue? [y/n] ")

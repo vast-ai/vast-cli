@@ -7235,20 +7235,29 @@ paths:
   /api/v1/invoices/:
     get:
       summary: show invoices
-      description: 'Gets your invoices within given timerange.
-
+      description: |
+        Gets your invoices within given timerange.
 
         Timerange is **required** using the `select_filters.when` field.
 
-
         Optionally filter by invoice service using `select_filters.service`.
 
+        **Common services** : transfer, stripe_payments, bitpay, coinbase, crypto.com, instance_prepay, paypal_manual, wise_manual
 
-        **Common services** : transfer, stripe_payments, bitpay, coinbase, crypto.com,
-        instance_prepay, paypal_manual, wise_manual
+        **Date format**: `select_filters.when.gte` and `select_filters.when.lte` must be UTC epoch seconds (integers).
+        Example range: 2026-01-01 00:00:00 UTC -> `1767225600`, 2026-01-31 23:59:59 UTC -> `1769903999`.
 
+        **HTTP request**: This is a GET endpoint that accepts JSON-encoded query parameters.
+        URL-encode JSON values when calling directly.
+        ```
+        GET /api/v1/invoices/?select_filters={"when":{"gte":1767225600,"lte":1769903999}}&limit=60
+        ```
+        For pagination, pass the response `next_token` as `after_token`:
+        ```
+        GET /api/v1/invoices/?select_filters={"when":{"gte":1767225600,"lte":1769903999}}&after_token=eyJ2YWx1ZXMiOiB7ImlkIjog...
+        ```
 
-        CLI Usage: `vastai show invoices-v1`'
+        CLI Usage: `vastai show invoices-v1`
       requestBody:
         required: true
         content:

@@ -1,6 +1,6 @@
 openapi: 3.0.0
 info:
-  title: Instance Management API
+  title: Manage Instance API
   description: |
     API endpoint for managing instance state and labels. 
     Supports starting/stopping instances and setting labels.

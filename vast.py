@@ -1643,11 +1643,19 @@ def copy(args: argparse.Namespace):
             #print(f"homedir: {homedir}")
             remote_port = None
             identity = f"-i {args.identity}" if (args.identity is not None) else ""
+            # Add IdentitiesOnly=yes when using a specific identity to prevent SSH from trying other keys
+            # This avoids "Too many authentication failures" errors
+            # Add LogLevel=ERROR and RequestTTY=no to ensure clean shell for rsync protocol
+            ssh_opts = "-o StrictHostKeyChecking=no -o LogLevel=ERROR -o RequestTTY=no"
+            if args.identity is not None:
+                ssh_opts += " -o IdentitiesOnly=yes"
             if (src_id is None or src_id == "local"):
                 #result = subprocess.run(f"mkdir -p {src_path}", shell=True)
                 remote_port = rj["dst_port"]
                 remote_addr = rj["dst_addr"]
-                cmd = f"rsync -arz -v --progress --rsh=ssh -e 'ssh {identity} -p {remote_port} -o StrictHostKeyChecking=no' {src_path} vastai_kaalia@{remote_addr}::{dst_id}/{dst_path}"
+                # Use single colon (:) for SSH-based rsync, not double colon (::) which is for rsync daemon
+                # Use --rsync-path with clean shell to prevent protocol version mismatch errors
+                cmd = f"rsync -arz -v --progress --rsync-path='bash -c \"exec rsync\"' --rsh=ssh -e 'ssh {identity} -p {remote_port} {ssh_opts}' {src_path} vastai_kaalia@{remote_addr}:{dst_path}"
                 print(cmd)
                 result = subprocess.run(cmd, shell=True)
                 #result = subprocess.run(["sudo", "rsync" "-arz", "-v", "--progress", "-rsh=ssh", "-e 'sudo ssh -i {homedir}/.ssh/id_rsa -p {remote_port} -o StrictHostKeyChecking=no'", src_path, "vastai_kaalia@{remote_addr}::{dst_id}"], shell=True)
@@ -1655,7 +1663,9 @@ def copy(args: argparse.Namespace):
                 result = subprocess.run(f"mkdir -p {dst_path}", shell=True)
                 remote_port = rj["src_port"]
                 remote_addr = rj["src_addr"]
-                cmd = f"rsync -arz -v --progress --rsh=ssh -e 'ssh {identity} -p {remote_port} -o StrictHostKeyChecking=no' vastai_kaalia@{remote_addr}::{src_id}/{src_path} {dst_path}"
+                # Use single colon (:) for SSH-based rsync, not double colon (::) which is for rsync daemon
+                # Use --rsync-path with clean shell to prevent protocol version mismatch errors
+                cmd = f"rsync -arz -v --progress --rsync-path='bash -c \"exec rsync\"' --rsh=ssh -e 'ssh {identity} -p {remote_port} {ssh_opts}' vastai_kaalia@{remote_addr}:{src_path} {dst_path}"
                 print(cmd)
                 result = subprocess.run(cmd, shell=True)
                 #result = subprocess.run(["sudo", "rsync" "-arz", "-v", "--progress", "-rsh=ssh", "-e 'ssh -i {homedir}/.ssh/id_rsa -p {remote_port} -o StrictHostKeyChecking=no'", "vastai_kaalia@{remote_addr}::{src_id}", dst_path], shell=True)
@@ -8333,6 +8343,86 @@ def run_copy_test(instance_id, api_key, args):
         # --- Wait for propagation ---
         progress_print(args, "Waiting 80s for SSH key propagation…")
         time.sleep(80)
+
+        # --- Create directory and file on remote instance ---
+        progress_print(args, "Getting instance connection details...")
+        try:
+            # Get instance details to find SSH connection info
+            show_args = argparse.Namespace(
+                id=int(instance_id),
+                quiet=False,
+                raw=True,
+                explain=getattr(args, "explain", False),
+                api_key=api_key,
+                url=args.url,
+                retry=args.retry,
+                debugging=args.debugging,
+            )
+            instance_data = show__instance(show_args)
+            if not instance_data:
+                return False, "Failed to get instance details"
+            
+            # Extract SSH connection details
+            ports = instance_data.get("ports", {})
+            port_22d = ports.get("22/tcp", None)
+            ssh_port = None
+            ssh_host = None
+            
+            if port_22d is not None:
+                ssh_host = instance_data.get("public_ipaddr")
+                ssh_port = int(port_22d[0]["HostPort"])
+            else:
+                ssh_host = instance_data.get("ssh_host")
+                ssh_port_str = instance_data.get("ssh_port")
+                if ssh_port_str:
+                    ssh_port = int(ssh_port_str)
+                    if "jupyter" in instance_data.get("image_runtype", ""):
+                        ssh_port += 1
+            
+            if not ssh_host or not ssh_port:
+                return False, "Failed to get SSH connection details from instance"
+            
+            progress_print(args, f"Connecting to instance at {ssh_host}:{ssh_port}...")
+            
+            # Create directory on remote instance
+            remote_dir = "/tmp/temp_copy_test"
+            ssh_cmd_create_dir = [
+                "ssh",
+                "-i", temp_private_key_path,
+                "-p", str(ssh_port),
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "IdentitiesOnly=yes",
+                "-o", "LogLevel=ERROR",
+                f"root@{ssh_host}",
+                f"mkdir -p {remote_dir}"
+            ]
+            result = subprocess.run(ssh_cmd_create_dir, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                return False, f"Failed to create remote directory: {result.stderr}"
+            progress_print(args, f"Created remote directory: {remote_dir}")
+            
+            # Create 100 MB file on remote instance using dd
+            remote_file = f"{remote_dir}/copy_file.txt"
+            file_size_mb = 100
+            # Use dd to create a 100MB file efficiently
+            ssh_cmd_create_file = [
+                "ssh",
+                "-i", temp_private_key_path,
+                "-p", str(ssh_port),
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "IdentitiesOnly=yes",
+                "-o", "LogLevel=ERROR",
+                f"root@{ssh_host}",
+                f"dd if=/dev/zero of={remote_file} bs=1M count={file_size_mb} status=progress 2>&1"
+            ]
+            progress_print(args, f"Creating {file_size_mb}MB file on remote instance: {remote_file}")
+            result = subprocess.run(ssh_cmd_create_file, capture_output=True, text=True, timeout=300)
+            if result.returncode != 0:
+                return False, f"Failed to create remote file: {result.stderr}"
+            progress_print(args, f"Created {file_size_mb}MB file on remote instance: {remote_file}")
+            
+        except Exception as e:
+            return False, f"Failed to create remote directory/file: {e}"
 
         # --- Local preparation ---
         progress_print(args, f"Creating local test directory: {local_test_dir}")

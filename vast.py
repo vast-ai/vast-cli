@@ -1646,7 +1646,7 @@ def copy(args: argparse.Namespace):
             # Add IdentitiesOnly=yes when using a specific identity to prevent SSH from trying other keys
             # This avoids "Too many authentication failures" errors
             # Add LogLevel=ERROR and RequestTTY=no to ensure clean shell for rsync protocol
-            ssh_opts = "-o StrictHostKeyChecking=no -o LogLevel=ERROR -o RequestTTY=no"
+            ssh_opts = "-o StrictHostKeyChecking=no -o LogLevel=ERROR -o RequestTTY=no -o BatchMode=yes"
             if args.identity is not None:
                 ssh_opts += " -o IdentitiesOnly=yes"
             if (src_id is None or src_id == "local"):
@@ -8392,6 +8392,7 @@ def run_copy_test(instance_id, api_key, args):
                 "-p", str(ssh_port),
                 "-o", "StrictHostKeyChecking=no",
                 "-o", "IdentitiesOnly=yes",
+                "-o", "BatchMode=yes",
                 "-o", "LogLevel=ERROR",
                 f"root@{ssh_host}",
                 f"mkdir -p {remote_dir}"
@@ -8411,6 +8412,7 @@ def run_copy_test(instance_id, api_key, args):
                 "-p", str(ssh_port),
                 "-o", "StrictHostKeyChecking=no",
                 "-o", "IdentitiesOnly=yes",
+                "-o", "BatchMode=yes",
                 "-o", "LogLevel=ERROR",
                 f"root@{ssh_host}",
                 f"dd if=/dev/zero of={remote_file} bs=1M count={file_size_mb} status=progress 2>&1"
@@ -8651,6 +8653,193 @@ def run_copy_test(instance_id, api_key, args):
             progress_print(args, f"Warning: Failed to cleanup temporary SSH keys: {e}")
     
 
+def run_speed_test(instance_id, api_key, args):
+    """
+    Tests download speed by downloading a 1GB file and monitoring speed every 10 seconds.
+    Samples speed every 10 seconds and fails if average drops below 500 Mbps.
+    
+    Returns:
+        (passed: bool, reason: str)
+    """
+    import os
+    import time
+    import threading
+    import tempfile
+    import argparse as _argparse
+    
+    # Fetch reported inet_down from instance data via show instance
+    reported_inet_down = None
+    try:
+        show_args = _argparse.Namespace(
+            id=int(instance_id),
+            raw=True,
+            quiet=False,
+            explain=getattr(args, 'explain', False),
+            api_key=api_key,
+            url=args.url,
+            retry=args.retry,
+        )
+        instance_data = show__instance(show_args)
+        if instance_data:
+            reported_inet_down = safe_float(instance_data.get('inet_down', 0))
+            if reported_inet_down:
+                progress_print(args, f"Reported instance inet_down: {reported_inet_down:.2f} Mbps")
+            else:
+                progress_print(args, f"Warning: inet_down not available in instance data")
+        else:
+            progress_print(args, f"Warning: Could not get instance data for instance {instance_id}")
+    except Exception as e:
+        progress_print(args, f"Warning: Could not fetch reported inet_down for instance {instance_id}: {e}")
+    
+    progress_print(args, "Starting speed test...")
+    progress_print(args, "Downloading 1GB test file and monitoring speed every 10 seconds...")
+    progress_print(args, "Speed threshold: 500 Mbps average")
+    
+    speed_samples = []
+    test_failed = threading.Event()
+    failure_reason = [None]  # Use list to allow modification from nested function
+    download_file = None
+    
+    def monitor_download_progress():
+        """Monitor download progress by checking file size every 10 seconds"""
+        nonlocal speed_samples, download_file, test_failed, failure_reason
+        sample_count = 0
+        last_size = 0
+        last_time = time.time()
+        
+        while not test_failed.is_set():
+            time.sleep(10)
+            
+            if download_file and os.path.exists(download_file):
+                current_size = os.path.getsize(download_file)
+                current_time = time.time()
+                
+                if current_time > last_time:
+                    # Calculate speed for this 10-second interval
+                    bytes_downloaded = current_size - last_size
+                    time_elapsed = current_time - last_time
+                    
+                    if time_elapsed > 0 and bytes_downloaded > 0:
+                        speed_bps = bytes_downloaded / time_elapsed
+                        speed_mbps = (speed_bps * 8) / 1000000  # Convert to Mbps
+                        speed_samples.append(speed_mbps)
+                        sample_count += 1
+                        
+                        inet_down_str = f" (reported inet_down: {reported_inet_down:.2f} Mbps)" if reported_inet_down else ""
+                        progress_print(args, f"Speed sample #{sample_count} (10s interval): {speed_mbps:.2f} Mbps{inet_down_str}")
+                        
+                        # Calculate average so far
+                        if speed_samples and isinstance(speed_samples, list) and len(speed_samples) > 0:
+                            samples_total = 0.0
+                            for _s in speed_samples:
+                                samples_total += _s
+                            avg_speed = samples_total / len(speed_samples)
+                            progress_print(args, f"Average speed so far: {avg_speed:.2f} Mbps{inet_down_str}")
+                            
+                            # Check if average drops below 500 Mbps
+                            if avg_speed < 500:
+                                failure_reason[0] = f"Average download speed ({avg_speed:.2f} Mbps) dropped below 500 Mbps threshold"
+                                test_failed.set()
+                                progress_print(args, f"[SPEED TEST] FAILED: {failure_reason[0]}")
+                                return
+                
+                last_size = current_size
+                last_time = current_time
+            else:
+                # File doesn't exist yet, wait a bit more
+                time.sleep(1)
+    
+    try:
+        # Create temporary file for download
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.bin') as tmp_file:
+            download_file = tmp_file.name
+        
+        # Start monitoring thread
+        monitor_thread = threading.Thread(target=monitor_download_progress, daemon=True)
+        monitor_thread.start()
+        
+        # Run curl command to download 1GB file
+        cmd = [
+            "curl", "-sL", "https://ash-speed.hetzner.com/1GB.bin", "-o", download_file
+        ]
+        
+        progress_print(args, "Starting download...")
+        start_time = time.time()
+        
+        # Run curl
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        
+        total_time = time.time() - start_time
+        
+        # Stop monitoring
+        test_failed.set()
+        monitor_thread.join(timeout=2)
+        
+        if result.returncode != 0:
+            return False, f"Speed test download failed: {result.stderr}"
+        
+        # Verify file was downloaded
+        if not os.path.exists(download_file):
+            return False, "Downloaded file not found"
+        
+        file_size = os.path.getsize(download_file)
+        expected_size = 1024 * 1024 * 1024  # 1GB
+        
+        if file_size < expected_size * 0.9:  # Allow 10% tolerance
+            return False, f"Downloaded file size ({file_size} bytes) is less than expected (1GB)"
+        
+        # Calculate final average speed
+        if speed_samples:
+            samples_total = 0.0
+            for _s in speed_samples:
+                samples_total += _s
+            avg_speed = samples_total / len(speed_samples)
+            final_speed_mbps = (file_size * 8) / (total_time * 1000000)  # Overall average
+            
+            progress_print(args, f"Download completed in {total_time:.2f} seconds")
+            progress_print(args, f"Overall average speed: {final_speed_mbps:.2f} Mbps")
+            progress_print(args, f"Sampled average speed: {avg_speed:.2f} Mbps")
+            if reported_inet_down:
+                progress_print(args, f"Reported inet_down:    {reported_inet_down:.2f} Mbps")
+                progress_print(args, f"Measured vs Reported:  {avg_speed:.2f} / {reported_inet_down:.2f} Mbps ({(avg_speed / reported_inet_down * 100):.1f}%)")
+            
+            # Check if average is below threshold
+            if avg_speed < 500:
+                return False, f"Average download speed ({avg_speed:.2f} Mbps) is below 500 Mbps threshold"
+            
+            if failure_reason[0]:
+                return False, failure_reason[0]
+            
+            progress_print(args, "✓ Speed test: PASSED")
+            return True, ""
+        else:
+            # Fallback: use overall speed if no samples
+            final_speed_mbps = (file_size * 8) / (total_time * 1000000)
+            progress_print(args, f"Download completed in {total_time:.2f} seconds")
+            progress_print(args, f"Overall speed: {final_speed_mbps:.2f} Mbps")
+            if reported_inet_down:
+                progress_print(args, f"Reported inet_down: {reported_inet_down:.2f} Mbps")
+                progress_print(args, f"Measured vs Reported: {final_speed_mbps:.2f} / {reported_inet_down:.2f} Mbps ({(final_speed_mbps / reported_inet_down * 100):.1f}%)")
+            
+            if final_speed_mbps < 500:
+                return False, f"Download speed ({final_speed_mbps:.2f} Mbps) is below 500 Mbps threshold"
+            
+            progress_print(args, "✓ Speed test: PASSED")
+            return True, ""
+            
+    except subprocess.TimeoutExpired:
+        return False, "Speed test download timed out after 300 seconds"
+    except Exception as e:
+        return False, f"Speed test failed with exception: {e}"
+    finally:
+        # Cleanup downloaded file
+        try:
+            if download_file and os.path.exists(download_file):
+                os.remove(download_file)
+        except Exception as e:
+            progress_print(args, f"Warning: Failed to cleanup download file: {e}")
+
+
 def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, api_key=None):
     """
     Executes machine testing by connecting to the specified IP and port, monitoring
@@ -8802,6 +8991,12 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
                             f.write(f"{machine_id}\n")
                         progress_print(args, f"[MACHINE TESTER] Test passed.")
                         
+                        # Track test failures for summary logging
+                        copy_test_failed = False
+                        copy_test_failure_reason = None
+                        speed_test_failed = False
+                        speed_test_failure_reason = None
+                        
                         # Run copy test before destroying the instance
                         progress_print(args, "[MACHINE TESTER] Running copy test before instance destruction...")
                         try:
@@ -8809,9 +9004,62 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
                             if copy_success:
                                 progress_print(args, "[MACHINE TESTER] Copy test completed successfully.")
                             else:
+                                copy_test_failed = True
+                                copy_test_failure_reason = copy_reason
                                 progress_print(args, f"[MACHINE TESTER] Copy test failed: {copy_reason}")
+                                # Copy test failure causes overall test failure (unless ignore-requirements is set)
+                                if not getattr(args, 'ignore_requirements', False):
+                                    destroy_instance_silent(instance_id, destroy_args)
+                                    instance_destroyed = True
+                                    return False, f"Copy test failed: {copy_reason}"
                         except Exception as e:
+                            copy_test_failed = True
+                            copy_test_failure_reason = str(e)
                             progress_print(args, f"[MACHINE TESTER] Copy test failed with exception: {e}")
+                            # Copy test exception causes overall test failure (unless ignore-requirements is set)
+                            if not getattr(args, 'ignore_requirements', False):
+                                destroy_instance_silent(instance_id, destroy_args)
+                                instance_destroyed = True
+                                return False, f"Copy test failed with exception: {e}"
+                        
+                        # Run speed test after copy test
+                        progress_print(args, "[MACHINE TESTER] Running speed test...")
+                        try:
+                            speed_success, speed_reason = run_speed_test(str(instance_id), api_key, args)
+                            if speed_success:
+                                progress_print(args, "[MACHINE TESTER] Speed test completed successfully.")
+                            else:
+                                speed_test_failed = True
+                                speed_test_failure_reason = speed_reason
+                                progress_print(args, f"[MACHINE TESTER] Speed test failed: {speed_reason}")
+                                # Speed test failure causes overall test failure (unless ignore-requirements is set)
+                                if not getattr(args, 'ignore_requirements', False):
+                                    destroy_instance_silent(instance_id, destroy_args)
+                                    instance_destroyed = True
+                                    return False, f"Speed test failed: {speed_reason}"
+                        except Exception as e:
+                            speed_test_failed = True
+                            speed_test_failure_reason = str(e)
+                            progress_print(args, f"[MACHINE TESTER] Speed test failed with exception: {e}")
+                            # Speed test exception causes overall test failure (unless ignore-requirements is set)
+                            if not getattr(args, 'ignore_requirements', False):
+                                destroy_instance_silent(instance_id, destroy_args)
+                                instance_destroyed = True
+                                return False, f"Speed test failed with exception: {e}"
+                        
+                        # Log summary of test failures if ignore-requirements is set
+                        if getattr(args, 'ignore_requirements', False):
+                            if copy_test_failed or speed_test_failed:
+                                progress_print(args, "=== TEST SUMMARY (--ignore-requirements mode) ===")
+                                if copy_test_failed:
+                                    progress_print(args, f"✗ Copy test: FAILED - {copy_test_failure_reason}")
+                                else:
+                                    progress_print(args, "✓ Copy test: PASSED")
+                                if speed_test_failed:
+                                    progress_print(args, f"✗ Speed test: FAILED - {speed_test_failure_reason}")
+                                else:
+                                    progress_print(args, "✓ Speed test: PASSED")
+                                progress_print(args, "Note: Tests failed but continuing due to --ignore-requirements flag")
                         
                         # Now destroy the instance
                         destroy_instance_silent(instance_id, destroy_args)
@@ -8852,6 +9100,8 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
         progress_print(args, f"[MACHINE TESTER] Time limit reached (600s). Destroying instance {instance_id}.")
         if args.debugging:
             debug_print(args, f"Time limit reached. Destroying instance {instance_id}.")
+        destroy_instance_silent(instance_id, destroy_args)
+        instance_destroyed = True
         return False, "Test did not complete within the time limit"
     finally:
         # Ensure instance cleanup

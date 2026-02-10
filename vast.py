@@ -8502,7 +8502,7 @@ def check_requirements(machine_id, api_key, args):
         # 8. System RAM vs. Total GPU RAM
         gpu_total_ram = safe_float(top_offer.get('gpu_total_ram'))  # in MB
         cpu_ram = safe_float(top_offer.get('cpu_ram'))  # in MB
-        if cpu_ram < gpu_total_ram:
+        if cpu_ram < .95*gpu_total_ram: # .95 to allow for reserved hardware memory
             unmet_reasons.append("System RAM is less than total VRAM.")
 
         # Debugging Information for RAM

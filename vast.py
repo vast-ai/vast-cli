@@ -4994,11 +4994,14 @@ def show__endpoints(args):
     if (r.status_code == 200):
         rj = r.json();
         if (rj["success"]):
-            rows = rj["results"] 
+            rows = rj["results"]
+            for row in rows:
+                row.pop("api_key", None)
+                row.pop("auto_delete_in_seconds", None)
+                row.pop("auto_delete_due_24h", None)
             if args.raw:
                 return rows
             else:
-                #print(rows)
                 print(json.dumps(rows, indent=1, sort_keys=True))
         else:
             print(rj["msg"]);

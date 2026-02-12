@@ -1565,6 +1565,7 @@ def clone__volume(args: argparse.Namespace):
     argument("src", help="Source location for copy operation (supports multiple formats)", type=str),
     argument("dst", help="Target location for copy operation (supports multiple formats)", type=str),
     argument("-i", "--identity", help="Location of ssh private key", type=str),
+    argument("-L", "--follow-symlinks", help="Follow symlinks during rsync (transform symlink into referent file/dir)", action="store_true", default=False),
     usage="vastai copy SRC DST",
     help="Copy directories between instances and/or local",
     epilog=deindent("""
@@ -1640,11 +1641,12 @@ def copy(args: argparse.Namespace):
             #print(f"homedir: {homedir}")
             remote_port = None
             identity = f"-i {args.identity}" if (args.identity is not None) else ""
+            follow_links = "-L" if args.follow_symlinks else ""
             if (src_id is None or src_id == "local"):
                 #result = subprocess.run(f"mkdir -p {src_path}", shell=True)
                 remote_port = rj["dst_port"]
                 remote_addr = rj["dst_addr"]
-                cmd = f"rsync -arz -v --progress --rsh=ssh -e 'ssh {identity} -p {remote_port} -o StrictHostKeyChecking=no' {src_path} vastai_kaalia@{remote_addr}::{dst_id}/{dst_path}"
+                cmd = f"rsync -arz {follow_links} -v --progress --rsh=ssh -e 'ssh {identity} -p {remote_port} -o StrictHostKeyChecking=no' {src_path} vastai_kaalia@{remote_addr}::{dst_id}/{dst_path}"
                 print(cmd)
                 result = subprocess.run(cmd, shell=True)
                 #result = subprocess.run(["sudo", "rsync" "-arz", "-v", "--progress", "-rsh=ssh", "-e 'sudo ssh -i {homedir}/.ssh/id_rsa -p {remote_port} -o StrictHostKeyChecking=no'", src_path, "vastai_kaalia@{remote_addr}::{dst_id}"], shell=True)
@@ -1652,7 +1654,7 @@ def copy(args: argparse.Namespace):
                 result = subprocess.run(f"mkdir -p {dst_path}", shell=True)
                 remote_port = rj["src_port"]
                 remote_addr = rj["src_addr"]
-                cmd = f"rsync -arz -v --progress --rsh=ssh -e 'ssh {identity} -p {remote_port} -o StrictHostKeyChecking=no' vastai_kaalia@{remote_addr}::{src_id}/{src_path} {dst_path}"
+                cmd = f"rsync -arz {follow_links} -v --progress --rsh=ssh -e 'ssh {identity} -p {remote_port} -o StrictHostKeyChecking=no' vastai_kaalia@{remote_addr}::{src_id}/{src_path} {dst_path}"
                 print(cmd)
                 result = subprocess.run(cmd, shell=True)
                 #result = subprocess.run(["sudo", "rsync" "-arz", "-v", "--progress", "-rsh=ssh", "-e 'ssh -i {homedir}/.ssh/id_rsa -p {remote_port} -o StrictHostKeyChecking=no'", "vastai_kaalia@{remote_addr}::{src_id}", dst_path], shell=True)

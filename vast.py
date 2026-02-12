@@ -5007,11 +5007,14 @@ def show__endpoints(args):
     if (r.status_code == 200):
         rj = r.json();
         if (rj["success"]):
-            rows = rj["results"] 
+            rows = rj["results"]
+            for row in rows:
+                row.pop("api_key", None)
+                row.pop("auto_delete_in_seconds", None)
+                row.pop("auto_delete_due_24h", None)
             if args.raw:
                 return rows
             else:
-                #print(rows)
                 print(json.dumps(rows, indent=1, sort_keys=True))
         else:
             print(rj["msg"]);
@@ -9223,7 +9226,7 @@ def check_requirements(machine_id, api_key, args):
         # 8. System RAM vs. Total GPU RAM
         gpu_total_ram = safe_float(top_offer.get('gpu_total_ram'))  # in MB
         cpu_ram = safe_float(top_offer.get('cpu_ram'))  # in MB
-        if cpu_ram < gpu_total_ram:
+        if cpu_ram < .95*gpu_total_ram: # .95 to allow for reserved hardware memory
             unmet_reasons.append("System RAM is less than total VRAM.")
 
         # Debugging Information for RAM

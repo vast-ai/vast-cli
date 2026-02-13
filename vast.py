@@ -2383,77 +2383,7 @@ def validate_portal_config(json_blob):
     else:
         json_blob['env']['PORTAL_CONFIG'] = "|".join(filtered_config)
 
-@parser.command(
-    argument("id", help="id of instance type to launch (returned from search offers)", type=int),
-    argument("--template_hash", help="Create instance from template info", type=str),
-    argument("--user", help="User to use with docker create. This breaks some images, so only use this if you are certain you need it.", type=str),
-    argument("--disk", help="size of local disk partition in GB", type=float, default=10),
-    argument("--image", help="docker container image to launch", type=str),
-    argument("--login", help="docker login arguments for private repo authentication, surround with '' ", type=str),
-    argument("--label", help="label to set on the instance", type=str),
-    argument("--onstart", help="filename to use as onstart script", type=str),
-    argument("--onstart-cmd", help="contents of onstart script as single argument", type=str),
-    argument("--entrypoint", help="override entrypoint for args launch instance", type=str),
-    argument("--ssh",     help="Launch as an ssh instance type", action="store_true"),
-    argument("--jupyter", help="Launch as a jupyter instance instead of an ssh instance", action="store_true"),
-    argument("--direct",  help="Use (faster) direct connections for jupyter & ssh", action="store_true"),
-    argument("--jupyter-dir", help="For runtype 'jupyter', directory in instance to use to launch jupyter. Defaults to image's working directory", type=str),
-    argument("--jupyter-lab", help="For runtype 'jupyter', Launch instance with jupyter lab", action="store_true"),
-    argument("--lang-utf8", help="Workaround for images with locale problems: install and generate locales before instance launch, and set locale to C.UTF-8", action="store_true"),
-    argument("--python-utf8", help="Workaround for images with locale problems: set python's locale to C.UTF-8", action="store_true"),
-    argument("--extra", help=argparse.SUPPRESS),
-    argument("--env",   help="env variables and port mapping options, surround with '' ", type=str),
-    argument("--args",  nargs=argparse.REMAINDER, help="list of arguments passed to container ENTRYPOINT. Onstart is recommended for this purpose. (must be last argument)"),
-    #argument("--create-from", help="Existing instance id to use as basis for new instance. Instance configuration should usually be identical, as only the difference from the base image is copied.", type=str),
-    argument("--force", help="Skip sanity checks when creating from an existing instance", action="store_true"),
-    argument("--cancel-unavail", help="Return error if scheduling fails (rather than creating a stopped instance)", action="store_true"),
-    argument("--bid_price", help="(OPTIONAL) create an INTERRUPTIBLE instance with per machine bid price in $/hour", type=float),
-    argument("--create-volume", metavar="VOLUME_ASK_ID", help="Create a new local volume using an ID returned from the \"search volumes\" command and link it to the new instance", type=int),
-    argument("--link-volume", metavar="EXISTING_VOLUME_ID", help="ID of an existing rented volume to link to the instance during creation. (returned from \"show volumes\" cmd)", type=int),
-    argument("--volume-size", help="Size of the volume to create in GB. Only usable with --create-volume (default 15GB)", type=int),
-    argument("--mount-path", help="The path to the volume from within the new instance container. e.g. /root/volume", type=str),
-    argument("--volume-label", help="(optional) A name to give the new volume. Only usable with --create-volume", type=str),
-    
-    usage="vastai create instance ID [OPTIONS] [--args ...]",
-    help="Create a new instance",
-    epilog=deindent("""
-        Performs the same action as pressing the "RENT" button on the website at https://console.vast.ai/create/ 
-        Creates an instance from an offer ID (which is returned from "search offers"). Each offer ID can only be used to create one instance.
-        Besides the offer ID, you must pass in an '--image' argument as a minimum.
-
-        If you use args/entrypoint launch mode, we create a container from your image as is, without attempting to inject ssh and or jupyter.
-        If you use the args launch mode, you can override the entrypoint with --entrypoint, and pass arguments to the entrypoint with --args.
-        If you use --args, that must be the last argument, as any following tokens are consumed into the args string.
-        For ssh/jupyter launch types, use --onstart-cmd to pass in startup script, instead of --entrypoint and --args.
-        
-        Examples:
-
-        # create an on-demand instance with the PyTorch (cuDNN Devel) template and 64GB of disk
-        vastai create instance 384826 --template_hash 661d064bbda1f2a133816b6d55da07c3 --disk 64
-
-        # create an on-demand instance with the pytorch/pytorch image, 40GB of disk, open 8081 udp, direct ssh, set hostname to billybob, and a small onstart script
-        vastai create instance 6995713 --image pytorch/pytorch --disk 40 --env '-p 8081:8081/udp -h billybob' --ssh --direct --onstart-cmd "env | grep _ >> /etc/environment; echo 'starting up'";                
-
-        # create an on-demand instance with the bobsrepo/pytorch:latest image, 20GB of disk, open 22, 8080, jupyter ssh, and set some env variables
-        vastai create instance 384827  --image bobsrepo/pytorch:latest --login '-u bob -p 9d8df!fd89ufZ docker.io' --jupyter --direct --env '-e TZ=PDT -e XNAME=XX4 -p 22:22 -p 8080:8080' --disk 20
-
-        # create an on-demand instance with the pytorch/pytorch image, 40GB of disk, override the entrypoint to bash and pass bash a simple command to keep the instance running. (args launch without ssh/jupyter)
-        vastai create instance 5801802 --image pytorch/pytorch --disk 40 --onstart-cmd 'bash' --args -c 'echo hello; sleep infinity;'
-
-        # create an interruptible (spot) instance with the PyTorch (cuDNN Devel) template, 64GB of disk, and a bid price of $0.10/hr
-        vastai create instance 384826 --template_hash 661d064bbda1f2a133816b6d55da07c3 --disk 64 --bid_price 0.1
-
-        Return value:
-        Returns a json reporting the instance ID of the newly created instance:
-        {'success': True, 'new_contract': 7835610} 
-    """),
-)
-def create__instance(args: argparse.Namespace):
-    """Performs the same action as pressing the "RENT" button on the website at https://console.vast.ai/create/.
-
-    :param argparse.Namespace args: Namespace with many fields relevant to the endpoint.
-    """
-
+def create_instance(id, args):
     if args.onstart:
         with open(args.onstart, "r") as reader:
             args.onstart_cmd = reader.read()
@@ -2498,8 +2428,11 @@ def create__instance(args: argparse.Namespace):
     if "PORTAL_CONFIG" in json_blob["env"]:
         validate_portal_config(json_blob)
 
-    #print(f"put asks/{args.id}/  runtype:{runtype}")
-    url = apiurl(args, "/asks/{id}/".format(id=args.id))
+    if isinstance(id, list):
+        url = apiurl(args, "/asks/bulk/")
+        json_blob["ids"] = id
+    else:
+        url = apiurl(args, "/asks/{id}/".format(id=id))
 
     if (args.explain):
         print("request json: ")
@@ -2510,6 +2443,118 @@ def create__instance(args: argparse.Namespace):
         return r
     else:
         print("Started. {}".format(r.json()))
+    return True
+
+@parser.command(
+    argument("id", help="id of instance type to launch (returned from search offers)", type=int),
+    argument("--template_hash", help="Create instance from template info", type=str),
+    argument("--user", help="User to use with docker create. This breaks some images, so only use this if you are certain you need it.", type=str),
+    argument("--disk", help="size of local disk partition in GB", type=float, default=10),
+    argument("--image", help="docker container image to launch", type=str),
+    argument("--login", help="docker login arguments for private repo authentication, surround with '' ", type=str),
+    argument("--label", help="label to set on the instance", type=str),
+    argument("--onstart", help="filename to use as onstart script", type=str),
+    argument("--onstart-cmd", help="contents of onstart script as single argument", type=str),
+    argument("--entrypoint", help="override entrypoint for args launch instance", type=str),
+    argument("--ssh",     help="Launch as an ssh instance type", action="store_true"),
+    argument("--jupyter", help="Launch as a jupyter instance instead of an ssh instance", action="store_true"),
+    argument("--direct",  help="Use (faster) direct connections for jupyter & ssh", action="store_true"),
+    argument("--jupyter-dir", help="For runtype 'jupyter', directory in instance to use to launch jupyter. Defaults to image's working directory", type=str),
+    argument("--jupyter-lab", help="For runtype 'jupyter', Launch instance with jupyter lab", action="store_true"),
+    argument("--lang-utf8", help="Workaround for images with locale problems: install and generate locales before instance launch, and set locale to C.UTF-8", action="store_true"),
+    argument("--python-utf8", help="Workaround for images with locale problems: set python's locale to C.UTF-8", action="store_true"),
+    argument("--extra", help=argparse.SUPPRESS),
+    argument("--env",   help="env variables and port mapping options, surround with '' ", type=str),
+    argument("--args",  nargs=argparse.REMAINDER, help="list of arguments passed to container ENTRYPOINT. Onstart is recommended for this purpose. (must be last argument)"),
+    #argument("--create-from", help="Existing instance id to use as basis for new instance. Instance configuration should usually be identical, as only the difference from the base image is copied.", type=str),
+    argument("--force", help="Skip sanity checks when creating from an existing instance", action="store_true"),
+    argument("--cancel-unavail", help="Return error if scheduling fails (rather than creating a stopped instance)", action="store_true"),
+    argument("--bid_price", help="(OPTIONAL) create an INTERRUPTIBLE instance with per machine bid price in $/hour", type=float),
+    argument("--create-volume", metavar="VOLUME_ASK_ID", help="Create a new local volume using an ID returned from the \"search volumes\" command and link it to the new instance", type=int),
+    argument("--link-volume", metavar="EXISTING_VOLUME_ID", help="ID of an existing rented volume to link to the instance during creation. (returned from \"show volumes\" cmd)", type=int),
+    argument("--volume-size", help="Size of the volume to create in GB. Only usable with --create-volume (default 15GB)", type=int),
+    argument("--mount-path", help="The path to the volume from within the new instance container. e.g. /root/volume", type=str),
+    argument("--volume-label", help="(optional) A name to give the new volume. Only usable with --create-volume", type=str),
+
+    usage="vastai create instance ID [OPTIONS] [--args ...]",
+    help="Create a new instance",
+    epilog=deindent("""
+        Performs the same action as pressing the "RENT" button on the website at https://console.vast.ai/create/
+        Creates an instance from an offer ID (which is returned from "search offers"). Each offer ID can only be used to create one instance.
+        Besides the offer ID, you must pass in an '--image' argument as a minimum.
+
+        If you use args/entrypoint launch mode, we create a container from your image as is, without attempting to inject ssh and or jupyter.
+        If you use the args launch mode, you can override the entrypoint with --entrypoint, and pass arguments to the entrypoint with --args.
+        If you use --args, that must be the last argument, as any following tokens are consumed into the args string.
+        For ssh/jupyter launch types, use --onstart-cmd to pass in startup script, instead of --entrypoint and --args.
+
+        Examples:
+
+        # create an on-demand instance with the PyTorch (cuDNN Devel) template and 64GB of disk
+        vastai create instance 384826 --template_hash 661d064bbda1f2a133816b6d55da07c3 --disk 64
+
+        # create an on-demand instance with the pytorch/pytorch image, 40GB of disk, open 8081 udp, direct ssh, set hostname to billybob, and a small onstart script
+        vastai create instance 6995713 --image pytorch/pytorch --disk 40 --env '-p 8081:8081/udp -h billybob' --ssh --direct --onstart-cmd "env | grep _ >> /etc/environment; echo 'starting up'";
+
+        # create an on-demand instance with the bobsrepo/pytorch:latest image, 20GB of disk, open 22, 8080, jupyter ssh, and set some env variables
+        vastai create instance 384827  --image bobsrepo/pytorch:latest --login '-u bob -p 9d8df!fd89ufZ docker.io' --jupyter --direct --env '-e TZ=PDT -e XNAME=XX4 -p 22:22 -p 8080:8080' --disk 20
+
+        # create an on-demand instance with the pytorch/pytorch image, 40GB of disk, override the entrypoint to bash and pass bash a simple command to keep the instance running. (args launch without ssh/jupyter)
+        vastai create instance 5801802 --image pytorch/pytorch --disk 40 --onstart-cmd 'bash' --args -c 'echo hello; sleep infinity;'
+
+        # create an interruptible (spot) instance with the PyTorch (cuDNN Devel) template, 64GB of disk, and a bid price of $0.10/hr
+        vastai create instance 384826 --template_hash 661d064bbda1f2a133816b6d55da07c3 --disk 64 --bid_price 0.1
+
+        Return value:
+        Returns a json reporting the instance ID of the newly created instance:
+        {'success': True, 'new_contract': 7835610}
+    """),
+)
+def create__instance(args: argparse.Namespace):
+    """Performs the same action as pressing the "RENT" button on the website at https://console.vast.ai/create/.
+
+    :param argparse.Namespace args: Namespace with many fields relevant to the endpoint.
+    """
+    create_instance(args.id, args)
+
+@parser.command(
+    argument("ids", help="ids of instance types to launch (returned from search offers)", type=int, nargs='+'),
+    argument("--template_hash", help="Create instance from template info", type=str),
+    argument("--user", help="User to use with docker create. This breaks some images, so only use this if you are certain you need it.", type=str),
+    argument("--disk", help="size of local disk partition in GB", type=float, default=10),
+    argument("--image", help="docker container image to launch", type=str),
+    argument("--login", help="docker login arguments for private repo authentication, surround with '' ", type=str),
+    argument("--label", help="label to set on the instance", type=str),
+    argument("--onstart", help="filename to use as onstart script", type=str),
+    argument("--onstart-cmd", help="contents of onstart script as single argument", type=str),
+    argument("--entrypoint", help="override entrypoint for args launch instance", type=str),
+    argument("--ssh",     help="Launch as an ssh instance type", action="store_true"),
+    argument("--jupyter", help="Launch as a jupyter instance instead of an ssh instance", action="store_true"),
+    argument("--direct",  help="Use (faster) direct connections for jupyter & ssh", action="store_true"),
+    argument("--jupyter-dir", help="For runtype 'jupyter', directory in instance to use to launch jupyter. Defaults to image's working directory", type=str),
+    argument("--jupyter-lab", help="For runtype 'jupyter', Launch instance with jupyter lab", action="store_true"),
+    argument("--lang-utf8", help="Workaround for images with locale problems: install and generate locales before instance launch, and set locale to C.UTF-8", action="store_true"),
+    argument("--python-utf8", help="Workaround for images with locale problems: set python's locale to C.UTF-8", action="store_true"),
+    argument("--extra", help=argparse.SUPPRESS),
+    argument("--env",   help="env variables and port mapping options, surround with '' ", type=str),
+    argument("--args",  nargs=argparse.REMAINDER, help="list of arguments passed to container ENTRYPOINT. Onstart is recommended for this purpose. (must be last argument)"),
+    argument("--force", help="Skip sanity checks when creating from an existing instance", action="store_true"),
+    argument("--cancel-unavail", help="Return error if scheduling fails (rather than creating a stopped instance)", action="store_true"),
+    argument("--bid_price", help="(OPTIONAL) create an INTERRUPTIBLE instance with per machine bid price in $/hour", type=float),
+    argument("--create-volume", metavar="VOLUME_ASK_ID", help="Create a new local volume using an ID returned from the \"search volumes\" command and link it to the new instance", type=int),
+    argument("--link-volume", metavar="EXISTING_VOLUME_ID", help="ID of an existing rented volume to link to the instance during creation. (returned from \"show volumes\" cmd)", type=int),
+    argument("--volume-size", help="Size of the volume to create in GB. Only usable with --create-volume (default 15GB)", type=int),
+    argument("--mount-path", help="The path to the volume from within the new instance container. e.g. /root/volume", type=str),
+    argument("--volume-label", help="(optional) A name to give the new volume. Only usable with --create-volume", type=str),
+
+    usage="vastai create instances [OPTIONS] ID0 ID1 ID2... [--args ...]",
+    help="Create instances from a list of offers",
+)
+def create__instances(args):
+    """
+    """
+    idlist = split_list(args.ids, 64)
+    exec_with_threads(lambda ids : create_instance(ids, args), idlist, nt=8)
 
 @parser.command(
     argument("--email", help="email address to use for login", type=str),
@@ -3027,8 +3072,14 @@ def delete__volume(args: argparse.Namespace):
 
 
 def destroy_instance(id,args):
-    url = apiurl(args, "/instances/{id}/".format(id=id))
-    r = http_del(args, url, headers=headers,json={})
+    json_blob = {}
+    if isinstance(id,list):
+        url = apiurl(args, "/instances/")
+        json_blob["instance_ids"] = id
+    else:
+        url = apiurl(args, "/instances/{id}/".format(id=id))
+
+    r = http_del(args, url, headers=headers,json=json_blob)
     r.raise_for_status()
     if args.raw:
         return r
@@ -3067,8 +3118,8 @@ def destroy__instance(args):
 def destroy__instances(args):
     """
     """
-    for id in args.ids:
-        destroy_instance(id, args)
+    idlist = split_list(args.ids, 64)
+    exec_with_threads(lambda ids : destroy_instance(ids, args), idlist, nt=8)
 
 @parser.command(
     usage="vastai destroy team",

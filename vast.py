@@ -2405,7 +2405,6 @@ def create_instance(id, args):
         "lang_utf8": args.lang_utf8,
         "use_jupyter_lab": args.jupyter_lab,
         "jupyter_dir": args.jupyter_dir,
-        #"create_from": args.create_from,
         "force": args.force,
         "cancel_unavail": args.cancel_unavail,
         "template_hash_id" : args.template_hash,
@@ -2428,21 +2427,26 @@ def create_instance(id, args):
     if "PORTAL_CONFIG" in json_blob["env"]:
         validate_portal_config(json_blob)
 
+    r = None
     if isinstance(id, list):
         url = apiurl(args, "/asks/bulk/")
         json_blob["ids"] = id
+        r = http_post(args, url,  headers=headers,json=json_blob)
     else:
         url = apiurl(args, "/asks/{id}/".format(id=id))
+        r = http_put(args, url,  headers=headers,json=json_blob)
 
     if (args.explain):
         print("request json: ")
         print(json_blob)
-    r = http_put(args, url,  headers=headers,json=json_blob)
     r.raise_for_status()
     if args.raw:
         return r
     else:
-        print("Started. {}".format(r.json()))
+        try:
+            print("Started. {}".format(r.json()))
+        except requests.exceptions.JSONDecodeError:
+            print("Started. (status {})".format(r.status_code))
     return True
 
 @parser.command(

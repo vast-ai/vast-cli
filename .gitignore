@@ -3,4 +3,17 @@ passed_machines.txt
 failed_machines.txt
 Pass_testresults.log
 dist/
+build/
 __pycache__/
+*.egg-info/
+*.egg
+.eggs/
+*.pyc
+*.pyo
+
+# Test artifacts
+.coverage
+.pytest_cache/
+
+# MkDocs build output
+site/

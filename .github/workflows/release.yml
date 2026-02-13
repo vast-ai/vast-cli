@@ -1,0 +1,87 @@
+# Release workflow for vast-cli
+# Triggers on version tags (v1.2.3 pattern)
+# Creates GitHub Release with wheel, sdist, and standalone vast.py
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # REQUIRED for poetry-dynamic-versioning
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Poetry
+        run: pip install poetry
+
+      - name: Install poetry-dynamic-versioning plugin
+        run: poetry self add "poetry-dynamic-versioning[plugin]"
+
+      - name: Build wheel and sdist
+        run: poetry build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  github-release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            vast.py
+            dist/*.whl
+            dist/*.tar.gz
+          generate_release_notes: true
+
+  # DISABLED IN FORK - PyPI publishing
+  # To enable for upstream:
+  # 1. Configure trusted publisher at pypi.org/manage/account/publishing/
+  # 2. Create 'pypi' environment in GitHub repo settings
+  # 3. Change 'if: false' to 'if: github.repository == 'vast-ai/vast-cli''
+  publish-pypi:
+    if: false
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/vastai
+    permissions:
+      id-token: write
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

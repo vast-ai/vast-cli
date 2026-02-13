@@ -21,26 +21,93 @@ requires-python = ">3.9.1, <4.0"
 license = { text = "MIT" }
 dynamic = ["version"]
 dependencies = [
+  # --- CLI core ---
   "xdg",
   "argcomplete==3.5.1",
-  "requests (>=2.32.4)",
-  "borb (==2.1.25)",
-  "python-dateutil==2.6.1",
+  "requests>=2.32.3",
+  "borb==2.1.25",
+  "python-dateutil>=2.6.1",
   "pytz",
   "urllib3>=2.6.3",
-  "poetry-dynamic-versioning (>=1.8.1,<2.0.0)",
-  "gitpython (>=3.1.44,<4.0.0)",
-  "toml (>=0.10.2,<0.11.0)",
-  "curlify (>=2.2.1,<3.0.0)",
+  "curlify>=2.2.1,<3.0.0",
   "setuptools",
-  "cryptography (>=44.0.2,<45.0.0)",
+  "cryptography>=44.0.2,<45.0.0",
   "rich",
   "fonttools>=4.60.2",
-  "qrcode"
+  "qrcode",
+  # --- SDK core (needed for vastai.sdk) ---
+  "pyparsing>=3.1,<4.0",
+]
+
+[project.optional-dependencies]
+# Serverless client + server dependencies
+serverless = [
+  "aiohttp>=3.10,<4.0",
+  "aiodns>=3.2.0",
+  "pycares>=4.4.0",
+  "anyio>=4.4,<5.0",
+  "psutil>=6.0,<7.0",
+  "pycryptodome>=3.20,<4.0",
+]
+# Everything: SDK + serverless
+all = [
+  "vastai[serverless]",
+]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=4.0",
+  "mypy>=1.14",
+  "types-requests>=2.32",
+  "types-python-dateutil>=2.9",
+  "ruff>=0.9",
+  "pre-commit>=4.0",
+]
+docs = [
+  "mkdocs>=1.6",
+  "mkdocs-material>=9.5",
+  "mkdocstrings[python]>=0.27",
+  "mkdocs-gen-files>=0.5",
+  "mkdocs-literate-nav>=0.6",
+  "pymdown-extensions>=10.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+  "--cov=vastai",
+  "--cov-report=term-missing",
+  "--cov-report=html:coverage_html",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["vastai"]
+omit = [
+  "*/tests/*",
+  "*/.venv/*",
+  "*/site-packages/*",
+]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+fail_under = 44
+exclude_lines = [
+  "pragma: no cover",
+  "if __name__ == .__main__.:",
+  "raise NotImplementedError",
+  "if TYPE_CHECKING:",
 ]
 
 [tool.poetry]
-packages = [{ include = "utils" }, { include = "vast.py" }]
+packages = [
+  { include = "vast.py" },
+  { include = "vast_config.py" },
+  { include = "vast_pdf.py" },
+  { include = "utils" },
+  { include = "vastai" },
+  { include = "vastai_sdk" },
+]
 version = "0.0.0"
 
 [project.scripts]
@@ -58,3 +125,91 @@ style = "semver"
 
 [tool.poetry.requires-plugins]
 poetry-dynamic-versioning = { version = ">=1.0.0,<2.0.0", extras = ["plugin"] }
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = [
+    "borb.*",
+    "PIL.*",
+    "argcomplete.*",
+    "curlify.*",
+    "pyparsing.*",
+    "xdg.*",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "vast"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "vast_pdf"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "vastai.vastai_base"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "vastai.vastai_sdk"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "vastai.serverless.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_untyped_calls = false
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+exclude = [
+    ".git",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    ".eggs",
+    "*.egg-info",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "W",
+    "F",
+    "I",
+    "B",
+    "C4",
+    "UP",
+]
+ignore = [
+    "E501",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"vast.py" = ["T20", "A001", "A002", "E501", "B006", "F401", "F523", "F541", "F811", "F841", "E701", "E703", "E711", "E713", "E721", "E741"]
+"vast_pdf.py" = ["T20", "E501"]
+"tests/**/*.py" = ["F401", "S101"]
+"vastai/vastai_base.py" = ["B027"]
+"vastai/vastai_sdk.py" = ["E402", "F401"]
+"vastai/serverless/**/*.py" = ["F401", "F541", "F811", "F841", "E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["vastai", "vast"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"

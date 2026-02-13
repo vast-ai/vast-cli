@@ -1,0 +1,99 @@
+site_name: Vast.ai CLI & SDK
+site_url: https://vast-ai.github.io/vast-cli/
+repo_url: https://github.com/vast-ai/vast-cli
+repo_name: vast-ai/vast-cli
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.instant
+    - content.code.copy
+    - content.code.annotate
+  palette:
+    - scheme: default
+      primary: deep purple
+      accent: teal
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: deep purple
+      accent: teal
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+hooks:
+  - scripts/mkdocs_hooks.py
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [.]
+          options:
+            docstring_style: google
+            docstring_section_style: list
+            show_root_heading: true
+            show_source: false
+            merge_init_into_class: true
+            members_order: source
+            show_signature_annotations: true
+            signature_crossrefs: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.snippets:
+      base_path: ["."]
+  - toc:
+      permalink: true
+  - attr_list
+  - md_in_html
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - CLI:
+    - Overview: cli/index.md
+    - Client Commands:
+      - Overview: cli/client/index.md
+      - Instances: cli/client/instances.md
+      - Search: cli/client/search.md
+      - SSH & Files: cli/client/ssh.md
+      - Billing: cli/client/billing.md
+      - Volumes: cli/client/volumes.md
+      - Teams: cli/client/teams.md
+      - Autoscaling: cli/client/autoscaling.md
+      - Keys: cli/client/keys.md
+    - Host Commands:
+      - Overview: cli/host/index.md
+      - Machines: cli/host/machines.md
+      - Maintenance: cli/host/maintenance.md
+      - Reports: cli/host/reports.md
+      - Clusters: cli/host/clusters.md
+    - Full Reference: cli/commands.md
+    - Examples: cli/examples.md
+  - SDK:
+    - Overview: sdk/index.md
+    - Quick Start: sdk/quickstart.md
+    - API Reference: sdk/reference/vastai.md
+    - Method Reference: sdk/reference/methods.md
+  - Serverless:
+    - Overview: serverless/index.md
+  - Guides:
+    - Migration Guide: guides/migration.md
+  - Changelog: changelog.md

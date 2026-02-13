@@ -1,0 +1,27 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.6
+    hooks:
+      # Run linter with auto-fix (BEFORE formatter)
+      - id: ruff
+        args: [--fix]
+        types_or: [python, pyi]
+      # Run formatter (AFTER linter fix)
+      - id: ruff-format
+        types_or: [python, pyi]
+
+# Note: mypy is NOT included in pre-commit because it's too slow.
+# Run mypy in CI instead: mypy vastai/
+
+# Pre-commit.ci configuration
+# See: https://pre-commit.ci/
+ci:
+  autofix_commit_msg: |
+    [pre-commit.ci] auto fixes from pre-commit hooks
+  autofix_prs: true
+  autoupdate_branch: ''
+  autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
+  autoupdate_schedule: weekly
+  skip: []  # No hooks to skip - mypy already excluded from pre-commit hooks

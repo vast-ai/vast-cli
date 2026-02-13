@@ -36,11 +36,22 @@ dependencies = [
   "cryptography (>=44.0.2,<45.0.0)",
   "rich",
   "fonttools>=4.60.2",
-  "qrcode"
+  "qrcode",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=4.0",
+  "mypy>=1.14",
+  "types-requests>=2.32",
+  "types-python-dateutil>=2.9",
+  "ruff>=0.9",
+  "pre-commit>=4.0",
 ]
 
 [tool.poetry]
-packages = [{ include = "utils" }, { include = "vast.py" }]
+packages = [{ include = "utils" }, { include = "vast.py" }, { include = "vast_config.py" }]
 version = "0.0.0"
 
 [project.scripts]
@@ -58,3 +69,38 @@ style = "semver"
 
 [tool.poetry.requires-plugins]
 poetry-dynamic-versioning = { version = ">=1.0.0,<2.0.0", extras = ["plugin"] }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["."]
+omit = ["*/tests/*", "*/.venv/*", "*/site-packages/*"]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+exclude = [".git", ".venv", "__pycache__", "build", "dist", ".eggs", "*.egg-info"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"vast.py" = ["T20", "A001", "A002", "E501", "B006", "F401", "F523", "F541", "F811", "F841", "E701", "E703", "E711", "E713", "E721", "E741"]
+"vast_pdf.py" = ["T20", "E501"]
+"tests/**/*.py" = ["F401", "S101"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["vast"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"

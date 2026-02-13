@@ -62,6 +62,14 @@ dev = [
   "ruff>=0.9",
   "pre-commit>=4.0",
 ]
+docs = [
+  "mkdocs>=1.6",
+  "mkdocs-material>=9.5",
+  "mkdocstrings[python]>=0.27",
+  "mkdocs-gen-files>=0.5",
+  "mkdocs-literate-nav>=0.6",
+  "pymdown-extensions>=10.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -95,6 +103,7 @@ exclude_lines = [
 packages = [
   { include = "vast.py" },
   { include = "vast_config.py" },
+  { include = "vast_pdf.py" },
   { include = "utils" },
   { include = "vastai" },
   { include = "vastai_sdk" },

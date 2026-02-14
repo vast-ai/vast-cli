@@ -5916,21 +5916,18 @@ paths:
                 type:
                   type: string
                   enum:
-                  - on-demand
+                  - ondemand
                   - bid
                   - reserved
-                  description: 'Instance type for the offer
+                  description: 'Instance type for the offer. Affects pricing calculation.
 
 
-                    - **on-demand**: High priority, fixed pricing, guaranteed resources.
-                    Best for production workloads and time-sensitive tasks.
+                    - **ondemand**: Fixed pricing based on listed rates. Default.
 
-                    - **reserved**: High priority, discounted rates with pre-payment.
-                    Ideal for long-term projects and predictable workloads.
+                    - **bid** (interruptible): Uses minimum bid price. Lower cost
+                    but may be interrupted if outbid.
 
-                    - **bid** (interruptible): Low priority, lowest cost, may be paused
-                    if outbid. Suitable for batch processing, development, and fault-tolerant
-                    workloads.
+                    - **reserved**: Reserved instance pricing.
 
                     '
                 verified:
@@ -5951,7 +5948,13 @@ paths:
                     eq: true
                 rented:
                   type: object
-                  description: Current rental status
+                  description: 'When set to true, include offers where the calling
+                    user already has rented GPUs.
+
+                    This is useful for finding offers on machines you''re already
+                    renting.
+
+                    '
                   properties:
                     eq:
                       type: boolean
@@ -5959,17 +5962,37 @@ paths:
                     eq: false
                 gpu_name:
                   type: object
-                  description: GPU model name
+                  description: 'GPU model name. Example: {"eq": "RTX_4090"} or {"in":
+                    ["RTX_3090", "RTX_4090"]}'
+                  properties:
+                    in:
+                      type: array
+                      items:
+                        type: string
+                      example:
+                      - RTX_3090
+                      - RTX_4090
                 reliability:
                   type: object
-                  description: Machine reliability score (Any decimal number between
-                    0-1)
+                  description: 'Machine reliability score (0-1). Example: {"gte":
+                    0.99}'
                 num_gpus:
                   type: object
-                  description: Number of GPUs
+                  description: 'Number of GPUs. Example: {"gte": 4} or {"in": [1,
+                    2, 4, 8]}'
+                  properties:
+                    in:
+                      type: array
+                      items:
+                        type: integer
+                      example:
+                      - 1
+                      - 2
+                      - 4
+                      - 8
                 gpu_ram:
                   type: object
-                  description: GPU RAM in MB
+                  description: 'GPU RAM in MB. Example: {"gte": 24000}'
                 duration:
                   type: object
                   description: Minimum required rental duration in seconds (the offer
@@ -5982,16 +6005,26 @@ paths:
                   description: DLPerf per dollar per hour
                 dph_total:
                   type: object
-                  description: Total $/hour rental cost
+                  description: 'Total $/hour rental cost. Example: {"lte": 0.5}'
                 flops_per_dphtotal:
                   type: object
                   description: TFLOPs per $/hour
                 geolocation:
                   type: object
-                  description: Machine location (two letter country code)
+                  description: 'Machine location (two letter country code). Example:
+                    {"in": ["US", "CA"]}'
+                  properties:
+                    in:
+                      type: array
+                      items:
+                        type: string
+                      example:
+                      - US
+                      - CA
                 gpu_arch:
                   type: object
-                  description: Host machine GPU architecture (e.g. nvidia, amd)
+                  description: 'Host machine GPU architecture (e.g. nvidia, amd).
+                    Example: {"eq": "nvidia"}'
                 dlperf:
                   type: object
                   description: Deep Learning performance score
@@ -6019,7 +6052,8 @@ paths:
                     capability 6.5 or 700 for 7.0.
                 cpu_arch:
                   type: object
-                  description: Host machine CPU architecture (Default is amd64)
+                  description: 'Host machine CPU architecture (Default is amd64).
+                    Example: {"eq": "amd64"}'
                 has_avx:
                   type: object
                   description: CPU supports AVX instruction set
@@ -6108,8 +6142,8 @@ paths:
                   description: Host machine Ubuntu OS version (alias for os_version)
                 verification:
                   type: object
-                  description: Machine verification status string (verified, deverified,
-                    unverified)
+                  description: 'Machine verification status string (verified, deverified,
+                    unverified). Example: {"eq": "verified"}'
                 vms_enabled:
                   type: object
                   description: Whether the machine is a VM instance
@@ -7235,29 +7269,46 @@ paths:
   /api/v1/invoices/:
     get:
       summary: show invoices
-      description: |
-        Gets your invoices within given timerange.
+      description: 'Gets your invoices within given timerange.
+
 
         Timerange is **required** using the `select_filters.when` field.
 
+
         Optionally filter by invoice service using `select_filters.service`.
 
-        **Common services** : transfer, stripe_payments, bitpay, coinbase, crypto.com, instance_prepay, paypal_manual, wise_manual
 
-        **Date format**: `select_filters.when.gte` and `select_filters.when.lte` must be UTC epoch seconds (integers).
-        Example range: 2026-01-01 00:00:00 UTC -> `1767225600`, 2026-01-31 23:59:59 UTC -> `1769903999`.
+        **Common services** : transfer, stripe_payments, bitpay, coinbase, crypto.com,
+        instance_prepay, paypal_manual, wise_manual
+
+
+        **Date format**: `select_filters.when.gte` and `select_filters.when.lte` must
+        be UTC epoch seconds (integers).
+
+        Example range: 2026-01-01 00:00:00 UTC -> `1767225600`, 2026-01-31 23:59:59
+        UTC -> `1769903999`.
+
 
         **HTTP request**: This is a GET endpoint that accepts JSON-encoded query parameters.
+
         URL-encode JSON values when calling directly.
-        ```
-        GET /api/v1/invoices/?select_filters={"when":{"gte":1767225600,"lte":1769903999}}&limit=60
-        ```
-        For pagination, pass the response `next_token` as `after_token`:
-        ```
-        GET /api/v1/invoices/?select_filters={"when":{"gte":1767225600,"lte":1769903999}}&after_token=eyJ2YWx1ZXMiOiB7ImlkIjog...
+
         ```
 
-        CLI Usage: `vastai show invoices-v1`
+        GET /api/v1/invoices/?select_filters={"when":{"gte":1767225600,"lte":1769903999}}&limit=60
+
+        ```
+
+        For pagination, pass the response `next_token` as `after_token`:
+
+        ```
+
+        GET /api/v1/invoices/?select_filters={"when":{"gte":1767225600,"lte":1769903999}}&after_token=eyJ2YWx1ZXMiOiB7ImlkIjog...
+
+        ```
+
+
+        CLI Usage: `vastai show invoices-v1`'
       requestBody:
         required: true
         content:

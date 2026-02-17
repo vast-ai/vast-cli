@@ -6122,9 +6122,6 @@ paths:
                       type: string
                   minItems: 2
                   maxItems: 2
-                disable_bundling:
-                  type: boolean
-                  description: Disable offer bundling
                 allocated_storage:
                   type: number
                   description: 'Storage allocation size in GB for the instance.

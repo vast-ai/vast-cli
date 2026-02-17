@@ -8739,12 +8739,9 @@ def run_speed_test(instance_id, api_key, args):
                             avg_speed = samples_total / len(speed_samples)
                             progress_print(args, f"Average speed so far: {avg_speed:.2f} Mbps{inet_down_str}")
                             
-                            # Check if average drops below 500 Mbps
+                            # Log warning if average drops below 500 Mbps (informational only, does not fail the test)
                             if avg_speed < 500:
-                                failure_reason[0] = f"Average download speed ({avg_speed:.2f} Mbps) dropped below 500 Mbps threshold"
-                                test_failed.set()
-                                progress_print(args, f"[SPEED TEST] FAILED: {failure_reason[0]}")
-                                return
+                                progress_print(args, f"[SPEED TEST] WARNING: Average download speed ({avg_speed:.2f} Mbps) is below 500 Mbps threshold")
                 
                 last_size = current_size
                 last_time = current_time
@@ -8806,12 +8803,9 @@ def run_speed_test(instance_id, api_key, args):
                 progress_print(args, f"Reported inet_down:    {reported_inet_down:.2f} Mbps")
                 progress_print(args, f"Measured vs Reported:  {avg_speed:.2f} / {reported_inet_down:.2f} Mbps ({(avg_speed / reported_inet_down * 100):.1f}%)")
             
-            # Check if average is below threshold
+            # Log warning if below threshold (informational only, does not fail the test)
             if avg_speed < 500:
-                return False, f"Average download speed ({avg_speed:.2f} Mbps) is below 500 Mbps threshold"
-            
-            if failure_reason[0]:
-                return False, failure_reason[0]
+                progress_print(args, f"[SPEED TEST] WARNING: Average download speed ({avg_speed:.2f} Mbps) is below 500 Mbps threshold")
             
             progress_print(args, "✓ Speed test: PASSED")
             return True, ""
@@ -8825,7 +8819,7 @@ def run_speed_test(instance_id, api_key, args):
                 progress_print(args, f"Measured vs Reported: {final_speed_mbps:.2f} / {reported_inet_down:.2f} Mbps ({(final_speed_mbps / reported_inet_down * 100):.1f}%)")
             
             if final_speed_mbps < 500:
-                return False, f"Download speed ({final_speed_mbps:.2f} Mbps) is below 500 Mbps threshold"
+                progress_print(args, f"[SPEED TEST] WARNING: Download speed ({final_speed_mbps:.2f} Mbps) is below 500 Mbps threshold")
             
             progress_print(args, "✓ Speed test: PASSED")
             return True, ""

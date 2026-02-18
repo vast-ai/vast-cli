@@ -6859,8 +6859,12 @@ def convert_dates_to_timestamps(args):
     start_date_txt = ""
     end_date_txt = ""
 
-    import dateutil
-    from dateutil import parser
+    try:
+        import dateutil
+        from dateutil import parser
+    except ImportError:
+        print("Error: python-dateutil is required for date parsing. Install it with: pip install python-dateutil")
+        raise SystemExit(1)
 
     if args.end_date:
         try:

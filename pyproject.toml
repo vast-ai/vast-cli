@@ -25,7 +25,7 @@ dependencies = [
   "argcomplete==3.5.1",
   "requests (>=2.32.4)",
   "borb (==2.1.25)",
-  "python-dateutil==2.6.1",
+  "python-dateutil>=2.8.2",
   "pytz",
   "urllib3>=2.6.3",
   "poetry-dynamic-versioning (>=1.8.1,<2.0.0)",

@@ -3595,6 +3595,14 @@ def logs(args):
 
     if r.status_code == 200:
         rj = r.json()
+        if not rj.get("success", True):
+            print(rj.get("msg", "Could not retrieve logs."))
+            error_type = rj.get("error", "")
+            if error_type == "not_ready":
+                print("Hint: The instance is still starting up. Wait a moment and try again.")
+            elif error_type == "not_running":
+                print("Hint: Check your instance status with 'vastai show instances'.")
+            return
         for i in range(0, 30):
             time.sleep(0.3)
             url = rj["result_url"]

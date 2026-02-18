@@ -9,7 +9,8 @@ import sys
 import argparse
 import os
 import time
-from typing import Dict, List, Tuple, Optional
+import calendar
+from typing import Any, Dict, List, Tuple, Optional
 from datetime import date, datetime, timedelta, timezone
 import hashlib
 import math
@@ -21,6 +22,7 @@ import subprocess
 from time import sleep
 from subprocess import PIPE
 import urllib3
+import ssl
 import atexit
 from contextlib import redirect_stdout, redirect_stderr
 from io import StringIO
@@ -43,7 +45,7 @@ TABCOMPLETE = False
 try:
     import argcomplete
     TABCOMPLETE = True
-except:
+except ImportError:
     # No tab-completion for you
     pass
 
@@ -57,15 +59,7 @@ try:
 except ImportError:
     from urllib.parse import quote_plus  # Python 3+
 
-try:
-    JSONDecodeError = json.JSONDecodeError
-except AttributeError:
-    JSONDecodeError = ValueError
-
-try:
-    input = raw_input
-except NameError:
-    pass
+JSONDecodeError = json.JSONDecodeError
 
 
 #server_url_default = "https://vast.ai"
@@ -79,6 +73,10 @@ logging.basicConfig(
     level=os.getenv("LOGLEVEL") or logging.WARN,
     format="%(levelname)s - %(message)s"
 )
+
+DEFAULT_TIMEOUT = 30    # seconds -- normal API calls
+LONG_TIMEOUT = 120      # seconds -- file operations, large queries
+RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
 
 def parse_version(version: str) -> tuple[int, ...]:
     parts = version.split(".")
@@ -117,14 +115,15 @@ def is_pip_package():
     except Exception:
         return False
 
-def get_update_command(stable_version: str) -> str:
+def get_update_command(stable_version: str) -> list:
     if is_pip_package():
+        cmd = [sys.executable, "-m", "pip", "install", "--force-reinstall", "--no-cache-dir"]
         if "test.pypi.org" in PYPI_BASE_PATH:
-            return f"{sys.executable} -m pip install --force-reinstall --no-cache-dir -i {PYPI_BASE_PATH} vastai=={stable_version}"
-        else:
-            return f"{sys.executable} -m pip install --force-reinstall --no-cache-dir vastai=={stable_version}"
+            cmd.extend(["-i", PYPI_BASE_PATH])
+        cmd.append(f"vastai=={stable_version}")
+        return cmd
     else:
-        return f"git fetch --all --tags --prune && git checkout tags/v{stable_version}"
+        return ["git", "fetch", "--all", "--tags", "--prune"]
 
 
 def get_local_version():
@@ -135,7 +134,7 @@ def get_local_version():
 
 def get_project_data(project_name: str) -> dict[str, dict[str, str]]:
     url = PYPI_BASE_PATH + f"/pypi/{project_name}/json"
-    response = requests.get(url, headers={"Accept": "application/json"})
+    response = requests.get(url, headers={"Accept": "application/json"}, timeout=10)
 
     # this will raise for HTTP status 4xx and 5xx
     response.raise_for_status()
@@ -184,12 +183,20 @@ def check_for_update():
     print("Updating...")
     _ = subprocess.run(
         update_command,
-        shell=True,
         check=True,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
+    if not is_pip_package():
+        # git case: need a second command to checkout the tag
+        _ = subprocess.run(
+            ["git", "checkout", f"tags/v{pypi_version}"],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
 
     print("Update completed successfully!\nAttempt to run your command again!")
     sys.exit(0)
@@ -197,12 +204,6 @@ def check_for_update():
 APP_NAME = "vastai"
 VERSION = get_local_version()
 
-# define emoji support and fallbacks
-_HAS_EMOJI = sys.stdout.encoding and 'utf' in sys.stdout.encoding.lower()
-SUCCESS = "✅" if _HAS_EMOJI else "[OK]"
-WARN    = "⚠️" if _HAS_EMOJI else "[!]"
-FAIL    = "❌" if _HAS_EMOJI else "[X]"
-INFO    = "ℹ️" if _HAS_EMOJI else "[i]"
 
 try:
   # Although xdg-base-dirs is the newer name, there's 
@@ -218,7 +219,7 @@ try:
       'temp': xdg.xdg_cache_home()
   }
 
-except:
+except (ImportError, KeyError, OSError):
   # Reasonable defaults.
   DIRS = {
       'config': os.path.join(os.getenv('HOME'), '.config'),
@@ -236,6 +237,13 @@ CACHE_DURATION = timedelta(hours=24)
 APIKEY_FILE = os.path.join(DIRS['config'], "vast_api_key")
 APIKEY_FILE_HOME = os.path.expanduser("~/.vast_api_key") # Legacy
 TFAKEY_FILE = os.path.join(DIRS['config'], "vast_tfa_key")
+
+# Emoji support with fallbacks for terminals that don't support Unicode
+_HAS_EMOJI = sys.stdout.encoding and 'utf' in sys.stdout.encoding.lower()
+SUCCESS = "\u2705" if _HAS_EMOJI else "[OK]"
+WARN    = "\u26a0\ufe0f" if _HAS_EMOJI else "[!]"
+FAIL    = "\u274c" if _HAS_EMOJI else "[X]"
+INFO    = "\u2139\ufe0f" if _HAS_EMOJI else "[i]"
 
 if not os.path.exists(APIKEY_FILE) and os.path.exists(APIKEY_FILE_HOME):
   #print(f'copying key from {APIKEY_FILE_HOME} -> {APIKEY_FILE}')
@@ -287,11 +295,11 @@ def string_to_unix_epoch(date_string):
     except ValueError:
         # If not, parse it as a date string
         date_object = datetime.strptime(date_string, "%m/%d/%Y")
-        return time.mktime(date_object.timetuple())
+        return calendar.timegm(date_object.timetuple())
 
 def unix_to_readable(ts):
     # ts: integer or float, Unix timestamp
-    return datetime.fromtimestamp(ts).strftime('%H:%M:%S|%h-%d-%Y')
+    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime('%H:%M:%S|%h-%d-%Y')
 
 def fix_date_fields(query: Dict[str, Dict], date_fields: List[str]):
     """Takes in a query and date fields to correct and returns query with appropriate epoch dates"""
@@ -330,18 +338,13 @@ class hidden_aliases(object):
     def append(self, x):
         self.l.append(x)
 
-def http_request(verb, args, req_url, headers: dict[str, str] | None = None, json_data = None):
+def http_request(verb, args, req_url, headers: dict[str, str] | None = None, json = None, timeout=DEFAULT_TIMEOUT):
     t = 0.15
+    r = None
     for i in range(0, args.retry):
-        req = requests.Request(method=verb, url=req_url, headers=headers, json=json_data)
+        req = requests.Request(method=verb, url=req_url, headers=headers, json=json)
         session = requests.Session()
         prep = session.prepare_request(req)
-        if args.explain:
-            print(f"\n{INFO}  Prepared Request:")
-            print(f"{prep.method} {prep.url}")
-            print(f"Headers: {json.dumps(headers, indent=1)}")
-            print(f"Body: {json.dumps(json_data, indent=1)}" + "\n" + "_"*100 + "\n")
-        
         if ARGS.curl:
             as_curl = curlify.to_curl(prep)
             simple = re.sub(r" -H '[^']*'", '', as_curl)
@@ -352,26 +355,42 @@ def http_request(verb, args, req_url, headers: dict[str, str] | None = None, jso
             print("\n" + ' \\\n  '.join(parts).strip() + "\n")
             sys.exit(0)
         else:
-            r = session.send(prep)
+            try:
+                r = session.send(prep, timeout=timeout)
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                if i < args.retry - 1:
+                    time.sleep(t)
+                    t *= 1.5
+                    continue
+                raise
+            except requests.exceptions.RequestException as e:
+                # Non-retryable request errors (e.g., InvalidURL)
+                raise
 
-        if (r.status_code == 429):
+        if r.status_code in RETRYABLE_STATUS_CODES:
             time.sleep(t)
             t *= 1.5
         else:
             break
     return r
 
-def http_get(args, req_url, headers = None, json = None):
-    return http_request('GET', args, req_url, headers, json)
+def http_get(args, req_url, headers=None, json=None, timeout=DEFAULT_TIMEOUT):
+    return http_request('GET', args, req_url, headers, json, timeout=timeout)
 
-def http_put(args, req_url, headers = None, json = {}):
-    return http_request('PUT', args, req_url, headers, json)
+def http_put(args, req_url, headers=None, json=None, timeout=DEFAULT_TIMEOUT):
+    if json is None:
+        json = {}
+    return http_request('PUT', args, req_url, headers, json, timeout=timeout)
 
-def http_post(args, req_url, headers = None, json={}):
-    return http_request('POST', args, req_url, headers, json)
+def http_post(args, req_url, headers=None, json=None, timeout=DEFAULT_TIMEOUT):
+    if json is None:
+        json = {}
+    return http_request('POST', args, req_url, headers, json, timeout=timeout)
 
-def http_del(args, req_url, headers = None, json={}):
-    return http_request('DELETE', args, req_url, headers, json)
+def http_del(args, req_url, headers=None, json=None, timeout=DEFAULT_TIMEOUT):
+    if json is None:
+        json = {}
+    return http_request('DELETE', args, req_url, headers, json, timeout=timeout)
 
 
 def load_permissions_from_file(file_path):
@@ -630,7 +649,7 @@ def apiheaders(args: argparse.Namespace) -> Dict:
     return result 
 
 
-def deindent(message: str, add_separator: bool = True) -> str:
+def deindent(message: str) -> str:
     """
     Deindent a quoted string. Scans message and finds the smallest number of whitespace characters in any line and
     removes that many from the start of every line.
@@ -642,12 +661,140 @@ def deindent(message: str, add_separator: bool = True) -> str:
     indents = [len(x) for x in re.findall("^ *(?=[^ ])", message, re.MULTILINE) if len(x)]
     a = min(indents)
     message = re.sub(r"^ {," + str(a) + "}", "", message, flags=re.MULTILINE)
-    if add_separator:
-        # For help epilogs - cleanly separating extra help from options
-        line_width = min(150, shutil.get_terminal_size((80, 20)).columns)
-        message = "_"*line_width + "\n"*2 + message.strip() + "\n" + "_"*line_width
     return message.strip()
 
+
+def api_call(
+    args: argparse.Namespace,
+    method: str,
+    path: str,
+    *,
+    json_body: dict[str, Any] | None = None,
+    query_args: dict[str, Any] | None = None,
+) -> dict[str, Any] | list[dict[str, Any]] | None:
+    """Centralized API call: URL construction + HTTP dispatch + status check.
+
+    Args:
+        args: argparse.Namespace with url, api_key, explain, raw, retry, curl.
+        method: HTTP method string ("GET", "POST", "PUT", "DELETE").
+        path: API path (e.g., "/instances/", "/auth/apikeys/{id}/").
+        json_body: Optional dict for request body (POST/PUT/DELETE).
+        query_args: Optional dict for URL query parameters.
+
+    Returns:
+        Parsed JSON response (dict or list), or None for empty responses.
+
+    Raises:
+        requests.exceptions.HTTPError: On non-2xx status codes.
+    """
+    url = apiurl(args, path, query_args)
+    dispatch = {
+        "GET": http_get,
+        "POST": http_post,
+        "PUT": http_put,
+        "DELETE": http_del,
+    }
+    http_fn = dispatch[method]
+
+    if method == "GET":
+        r = http_fn(args, url, headers=headers, json=json_body)
+    else:
+        r = http_fn(args, url, headers=headers, json=json_body if json_body is not None else {})
+
+    r.raise_for_status()
+
+    if r.content:
+        try:
+            return r.json()
+        except JSONDecodeError:
+            return {"_raw_text": r.text}
+    return None
+
+
+def output_result(
+    args: argparse.Namespace,
+    data: list[dict[str, Any]] | dict[str, Any],
+    fields: list[tuple[str, str, str]] | None = None,
+) -> list[dict[str, Any]] | dict[str, Any] | None:
+    """Unified output handler for command results.
+
+    In raw mode: returns data for main() to serialize as JSON.
+    In table mode: calls display_table() if fields are provided.
+    In JSON mode: prints formatted JSON (when no fields defined).
+
+    Args:
+        args: argparse.Namespace with raw flag.
+        data: The response data (dict, list, or None).
+        fields: Optional tuple of field definitions for display_table().
+
+    Returns:
+        data if in raw mode, None otherwise.
+    """
+    if args.raw:
+        return data
+    if data is None:
+        return None
+    if fields:
+        rows = data if isinstance(data, list) else [data]
+        display_table(rows, fields)
+    else:
+        print(json.dumps(data, indent=1, sort_keys=True))
+    return None
+
+
+def error_output(
+    args: argparse.Namespace,
+    status_code: int,
+    message: str,
+    *,
+    detail: str | None = None,
+) -> None:
+    """Output an error in the appropriate format for the current mode.
+
+    In raw mode: prints JSON error object to stderr.
+    In non-raw mode: prints human-readable error to stderr.
+
+    Args:
+        args: argparse.Namespace with raw flag.
+        status_code: HTTP status code or error code.
+        message: Error message string.
+        detail: Optional additional detail string.
+    """
+    if getattr(args, 'raw', False):
+        error = {"error": True, "status_code": status_code, "msg": message}
+        if detail:
+            error["detail"] = detail
+        print(json.dumps(error), file=sys.stderr)
+    else:
+        print(f"failed with error {status_code}: {message}", file=sys.stderr)
+
+
+def require_id(args: argparse.Namespace, field: str = "id") -> int | str:
+    """Extract and validate an ID argument.
+
+    Args:
+        args: argparse.Namespace containing the ID field.
+        field: Name of the attribute on args (default "id").
+
+    Returns:
+        The value of the requested field.
+
+    Raises:
+        SystemExit: If the field is None or missing.
+    """
+    val = getattr(args, field, None)
+    if val is None:
+        print(f"Error: {field} is required", file=sys.stderr)
+        raise SystemExit(1)
+    return val
+
+
+# Field definition tuples: (key, display_name, format_string, converter_or_None, left_justify)
+# key: API response dict key
+# display_name: Column header in table output
+# format_string: Python format spec (e.g., ">8", "<16", ">10.4f")
+# converter_or_None: Lambda to transform value, or None for raw value
+# left_justify: Boolean, True for left-aligned columns
 
 # These are the fields that are displayed when a search is run
 displayable_fields = (
@@ -873,8 +1020,8 @@ machine_fields = (
 # These fields are displayed when you do 'show maints'
 maintenance_fields = (
     ("machine_id", "Machine ID", "{}", None, True),
-    ("start_time", "Start (Date/Time)", "{}", lambda x: datetime.fromtimestamp(x).strftime('%Y-%m-%d/%H:%M'), True),
-    ("end_time", "End (Date/Time)", "{}", lambda x: datetime.fromtimestamp(x).strftime('%Y-%m-%d/%H:%M'), True),
+    ("start_time", "Start (Date/Time)", "{}", lambda x: datetime.fromtimestamp(x, tz=timezone.utc).strftime('%Y-%m-%d/%H:%M'), True),
+    ("end_time", "End (Date/Time)", "{}", lambda x: datetime.fromtimestamp(x, tz=timezone.utc).strftime('%Y-%m-%d/%H:%M'), True),
     ("duration_hours", "Duration (Hrs)", "{}", None, True),
     ("maintenance_category", "Category", "{}", None, True),
 )
@@ -899,8 +1046,8 @@ scheduled_jobs_fields = (
     ("id", "Scheduled Job ID", "{}", None, True),
     ("instance_id", "Instance ID", "{}", None, True),
     ("api_endpoint", "API Endpoint", "{}", None, True),
-    ("start_time", "Start (Date/Time in UTC)", "{}", lambda x: datetime.fromtimestamp(x).strftime('%Y-%m-%d/%H:%M'), True),
-    ("end_time", "End (Date/Time in UTC)", "{}", lambda x: datetime.fromtimestamp(x).strftime('%Y-%m-%d/%H:%M'), True),
+    ("start_time", "Start (Date/Time in UTC)", "{}", lambda x: datetime.fromtimestamp(x, tz=timezone.utc).strftime('%Y-%m-%d/%H:%M'), True),
+    ("end_time", "End (Date/Time in UTC)", "{}", lambda x: datetime.fromtimestamp(x, tz=timezone.utc).strftime('%Y-%m-%d/%H:%M'), True),
     ("day_of_the_week", "Day of the Week", "{}", None, True),
     ("hour_of_the_day", "Hour of the Day in UTC", "{}", None, True),
     ("min_of_the_hour", "Minute of the Hour", "{}", None, True),
@@ -1105,13 +1252,16 @@ def parse_query(query_str: str, res: Dict = None, fields = {}, field_alias = {},
 
     for field, op, _, value, _ in opts:
         value = value.strip(",[]")
-        v = res.setdefault(field, {})
         op = op.strip()
         op_name = op_names.get(op)
 
         if field in field_alias:
-            res.pop(field)
+            old_field = field
             field = field_alias[field]
+            if old_field in res:
+                res[field] = res.pop(old_field)
+
+        v = res.setdefault(field, {})
 
         if (field == "driver_version") and ('.' in value):
             value = numeric_version(value)
@@ -1163,23 +1313,35 @@ def parse_query(query_str: str, res: Dict = None, fields = {}, field_alias = {},
     #print(res)
     return res
 
-# ANSI escape codes for background/foreground colors
-BG_DARK_GRAY = '\033[40m'  # Dark gray background
-BG_LIGHT_GRAY = '\033[48;5;240m' # Light gray background
-FG_WHITE = '\033[97m'            # Bright white text
-BG_RESET = '\033[0m'             # Reset all formatting
+
+# ANSI color codes for table formatting
+BG_DARK_GRAY = '\033[40m'       # Dark gray background
+BG_LIGHT_GRAY = '\033[48;5;240m'  # Light gray background
+FG_WHITE = '\033[97m'           # Bright white text
+BG_RESET = '\033[0m'            # Reset all formatting
+
 
 def display_table(rows: list, fields: Tuple, replace_spaces: bool = True, auto_width: bool = True) -> None:
-    """Basically takes a set of field names and rows containing the corresponding data and prints a nice tidy table
-    of it.
+    """Display data as a formatted table with automatic column width management.
 
-    :param list rows: Each row is a dict with keys corresponding to the field names (first element) in the fields tuple.
+    Takes a set of field definitions and rows of data and prints a formatted table.
+    When auto_width is enabled, columns are grouped to fit within terminal width,
+    with alternating row colors for readability.
 
-    :param Tuple fields: 5-tuple describing a field. First element is field name, second is human readable version, third is format string, fourth is a lambda function run on the data in that field, fifth is a bool determining text justification. True = left justify, False = right justify. Here is an example showing the tuples in action.
+    Args:
+        rows: List of dicts with keys corresponding to field names in the fields tuple.
+        fields: Tuple of 5-tuples defining each column:
+            - field_name: API response dict key
+            - display_name: Column header text
+            - format_string: Python format spec (e.g., "{:0.1f}")
+            - converter: Lambda to transform value, or None for raw value
+            - left_justify: Boolean, True for left-aligned columns
+        replace_spaces: If True, replace spaces with underscores in cell values.
+        auto_width: If True, automatically group columns to fit terminal width
+            with colored alternating rows. If False, print simple table.
 
-    :rtype None:
-
-    Example of 5-tuple: ("cpu_ram", "RAM", "{:0.1f}", lambda x: x / 1000, False)
+    Example field tuple:
+        ("cpu_ram", "RAM", "{:0.1f}", lambda x: x / 1000, False)
     """
     header = [name for _, name, _, _, _ in fields]
     out_rows = [header]
@@ -1200,7 +1362,7 @@ def display_table(rows: list, fields: Tuple, replace_spaces: bool = True, auto_w
             idx = len(row)
             lengths[idx] = max(len(s), lengths[idx])
             row.append(s)
-    
+
     if auto_width:
         width = shutil.get_terminal_size((80, 20)).columns
         start_col_idxs = [0]
@@ -1210,7 +1372,7 @@ def display_table(rows: list, fields: Tuple, replace_spaces: bool = True, auto_w
             if total_len > width:
                 start_col_idxs.append(i)  # index for the start of the next group
                 total_len = l + 6         # l + 2 + the 4 from the initial length
-        
+
         groups = {}
         for row in out_rows:
             grp_num = 0
@@ -1219,7 +1381,7 @@ def display_table(rows: list, fields: Tuple, replace_spaces: bool = True, auto_w
                 end = start_col_idxs[i+1]-1 if i+1 < len(start_col_idxs) else len(lengths)
                 groups.setdefault(grp_num, []).append(row[start:end])
                 grp_num += 1
-        
+
         for i, group in groups.items():
             idx = start_col_idxs[i]
             group_lengths = lengths[idx:idx+len(group[0])]
@@ -1289,7 +1451,7 @@ def parse_vast_url(url_str):
         try:
             instance_id = int(path)
             path = "/"
-        except:
+        except (ValueError, TypeError):
             pass
 
     valid_unix_path_regex = re.compile('^(/)?([^/\0]+(/)?)+$')
@@ -1317,7 +1479,7 @@ def get_ssh_key(argstr):
         has around 200 or so "base64" characters and ends with 
         some-user@some-where. "Generate public ssh key" would be 
         a good search term if you don't know how to do this.
-      """, add_separator=False))
+      """))
 
     if not ssh_key.lower().startswith('ssh'):
       raise ValueError(deindent("""
@@ -1330,7 +1492,7 @@ def get_ssh_key(argstr):
         {}
 
         And welp, that just don't look right.
-      """.format(ssh_key), add_separator=False))
+      """.format(ssh_key)))
 
     return ssh_key
 
@@ -1338,14 +1500,15 @@ def get_ssh_key(argstr):
 @parser.command(
     argument("instance_id", help="id of instance to attach to", type=int),
     argument("ssh_key", help="ssh key to attach to instance", type=str),
+    description="Attach an SSH key to an instance for remote access",
     usage="vastai attach ssh instance_id ssh_key",
-    help="Attach an ssh key to an instance. This will allow you to connect to the instance with the ssh key",
+    help="Attach an SSH key to an instance for remote access",
     epilog=deindent("""
         Attach an ssh key to an instance. This will allow you to connect to the instance with the ssh key.
 
         Examples:
-         vastai attach "ssh 12371 ssh-rsa AAAAB3NzaC1yc2EAAA..."
-         vastai attach "ssh 12371 ssh-rsa $(cat ~/.ssh/id_rsa)"
+         vastai attach ssh 12371 ssh-rsa AAAAB3NzaC1yc2EAAA...
+         vastai attach ssh 12371 ssh-rsa $(cat ~/.ssh/id_rsa)
     """),
 )
 def attach__ssh(args):
@@ -1354,12 +1517,20 @@ def attach__ssh(args):
     req_json = {"ssh_key": ssh_key}
     r = http_post(args, url, headers=headers, json=req_json)
     r.raise_for_status()
-    print(r.json())
+    try:
+        rj = r.json()
+    except JSONDecodeError:
+        print("Error: API returned invalid JSON response", file=sys.stderr)
+        return
+    if args.raw:
+        return rj
+    print(rj)
 
 @parser.command(
     argument("dst", help="instance_id:/path to target of copy operation", type=str),
+    description="Cancel an in-progress file copy operation",
     usage="vastai cancel copy DST",
-    help="Cancel a remote copy in progress, specified by DST id",
+    help="Cancel an in-progress file copy operation",
     epilog=deindent("""
         Use this command to cancel any/all current remote copy operations copying to a specific named instance, given by DST.
 
@@ -1388,21 +1559,24 @@ def cancel__copy(args: argparse.Namespace):
     req_json = { "client_id": "me", "dst_id": dst_id, }
     r = http_del(args, url, headers=headers,json=req_json)
     r.raise_for_status()
-    if (r.status_code == 200):
+    try:
         rj = r.json();
-        if (rj["success"]):
-            print("Remote copy canceled - check instance status bar for progress updates (~30 seconds delayed).")
-        else:
-            print(rj["msg"]);
+    except JSONDecodeError:
+        print("Error: API returned invalid JSON response", file=sys.stderr)
+        return
+    if args.raw:
+        return rj
+    if rj.get("success"):
+        print("Remote copy canceled - check instance status bar for progress updates (~30 seconds delayed).")
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(rj.get("msg", "Unknown error"));
 
 
 @parser.command(
     argument("dst", help="instance_id:/path to target of sync operation", type=str),
+    description="Cancel an in-progress file sync operation",
     usage="vastai cancel sync DST",
-    help="Cancel a remote copy in progress, specified by DST id",
+    help="Cancel an in-progress file sync operation",
     epilog=deindent("""
         Use this command to cancel any/all current remote cloud sync operations copying to a specific named instance, given by DST.
 
@@ -1431,15 +1605,17 @@ def cancel__sync(args: argparse.Namespace):
     req_json = { "client_id": "me", "dst_id": dst_id, }
     r = http_del(args, url, headers=headers,json=req_json)
     r.raise_for_status()
-    if (r.status_code == 200):
+    try:
         rj = r.json();
-        if (rj["success"]):
-            print("Remote copy canceled - check instance status bar for progress updates (~30 seconds delayed).")
-        else:
-            print(rj["msg"]);
+    except JSONDecodeError:
+        print("Error: API returned invalid JSON response", file=sys.stderr)
+        return
+    if args.raw:
+        return rj
+    if rj.get("success"):
+        print("Remote copy canceled - check instance status bar for progress updates (~30 seconds delayed).")
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(rj.get("msg", "Unknown error"));
 
 def default_start_date():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -1491,6 +1667,7 @@ def parse_hour_cron_style(value):
     argument("--end_date", type=str, default=default_end_date(), help="End date/time in format 'YYYY-MM-DD HH:MM:SS PM' (UTC). Default is 7 days from now. (optional)"),
     argument("--day", type=parse_day_cron_style, help="Day of week you want scheduled job to run on (0-6, where 0=Sunday) or \"*\". Default will be 0. For ex. --day 0", default=0),
     argument("--hour", type=parse_hour_cron_style, help="Hour of day you want scheduled job to run on (0-23) or \"*\" (UTC). Default will be 0. For ex. --hour 16", default=0),
+    description="Change the bid price for a spot/interruptible instance",
     usage="vastai change bid id [--price PRICE]",
     help="Change the bid price for a spot/interruptible instance",
     epilog=deindent("""
@@ -1504,8 +1681,6 @@ def change__bid(args: argparse.Namespace):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype int:
     """
-    url = apiurl(args, "/instances/bid_price/{id}/".format(id=args.id))
-
     json_blob = {"client_id": "me", "price": args.price,}
     if (args.explain):
         print("request json: ")
@@ -1516,12 +1691,13 @@ def change__bid(args: argparse.Namespace):
         cli_command = "change bid"
         api_endpoint = "/api/v0/instances/bid_price/{id}/".format(id=args.id)
         json_blob["instance_id"] = args.id
-        add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT", instance_id=args.id)     
+        add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT", instance_id=args.id)
         return
-    
-    r = http_put(args, url, headers=headers, json=json_blob)
-    r.raise_for_status()
-    print("Per gpu bid price changed".format(r.json()))
+
+    result = api_call(args, "PUT", "/instances/bid_price/{id}/".format(id=args.id), json_body=json_blob)
+    if args.raw:
+        return result
+    print("Per gpu bid price changed".format(result))
 
 
 
@@ -1530,8 +1706,9 @@ def change__bid(args: argparse.Namespace):
     argument("dest", help="id of volume offer volume is being copied to", type=int),
     argument("-s", "--size", help="Size of new volume contract, in GB. Must be greater than or equal to the source volume, and less than or equal to the destination offer.", type=float),
     argument("-d", "--disable_compression", action="store_true", help="Do not compress volume data before copying."),
+    description="Create a copy of an existing volume",
     usage="vastai copy volume <source_id> <dest_id> [options]",
-    help="Clone an existing volume",
+    help="Create a copy of an existing volume",
     epilog=deindent("""
         Create a new volume with the given offer, by copying the existing volume. 
         Size defaults to the size of the existing volume, but can be increased if there is available space.
@@ -1555,18 +1732,24 @@ def clone__volume(args: argparse.Namespace):
         print(json_blob)
     r = http_post(args, url,  headers=headers,json=json_blob)
     r.raise_for_status()
+    try:
+        rj = r.json()
+    except JSONDecodeError:
+        print("Error: API returned invalid JSON response", file=sys.stderr)
+        return
     if args.raw:
-        return r
+        return rj
     else:
-        print("Created. {}".format(r.json()))
+        print("Created. {}".format(rj))
 
 
 @parser.command(
     argument("src", help="Source location for copy operation (supports multiple formats)", type=str),
     argument("dst", help="Target location for copy operation (supports multiple formats)", type=str),
     argument("-i", "--identity", help="Location of ssh private key", type=str),
+    description="Copy files/directories between instances or between local and instance",
     usage="vastai copy SRC DST",
-    help="Copy directories between instances and/or local",
+    help="Copy files/directories between instances or between local and instance",
     epilog=deindent("""
         Copies a directory from a source location to a target location. Each of source and destination
         directories can be either local or remote, subject to appropriate read and write
@@ -1632,43 +1815,43 @@ def copy(args: argparse.Namespace):
         url = apiurl(args, f"/commands/copy_direct/")
     r = http_put(args, url,  headers=headers,json=req_json)
     r.raise_for_status()
-    if (r.status_code == 200):
+    try:
         rj = r.json()
-        #print(json.dumps(rj, indent=1, sort_keys=True))
-        if (rj["success"]) and ((src_id is None or src_id == "local") or (dst_id is None or dst_id == "local")):
-            homedir = subprocess.getoutput("echo $HOME")
-            #print(f"homedir: {homedir}")
-            remote_port = None
-            identity = f"-i {args.identity}" if (args.identity is not None) else ""
-            if (src_id is None or src_id == "local"):
-                #result = subprocess.run(f"mkdir -p {src_path}", shell=True)
-                remote_port = rj["dst_port"]
-                remote_addr = rj["dst_addr"]
-                cmd = f"rsync -arz -v --progress --rsh=ssh -e 'ssh {identity} -p {remote_port} -o StrictHostKeyChecking=no' {src_path} vastai_kaalia@{remote_addr}::{dst_id}/{dst_path}"
-                print(cmd)
-                result = subprocess.run(cmd, shell=True)
-                #result = subprocess.run(["sudo", "rsync" "-arz", "-v", "--progress", "-rsh=ssh", "-e 'sudo ssh -i {homedir}/.ssh/id_rsa -p {remote_port} -o StrictHostKeyChecking=no'", src_path, "vastai_kaalia@{remote_addr}::{dst_id}"], shell=True)
-            elif (dst_id is None or dst_id == "local"):
-                result = subprocess.run(f"mkdir -p {dst_path}", shell=True)
-                remote_port = rj["src_port"]
-                remote_addr = rj["src_addr"]
-                cmd = f"rsync -arz -v --progress --rsh=ssh -e 'ssh {identity} -p {remote_port} -o StrictHostKeyChecking=no' vastai_kaalia@{remote_addr}::{src_id}/{src_path} {dst_path}"
-                print(cmd)
-                result = subprocess.run(cmd, shell=True)
-                #result = subprocess.run(["sudo", "rsync" "-arz", "-v", "--progress", "-rsh=ssh", "-e 'ssh -i {homedir}/.ssh/id_rsa -p {remote_port} -o StrictHostKeyChecking=no'", "vastai_kaalia@{remote_addr}::{src_id}", dst_path], shell=True)
-        else:
-            if (rj["success"]):
-                print("Remote to Remote copy initiated - check instance status bar for progress updates (~30 seconds delayed).")
-            else:
-                if rj["msg"] == "src_path not supported VMs.":
-                    print("copy between VM instances does not currently support subpaths (only full disk copy)")
-                elif rj["msg"] == "dst_path not supported for VMs.":
-                    print("copy between VM instances does not currently support subpaths (only full disk copy)")
-                else:
-                    print(rj["msg"])
+    except JSONDecodeError:
+        print("Error: API returned invalid JSON response", file=sys.stderr)
+        return
+    #print(json.dumps(rj, indent=1, sort_keys=True))
+    if rj.get("success") and ((src_id is None or src_id == "local") or (dst_id is None or dst_id == "local")):
+        homedir = os.path.expanduser("~")
+        #print(f"homedir: {homedir}")
+        remote_port = None
+        identity = f"-i {args.identity}" if (args.identity is not None) else ""
+        if (src_id is None or src_id == "local"):
+            remote_port = rj.get("dst_port")
+            remote_addr = rj.get("dst_addr")
+            ssh_cmd = f"ssh {identity} -p {remote_port} -o StrictHostKeyChecking=no".strip()
+            rsync_args = ["rsync", "-arz", "-v", "--progress", "-e", ssh_cmd, src_path, f"vastai_kaalia@{remote_addr}::{dst_id}/{dst_path}"]
+            print(" ".join(rsync_args))
+            result = subprocess.run(rsync_args)
+        elif (dst_id is None or dst_id == "local"):
+            os.makedirs(dst_path, exist_ok=True)
+            remote_port = rj.get("src_port")
+            remote_addr = rj.get("src_addr")
+            ssh_cmd = f"ssh {identity} -p {remote_port} -o StrictHostKeyChecking=no".strip()
+            rsync_args = ["rsync", "-arz", "-v", "--progress", "-e", ssh_cmd, f"vastai_kaalia@{remote_addr}::{src_id}/{src_path}", dst_path]
+            print(" ".join(rsync_args))
+            result = subprocess.run(rsync_args)
     else:
-        print(r.text)
-        print("failed with error {r.status_code}".format(**locals()));
+        if rj.get("success"):
+            print("Remote to Remote copy initiated - check instance status bar for progress updates (~30 seconds delayed).")
+        else:
+            msg = rj.get("msg", "Unknown error")
+            if msg == "src_path not supported VMs.":
+                print("copy between VM instances does not currently support subpaths (only full disk copy)")
+            elif msg == "dst_path not supported for VMs.":
+                print("copy between VM instances does not currently support subpaths (only full disk copy)")
+            else:
+                print(msg)
 
 
 '''
@@ -1709,20 +1892,21 @@ def vm__copy(args: argparse.Namespace):
 
     r = http_put(args, url,  headers=headers,json=req_json)
     r.raise_for_status()
-    if (r.status_code == 200):
+    try:
         rj = r.json();
-        if (rj["success"]):
-            print("Remote to Remote copy initiated - check instance status bar for progress updates (~30 seconds delayed).")
-        else:
-            if rj["msg"] == "Invalid src_path.":
-                print("src instance is not a VM")
-            elif rj["msg"] == "Invalid dst_path.":
-                print("dst instance is not a VM")
-            else:
-                print(rj["msg"]);
+    except JSONDecodeError:
+        print("Error: API returned invalid JSON response", file=sys.stderr)
+        return
+    if rj.get("success"):
+        print("Remote to Remote copy initiated - check instance status bar for progress updates (~30 seconds delayed).")
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        msg = rj.get("msg", "Unknown error")
+        if msg == "Invalid src_path.":
+            print("src instance is not a VM")
+        elif msg == "Invalid dst_path.":
+            print("dst instance is not a VM")
+        else:
+            print(msg);
 '''
 
 @parser.command(
@@ -1741,8 +1925,9 @@ def vm__copy(args: argparse.Namespace):
     argument("--end_date", type=str, help="End date/time in format 'YYYY-MM-DD HH:MM:SS PM' (UTC). Default is contract's end. (optional)"),
     argument("--day", type=parse_day_cron_style, help="Day of week you want scheduled job to run on (0-6, where 0=Sunday) or \"*\". Default will be 0. For ex. --day 0", default=0),
     argument("--hour", type=parse_hour_cron_style, help="Hour of day you want scheduled job to run on (0-23) or \"*\" (UTC). Default will be 0. For ex. --hour 16", default=0),
+    description="Copy files between instances and cloud storage (S3, GCS, Azure)",
     usage="vastai cloud copy --src SRC --dst DST --instance INSTANCE_ID -connection CONNECTION_ID --transfer TRANSFER_TYPE",
-    help="Copy files/folders to and from cloud providers",
+    help="Copy files between instances and cloud storage (S3, GCS, Azure)",
     epilog=deindent("""
         Copies a directory from a source location to a target location. Each of source and destination
         directories can be either local or remote, subject to appropriate read and write
@@ -1810,8 +1995,13 @@ def cloud__copy(args: argparse.Namespace):
         req_url = apiurl(args, "/instances/{id}/".format(id=args.instance) , {"owner": "me"} )
         r = http_get(args, req_url)
         r.raise_for_status()
-        row = r.json()["instances"]
-        
+        try:
+            rj = r.json()
+        except JSONDecodeError:
+            print("Error: API returned invalid JSON response", file=sys.stderr)
+            return
+        row = rj.get("instances")
+
         if args.transfer.lower() == "instance to cloud":
             if row: 
                 # Get the cost per TB of internet upload
@@ -1838,12 +2028,8 @@ def cloud__copy(args: argparse.Namespace):
         
     r = http_post(args, url, headers=headers,json=req_json)
     r.raise_for_status()
-    if (r.status_code == 200):
-        print("Cloud Copy Started - check instance status bar for progress updates (~30 seconds delayed).")
-        print("When the operation is finished you should see 'Cloud Copy Operation Finished' in the instance status bar.")  
-    else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+    print("Cloud Copy Started - check instance status bar for progress updates (~30 seconds delayed).")
+    print("When the operation is finished you should see 'Cloud Copy Operation Finished' in the instance status bar.")
 
 
 @parser.command(
@@ -1853,10 +2039,11 @@ def cloud__copy(args: argparse.Namespace):
     argument("--docker_login_user",help="Username for container registry with repo",     type=str),
     argument("--docker_login_pass",help="Password or token for container registry with repo",     type=str),
     argument("--pause",            help="Pause container's processes being executed by the CPU to take snapshot (true/false). Default will be true", type=str, default="true"),
+    description="Create a snapshot of a running container and push to registry",
     usage="vastai take snapshot INSTANCE_ID "
           "--repo REPO --docker_login_user USER --docker_login_pass PASS"
           "[--container_registry REGISTRY] [--pause true|false]",
-    help="Schedule a snapshot of a running container and push it to your repo in a container registry",
+    help="Create a snapshot of a running container and push to registry",
     epilog=deindent("""
         Takes a snapshot of a running container instance and pushes snapshot to the specified repository in container registry.
         
@@ -1901,16 +2088,15 @@ def take__snapshot(args: argparse.Namespace):
     # POST to the snapshot endpoint
     r = http_post(args, url, headers=headers, json=req_json)
     r.raise_for_status()
-
-    if r.status_code == 200:
+    try:
         data = r.json()
-        if data.get("success"):
-            print(f"Snapshot request sent successfully. Please check your repo {repo} in container registry {container_registry} in 5-10 mins. It can take longer than 5-10 mins to push your snapshot image to your repo depending on the size of your image.")
-        else:
-            print(data.get("msg", "Unknown error with snapshot request"))
+    except JSONDecodeError:
+        print("Error: API returned invalid JSON response", file=sys.stderr)
+        return
+    if data.get("success"):
+        print(f"Snapshot request sent successfully. Please check your repo {repo} in container registry {container_registry} in 5-10 mins. It can take longer than 5-10 mins to push your snapshot image to your repo depending on the size of your image.")
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(data.get("msg", "Unknown error with snapshot request"))
 
 def validate_frequency_values(day_of_the_week, hour_of_the_day, frequency):
 
@@ -1961,7 +2147,7 @@ def add_scheduled_job(args, req_json, cli_command, api_endpoint, request_method,
                 "instance_id": instance_id
             }
                 # Send a POST request
-    response = requests.post(schedule_job_url, headers=headers, json=request_body)
+    response = http_post(args, schedule_job_url, headers=headers, json=request_body)
 
     if args.explain:
         print("request json: ")
@@ -1975,29 +2161,33 @@ def add_scheduled_job(args, req_json, cli_command, api_endpoint, request_method,
     elif response.status_code == 422:
         user_input = input("Existing scheduled job found. Do you want to update it (y|n)? ")
         if user_input.strip().lower() == "y":
-            scheduled_job_id = response.json()["scheduled_job_id"]
+            try:
+                resp_data = response.json()
+            except JSONDecodeError:
+                print("Error: API returned invalid JSON response", file=sys.stderr)
+                return
+            scheduled_job_id = resp_data.get("scheduled_job_id")
+            if not scheduled_job_id:
+                print("Error: API response missing required 'scheduled_job_id' field", file=sys.stderr)
+                return
             schedule_job_url = apiurl(args, f"/commands/schedule_job/{scheduled_job_id}/")
-            response = update_scheduled_job(cli_command, schedule_job_url, frequency, args.start_date, args.end_date, request_body)
+            response = update_scheduled_job(args, cli_command, schedule_job_url, frequency, args.start_date, args.end_date, request_body)
         else:
             print("Job update aborted by the user.")
     else:
             # print(r.text)
         print(f"add_scheduled_job insert: failed error: {response.status_code}. Response body: {response.text}")        
 
-def update_scheduled_job(cli_command, schedule_job_url, frequency, start_date, end_date, request_body):
-    response = requests.put(schedule_job_url, headers=headers, json=request_body)
+def update_scheduled_job(args, cli_command, schedule_job_url, frequency, start_date, end_date, request_body):
+    response = http_put(args, schedule_job_url, headers=headers, json=request_body)
 
-        # Raise an exception for HTTP errors
+    # Raise an exception for HTTP errors
     response.raise_for_status()
-    if response.status_code == 200:
-        print(f"add_scheduled_job update: success - Scheduling {frequency} job to {cli_command} from {start_date} UTC to {end_date} UTC")
+    print(f"add_scheduled_job update: success - Scheduling {frequency} job to {cli_command} from {start_date} UTC to {end_date} UTC")
+    try:
         print(response.json())
-    elif response.status_code == 401:
-        print(f"add_scheduled_job update: failed status_code: {response.status_code}. It could be because you aren't using a valid api_key.")
-    else:
-            # print(r.text)
-        print(f"add_scheduled_job update: failed status_code: {response.status_code}.")
-        print(response.json())
+    except JSONDecodeError:
+        print(response.text)
 
     return response
 
@@ -2006,8 +2196,9 @@ def update_scheduled_job(cli_command, schedule_job_url, frequency, start_date, e
     argument("--name", help="name of the api-key", type=str),
     argument("--permission_file", help="file path for json encoded permissions, see https://vast.ai/docs/cli/roles-and-permissions for more information", type=str),
     argument("--key_params", help="optional wildcard key params for advanced keys", type=str),
+    description="Create a new API key with custom permissions",
     usage="vastai create api-key --name NAME --permission_file PERMISSIONS",
-    help="Create a new api-key with restricted permissions. Can be sent to other users and teammates",
+    help="Create a new API key with custom permissions",
     epilog=deindent("""
         In order to create api keys you must understand how permissions must be sent via json format. 
         You can find more information about permissions here: https://vast.ai/docs/cli/roles-and-permissions
@@ -2019,7 +2210,14 @@ def create__api_key(args):
         permissions = load_permissions_from_file(args.permission_file)
         r = http_post(args, url, headers=headers, json={"name": args.name, "permissions": permissions, "key_params": args.key_params})
         r.raise_for_status()
-        print("api-key created {}".format(r.json()))
+        try:
+            rj = r.json()
+        except JSONDecodeError:
+            print("Error: API returned invalid JSON response", file=sys.stderr)
+            return
+        if args.raw:
+            return rj
+        print("api-key created {}".format(rj))
     except FileNotFoundError:
         print("Error: Permission file '{}' not found.".format(args.permission_file))
     except requests.exceptions.RequestException as e:
@@ -2031,8 +2229,9 @@ def create__api_key(args):
 @parser.command(
     argument("subnet", help="local subnet for cluster, ex: '0.0.0.0/24'", type=str),
     argument("manager_id", help="Machine ID of manager node in cluster. Must exist already.", type=int),
+    description="[Beta] Create a new machine cluster",
     usage="vastai create cluster SUBNET MANAGER_ID",
-    help="Create Vast cluster",
+    help="[Beta] Create a new machine cluster",
     epilog=deindent("""
         Create Vast Cluster by defining a local subnet and manager id.""")
 )
@@ -2052,25 +2251,31 @@ def create__cluster(args: argparse.Namespace):
     r  = http_post(args, req_url, json=json_blob)
     r.raise_for_status()
 
-    if args.raw:
-        return r
+    try:
+        rj = r.json()
+    except JSONDecodeError:
+        print("Error: API returned invalid JSON response", file=sys.stderr)
+        return
 
-    print(r.json()["msg"])
+    if args.raw:
+        return rj
+
+    print(rj.get("msg", "Unknown error"))
 
 @parser.command(
     argument("name", help="Environment variable name", type=str),
     argument("value", help="Environment variable value", type=str),
+    description="Create a new account-level environment variable",
     usage="vastai create env-var <name> <value>",
-    help="Create a new user environment variable",
+    help="Create a new account-level environment variable",
 )
 def create__env_var(args):
     """Create a new environment variable for the current user."""
-    url = apiurl(args, "/secrets/")
     data = {"key": args.name, "value": args.value}
-    r = http_post(args, url, headers=headers, json=data)
-    r.raise_for_status()
+    result = api_call(args, "POST", "/secrets/", json_body=data)
 
-    result = r.json()
+    if args.raw:
+        return result
     if result.get("success"):
         print(result.get("msg", "Environment variable created successfully."))
     else:
@@ -2079,8 +2284,9 @@ def create__env_var(args):
 @parser.command(
     argument("ssh_key", help="add your existing ssh public key to your account (from the .pub file). If no public key is provided, a new key pair will be generated.", type=str, nargs='?'),
     argument("-y", "--yes", help="automatically answer yes to prompts", action="store_true"),
+    description="Add an SSH public key to your account",
     usage="vastai create ssh-key [ssh_public_key] [-y]",
-    help="Create a new ssh-key",
+    help="Add an SSH public key to your account",
     epilog=deindent("""
         You may use this command to add an existing public key, or create a new ssh key pair and add that public key, to your Vast account. 
         
@@ -2101,20 +2307,20 @@ def create__env_var(args):
 
 def create__ssh_key(args):
     ssh_key_content = args.ssh_key
-    
+
     # If no SSH key provided, generate one
     if not ssh_key_content:
         ssh_key_content = generate_ssh_key(args.yes)
     else:
         print("Adding provided SSH public key to account...")
-    
+
     # Send the SSH key to the API
-    url = apiurl(args, "/ssh/")
-    r = http_post(args, url, headers=headers, json={"ssh_key": ssh_key_content})
-    r.raise_for_status()
-    
+    result = api_call(args, "POST", "/ssh/", json_body={"ssh_key": ssh_key_content})
+
+    if args.raw:
+        return result
     # Print json response
-    print("ssh-key created {}\nNote: You may need to add the new public key to any pre-existing instances".format(r.json()))
+    print("ssh-key created {}\nNote: You may need to add the new public key to any pre-existing instances".format(result))
 
 
 def generate_ssh_key(auto_yes=False):
@@ -2245,8 +2451,9 @@ def generate_ssh_key(auto_yes=False):
     argument("--cold_mult",   help="[NOTE: this field isn't currently used at the workergroup level]cold/stopped instance capacity target as multiple of hot capacity target (default 2.0)", type=float),
     argument("--cold_workers",   help="min number of workers to keep 'cold' for this workergroup", type=int),
     argument("--auto_instance", help=argparse.SUPPRESS, type=str, default="prod"),
+    description="Create an autoscaling worker group for serverless inference",
     usage="vastai workergroup create [OPTIONS]",
-    help="Create a new autoscale group",
+    help="Create an autoscaling worker group for serverless inference",
     epilog=deindent("""
         Create a new autoscaling group to manage a pool of worker instances.
                     
@@ -2275,7 +2482,10 @@ def create__workergroup(args):
     r.raise_for_status()
     if 'application/json' in r.headers.get('Content-Type', ''):
         try:
-            print("workergroup create {}".format(r.json()))
+            rj = r.json()
+            if args.raw:
+                return rj
+            print("workergroup create {}".format(rj))
         except requests.exceptions.JSONDecodeError:
             print("The response is not valid JSON.")
             print(r)
@@ -2295,8 +2505,9 @@ def create__workergroup(args):
     argument("--endpoint_name", help="deployment endpoint name (allows multiple autoscale groups to share same deployment endpoint)", type=str),
     argument("--auto_instance", help=argparse.SUPPRESS, type=str, default="prod"),
 
+    description="Create a serverless inference endpoint",
     usage="vastai create endpoint [OPTIONS]",
-    help="Create a new endpoint group",
+    help="Create a serverless inference endpoint",
     epilog=deindent("""
         Create a new endpoint group to manage many autoscaling groups
                     
@@ -2311,11 +2522,14 @@ def create__endpoint(args):
     if (args.explain):
         print("request json: ")
         print(json_blob)
-    r = requests.post(url, headers=headers,json=json_blob)
+    r = http_post(args, url, headers=headers, json=json_blob)
     r.raise_for_status()
     if 'application/json' in r.headers.get('Content-Type', ''):
         try:
-            print("create endpoint {}".format(r.json()))
+            rj = r.json()
+            if args.raw:
+                return rj
+            print("create endpoint {}".format(rj))
         except requests.exceptions.JSONDecodeError:
             print("The response is not valid JSON.")
             print(r)
@@ -2414,8 +2628,9 @@ def validate_portal_config(json_blob):
     argument("--mount-path", help="The path to the volume from within the new instance container. e.g. /root/volume", type=str),
     argument("--volume-label", help="(optional) A name to give the new volume. Only usable with --create-volume", type=str),
     
+    description="Create a new GPU instance from an offer",
     usage="vastai create instance ID [OPTIONS] [--args ...]",
-    help="Create a new instance",
+    help="Create a new GPU instance from an offer",
     epilog=deindent("""
         Performs the same action as pressing the "RENT" button on the website at https://console.vast.ai/create/ 
         Creates an instance from an offer ID (which is returned from "search offers"). Each offer ID can only be used to create one instance.
@@ -2507,7 +2722,7 @@ def create__instance(args: argparse.Namespace):
     r = http_put(args, url,  headers=headers,json=json_blob)
     r.raise_for_status()
     if args.raw:
-        return r
+        return r.json()
     else:
         print("Started. {}".format(r.json()))
 
@@ -2516,8 +2731,9 @@ def create__instance(args: argparse.Namespace):
     argument("--username", help="username to use for login", type=str),
     argument("--password", help="password to use for login", type=str),
     argument("--type", help="host/client", type=str),
+    description="Create a subaccount for delegated access",
     usage="vastai create subaccount --email EMAIL --username USERNAME --password PASSWORD --type TYPE",
-    help="Create a subaccount",
+    help="Create a subaccount for delegated access",
     epilog=deindent("""
        Creates a new account that is considered a child of your current account as defined via the API key. 
 
@@ -2531,7 +2747,7 @@ def create__subaccount(args):
     """
     # Default value for host_only, can adjust based on expected default behavior
     host_only = False
-    
+
     # Only process the --account_type argument if it's provided
     if args.type:
         host_only = args.type.lower() == "host"
@@ -2554,20 +2770,18 @@ def create__subaccount(args):
     url = apiurl(args, "/users/")
     r = http_post(args, url, headers=headers, json=json_blob)
     r.raise_for_status()
-
-    if r.status_code == 200:
-        rj = r.json()
-        print(rj)
-    else:
-        print(r.text)
-        print(f"Failed with error {r.status_code}")
+    rj = r.json()
+    if args.raw:
+        return rj
+    print(rj)
 
 @parser.command(
     argument("--team_name", help="name of the team", type=str),
+    description="Create a new team",
     usage="vastai create-team --team_name TEAM_NAME",
     help="Create a new team",
     epilog=deindent("""
-         Creates a new team under your account. 
+         Creates a new team under your account.
 
         Unlike legacy teams, this command does NOT convert your personal account into a team.
         Each team is created as a separate account, and you can be a member of multiple teams.
@@ -2578,13 +2792,9 @@ def create__subaccount(args):
           - Default roles (owner, manager, member) are automatically created.
           - You can invite others, assign roles, and manage resources within the team.
 
-        Optional:
-          You can transfer a portion of your existing personal credits to the team by using 
-          the `--transfer_credit` flag. Example:
-              vastai create-team --team_name myteam --transfer_credit 25
-
         Notes:
           - You cannot create a team from within another team account.
+          - To transfer credits to a team, use `vastai transfer credit <team_email> <amount>` after team creation.
 
         For more details, see:
         https://vast.ai/docs/teams-quickstart
@@ -2592,27 +2802,28 @@ def create__subaccount(args):
 )
 
 def create__team(args):
-    url = apiurl(args, "/team/")
-    r = http_post(args, url, headers=headers, json={"team_name": args.team_name})
-    r.raise_for_status()
-    print(r.json())
+    result = api_call(args, "POST", "/team/", json_body={"team_name": args.team_name})
+    if args.raw:
+        return result
+    print(result)
 
 @parser.command(
     argument("--name", help="name of the role", type=str),
     argument("--permissions", help="file path for json encoded permissions, look in the docs for more information", type=str),
+    description="Create a custom role with specific permissions",
     usage="vastai create team-role --name NAME --permissions PERMISSIONS",
-    help="Add a new role to your team",
+    help="Create a custom role with specific permissions",
     epilog=deindent("""
         Creating a new team role involves understanding how permissions must be sent via json format.
         You can find more information about permissions here: https://vast.ai/docs/cli/roles-and-permissions
     """)
 )
 def create__team_role(args):
-    url = apiurl(args, "/team/roles/")
     permissions = load_permissions_from_file(args.permissions)
-    r = http_post(args, url, headers=headers, json={"name": args.name, "permissions": permissions})
-    r.raise_for_status()
-    print(r.json())
+    result = api_call(args, "POST", "/team/roles/", json_body={"name": args.name, "permissions": permissions})
+    if args.raw:
+        return result
+    print(result)
 
 def get_template_arguments():
     return [
@@ -2640,8 +2851,9 @@ def get_template_arguments():
 
 @parser.command(
     *get_template_arguments(),
+    description="Create a reusable instance configuration template",
     usage="vastai create template",
-    help="Create a new template",
+    help="Create a reusable instance configuration template",
     epilog=deindent("""
         Create a template that can be used to create instances with
 
@@ -2668,7 +2880,7 @@ def create__template(args):
     default_search_query = {}
     if not args.no_default:
         default_search_query = {"verified": {"eq": True}, "external": {"eq": False}, "rentable": {"eq": True}, "rented": {"eq": False}}
-    
+
     extra_filters = parse_query(args.search_params, default_search_query, offers_fields, offers_alias, offers_mult)
     template = {
         "name" : args.name,
@@ -2701,10 +2913,12 @@ def create__template(args):
     r.raise_for_status()
     try:
         rj = r.json()
-        if rj["success"]:
-            print(f"New Template: {rj['template']}")
+        if args.raw:
+            return rj
+        if rj.get("success"):
+            print(f"New Template: {rj.get('template', '')}")
         else:
-            print(rj['msg'])
+            print(rj.get('msg', 'Unknown error'))
     except requests.exceptions.JSONDecodeError:
         print("The response is not valid JSON.")
 
@@ -2714,15 +2928,16 @@ def create__template(args):
     argument("-s", "--size",
              help="size in GB of volume. Default %(default)s GB.", default=15, type=float),
     argument("-n", "--name", help="Optional name of volume.", type=str),
+    description="Create a new persistent storage volume",
     usage="vastai create volume ID [options]",
-    help="Create a new volume",
+    help="Create a new persistent storage volume",
     epilog=deindent("""
         Creates a volume from an offer ID (which is returned from "search volumes"). Each offer ID can be used to create multiple volumes,
         provided the size of all volumes does not exceed the size of the offer.
     """)
 )
 def create__volume(args: argparse.Namespace):
-    
+
     json_blob ={
         "size": int(args.size),
         "id": int(args.id)
@@ -2738,7 +2953,7 @@ def create__volume(args: argparse.Namespace):
     r = http_put(args, url,  headers=headers,json=json_blob)
     r.raise_for_status()
     if args.raw:
-        return r
+        return r.json()
     else:
         print("Created. {}".format(r.json()))
 
@@ -2748,8 +2963,9 @@ def create__volume(args: argparse.Namespace):
     argument("-s", "--size",
              help="size in GB of network volume. Default %(default)s GB.", default=15, type=float),
     argument("-n", "--name", help="Optional name of network volume.", type=str),
+    description="[Host] [Beta] Create a new network-attached storage volume",
     usage="vastai create network volume ID [options]",
-    help="Create a new network volume",
+    help="[Host] [Beta] Create a new network-attached storage volume",
     epilog=deindent("""
         Creates a network volume from an offer ID (which is returned from "search network volumes"). Each offer ID can be used to create multiple volumes,
         provided the size of all volumes does not exceed the size of the offer.
@@ -2772,15 +2988,16 @@ def create__network_volume(args: argparse.Namespace):
     r = http_put(args, url,  headers=headers,json=json_blob)
     r.raise_for_status()
     if args.raw:
-        return r
+        return r.json()
     else:
         print("Created. {}".format(r.json()))
 
 @parser.command(
     argument("cluster_id", help="ID of cluster to create overlay on top of", type=int),
     argument("name", help="overlay network name"),
+    description="[Beta] Create a virtual overlay network on a cluster",
     usage="vastai create overlay CLUSTER_ID OVERLAY_NAME",
-    help="Creates overlay network on top of a physical cluster",
+    help="[Beta] Create a virtual overlay network on a cluster",
     epilog=deindent("""
     Creates an overlay network to allow local networking between instances on a physical cluster""")
 )
@@ -2798,49 +3015,53 @@ def create__overlay(args: argparse.Namespace):
     r.raise_for_status()
 
     if args.raw:
-        return r
+        return r.json()
 
-    print(r.json()["msg"])
+    print(r.json().get("msg", "Unknown error"))
 
 @parser.command(
     argument("id", help="id of apikey to remove", type=int),
+    description="Delete an API key",
     usage="vastai delete api-key ID",
-    help="Remove an api-key",
+    help="Delete an API key",
 )
 def delete__api_key(args):
-    url = apiurl(args, "/auth/apikeys/{id}/".format(id=args.id))
-    r = http_del(args, url, headers=headers)
-    r.raise_for_status()
-    print(r.json())
+    result = api_call(args, "DELETE", f"/auth/apikeys/{args.id}/")
+    if args.raw:
+        return result
+    print(result)
 
 @parser.command(
     argument("id", help="id ssh key to delete", type=int),
+    description="Remove an SSH key from your account",
     usage="vastai delete ssh-key ID",
-    help="Remove an ssh-key",
+    help="Remove an SSH key from your account",
 )
 def delete__ssh_key(args):
-    url = apiurl(args, "/ssh/{id}/".format(id=args.id))
-    r = http_del(args, url, headers=headers)
-    r.raise_for_status()
-    print(r.json())
+    result = api_call(args, "DELETE", f"/ssh/{args.id}/")
+    if args.raw:
+        return result
+    print(result)
 
 @parser.command(
     argument("id", help="id of scheduled job to remove", type=int),
+    description="Delete a scheduled job",
     usage="vastai delete scheduled-job ID",
     help="Delete a scheduled job",
 )
 def delete__scheduled_job(args):
-    url = apiurl(args, "/commands/schedule_job/{id}/".format(id=args.id))
-    r = http_del(args, url, headers=headers)
-    r.raise_for_status()
-    print(r.json())
+    result = api_call(args, "DELETE", f"/commands/schedule_job/{args.id}/")
+    if args.raw:
+        return result
+    print(result)
 
 
 
 @parser.command(
     argument("cluster_id", help="ID of cluster to delete", type=int),
+    description="[Beta] Delete a machine cluster",
     usage="vastai delete cluster CLUSTER_ID",
-    help="Delete Cluster",
+    help="[Beta] Delete a machine cluster",
     epilog=deindent("""
         Delete Vast Cluster""")
 )
@@ -2852,28 +3073,27 @@ def delete__cluster(args: argparse.Namespace):
     if args.explain:
         print("request json:", json_blob)
 
-    req_url = apiurl(args, "/cluster/")
-    r = http_del(args, req_url, json=json_blob)
-    r.raise_for_status()
+    result = api_call(args, "DELETE", "/cluster/", json_body=json_blob)
 
     if args.raw:
-        return r
+        return result
 
-    print(r.json()["msg"])
+    print(result.get("msg", "Unknown error"))
 
 
 @parser.command(
     argument("id", help="id of group to delete", type=int),
+    description="Delete an autoscaling worker group",
     usage="vastai delete workergroup ID ",
-    help="Delete a workergroup group",
+    help="Delete an autoscaling worker group",
     epilog=deindent("""
         Note that deleting a workergroup doesn't automatically destroy all the instances that are associated with your workergroup.
         Example: vastai delete workergroup 4242
     """),
 )
 def delete__workergroup(args):
-    id  = args.id
-    url = apiurl(args, f"/autojobs/{id}/" )
+    workergroup_id = args.id
+    url = apiurl(args, f"/autojobs/{workergroup_id}/")
     json_blob = {"client_id": "me", "autojob_id": args.id}
     if (args.explain):
         print("request json: ")
@@ -2882,7 +3102,10 @@ def delete__workergroup(args):
     r.raise_for_status()
     if 'application/json' in r.headers.get('Content-Type', ''):
         try:
-            print("workergroup delete {}".format(r.json()))
+            rj = r.json()
+            if args.raw:
+                return rj
+            print("workergroup delete {}".format(rj))
         except requests.exceptions.JSONDecodeError:
             print("The response is not valid JSON.")
             print(r)
@@ -2893,15 +3116,16 @@ def delete__workergroup(args):
 
 @parser.command(
     argument("id", help="id of endpoint group to delete", type=int),
+    description="Delete a serverless inference endpoint",
     usage="vastai delete endpoint ID ",
-    help="Delete an endpoint group",
+    help="Delete a serverless inference endpoint",
     epilog=deindent("""
         Example: vastai delete endpoint 4242
     """),
 )
 def delete__endpoint(args):
-    id  = args.id
-    url = apiurl(args, f"/endptjobs/{id}/" )
+    endpoint_id = args.id
+    url = apiurl(args, f"/endptjobs/{endpoint_id}/")
     json_blob = {"client_id": "me", "endptjob_id": args.id}
     if (args.explain):
         print("request json: ")
@@ -2910,7 +3134,10 @@ def delete__endpoint(args):
     r.raise_for_status()
     if 'application/json' in r.headers.get('Content-Type', ''):
         try:
-            print("delete endpoint {}".format(r.json()))
+            rj = r.json()
+            if args.raw:
+                return rj
+            print("delete endpoint {}".format(rj))
         except requests.exceptions.JSONDecodeError:
             print("The response is not valid JSON.")
             print(r)
@@ -2921,6 +3148,7 @@ def delete__endpoint(args):
 
 @parser.command(
     argument("name", help="Environment variable name to delete", type=str),
+    description="Delete a user environment variable",
     usage="vastai delete env-var <name>",
     help="Delete a user environment variable",
 )
@@ -2931,7 +3159,13 @@ def delete__env_var(args):
     r = http_del(args, url, headers=headers, json=data)
     r.raise_for_status()
 
-    result = r.json()
+    try:
+        result = r.json()
+    except JSONDecodeError:
+        print("Error: API returned invalid JSON response", file=sys.stderr)
+        return
+    if args.raw:
+        return result
     if result.get("success"):
         print(result.get("msg", "Environment variable deleted successfully."))
     else:
@@ -2939,8 +3173,9 @@ def delete__env_var(args):
 
 @parser.command(
     argument("overlay_identifier", help="ID (int) or name (str) of overlay to delete", nargs="?"),
+    description="[Beta] Delete an overlay network and its instances",
     usage="vastai delete overlay OVERLAY_IDENTIFIER",
-    help="Deletes overlay and removes all of its associated instances"
+    help="[Beta] Delete an overlay network and its instances"
 )
 def delete__overlay(args: argparse.Namespace):
     identifier = args.overlay_identifier
@@ -2957,20 +3192,19 @@ def delete__overlay(args: argparse.Namespace):
     if args.explain:
         print("request json:", json_blob)
 
-    req_url = apiurl(args, "/overlay/")
-    r = http_del(args, req_url, json=json_blob)
-    r.raise_for_status()
+    result = api_call(args, "DELETE", "/overlay/", json_body=json_blob)
 
     if args.raw:
-        return r
+        return result
 
-    print(r.json()["msg"])
+    print(result.get("msg", "Unknown error"))
 
 @parser.command(
     argument("--template-id", help="Template ID of Template to Delete", type=int),
     argument("--hash-id", help="Hash ID of Template to Delete", type=str),
+    description="Delete a template",
     usage="vastai delete template [--template-id <id> | --hash-id <hash_id>]",
-    help="Delete a Template",
+    help="Delete a template",
     epilog=deindent("""
         Note: Deleting a template only removes the user's replationship to a template. It does not get destroyed
         Example: vastai delete template --template-id 12345
@@ -2979,7 +3213,7 @@ def delete__overlay(args: argparse.Namespace):
 )
 def delete__template(args):
     url = apiurl(args, f"/template/" )
-    
+
     if args.hash_id:
         json_blob = { "hash_id": args.hash_id }
     elif args.template_id:
@@ -2987,18 +3221,20 @@ def delete__template(args):
     else:
         print('ERROR: Must Specify either Template ID or Hash ID to delete a template')
         return
-    
+
     if (args.explain):
         print("request json: ")
         print(json_blob)
         print(args)
         print(url)
     r = http_del(args, url, headers=headers,json=json_blob)
-    print(r)
     # r.raise_for_status()
     if 'application/json' in r.headers.get('Content-Type', ''):
         try:
-            print(r.json()['msg'])
+            rj = r.json()
+            if args.raw:
+                return rj
+            print(rj.get('msg', 'Unknown error'))
         except requests.exceptions.JSONDecodeError:
             print("The response is not valid JSON.")
             print(r)
@@ -3010,20 +3246,19 @@ def delete__template(args):
 
 @parser.command(
     argument("id", help="id of volume contract", type=int),
+    description="Delete a persistent storage volume",
     usage="vastai delete volume ID",
-    help="Delete a volume",
+    help="Delete a persistent storage volume",
     epilog=deindent("""
         Deletes volume with the given ID. All instances using the volume must be destroyed before the volume can be deleted.
     """)
 )
 def delete__volume(args: argparse.Namespace):
-    url = apiurl(args, "/volumes/", query_args={"id": args.id})
-    r = http_del(args, url, headers=headers)
-    r.raise_for_status()
+    result = api_call(args, "DELETE", "/volumes/", query_args={"id": args.id})
     if args.raw:
-        return r
+        return result
     else:
-        print("Deleted. {}".format(r.json()))
+        print("Deleted. {}".format(result))
 
 
 def destroy_instance(id,args):
@@ -3031,25 +3266,32 @@ def destroy_instance(id,args):
     r = http_del(args, url, headers=headers,json={})
     r.raise_for_status()
     if args.raw:
-        return r
-    elif (r.status_code == 200):
-        rj = r.json();
-        if (rj["success"]):
-            print("destroying instance {id}.".format(**(locals())));
-        else:
-            print(rj["msg"]);
+        return r.json()
+    rj = r.json();
+    if rj.get("success"):
+        print("destroying instance {id}.".format(**(locals())));
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(rj.get("msg", "Unknown error"));
 
 
 @parser.command(
     argument("id", help="id of instance to delete", type=int),
+    description="Destroy an instance (irreversible, deletes data)",
     usage="vastai destroy instance id [-h] [--api-key API_KEY] [--raw]",
     help="Destroy an instance (irreversible, deletes data)",
     epilog=deindent("""
-        Perfoms the same action as pressing the "DESTROY" button on the website at https://console.vast.ai/instances/
-        Example: vastai destroy instance 4242
+        Performs the same action as pressing the "DESTROY" button on the website at https://console.vast.ai/instances/
+
+        WARNING: This action is IMMEDIATE and IRREVERSIBLE. All data on the instance will be permanently
+        deleted unless you have saved it to a persistent volume or external storage.
+
+        Examples:
+            vastai destroy instance 12345              # Destroy instance with ID 12345
+
+        Before destroying:
+          - Save any important data using 'vastai copy' or by mounting a persistent volume
+          - Check instance ID carefully with 'vastai show instances'
+          - Consider using 'vastai stop instance' if you want to pause without data loss
     """),
 )
 def destroy__instance(args):
@@ -3060,8 +3302,9 @@ def destroy__instance(args):
     destroy_instance(args.id,args)
 
 @parser.command(
-    argument("ids", help="ids of instance to destroy", type=int, nargs='+'),
-    usage="vastai destroy instances [--raw] <id>",
+    argument("ids", help="ids of instances to destroy", type=int, nargs='+'),
+    description="Destroy a list of instances (irreversible, deletes data)",
+    usage="vastai destroy instances IDS [OPTIONS]",
     help="Destroy a list of instances (irreversible, deletes data)",
 )
 def destroy__instances(args):
@@ -3071,20 +3314,22 @@ def destroy__instances(args):
         destroy_instance(id, args)
 
 @parser.command(
+    description="Delete your team and remove all members",
     usage="vastai destroy team",
-    help="Destroy your team",
+    help="Delete your team and remove all members",
 )
 def destroy__team(args):
-    url = apiurl(args, "/team/")
-    r = http_del(args, url, headers=headers)
-    r.raise_for_status()
-    print(r.json())
+    result = api_call(args, "DELETE", "/team/")
+    if args.raw:
+        return result
+    print(result)
 
 @parser.command(
     argument("instance_id", help="id of the instance", type=int),
     argument("ssh_key_id", help="id of the key to detach to the instance", type=str),
+    description="Remove an SSH key from an instance",
     usage="vastai detach instance_id ssh_key_id",
-    help="Detach an ssh key from an instance",
+    help="Remove an SSH key from an instance",
     epilog=deindent("""
         Example: vastai detach 99999 12345
     """)
@@ -3093,7 +3338,13 @@ def detach__ssh(args):
     url = apiurl(args, "/instances/{id}/ssh/{ssh_key_id}/".format(id=args.instance_id, ssh_key_id=args.ssh_key_id))
     r = http_del(args, url, headers=headers)
     r.raise_for_status()
-    print(r.json())
+    try:
+        rj = r.json()
+    except JSONDecodeError:
+        rj = {"response": r.text}
+    if args.raw:
+        return rj
+    print(rj)
 
 @parser.command(
     argument("id", help="id of instance to execute on", type=int),
@@ -3103,8 +3354,9 @@ def detach__ssh(args):
     argument("--end_date", type=str, default=default_end_date(), help="End date/time in format 'YYYY-MM-DD HH:MM:SS PM' (UTC). Default is 7 days from now. (optional)"),
     argument("--day", type=parse_day_cron_style, help="Day of week you want scheduled job to run on (0-6, where 0=Sunday) or \"*\". Default will be 0. For ex. --day 0", default=0),
     argument("--hour", type=parse_hour_cron_style, help="Hour of day you want scheduled job to run on (0-23) or \"*\" (UTC). Default will be 0. For ex. --hour 16", default=0),
+    description="Execute a command on a running instance",
     usage="vastai execute id COMMAND",
-    help="Execute a (constrained) remote command on a machine",
+    help="Execute a command on a running instance",
     epilog=deindent("""
         Examples:
           vastai execute 99999 'ls -l -o -r'
@@ -3141,22 +3393,21 @@ def execute(args):
         add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT", instance_id=args.id)
         return
 
-    if (r.status_code == 200):
-        rj = r.json()
-        if (rj["success"]):
-            for i in range(0,30):
-                time.sleep(0.3)
-                url = rj["result_url"]
-                r = requests.get(url)
-                if (r.status_code == 200):
-                    filtered_text = r.text.replace(rj["writeable_path"], '');
-                    print(filtered_text)
-                    break
-        else:
-            print(rj);
+    rj = r.json()
+    if rj.get("success"):
+        url = rj.get("result_url")
+        if not url:
+            print("Error: API response missing required 'result_url' field", file=sys.stderr)
+            return
+        for i in range(0,30):
+            time.sleep(0.3)
+            r = http_get(args, url)
+            if (r.status_code == 200):
+                filtered_text = r.text.replace(rj.get("writeable_path", ''), '');
+                print(filtered_text)
+                break
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(rj);
 
 
 
@@ -3164,8 +3415,9 @@ def execute(args):
     argument("id", help="id of endpoint group to fetch logs from", type=int),
     argument("--level", help="log detail level (0 to 3)", type=int, default=1),
     argument("--tail", help="", type=int, default=None),
+    description="Get logs for a serverless endpoint",
     usage="vastai get endpt-logs ID [--api-key API_KEY]",
-    help="Fetch logs for a specific serverless endpoint group",
+    help="Get logs for a serverless endpoint",
     epilog=deindent("""
         Example: vastai get endpt-logs 382
     """),
@@ -3175,7 +3427,7 @@ def get__endpt_logs(args):
     if args.url == server_url_default:
         args.url = None
     url = (args.url or "https://run.vast.ai") + "/get_endpoint_logs/"
-    json_blob = {"id": args.id, "api_key": args.api_key}
+    json_blob = {"id": args.id}
     if args.tail: json_blob["tail"] = args.tail
     if (args.explain):
         print(f"{url} with request json: ")
@@ -3185,29 +3437,27 @@ def get__endpt_logs(args):
     r.raise_for_status()
     levels = {0 : "info0", 1: "info1", 2: "trace", 3: "debug"}
 
-    if (r.status_code == 200):
-        rj = None
-        try:
-            rj = r.json()
-        except Exception as e:
-            print(str(e))
-            print(r.text)
-        if args.raw:
-            # sort_keys
-            return rj or r.text
-        else:
-            dbg_lvl = levels[args.level]
-            if rj and dbg_lvl: print(rj[dbg_lvl])
-            #print(json.dumps(rj, indent=1, sort_keys=True))
-    else:
+    rj = None
+    try:
+        rj = r.json()
+    except Exception as e:
+        print(str(e))
         print(r.text)
+    if args.raw:
+        # sort_keys
+        return rj or r.text
+    else:
+        dbg_lvl = levels[args.level]
+        if rj and dbg_lvl: print(rj[dbg_lvl])
+        #print(json.dumps(rj, indent=1, sort_keys=True))
 
 @parser.command(
     argument("id", help="id of endpoint group to fetch logs from", type=int),
     argument("--level", help="log detail level (0 to 3)", type=int, default=1),
     argument("--tail", help="", type=int, default=None),
+    description="Get logs for an autoscaling worker group",
     usage="vastai get wrkgrp-logs ID [--api-key API_KEY]",
-    help="Fetch logs for a specific serverless worker group group",
+    help="Get logs for an autoscaling worker group",
     epilog=deindent("""
         Example: vastai get endpt-logs 382
     """),
@@ -3217,7 +3467,7 @@ def get__wrkgrp_logs(args):
     if args.url == server_url_default:
         args.url = None
     url = (args.url or "https://run.vast.ai") + "/get_autogroup_logs/"
-    json_blob = {"id": args.id, "api_key": args.api_key}
+    json_blob = {"id": args.id}
     if args.tail: json_blob["tail"] = args.tail
     if (args.explain):
         print(f"{url} with request json: ")
@@ -3227,45 +3477,46 @@ def get__wrkgrp_logs(args):
     r.raise_for_status()
     levels = {0 : "info0", 1: "info1", 2: "trace", 3: "debug"}
 
-    if (r.status_code == 200):
-        rj = None
-        try:
-            rj = r.json()
-        except Exception as e:
-            print(str(e))
-            print(r.text)
-        if args.raw:
-            # sort_keys
-            return rj or r.text
-        else:
-            dbg_lvl = levels[args.level]
-            if rj and dbg_lvl: print(rj[dbg_lvl])
-            #print(json.dumps(rj, indent=1, sort_keys=True))
-    else:
+    rj = None
+    try:
+        rj = r.json()
+    except Exception as e:
+        print(str(e))
         print(r.text)
+    if args.raw:
+        # sort_keys
+        return rj or r.text
+    else:
+        dbg_lvl = levels[args.level]
+        if rj and dbg_lvl: print(rj[dbg_lvl])
+        #print(json.dumps(rj, indent=1, sort_keys=True))
 
 @parser.command(
     argument("--email", help="email of user to be invited", type=str),
     argument("--role", help="role of user to be invited", type=str),
+    description="Invite a user to join your team",
     usage="vastai invite member --email EMAIL --role ROLE",
-    help="Invite a team member",
+    help="Invite a user to join your team",
 )
 def invite__member(args):
     url = apiurl(args, "/team/invite/", query_args={"email": args.email, "role": args.role})
     r = http_post(args, url, headers=headers)
     r.raise_for_status()
-    if (r.status_code == 200):
-        print(f"successfully invited {args.email} to your current team")
-    else:
-        print(r.text);
-        print(f"failed with error {r.status_code}")
+    try:
+        rj = r.json()
+    except JSONDecodeError:
+        rj = {"success": True, "email": args.email}
+    if args.raw:
+        return rj
+    print(f"successfully invited {args.email} to your current team")
 
 
 @parser.command(
     argument("cluster_id", help="ID of cluster to add machine to", type=int),
     argument("machine_ids", help="machine id(s) to join cluster", type=int, nargs="+"),
+    description="[Beta] Add a machine to an existing cluster",
     usage="vastai join cluster CLUSTER_ID MACHINE_IDS",
-    help="Join Machine to Cluster",
+    help="[Beta] Add a machine to an existing cluster",
     epilog=deindent("""
         Join's Machine to Vast Cluster
     """)
@@ -3284,16 +3535,17 @@ def join__cluster(args: argparse.Namespace):
     r.raise_for_status()
 
     if args.raw:
-        return r
+        return r.json()
 
-    print(r.json()["msg"])
+    print(r.json().get("msg", "Unknown error"))
 
 
 @parser.command(
     argument("name", help="Overlay network name to join instance to.", type=str),
     argument("instance_id", help="Instance ID to add to overlay.", type=int),
+    description="[Beta] Connect an instance to an overlay network",
     usage="vastai join overlay OVERLAY_NAME INSTANCE_ID",
-    help="Adds instance to an overlay network",
+    help="[Beta] Connect an instance to an overlay network",
     epilog=deindent("""
     Adds an instance to a compatible overlay network.""")
 )
@@ -3311,15 +3563,16 @@ def join__overlay(args: argparse.Namespace):
     r.raise_for_status()
 
     if args.raw:
-        return r
+        return r.json()
 
-    print(r.json()["msg"])
+    print(r.json().get("msg", "Unknown error"))
 
 
 
 @parser.command(
     argument("id", help="id of instance to label", type=int),
     argument("label", help="label to set", type=str),
+    description="Assign a string label to an instance",
     usage="vastai label instance <id> <label>",
     help="Assign a string label to an instance",
 )
@@ -3329,23 +3582,22 @@ def label__instance(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    url       = apiurl(args, "/instances/{id}/".format(id=args.id))
     json_blob = { "label": args.label }
     if (args.explain):
         print("request json: ")
         print(json_blob)
-    r = http_put(args, url,  headers=headers,json=json_blob)
-    r.raise_for_status()
+    result = api_call(args, "PUT", "/instances/{id}/".format(id=args.id), json_body=json_blob)
 
-    rj = r.json();
-    if rj["success"]:
+    if args.raw:
+        return result
+    if result.get("success"):
         print("label for {args.id} set to {args.label}.".format(**(locals())));
     else:
-        print(rj["msg"]);
+        print(result.get("msg", "Unknown error"));
 
 
 def fetch_url_content(url):
-    response = requests.get(url)
+    response = requests.get(url, timeout=DEFAULT_TIMEOUT)
     response.raise_for_status()  # Raises an HTTPError for bad responses
     return response.text
 
@@ -3357,7 +3609,7 @@ def _get_gpu_names() -> List[str]:
         """Checks if the cache file exists and is less than 24 hours old."""
         if not os.path.exists(CACHE_FILE):
             return False
-        cache_age = datetime.now() - datetime.fromtimestamp(os.path.getmtime(CACHE_FILE))
+        cache_age = datetime.now(tz=timezone.utc) - datetime.fromtimestamp(os.path.getmtime(CACHE_FILE), tz=timezone.utc)
         return cache_age < CACHE_DURATION
     
     if is_cache_valid():
@@ -3366,7 +3618,7 @@ def _get_gpu_names() -> List[str]:
     else:
         endpoint = "/api/v0/gpu_names/unique/"
         url = f"{server_url_default}{endpoint}"
-        r = requests.get(url, headers={})
+        r = requests.get(url, headers={}, timeout=DEFAULT_TIMEOUT)
         r.raise_for_status()  # Will raise an exception for HTTP errors
         gpu_names = r.json()
         with open(CACHE_FILE, "w") as file:
@@ -3379,12 +3631,12 @@ def _get_gpu_names() -> List[str]:
 
 
 REGIONS = {
-"North_America": "[AG, BS, BB, BZ, CA, CR, CU, DM, DO, SV, GD, GT, HT, HN, JM, MX, NI, PA, KN, LC, VC, TT, US]",
-"South_America": "[AR, BO, BR, CL, CO, EC, FK, GF, GY, PY, PE, SR, UY, VE]",
-"Europe": "[AL, AD, AT, BY, BE, BA, BG, HR, CY, CZ, DK, EE, FI, FR, DE, GR, HU, IS, IE, IT, LV, LI, LT, LU, MT, MD, MC, ME, NL, MK, NO, PL, PT, RO, RU, SM, RS, SK, SI, ES, SE, CH, UA, GB, VA, XK]",
-"Asia": "[AF, AM, AZ, BH, BD, BT, BN, KH, CN, GE, IN, ID, IR, IQ, IL, JP, JO, KZ, KW, KG, LA, LB, MY, MV, MN, MM, NP, KP, OM, PK, PH, QA, SA, SG, KR, LK, SY, TW, TJ, TH, TL, TR, TM, AE, UZ, VN, YE, HK, MO]",
-"Oceania": "[AS, AU, CK, FJ, PF, GU, KI, MH, FM, NR, NC, NZ, NU, MP, PW, PG, PN, WS, SB, TK, TO, TV, VU, WF]",
-"Africa": "[DZ, AO, BJ, BW, BF, BI, CV, CM, CF, TD, KM, CG, CD, CI, DJ, EG, GQ, ER, SZ, ET, GA, GM, GH, GN, GW, KE, LS, LR, LY, MG, MW, ML, MR, MU, MA, MZ, NA, NE, NG, RW, ST, SN, SC, SL, SO, ZA, SS, SD, TZ, TG, TN, UG, ZM, ZW]"
+    "North_America": "[US, CA]",
+    "South_America": "[BR, AR, CL]",
+    "Europe": "[SE, UA, GB, PL, PT, SI, DE, IT, CH, LT, GR, FI, IS, AT, FR, RO, MD, HU, NO, MK, BG, ES, HR, NL, CZ, EE",
+    "Asia": "[CN, JP, KR, ID, IN, HK, MY, IL, TH, QA, TR, RU, VN, TW, OM, SG, AE, KZ]",
+    "Oceania": "[AU, NZ]",
+    "Africa": "[EG, ZA]",
 }
 
 def _is_valid_region(region):
@@ -3428,8 +3680,9 @@ def _parse_region(region):
     argument("--force", help="Skip sanity checks when creating from an existing instance", action="store_true"),
     argument("--cancel-unavail", help="Return error if scheduling fails (rather than creating a stopped instance)", action="store_true"),
     argument("--template_hash",   help="template hash which contains all relevant information about an instance. This can be used as a replacement for other parameters describing the instance configuration", type=str),
+    description="Launch a new instance using search parameters to auto-select the best offer",
     usage="vastai launch instance [--help] [--api-key API_KEY] <gpu_name> <num_gpus> <image> [geolocation] [disk_space]",
-    help="Launch the top instance from the search offers based on the given parameters",
+    help="Launch a new instance using search parameters to auto-select the best offer",
     epilog=deindent("""
         Launches an instance based on the given parameters. The instance will be created with the top offer from the search results.
         Besides the gpu_name and num_gpus, you must pass in an '--image' argument as a minimum.
@@ -3487,12 +3740,12 @@ def launch__instance(args):
         if not name: continue
         direction = "asc"
         field = name
-        if name.strip("-") != name:
+        if name.startswith("-"):
             direction = "desc"
-            field = name.strip("-")
-        if name.strip("+") != name:
+            field = name.lstrip("-")
+        elif name.startswith("+"):
             direction = "asc"
-            field = name.strip("+")
+            field = name.lstrip("+")
         #print(f"{field} {name} {direction}")
         if field in offers_alias:
             field = offers_alias[field];
@@ -3522,7 +3775,6 @@ def launch__instance(args):
         "disk": args.disk,  
         "q" : query,
         "env" : parse_env(args.env),
-        "disk": args.disk,
         "label": args.label,
         "extra": args.extra,
         "onstart": args.onstart_cmd,
@@ -3555,7 +3807,7 @@ def launch__instance(args):
         r.raise_for_status()  # This will raise an exception for HTTP error codes
         response_data = r.json()
         if args.raw:
-            return r
+            return r.json()
         else:
             print("Started. {}".format(r.json()))
         if response_data.get('success'):
@@ -3573,6 +3825,7 @@ def launch__instance(args):
     argument("--tail", help="Number of lines to show from the end of the logs (default '1000')", type=str),
     argument("--filter", help="Grep filter for log entries", type=str),
     argument("--daemon-logs", help="Fetch daemon system logs instead of container logs", action="store_true"),
+    description="Get the logs for an instance",
     usage="vastai logs INSTANCE_ID [OPTIONS] ",
     help="Get the logs for an instance",
 )
@@ -3592,32 +3845,31 @@ def logs(args):
 
     r = http_put(args, url, headers=headers, json=json_blob)
     r.raise_for_status()
-
-    if r.status_code == 200:
-        rj = r.json()
-        for i in range(0, 30):
-            time.sleep(0.3)
-            url = rj["result_url"]
-            print(f"waiting on logs for instance {args.INSTANCE_ID} fetching from {url}")
-            r = requests.get(url)
-            if r.status_code == 200:
-                result = r.text
-                cleaned_text = re.sub(r'\n\s*\n', '\n', result)
-                print(cleaned_text)
-                break
-        else:
-            print(rj["msg"])
+    rj = r.json()
+    url = rj.get("result_url")
+    if not url:
+        print("Error: API response missing required 'result_url' field", file=sys.stderr)
+        return
+    for i in range(0, 30):
+        time.sleep(0.3)
+        print(f"waiting on logs for instance {args.INSTANCE_ID} fetching from {url}")
+        r = http_get(args, url)
+        if r.status_code == 200:
+            result = r.text
+            cleaned_text = re.sub(r'\n\s*\n', '\n', result)
+            print(cleaned_text)
+            break
     else:
-        print(r.text)
-        print(f"failed with error {r.status_code}")
+        print(rj.get("msg", "Unknown error"))
 
 
 
 @parser.command(
     argument("id", help="id of instance to prepay for", type=int),
     argument("amount", help="amount of instance credit prepayment (default discount func of 0.2 for 1 month, 0.3 for 3 months)", type=float),
+    description="Prepay credits for a reserved instance to prevent interruption",
     usage="vastai prepay instance ID AMOUNT",
-    help="Deposit credits into reserved instance",
+    help="Prepay credits for a reserved instance to prevent interruption",
 )
 def prepay__instance(args):
     """
@@ -3632,13 +3884,19 @@ def prepay__instance(args):
     r = http_put(args, url,  headers=headers,json=json_blob)
     r.raise_for_status()
 
-    rj = r.json();
-    if rj["success"]:
-        timescale = round( rj["timescale"], 3)
-        discount_rate = 100.0*round( rj["discount_rate"], 3)
+    try:
+        rj = r.json();
+    except JSONDecodeError:
+        print("Error: API returned invalid JSON response", file=sys.stderr)
+        return
+    if args.raw:
+        return rj
+    if rj.get("success"):
+        timescale = round( rj.get("timescale", 0), 3)
+        discount_rate = 100.0*round( rj.get("discount_rate", 0), 3)
         print("prepaid for {timescale} months of instance {args.id} applying ${args.amount} credits for a discount of {discount_rate}%".format(**(locals())));
     else:
-        print(rj["msg"]);
+        print(rj.get("msg", "Unknown error"));
 
 '''
 '''
@@ -3651,6 +3909,7 @@ def prepay__instance(args):
     argument("--end_date", type=str, default=default_end_date(), help="End date/time in format 'YYYY-MM-DD HH:MM:SS PM' (UTC). Default is 7 days from now. (optional)"),
     argument("--day", type=parse_day_cron_style, help="Day of week you want scheduled job to run on (0-6, where 0=Sunday) or \"*\". Default will be 0. For ex. --day 0", default=0),
     argument("--hour", type=parse_hour_cron_style, help="Hour of day you want scheduled job to run on (0-23) or \"*\" (UTC). Default will be 0. For ex. --hour 16", default=0),
+    description="Reboot (stop/start) an instance",
     usage="vastai reboot instance ID [OPTIONS]",
     help="Reboot (stop/start) an instance",
     epilog=deindent("""
@@ -3662,9 +3921,7 @@ def reboot__instance(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    url = apiurl(args, "/instances/reboot/{id}/".format(id=args.id))
-    r = http_put(args, url,  headers=headers,json={})
-    r.raise_for_status()
+    result = api_call(args, "PUT", "/instances/reboot/{id}/".format(id=args.id))
 
     if (args.schedule):
         validate_frequency_values(args.day, args.hour, args.schedule)
@@ -3674,21 +3931,19 @@ def reboot__instance(args):
         add_scheduled_job(args, json_blob, cli_command, api_endpoint, "PUT", instance_id=args.id)
         return
 
-    if (r.status_code == 200):
-        rj = r.json();
-        if (rj["success"]):
-            print("Rebooting instance {args.id}.".format(**(locals())));
-        else:
-            print(rj["msg"]);
+    if args.raw:
+        return result
+    if result and result.get("success"):
+        print("Rebooting instance {args.id}.".format(**(locals())));
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(result.get("msg", "") if result else "");
 
 
 @parser.command(
     argument("id", help="id of instance to recycle", type=int),
+    description="Destroy and recreate an instance with the same configuration",
     usage="vastai recycle instance ID [OPTIONS]",
-    help="Recycle (destroy/create) an instance",
+    help="Destroy and recreate an instance with the same configuration",
     epilog=deindent("""
         Destroys and recreates container in place (from newly pulled image) without any risk of losing GPU priority.
     """),
@@ -3698,46 +3953,44 @@ def recycle__instance(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    url = apiurl(args, "/instances/recycle/{id}/".format(id=args.id))
-    r = http_put(args, url,  headers=headers,json={})
-    r.raise_for_status()
+    result = api_call(args, "PUT", "/instances/recycle/{id}/".format(id=args.id))
 
-    if (r.status_code == 200):
-        rj = r.json()
-        if (rj["success"]):
-            print("Recycling instance {args.id}.".format(**(locals())));
-        else:
-            print(rj["msg"]);
+    if args.raw:
+        return result
+    if result and result.get("success"):
+        print("Recycling instance {args.id}.".format(**(locals())));
     else:
-        print(r.text)
-        print("failed with error {r.status_code}".format(**locals()));
+        print(result.get("msg", "") if result else "");
 
 @parser.command(
     argument("id", help="id of user to remove", type=int),
+    description="Remove a team member",
     usage="vastai remove member ID",
     help="Remove a team member",
 )
 def remove__member(args):
-    url = apiurl(args, "/team/members/{id}/".format(id=args.id))
-    r = http_del(args, url, headers=headers)
-    r.raise_for_status()
-    print(r.json())
+    result = api_call(args, "DELETE", f"/team/members/{args.id}/")
+    if args.raw:
+        return result
+    print(result)
 
 @parser.command(
     argument("NAME", help="name of the role", type=str),
+    description="Delete a custom role from your team",
     usage="vastai remove team-role NAME",
-    help="Remove a role from your team",
+    help="Delete a custom role from your team",
 )
 def remove__team_role(args):
-    url = apiurl(args, "/team/roles/{id}/".format(id=args.NAME))
-    r = http_del(args, url, headers=headers)
-    r.raise_for_status()
-    print(r.json())
+    result = api_call(args, "DELETE", f"/team/roles/{args.NAME}/")
+    if args.raw:
+        return result
+    print(result)
 
 @parser.command(
     argument("id", help="machine id", type=int),
+    description="[Host] Get usage and performance reports for a machine",
     usage="vastai reports ID",
-    help="Get the user reports for a given machine",
+    help="[Host] Get usage and performance reports for a machine",
 )
 def reports(args):
     """
@@ -3750,17 +4003,19 @@ def reports(args):
     if (args.explain):
         print("request json: ")
         print(json_blob)
-    
-    r = requests.get(url, headers=headers, json=json_blob)
-    r.raise_for_status()
 
-    if (r.status_code == 200):
-        print(f"reports: {json.dumps(r.json(), indent=2)}")
+    r = http_get(args, url, headers=headers, json=json_blob)
+    r.raise_for_status()
+    rj = r.json()
+    if args.raw:
+        return rj
+    print(f"reports: {json.dumps(rj, indent=2)}")
 
 
 @parser.command(
+    description="Invalidate current API key and generate a new one",
     usage="vastai reset api-key",
-    help="Reset your api-key (get new key from website)",
+    help="Invalidate current API key and generate a new one",
 )
 def reset__api_key(args):
     """Caution: a bad API key will make it impossible to connect to the servers.
@@ -3774,7 +4029,13 @@ def reset__api_key(args):
         print(json_blob)
     r = http_put(args, url,  headers=headers,json=json_blob)
     r.raise_for_status()
-    print("api-key reset ".format(r.json()))
+    try:
+        rj = r.json()
+    except JSONDecodeError:
+        rj = {"success": True, "message": "api-key reset"}
+    if args.raw:
+        return rj
+    print("api-key reset")
 
 
 def exec_with_threads(f, args, nt=16, max_retries=5):
@@ -3837,21 +4098,16 @@ def start_instance(id,args):
         print(json_blob)
     r = http_put(args, url,  headers=headers,json=json_blob)
     r.raise_for_status()
-
-    if (r.status_code == 200):
-        rj = r.json()
-        if (rj["success"]):
-            print("starting instance {id}.".format(**(locals())))
-        else:
-            print(rj["msg"])
-        return True
+    rj = r.json()
+    if rj.get("success"):
+        print("starting instance {id}.".format(**(locals())))
     else:
-        print(r.text)
-        print("failed with error {r.status_code}".format(**locals()))
-    return False
+        print(rj.get("msg", "Unknown error"))
+    return True
 
 @parser.command(
     argument("id", help="ID of instance to start/restart", type=int),
+    description="Start a stopped instance",
     usage="vastai start instance ID [OPTIONS]",
     help="Start a stopped instance",
     epilog=deindent("""
@@ -3872,15 +4128,15 @@ def start__instance(args):
 
 
 @parser.command(
-    argument("ids", help="ids of instance to start", type=int, nargs='+'),
-    usage="vastai start instances [OPTIONS] ID0 ID1 ID2...",
-    help="Start a list of instances",
+    argument("ids", help="ids of instances to start", type=int, nargs='+'),
+    description="Start multiple stopped instances",
+    usage="vastai start instances IDS [OPTIONS]",
+    help="Start multiple stopped instances",
 )
 def start__instances(args):
-    """
-    for id in args.IDs:
+    """Start multiple instances."""
+    for id in args.ids:
         start_instance(id, args)
-    """
 
     #start_instance(args.IDs, args)
     #exec_with_threads(lambda id : start_instance(id, args), args.IDs)
@@ -3904,22 +4160,17 @@ def stop_instance(id,args):
         print(json_blob)
     r = http_put(args, url,  headers=headers,json=json_blob)
     r.raise_for_status()
-
-    if (r.status_code == 200):
-        rj = r.json()
-        if (rj["success"]):
-            print("stopping instance {id}.".format(**(locals())))
-        else:
-            print(rj["msg"])
-        return True
+    rj = r.json()
+    if rj.get("success"):
+        print("stopping instance {id}.".format(**(locals())))
     else:
-        print(r.text)
-        print("failed with error {r.status_code}".format(**locals()))
-    return False
+        print(rj.get("msg", "Unknown error"))
+    return True
 
 
 @parser.command(
     argument("id", help="id of instance to stop", type=int),
+    description="Stop a running instance",
     usage="vastai stop instance ID [OPTIONS]",
     help="Stop a running instance",
     epilog=deindent("""
@@ -3937,20 +4188,20 @@ def stop__instance(args):
     stop_instance(args.id,args)
 
 @parser.command(
-    argument("ids", help="ids of instance to stop", type=int, nargs='+'),
-    usage="vastai stop instances [OPTIONS] ID0 ID1 ID2...",
-    help="Stop a list of instances",
+    argument("ids", help="ids of instances to stop", type=int, nargs='+'),
+    description="Stop multiple running instances",
+    usage="vastai stop instances IDS [OPTIONS]",
+    help="Stop multiple running instances",
     epilog=deindent("""
-        Examples: 
+        Examples:
             vastai stop instances $(vastai show instances -q)
             vastai stop instances 329838 984849
     """),
 )
 def stop__instances(args):
-    """
-    for id in args.IDs:
+    """Stop multiple instances."""
+    for id in args.ids:
         stop_instance(id, args)
-    """
 
     idlist = split_list(args.ids, 64)
     #stop_instance(args.IDs, args)
@@ -3981,6 +4232,779 @@ def numeric_version(version_str):
         return None
 
 
+# =============================================================================
+# Two-Factor Authentication (TFA/2FA) Helper Functions
+# =============================================================================
+
+def handle_failed_tfa_verification(args, e):
+    """Handle and display errors from failed TFA verification attempts.
+
+    Parses error responses and provides helpful context for common TFA errors
+    like lockouts, expired codes, and verification failures.
+
+    Args:
+        args: Namespace with command arguments (may include 'raw' for JSON output).
+        e: HTTPError exception from the failed request.
+    """
+    error_data = e.response.json()
+    error_msg = error_data.get("msg", str(e))
+    error_code = error_data.get("error", "")
+
+    if args.raw:
+        print(json.dumps(error_data, indent=2))
+
+    print(f"\n{FAIL} Error: {error_msg}")
+
+    # Provide helpful context for common errors
+    if error_code in {"tfa_locked", "2fa_verification_failed"}:
+        fail_count = error_data.get("fail_count", 0)
+        locked_until = error_data.get("locked_until")
+
+        if fail_count > 0:
+            print(f"   Failed attempts: {fail_count}")
+        if locked_until:
+            lock_time_sec = (datetime.fromtimestamp(locked_until, tz=timezone.utc) - datetime.now(tz=timezone.utc)).seconds
+            minutes, seconds = divmod(lock_time_sec, 60)
+            print(f"   Time Remaining for 2FA Lock: {minutes} minutes and {seconds} seconds...")
+
+    elif error_code == "2fa_expired":
+        # Note: Only SMS uses tfa challenges that expire when verifying
+        print("\n   The SMS code and secret have expired. Please start over:")
+        print("     vastai tfa send-sms")
+
+
+def format_backup_codes(backup_codes):
+    """Format backup codes for display or file output.
+
+    Args:
+        backup_codes: List of backup code strings.
+
+    Returns:
+        Formatted string with header, codes, and instructions.
+    """
+    output_lines = [
+        "=" * 60, "  VAST.AI 2FA BACKUP CODES", "=" * 60,
+        f"\nGenerated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"\n{WARN}  WARNING: All previous backup codes are now invalid!",
+        "\nYour New Backup Codes (one-time use only):",
+        "-" * 40,
+    ]
+
+    for i, code in enumerate(backup_codes, 1):
+        output_lines.append(f"  {i:2d}. {code}")
+
+    output_lines.extend([
+        "-" * 40,
+        "\nIMPORTANT:",
+        " - Each code can only be used once",
+        " - Store them in a secure location",
+        " - Use these codes to log in if you lose access to your 2FA device",
+        "\n" + "=" * 60,
+    ])
+    return "\n".join(output_lines)
+
+
+def confirm_destructive_action(prompt="Are you sure? (y/n): "):
+    """Prompt user for confirmation of destructive actions.
+
+    Args:
+        prompt: The confirmation prompt to display.
+
+    Returns:
+        True if user confirmed with 'y', False otherwise.
+
+    Raises:
+        EOFError/KeyboardInterrupt: If user cancels input.
+    """
+    try:
+        response = input(f" {prompt}").strip().lower()
+        return 'y' in response
+    except (EOFError, KeyboardInterrupt):
+        print("\nOperation cancelled.")
+        raise
+
+
+def save_to_file(content, filepath):
+    """Save content to file, creating parent directories if needed.
+
+    Args:
+        content: String content to write.
+        filepath: Target file path (will be expanded and made absolute).
+
+    Returns:
+        True on success, False on failure.
+    """
+    try:
+        filepath = os.path.abspath(os.path.expanduser(filepath))
+
+        # If directory provided, this should be handled by caller
+        parent_dir = os.path.dirname(filepath)
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
+
+        with open(filepath, "w") as f:
+            f.write(content)
+        return True
+    except (IOError, OSError) as e:
+        print(f"\n{FAIL} Error saving file: {e}")
+        return False
+
+
+def get_backup_codes_filename():
+    """Generate a timestamped filename for backup codes.
+
+    Returns:
+        Filename string in format 'vastai_backup_codes_YYYY-MM-DD_HH-MM-SS.txt'.
+    """
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    return f"vastai_backup_codes_{timestamp}.txt"
+
+
+def save_backup_codes(backup_codes):
+    """Save or display 2FA backup codes based on user choice.
+
+    Prompts user to choose between saving to default location, custom path,
+    or printing to screen. Handles file saving with appropriate warnings.
+
+    Args:
+        backup_codes: List of backup code strings.
+    """
+    print(f"\nBackup codes regenerated successfully! {SUCCESS}")
+    print(f"\n{WARN}  WARNING: All previous backup codes are now invalid!")
+
+    formatted_content = format_backup_codes(backup_codes)
+    filename = get_backup_codes_filename()
+
+    while True:
+        print("\nHow would you like to save your new backup codes?")
+        print(f"  1. Save to default location (~/Downloads/{filename})")
+        print(f"  2. Save to a custom path")
+        print(f"  3. Print to screen ({WARN}  potentially unsafe - visible to onlookers)")
+
+        try:
+            choice = input("\nEnter choice (1-3): ").strip()
+
+            if choice in {'1', '2'}:
+                # Determine filepath
+                if choice == '1':
+                    downloads_dir = os.path.expanduser("~/Downloads")
+                    filepath = os.path.join(downloads_dir, filename)
+                else:  # choice == '2'
+                    custom_path = input("\nEnter full path for backup codes file: ").strip()
+                    if not custom_path:
+                        print("Error: Path cannot be empty")
+                        continue
+
+                    filepath = os.path.abspath(os.path.expanduser(custom_path))
+
+                    # If directory provided, add filename
+                    if os.path.isdir(filepath):
+                        filepath = os.path.join(filepath, filename)
+
+                # Try to save
+                if save_to_file(formatted_content, filepath):
+                    print(f"\n{SUCCESS} Backup codes saved to: {filepath}")
+                    print(f"\nIMPORTANT:")
+                    print(f" - The file contains {len(backup_codes)} one-time use backup codes")
+                    if choice == '1':
+                        print(f" - Move this file to a secure location")
+                    return
+                else:
+                    print("Please try again with a different path.")
+                    continue
+
+            elif choice == '3':
+                print(f"\n{WARN}  WARNING: Printing sensitive codes to screen!")
+                confirm = input("\nAre you sure? Anyone nearby can see these codes. (yes/no): ").strip().lower()
+
+                if confirm in {'yes', 'y'}:
+                    print("\n" + formatted_content + "\n")
+                    return
+                else:
+                    print("Cancelled. Please choose another option.")
+                    continue
+
+            else:
+                print("Invalid choice. Please enter 1, 2, or 3.")
+
+        except (EOFError, KeyboardInterrupt):
+            print("\n\nOperation cancelled. Your backup codes were generated but not saved.")
+            print("You will need to regenerate them to get new codes.")
+            raise
+
+
+def build_tfa_verification_payload(args, **kwargs):
+    """Build common payload for TFA verification requests.
+
+    Extracts TFA-related fields from args and combines with any additional
+    keyword arguments to create the API request payload.
+
+    Args:
+        args: Namespace with TFA-related attributes (method_id, sms, code, etc.).
+        **kwargs: Additional payload fields (e.g., phone_number, label, target_id).
+
+    Returns:
+        Dict with non-None TFA payload fields.
+    """
+    payload = {
+        "tfa_method_id": getattr(args, 'method_id', None),
+        "tfa_method": "sms" if getattr(args, 'sms', False) else "totp",
+        "code": getattr(args, 'code', None),
+        "backup_code": getattr(args, 'backup_code', None),
+        "secret": getattr(args, 'secret', None),
+    }
+    for key, value in kwargs.items():
+        payload[key] = value
+
+    return {k: v for k, v in payload.items() if v}
+
+
+# TFA method display fields for table output
+TFA_METHOD_FIELDS = (
+    ("id", "ID", "{}", None, True),
+    ("user_id", "User ID", "{}", None, True),
+    ("is_primary", "Primary", "{}", None, True),
+    ("method", "Method", "{}", None, True),
+    ("label", "Label", "{}", None, True),
+    ("phone_number", "Phone Number", "{}", None, False),
+    ("created_at", "Created", "{}", lambda x: datetime.fromtimestamp(x, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S') if x else "N/A", True),
+    ("last_used", "Last Used", "{}", lambda x: datetime.fromtimestamp(x, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S') if x else "Never", True),
+    ("fail_count", "Failures", "{}", None, True),
+    ("locked_until", "Locked Until", "{}", lambda x: datetime.fromtimestamp(x, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S') if x else "N/A", True),
+)
+
+
+def display_tfa_methods(methods):
+    """Display 2FA methods in a formatted table.
+
+    Args:
+        methods: List of TFA method dicts from the API.
+    """
+    method_fields = TFA_METHOD_FIELDS
+    has_sms = any(m['method'] == 'sms' for m in methods)
+    if not has_sms:  # Don't show Phone Number column if the user has no SMS methods
+        method_fields = tuple(field for field in TFA_METHOD_FIELDS if field[0] != 'phone_number')
+
+    display_table(methods, method_fields, replace_spaces=False)
+
+
+# =============================================================================
+# Two-Factor Authentication (TFA/2FA) Commands
+# =============================================================================
+
+@parser.command(
+    argument("code", help="6-digit verification code from SMS or Authenticator app", type=str),
+    argument("--sms", help="Use SMS 2FA method instead of TOTP", action="store_true"),
+    argument("--secret", help="Secret token from setup process (required)", type=str, required=True),
+    argument("--phone-number", help="Phone number for SMS method (E.164 format)", type=str, default=None),
+    argument("-l", "--label", help="Label for the new 2FA method", type=str, default=None),
+    description="Activate a new 2FA method by verifying the setup code",
+    usage="vastai tfa activate CODE --secret SECRET [--sms] [--phone-number PHONE_NUMBER] [--label LABEL]",
+    help="Activate a new 2FA method by verifying the code",
+    epilog=deindent("""
+        Complete the 2FA setup process by verifying your code.
+
+        For TOTP (Authenticator app):
+         1. Run 'vastai tfa totp-setup' to get the manual key/QR code and secret
+         2. Enter the manual key or scan the QR code with your Authenticator app
+         3. Run this command with the 6-digit code from your app and the secret token from step 1
+
+        For SMS:
+         1. Run 'vastai tfa send-sms --phone-number <PHONE_NUMBER>' to receive SMS and get secret token
+         2. Run this command with the code you received via SMS and the phone number it was sent to
+
+        If this is your first 2FA method, backup codes will be generated and displayed.
+        Save these backup codes in a secure location!
+
+        Examples:
+         vastai tfa activate --secret abc123def456 123456
+         vastai tfa activate --secret abc123def456 --sms --phone-number +12345678901 123456
+         vastai tfa activate --secret abc123def456 --sms --phone-number +12345678901 --label "Work Phone" 123456
+    """),
+)
+def tfa__activate(args):
+    """Activate a new 2FA method by confirming the verification code."""
+    url = apiurl(args, "/api/v0/tfa/test-submit/")
+
+    # Build the request payload
+    payload = build_tfa_verification_payload(args, phone_number=args.phone_number, label=args.label)
+
+    r = http_post(args, url, headers=apiheaders(args), json=payload)
+    r.raise_for_status()
+
+    response_data = r.json()
+
+    # Display success message
+    method_name = "SMS" if args.phone_number or args.sms else "TOTP (Authenticator App)"
+    print(f"\n{SUCCESS} {method_name} 2FA method activated successfully!")
+
+    # Display backup codes if this is the first 2FA method
+    if "backup_codes" in response_data:
+        save_backup_codes(response_data["backup_codes"])
+
+
+@parser.command(
+    argument("-id", "--id-to-delete", help="ID of the 2FA method to delete (see `vastai tfa status`)", type=int, default=None),
+    argument("-c", "--code", mutex_group='code_grp', required=True, help="2FA code from your Authenticator app or SMS to authorize deletion", type=str),
+    argument("--sms", mutex_group="type_grp", help="Use SMS 2FA method instead of TOTP", action="store_true"),
+    argument("-s", "--secret", help="Secret token (required for SMS authorization)", type=str, default=None),
+    argument("-bc", "--backup-code", mutex_group='code_grp', required=True, help="One-time backup code (alternative to regular 2FA code)", type=str, default=None),
+    argument("--method-id", help="2FA Method ID if you have more than one of the same type ('id' from `tfa status`)", type=str, default=None),
+    description="Remove a 2FA method from your account",
+    usage="vastai tfa delete [--id-to-delete ID] [--code CODE] [--sms] [--secret SECRET] [--backup-code BACKUP_CODE] [--method-id ID]",
+    help="Remove a 2FA method from your account",
+    epilog=deindent("""
+        Remove a 2FA method from your account.
+
+        This action requires 2FA verification to prevent unauthorized removals.
+
+        NOTE: If you do not specify --id-to-delete, the system will attempt to delete the method
+        you are using to authenticate. However, it is much safer to specify the ID to avoid
+        confusion if you have multiple methods.
+
+        Use `vastai tfa status` to see your active methods and their IDs.
+
+        Examples:
+         # Delete method #123, authorize with TOTP/Authenticator code
+         vastai tfa delete --id-to-delete 123 --code 456789
+
+         # Delete method #123, authorize with SMS and secret from `tfa send-sms`
+         vastai tfa delete -id 123 --sms --secret abc123def456 -c 456789
+
+         # Delete method #123, authorize with backup code
+         vastai tfa delete --id-to-delete 123 --backup-code ABCD-EFGH-IJKL
+
+         # Delete method #123, specify which TOTP method to use if you have multiple
+         vastai tfa delete -id 123 --method-id 456 -c 456789
+
+         # Delete the TOTP method you are using to authenticate (use with caution)
+         vastai tfa delete -c 456789
+    """),
+)
+def tfa__delete(args):
+    """Remove a 2FA method from the user's account after verifying authorization."""
+    url = apiurl(args, "/api/v0/tfa/")
+
+    if args.sms and not args.secret:
+        print(f"\n{FAIL} Error: --secret is required for deletion authorization when using --sms.")
+        print("\nPlease use:  `vastai tfa send-sms` to get the missing secret and try again.")
+        return 1
+
+    # Confirm action since this invalidates existing codes
+    prompt = "\nAre you sure you want to delete this 2FA method? (y|n): "
+    if confirm_destructive_action(prompt) == False:
+        print("Operation cancelled.")
+        return
+
+    # Build the request payload
+    payload = build_tfa_verification_payload(args, target_id=args.id_to_delete)
+    try:
+        r = http_del(args, url, headers=apiheaders(args), json=payload)
+        r.raise_for_status()
+
+        response_data = r.json()
+
+        print(f"\n{SUCCESS} 2FA method deleted successfully.")
+
+        if "remaining_methods" in response_data:
+            remaining = response_data["remaining_methods"]
+            print(f"\nYou have {remaining} 2FA method{'s' if remaining != 1 else ''} remaining.")
+        else:
+            print(f"\n{WARN}  WARNING: You have removed all 2FA methods from your account.")
+            print("Your backup codes have been invalidated and 2FA is now fully disabled.")
+
+    except requests.exceptions.HTTPError as e:
+        handle_failed_tfa_verification(args, e)
+        return 1
+
+
+@parser.command(
+    argument("-c", "--code", mutex_group='code_grp', required=True, help="2FA code from Authenticator app (default) or SMS", type=str),
+    argument("--sms", mutex_group="type_grp", help="Use SMS 2FA method instead of TOTP", action="store_true"),
+    argument("-s", "--secret", help="Secret token from previous login step (required for SMS)", type=str, default=None),
+    argument("-bc", "--backup-code", mutex_group='code_grp', required=True, help="One-time backup code (alternative to regular 2FA code)", type=str, default=None),
+    argument("-id", "--method-id", mutex_group="type_grp", help="2FA Method ID if you have more than one of the same type ('id' from `tfa status`)", type=str, default=None),
+    description="Complete 2FA login by verifying code and obtaining session key",
+    usage="vastai tfa login [--code CODE] [--sms] [--secret SECRET] [--backup-code BACKUP_CODE]",
+    help="Complete 2FA login by verifying code",
+    epilog=deindent("""
+        Complete Two-Factor Authentication login by providing the 2FA code.
+
+        For TOTP (default): Provide the 6-digit code from your Authenticator app
+        For SMS: Include the --sms flag and provide -s/--secret from the `tfa send-sms` command response
+        For backup code: Use --backup-code instead of code (codes may only be used once)
+
+        Examples:
+         vastai tfa login -c 123456
+         vastai tfa login --code 123456 --sms --secret abc123def456
+         vastai tfa login --backup-code ABCD-EFGH-IJKL
+    """),
+)
+def tfa__login(args):
+    """Complete 2FA login and store the session key."""
+    url = apiurl(args, "/api/v0/tfa/")
+
+    # Build the request payload
+    payload = build_tfa_verification_payload(args)
+
+    try:
+        r = http_post(args, url, headers=apiheaders(args), json=payload)
+        r.raise_for_status()
+
+        response_data = r.json()
+
+        # Check for session_key in response and save it
+        if "session_key" in response_data:
+            session_key = response_data["session_key"]
+            if session_key != args.api_key:
+                # Write the session key to the TFA key file
+                with open(TFAKEY_FILE, "w") as f:
+                    f.write(session_key)
+                print(f"{SUCCESS} 2FA login successful! Session key saved to {TFAKEY_FILE}")
+            else:
+                print(f"{SUCCESS} 2FA login successful! Your session key has been refreshed.")
+
+            # Display remaining backup codes if present
+            if "backup_codes_remaining" in response_data:
+                remaining = response_data["backup_codes_remaining"]
+                if remaining == 0:
+                    print(f"{WARN}  Warning: You have no backup codes remaining! Please generate new backup codes immediately to avoid being locked out of your account if you lose access to your 2FA device.")
+                elif remaining <= 3:
+                    print(f"{WARN}  Warning: You only have {remaining} backup codes remaining. Consider regenerating them.")
+                else:
+                    print(f"Backup codes remaining: {remaining}")
+        else:
+            print("2FA login successful but a session key was not returned. Please check that you have an API Key that's properly set up")
+
+    except requests.exceptions.HTTPError as e:
+        handle_failed_tfa_verification(args, e)
+        return 1
+
+
+@parser.command(
+    argument("-c", "--code", mutex_group='code_grp', required=True, help="2FA code from Authenticator app (default) or SMS", type=str),
+    argument("--sms", mutex_group="type_grp", help="Use SMS 2FA method instead of TOTP", action="store_true"),
+    argument("-s", "--secret", help="Secret token from previous login step (required for SMS)", type=str, default=None),
+    argument("-bc", "--backup-code", mutex_group='code_grp', required=True, help="One-time backup code (alternative to regular 2FA code)", type=str, default=None),
+    argument("-id", "--method-id", mutex_group="type_grp", help="2FA Method ID if you have more than one of the same type ('id' from `tfa status`)", type=str, default=None),
+    description="Regenerate backup codes for 2FA recovery",
+    usage="vastai tfa regen-codes [--code CODE] [--sms] [--secret SECRET] [--backup-code BACKUP_CODE] [--method-id ID]",
+    help="Regenerate backup codes for 2FA",
+    epilog=deindent("""
+        Generate a new set of backup codes for your account.
+
+        This action requires 2FA verification to prevent unauthorized regeneration.
+
+        WARNING: This will invalidate all existing backup codes!
+        Any previously generated codes will no longer work.
+
+        Backup codes are one-time use codes that allow you to log in
+        if you lose access to your primary 2FA method (lost phone, etc).
+
+        You should regenerate your backup codes if:
+        - You've used several codes and are running low
+        - You think your codes may have been compromised
+        - You lost your saved codes and need new ones
+
+        Important: Save the new codes in a secure location immediately!
+        They will not be shown again.
+
+        Examples:
+         vastai tfa regen-codes --code 123456
+         vastai tfa regen-codes -c 123456 --sms --secret abc123def456
+         vastai tfa regen-codes --backup-code ABCD-EFGH-IJKL
+    """),
+)
+def tfa__regen_codes(args):
+    """Regenerate backup codes for 2FA recovery."""
+    url = apiurl(args, "/api/v0/tfa/regen-backup-codes/")
+
+    # Confirm action since this invalidates existing codes
+    prompt = "\nThis will invalidate all existing backup codes. Continue? (y|n): "
+    if confirm_destructive_action(prompt) == False:
+        print("Operation cancelled.")
+        return
+
+    # Build the request payload with verification
+    payload = build_tfa_verification_payload(args)
+    try:
+        r = http_put(args, url, headers=apiheaders(args), json=payload)
+        r.raise_for_status()
+
+        response_data = r.json()
+
+        # Display the new backup codes
+        if "backup_codes" in response_data:
+            save_backup_codes(response_data["backup_codes"])
+        else:
+            print(f"\n{SUCCESS} Backup codes regenerated successfully!")
+            print("(No codes returned in response - this may be an error)")
+
+    except requests.exceptions.HTTPError as e:
+        handle_failed_tfa_verification(args, e)
+        return 1
+
+
+@parser.command(
+    argument("-p", "--phone-number", help="Phone number to receive SMS code (E.164 format, e.g., +1234567890)", type=str, default=None),
+    argument("-s", "--secret", help="Secret token from the original 2FA login attempt", type=str, required=True),
+    description="Resend SMS 2FA verification code",
+    usage="vastai tfa resend-sms --secret SECRET [--phone-number PHONE_NUMBER]",
+    help="Resend SMS 2FA code",
+    epilog=deindent("""
+        Resend the SMS verification code to your phone.
+
+        This is useful if:
+        - You didn't receive the original SMS
+        - The code expired before you could use it
+        - You accidentally deleted the message
+
+        You must provide the same secret token from the original request.
+
+        Example:
+         vastai tfa resend-sms --secret abc123def456
+    """),
+)
+def tfa__resend_sms(args):
+    """Resend SMS 2FA code to the user's phone."""
+    url = apiurl(args, "/api/v0/tfa/resend/")
+    payload = build_tfa_verification_payload(args, phone_number=args.phone_number)
+
+    r = http_post(args, url, headers=apiheaders(args), json=payload)
+    r.raise_for_status()
+
+    response_data = r.json()
+
+    print(f"{SUCCESS} SMS code resent successfully!")
+    print(f"\n{response_data['msg']}")
+    print(f"\nOnce you receive the SMS code, complete your 2FA login with:")
+    print(f"  vastai tfa login --sms --secret {args.secret} -c <CODE>")
+
+
+@parser.command(
+    argument("-p", "--phone-number", help="Phone number to receive SMS code (E.164 format, e.g., +1234567890)", type=str, default=None),
+    description="Request a 2FA SMS verification code to be sent",
+    usage="vastai tfa send-sms [--phone-number PHONE_NUMBER]",
+    help="Request a 2FA SMS verification code",
+    epilog=deindent("""
+        Request a two-factor authentication code to be sent via SMS.
+
+        If --phone-number is not provided, uses the phone number on your account.
+        The secret token will be returned and must be used with 'vastai tfa activate'.
+
+        Examples:
+         vastai tfa send-sms
+         vastai tfa send-sms --phone-number +12345678901
+    """),
+)
+def tfa__send_sms(args):
+    """Request a 2FA SMS code to be sent to the user's phone."""
+    url = apiurl(args, "/api/v0/tfa/test/")
+
+    # Build the request payload
+    payload = {}
+
+    # Add phone number if provided
+    if args.phone_number:
+        payload["phone_number"] = args.phone_number
+
+    r = http_post(args, url, headers=apiheaders(args), json=payload)
+    r.raise_for_status()
+
+    response_data = r.json()
+
+    # Extract and display the secret token
+    secret = response_data["secret"]
+    print(f"{SUCCESS} SMS code sent successfully!")
+    print(f"  Secret token: {secret}")
+    print(f"\nOnce you receive the SMS code:")
+    print(f"\n  If you are setting up SMS 2FA for the first time, run:")
+    phone_num = f"--phone-number {args.phone_number}" if args.phone_number else "[--phone-number <PHONE_NUMBER>]"
+    print(f"    vastai tfa activate --sms --secret {secret} {phone_num} [--label <LABEL>] <CODE>")
+    print(f"\n  Otherwise you can complete your 2FA log in with:")
+    print(f"    vastai tfa login --sms --secret {secret} -c <CODE>\n")
+
+
+@parser.command(
+    description="Show the current 2FA status and configured methods for your account",
+    help="Shows the current 2FA status and configured methods",
+    epilog=deindent("""
+        Show the current 2FA status for your account, including:
+         - Whether or not 2FA is enabled
+         - A list of active 2FA methods
+         - The number of backup codes remaining (if 2FA is enabled)
+    """)
+)
+def tfa__status(args):
+    """Show the current 2FA status for the user."""
+    url = apiurl(args, "/tfa/status/")
+    r = http_get(args, url)
+    r.raise_for_status()
+    response_data = r.json()
+
+    if args.raw:
+        print(json.dumps(response_data, indent=2))
+        return
+
+    tfa_enabled = response_data.get("tfa_enabled", False)
+    methods = response_data.get("methods", [])
+    backup_codes_remaining = response_data.get("backup_codes_remaining", 0)
+
+    if not tfa_enabled or not methods:
+        print(f"{WARN}  No active 2FA methods found")
+    else:
+        print(f"2FA Status: Enabled {SUCCESS}")
+        print(f"\nActive 2FA Methods:")
+        display_tfa_methods(methods)
+        print(f"\nBackup codes remaining: {backup_codes_remaining}")
+
+
+@parser.command(
+    description="Generate TOTP secret and QR code for Authenticator app setup",
+    usage="vastai tfa totp-setup",
+    help="Generate TOTP secret and QR code for Authenticator app setup",
+    epilog=deindent("""
+        Set up TOTP (Time-based One-Time Password) 2FA using an Authenticator app.
+
+        This command generates a new TOTP secret and displays:
+        - A QR code (for scanning with your app)
+        - A manual entry key (for typing into your app)
+        - A secret token (needed for the next step)
+
+        Workflow:
+         1. Run this command to generate the TOTP secret
+         2. Add the account to your Authenticator app by either:
+            - Scanning the displayed QR code, OR
+            - Manually entering the key shown
+         3. Once added, your app will display a 6-digit code
+         4. Complete setup by running:
+            vastai tfa activate --secret <SECRET> <CODE>
+
+        Supported Authenticator Apps:
+         - Google Authenticator
+         - Microsoft Authenticator
+         - Authy
+         - 1Password
+         - Any TOTP-compatible app
+
+        Example:
+         vastai tfa totp-setup
+    """),
+)
+def tfa__totp_setup(args):
+    """Generate a TOTP secret and QR code for setting up Authenticator app 2FA."""
+    url = apiurl(args, "/api/v0/tfa/totp-setup/")
+
+    r = http_post(args, url, headers=apiheaders(args), json={})
+    r.raise_for_status()
+
+    response_data = r.json()
+    if args.raw:
+        print(json.dumps(response_data, indent=2))
+        return
+
+    # Extract the secret and provisioning URI
+    secret = response_data["secret"]
+    provisioning_uri = response_data["provisioning_uri"]
+
+    # Display the setup information
+    print("\n" + "="*60)
+    print("TOTP (Authenticator App) 2FA Setup")
+    print("="*60)
+
+    print("\nScan this QR code with your Authenticator app:\n")
+
+    try:  # Generate and display QR code in terminal
+        import qrcode
+        qr = qrcode.QRCode(border=2)
+        qr.add_data(provisioning_uri)
+        qr.make()
+        qr.print_ascii(tty=True)
+    except ImportError:
+        print("  [QR code display requires 'qrcode' package]")
+        print(f"  Install with: pip install qrcode")
+        print(f"\n  Or manually enter this URI in your app:")
+        print(f"  {provisioning_uri}")
+
+    print("\nOR Manual Entry Key (type this into your Authenticator app):")
+    print(f"  {secret}")
+
+    print("\nNext Steps:")
+    print("  1. Your Authenticator app should now display a 6-digit code")
+    print("  2. Complete setup by running:")
+    print(f"     vastai tfa activate --secret {secret} <CODE>")
+    print("\n" + "="*60 + "\n")
+
+
+@parser.command(
+    argument("method_id", metavar="METHOD_ID", help="ID of the 2FA method to update (see `vastai tfa status`)", type=int),
+    argument("-l", "--label", help="New label/name for this 2FA method", type=str, default=None),
+    argument("-p", "--set-primary", help="Set this method as the primary/default 2FA method", default=None),
+    description="Update a 2FA method's settings (label or primary status)",
+    usage="vastai tfa update METHOD_ID [--label LABEL] [--set-primary]",
+    help="Update a 2FA method's settings",
+    epilog=deindent("""
+        Update the label or primary status of a 2FA method.
+
+        The label is a friendly name to help you identify different methods
+        (e.g. "Work Phone", "Personal Authenticator").
+
+        The primary method is your preferred/default 2FA method.
+
+        Examples:
+         vastai tfa update 123 --label "Work Phone"
+         vastai tfa update 456 --set-primary
+         vastai tfa update 789 --label "Backup Authenticator" --set-primary
+    """),
+)
+def tfa__update(args):
+    """Update settings for an existing 2FA method."""
+    url = apiurl(args, "/api/v0/tfa/update/")
+
+    # Build payload with only provided fields
+    payload = {
+        "tfa_method_id": args.method_id
+    }
+
+    if args.label is not None:
+        payload["label"] = args.label
+
+    if args.set_primary is not None:
+        if args.set_primary.lower() in {'true', 't'}:
+            args.set_primary = True
+        elif args.set_primary.lower() in {'false', 'f'}:
+            args.set_primary = False
+        else:
+            print("Error: --set-primary must be <t|true> or <f|false>")
+            return
+
+        payload["is_primary"] = args.set_primary
+
+    # Validate that at least one update field was provided
+    if len(payload) == 1:  # only method_id
+        print("Error: You must specify at least one field to update (--label or --set-primary)")
+        return 1
+
+    r = http_put(args, url, headers=apiheaders(args), json=payload)
+    r.raise_for_status()
+
+    response_data = r.json()
+    if args.raw:
+        print(json.dumps(response_data, indent=2))
+        return
+
+    method_info = response_data.get("method", {})
+
+    print(f"\n{SUCCESS} 2FA method updated successfully!")
+    if args.label:
+        print(f"   New label: {args.label}")
+    if args.set_primary is not None:
+        print(f"   Set as primary method = {args.set_primary}")
+    if method_info:
+        print("\nUpdated 2FA Method:")
+        display_tfa_methods([method_info])
+
+
 benchmarks_fields = {
     "contract_id",#             int        ID of instance/contract reporting benchmark
     "id",#                      int        benchmark unique ID
@@ -3995,8 +5019,9 @@ benchmarks_fields = {
 
 @parser.command(
     argument("query", help="Search query in simple query syntax (see below)", nargs="*", default=None),
+    description="Search machine benchmark results with filters",
     usage="vastai search benchmarks [--help] [--api-key API_KEY] [--raw] <query>",
-    help="Search for benchmark results using custom query",
+    help="Search machine benchmark results with filters",
     epilog=deindent("""
         Query syntax:
 
@@ -4046,10 +5071,14 @@ def search__benchmarks(args):
         return 1  
     #url = apiurl(args, "/benchmarks", {"select_cols" : ['id','last_update','machine_id','score'], "select_filters" : query})
     url = apiurl(args, "/benchmarks", {"select_cols" : ['*'], "select_filters" : query})
-    r = requests.get(url, headers=headers)
+    r = http_get(args, url, headers=headers)
     r.raise_for_status()
-    rows = r.json()
-    if True: # args.raw:
+    try:
+        rows = r.json()
+    except JSONDecodeError:
+        print("Error: API returned invalid JSON response", file=sys.stderr)
+        return 1
+    if args.raw:
         return rows
     else:
         display_table(rows, displayable_fields)
@@ -4086,8 +5115,9 @@ invoices_fields = {
 
 @parser.command(
     argument("query", help="Search query in simple query syntax (see below)", nargs="*", default=None),
+    description="Search billing invoices with filters",
     usage="vastai search invoices [--help] [--api-key API_KEY] [--raw] <query>",
-    help="Search for invoices using custom query",
+    help="Search billing invoices with filters",
     epilog=deindent("""
         Query syntax:
 
@@ -4152,10 +5182,14 @@ def search__invoices(args):
         print("Error: ", e)
         return 1  
     url = apiurl(args, "/invoices", {"select_cols" : ['*'], "select_filters" : query})
-    r = requests.get(url, headers=headers)
+    r = http_get(args, url, headers=headers)
     r.raise_for_status()
-    rows = r.json()
-    if True: # args.raw:
+    try:
+        rows = r.json()
+    except JSONDecodeError:
+        print("Error: API returned invalid JSON response", file=sys.stderr)
+        return 1
+    if args.raw:
         return rows
     else:
         display_table(rows, displayable_fields)
@@ -4174,8 +5208,9 @@ def search__invoices(args):
     argument("--storage", type=float, default=5.0, help="Amount of storage to use for pricing, in GiB. default=5.0GiB"),
     argument("-o", "--order", type=str, help="Comma-separated list of fields to sort on. postfix field with - to sort desc. ex: -o 'num_gpus,total_flops-'.  default='score-'", default='score-'),
     argument("query", help="Query to search for. default: 'external=false rentable=true verified=true', pass -n to ignore default", nargs="*", default=None),
+    description="Search available GPU offers with filters",
     usage="vastai search offers [--help] [--api-key API_KEY] [--raw] <query>",
-    help="Search for instance types using custom query",
+    help="Search available GPU offers with filters",
     epilog=deindent("""
         Query syntax:
 
@@ -4291,12 +5326,12 @@ def search__offers(args):
             if not name: continue
             direction = "asc"
             field = name
-            if name.strip("-") != name:
+            if name.startswith("-"):
                 direction = "desc"
-                field = name.strip("-")
-            if name.strip("+") != name:
+                field = name.lstrip("-")
+            elif name.startswith("+"):
                 direction = "asc"
-                field = name.strip("+")
+                field = name.lstrip("+")
             #print(f"{field} {name} {direction}")
             if field in offers_alias:
                 field = offers_alias[field];
@@ -4351,7 +5386,7 @@ def search__offers(args):
         print(f"invalid return Content-Type: {r.headers.get('Content-Type')}")
         return   
 
-    rows = r.json()["offers"]
+    rows = r.json().get("offers", [])
 
     # TODO: add this post-query geolocation filter to the database call rather than handling it locally
     if 'rented' in query:
@@ -4404,8 +5439,9 @@ templates_fields = {
 
 @parser.command(
     argument("query", help="Search query in simple query syntax (see below)", nargs="*", default=None),
+    description="Search available templates with filters",
     usage="vastai search templates [--help] [--api-key API_KEY] [--raw] <query>",
-    help="Search for template results using custom query",
+    help="Search available templates with filters",
     epilog=deindent("""
         Query syntax:
 
@@ -4466,8 +5502,8 @@ def search__templates(args):
         r.raise_for_status()
     elif 'json' in r.headers.get("Content-Type"):
         rows = r.json().get('templates', [])
-        if True: #args.raw:
-            print(json.dumps(rows, indent=1, sort_keys=True))
+        if args.raw:
+            return rows
         else:
             display_table(rows, displayable_fields)
     else:
@@ -4480,8 +5516,9 @@ def search__templates(args):
     argument("--storage", type=float, default=1.0, help="Amount of storage to use for pricing, in GiB. default=1.0GiB"),
     argument("-o", "--order", type=str, help="Comma-separated list of fields to sort on. postfix field with - to sort desc. ex: -o 'disk_space,inet_up-'.  default='score-'", default='score-'),
     argument("query", help="Query to search for. default: 'external=false verified=true disk_space>=1', pass -n to ignore default", nargs="*", default=None),
+    description="Search available volume offers with filters",
     usage="vastai search volumes [--help] [--api-key API_KEY] [--raw] <query>",
-    help="Search for volume offers using custom query",
+    help="Search available volume offers with filters",
     epilog=deindent("""
         Query syntax:
 
@@ -4546,12 +5583,12 @@ def search__volumes(args: argparse.Namespace):
             if not name: continue
             direction = "asc"
             field = name
-            if name.strip("-") != name:
+            if name.startswith("-"):
                 direction = "desc"
-                field = name.strip("-")
-            if name.strip("+") != name:
+                field = name.lstrip("-")
+            elif name.startswith("+"):
                 direction = "asc"
-                field = name.strip("+")
+                field = name.lstrip("+")
             if field in offers_alias:
                 field = offers_alias[field];
             order.append([field, direction])
@@ -4578,8 +5615,8 @@ def search__volumes(args: argparse.Namespace):
         print(f"invalid return Content-Type: {r.headers.get('Content-Type')}")
         return   
 
-    rows = r.json()["offers"]
-    
+    rows = r.json().get("offers", [])
+
     if args.raw:
         return rows
     else:
@@ -4593,8 +5630,9 @@ def search__volumes(args: argparse.Namespace):
     argument("--storage", type=float, default=1.0, help="Amount of storage to use for pricing, in GiB. default=1.0GiB"),
     argument("-o", "--order", type=str, help="Comma-separated list of fields to sort on. postfix field with - to sort desc. ex: -o 'disk_space,inet_up-'.  default='score-'", default='score-'),
     argument("query", help="Query to search for. default: 'external=false verified=true disk_space>=1', pass -n to ignore default", nargs="*", default=None),
+    description="[Host] [Beta] Search available network volume offers with filters",
     usage="vastai search network volumes [--help] [--api-key API_KEY] [--raw] <query>",
-    help="Search for network volume offers using custom query",
+    help="[Host] [Beta] Search available network volume offers with filters",
     epilog=deindent("""
         Query syntax:
 
@@ -4643,12 +5681,12 @@ def search__network_volumes(args: argparse.Namespace):
             if not name: continue
             direction = "asc"
             field = name
-            if name.strip("-") != name:
+            if name.startswith("-"):
                 direction = "desc"
-                field = name.strip("-")
-            if name.strip("+") != name:
+                field = name.lstrip("-")
+            elif name.startswith("+"):
                 direction = "asc"
-                field = name.strip("+")
+                field = name.lstrip("+")
             if field in offers_alias:
                 field = offers_alias[field];
             order.append([field, direction])
@@ -4675,8 +5713,8 @@ def search__network_volumes(args: argparse.Namespace):
         print(f"invalid return Content-Type: {r.headers.get('Content-Type')}")
         return   
 
-    rows = r.json()["offers"]
-    
+    rows = r.json().get("offers", [])
+
     if args.raw:
         return rows
     else:
@@ -4684,16 +5722,33 @@ def search__network_volumes(args: argparse.Namespace):
 
 
 @parser.command(
-    argument("new_api_key", help="Api key to set as currently logged in user"),
-    usage="vastai set api-key APIKEY",
-    help="Set api-key (get your api-key from the console/CLI)",
+    argument("api_key", help="API key to set as currently logged in user"),
+    description="Set the API key for CLI and SDK authentication",
+    usage="vastai set api-key API_KEY",
+    help="Set the API key for CLI and SDK authentication",
+    epilog=deindent("""
+        Stores your Vast.ai API key locally for authentication with all CLI commands.
+        Get your API key from the Vast.ai console: https://console.vast.ai/account/
+
+        Examples:
+            vastai set api-key abc123def456...         # Set your API key
+
+        Security notes:
+          - API key is stored in ~/.config/vastai/vast_api_key
+          - Permissions are set to user-read-only (600)
+          - Do NOT share your API key or commit it to version control
+          - Regenerate your key at https://console.vast.ai/account/ if compromised
+          - You can also use the VAST_API_KEY environment variable instead
+
+        The legacy location ~/.vast_api_key is automatically removed when you set a new key.
+    """),
 )
 def set__api_key(args):
     """Caution: a bad API key will make it impossible to connect to the servers.
     :param argparse.Namespace args: should supply all the command-line options
     """
     with open(APIKEY_FILE, "w") as writer:
-        writer.write(args.new_api_key)
+        writer.write(args.api_key)
     print("Your api key has been saved in {}".format(APIKEY_FILE))
     
     APIKEY_FILE_HOME = os.path.expanduser("~/.vast_api_key") # Legacy
@@ -4705,8 +5760,9 @@ def set__api_key(args):
 
 @parser.command(
     argument("--file", help="file path for params in json format", type=str),
+    description="Update account settings from a JSON file",
     usage="vastai set user --file FILE",
-    help="Update user data from json file",
+    help="Update account settings from a JSON file",
     epilog=deindent("""
 
     Available fields:
@@ -4730,6 +5786,7 @@ def set__api_key(args):
     balance_threshold               string
     autobill_threshold              string
     phone_number                    string
+    tfa_enabled                     bool
     """),
 )
 def set__user(args):
@@ -4737,16 +5794,35 @@ def set__user(args):
     with open(args.file, 'r') as file:
         params = json.load(file)
     url = apiurl(args, "/users/")
-    r = requests.put(url, headers=headers, json=params)
+    r = http_put(args, url, headers=headers, json=params)
     r.raise_for_status()
-    print(f"{r.json()}")
+    try:
+        print(f"{r.json()}")
+    except JSONDecodeError:
+        print(r.text)
 
 
 
 @parser.command(
     argument("id", help="id of instance", type=int),
+    description="Generate SSH connection URL for an instance",
     usage="vastai ssh-url ID",
-    help="ssh url helper",
+    help="Generate SSH connection URL for an instance",
+    epilog=deindent("""
+        Retrieves the SSH connection URL for an instance. Use this to get the host and port
+        information needed to connect via SSH.
+
+        Examples:
+            vastai ssh-url 12345                       # Get SSH URL for instance 12345
+
+        Output format:
+            ssh://root@<ip_address>:<port>
+
+        Use with ssh command:
+            ssh -p <port> root@<ip_address>
+
+        See also: 'vastai scp-url' for SCP file transfer URLs
+    """),
 )
 def ssh_url(args):
     """
@@ -4759,8 +5835,25 @@ def ssh_url(args):
 
 @parser.command(
     argument("id",   help="id", type=int),
+    description="Generate SCP file transfer URL for an instance",
     usage="vastai scp-url ID",
-    help="scp url helper",
+    help="Generate SCP file transfer URL for an instance",
+    epilog=deindent("""
+        Retrieves the SCP connection URL for an instance. Use this to get the host and port
+        information needed to transfer files via SCP.
+
+        Examples:
+            vastai scp-url 12345                       # Get SCP URL for instance 12345
+
+        Output format:
+            scp://root@<ip_address>:<port>
+
+        Use with scp command:
+            scp -P <port> local_file root@<ip_address>:/remote/path
+            scp -P <port> root@<ip_address>:/remote/file ./local_path
+
+        See also: 'vastai ssh-url' for SSH connection URLs, 'vastai copy' for simplified file transfers
+    """),
 )
 def scp_url(args):
     """
@@ -4779,7 +5872,7 @@ def _ssh_url(args, protocol):
     try:
         with open(f"{DIRS['temp']}/ssh_{args.id}.json", 'r') as openfile:
             json_object = json.load(openfile)
-    except:
+    except (OSError, json.JSONDecodeError, KeyError):
         pass
 
     port      = None
@@ -4793,7 +5886,12 @@ def _ssh_url(args, protocol):
         req_url = apiurl(args, "/instances", {"owner": "me"})
         r = http_get(args, req_url)
         r.raise_for_status()
-        rows = r.json()["instances"]
+        try:
+            rj = r.json()
+        except JSONDecodeError:
+            print("Error: API returned invalid JSON response", file=sys.stderr)
+            return 1
+        rows = rj.get("instances", [])
 
         if args.id:
             matches = [r for r in rows if r['id'] == args.id]
@@ -4814,10 +5912,10 @@ def _ssh_url(args, protocol):
             if (port_22d is not None):
                 ipaddr = instance["public_ipaddr"]
                 port   = int(port_22d[0]["HostPort"])
-            else:        
+            else:
                 ipaddr = instance["ssh_host"]
                 port   = int(instance["ssh_port"])+1 if "jupyter" in instance["image_runtype"] else int(instance["ssh_port"])
-        except:
+        except (KeyError, TypeError, ValueError):
             port = -1
 
     if (port > 0):
@@ -4830,37 +5928,38 @@ def _ssh_url(args, protocol):
     try:
         with open(f"{DIRS['temp']}/ssh_{args.id}.json", "w") as outfile:
             json.dump({"ipaddr":ipaddr, "port":port}, outfile)
-    except:
+    except OSError:
         pass
 
 @parser.command(
-    argument("id", help="id of apikey to get", type=int),
-    usage="vastai show api-key",
-    help="Show an api-key",
+    argument("id", help="id of API key to show", type=int),
+    description="Show details for a specific API key",
+    usage="vastai show api-key ID",
+    help="Show details for a specific API key",
 )
 def show__api_key(args):
-    url = apiurl(args, "/auth/apikeys/{id}/".format(id=args.id))
-    r = http_get(args, url, headers=headers)
-    r.raise_for_status()
-    print(r.json())
+    result = api_call(args, "GET", f"/auth/apikeys/{args.id}/")
+    return output_result(args, result)
 
 @parser.command(
+    description="List all API keys for your account",
     usage="vastai show api-keys",
-    help="List your api-keys associated with your account",
+    help="List all API keys for your account",
 )
 def show__api_keys(args):
     url = apiurl(args, "/auth/apikeys/")
     r = http_get(args, url, headers=headers)
     r.raise_for_status()
     if args.raw:
-        return r
+        return r.json()
     else:
         print(r.json())
 
 
 @parser.command(
+    description="Show account activity and audit logs",
     usage="vastai show audit-logs [--api-key API_KEY] [--raw]",
-    help="Display account's history of important actions"
+    help="Show account activity and audit logs"
 )
 def show__audit_logs(args):
     """
@@ -4869,14 +5968,8 @@ def show__audit_logs(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, "/audit_logs/")
-    r = http_get(args, req_url)
-    r.raise_for_status()
-    rows = r.json()
-    if args.raw:
-        return rows
-    else:
-        display_table(rows, audit_log_fields)
+    rows = api_call(args, "GET", "/audit_logs/")
+    return output_result(args, rows, audit_log_fields)
 
 def normalize_schedule_fields(job):
     """
@@ -4912,8 +6005,9 @@ def normalize_jobs(jobs):
 
 
 @parser.command(
+    description="List all scheduled automation jobs",
     usage="vastai show scheduled-jobs [--api-key API_KEY] [--raw]",
-    help="Display the list of scheduled jobs"
+    help="List all scheduled automation jobs"
 )
 def show__scheduled_jobs(args):
     """
@@ -4922,10 +6016,7 @@ def show__scheduled_jobs(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, "/commands/schedule_job/")
-    r = http_get(args, req_url)
-    r.raise_for_status()
-    rows = r.json()
+    rows = api_call(args, "GET", "/commands/schedule_job/")
     if args.raw:
         return rows
     else:
@@ -4933,28 +6024,30 @@ def show__scheduled_jobs(args):
         display_table(rows, scheduled_jobs_fields)
 
 @parser.command(
+    description="List all SSH keys registered to your account",
     usage="vastai show ssh-keys",
-    help="List your ssh keys associated with your account",
+    help="List all SSH keys registered to your account",
 )
 def show__ssh_keys(args):
     url = apiurl(args, "/ssh/")
     r = http_get(args, url, headers=headers)
     r.raise_for_status()
     if args.raw:
-        return r
+        return r.json()
     else:
         print(r.json())
 
 @parser.command(
+    description="List all your autoscaling worker groups",
     usage="vastai show workergroups [--api-key API_KEY]",
-    help="Display user's current workergroups",
+    help="List all your autoscaling worker groups",
     epilog=deindent("""
         Example: vastai show workergroups 
     """),
 )
 def show__workergroups(args):
     url = apiurl(args, "/autojobs/" )
-    json_blob = {"client_id": "me", "api_key": args.api_key}
+    json_blob = {"client_id": "me"}
     if (args.explain):
         print("request json: ")
         print(json_blob)
@@ -4962,28 +6055,28 @@ def show__workergroups(args):
     r.raise_for_status()
     #print("workergroup list ".format(r.json()))
 
-    if (r.status_code == 200):
-        rj = r.json();
-        if (rj["success"]):
-            rows = rj["results"] 
-            if args.raw:
-                return rows
-            else:
-                #print(rows)
-                print(json.dumps(rows, indent=1, sort_keys=True))
+    rj = r.json();
+    if rj.get("success"):
+        rows = rj.get("results", [])
+        if args.raw:
+            return rows
         else:
-            print(rj["msg"]);
+            #print(rows)
+            print(json.dumps(rows, indent=1, sort_keys=True))
+    else:
+        print(rj.get("msg", "Unknown error"));
 
 @parser.command(
+    description="List all your serverless endpoints",
     usage="vastai show endpoints [--api-key API_KEY]",
-    help="Display user's current endpoint groups",
+    help="List all your serverless endpoints",
     epilog=deindent("""
         Example: vastai show endpoints
     """),
 )
 def show__endpoints(args):
     url = apiurl(args, "/endptjobs/" )
-    json_blob = {"client_id": "me", "api_key": args.api_key}
+    json_blob = {"client_id": "me"}
     if (args.explain):
         print("request json: ")
         print(json_blob)
@@ -4991,25 +6084,26 @@ def show__endpoints(args):
     r.raise_for_status()
     #print("workergroup list ".format(r.json()))
 
-    if (r.status_code == 200):
-        rj = r.json();
-        if (rj["success"]):
-            rows = rj["results"]
-            for row in rows:
-                row.pop("api_key", None)
-                row.pop("auto_delete_in_seconds", None)
-                row.pop("auto_delete_due_24h", None)
-            if args.raw:
-                return rows
-            else:
-                print(json.dumps(rows, indent=1, sort_keys=True))
+    rj = r.json();
+    if rj.get("success"):
+        rows = rj.get("results", [])
+        for row in rows:
+            row.pop("api_key", None)
+            row.pop("auto_delete_in_seconds", None)
+            row.pop("auto_delete_due_24h", None)
+        if args.raw:
+            return rows
         else:
-            print(rj["msg"]);
+            #print(rows)
+            print(json.dumps(rows, indent=1, sort_keys=True))
+    else:
+        print(rj.get("msg", "Unknown error"));
 
 
 @parser.command(
+    description="[Beta] Show network connections between instances",
     usage="vastai show connections [--api-key API_KEY] [--raw]",
-    help="Display user's cloud connections"
+    help="[Beta] Show network connections between instances"
 )
 def show__connections(args):
     """
@@ -5020,20 +6114,15 @@ def show__connections(args):
     """
     req_url = apiurl(args, "/users/cloud_integrations/");
     print(req_url)
-    r = http_get(args, req_url, headers=headers);
-    r.raise_for_status()
-    rows = r.json()
-
-    if args.raw:
-        return rows
-    else:
-        display_table(rows, connection_fields)
+    rows = api_call(args, "GET", "/users/cloud_integrations/")
+    return output_result(args, rows, connection_fields)
 
 
 @parser.command(
     argument("id", help="id of instance to get info for", type=int),
+    description="Show prepaid deposit balance for a reserved instance",
     usage="vastai show deposit ID [options]",
-    help="Display reserve deposit info for an instance"
+    help="Show prepaid deposit balance for a reserved instance"
 )
 def show__deposit(args):
     """
@@ -5042,10 +6131,8 @@ def show__deposit(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, "/instances/balance/{id}/".format(id=args.id) , {"owner": "me"} )
-    r = http_get(args, req_url)
-    r.raise_for_status()
-    print(json.dumps(r.json(), indent=1, sort_keys=True))
+    rows = api_call(args, "GET", f"/instances/balance/{args.id}/", query_args={"owner": "me"})
+    return output_result(args, rows)
 
 
 @parser.command(
@@ -5053,8 +6140,9 @@ def show__deposit(args):
     argument("-s", "--start_date", help="start date and time for report. Many formats accepted", type=str),
     argument("-e", "--end_date", help="end date and time for report. Many formats accepted ", type=str),
     argument("-m", "--machine_id", help="Machine id (optional)", type=int),
+    description="[Host] Show rental income history for your machines",
     usage="vastai show earnings [OPTIONS]",
-    help="Get machine earning history reports",
+    help="[Host] Show rental income history for your machines",
 )
 def show__earnings(args):
     """
@@ -5082,7 +6170,6 @@ def show__earnings(args):
     if args.end_date:
         try:
             end_date = dateutil.parser.parse(str(args.end_date))
-            end_date_txt = end_date.isoformat()
             end_timestamp = end_date.timestamp()
             eday = end_timestamp / Days
         except ValueError as e:
@@ -5091,26 +6178,20 @@ def show__earnings(args):
     if args.start_date:
         try:
             start_date = dateutil.parser.parse(str(args.start_date))
-            start_date_txt = start_date.isoformat()
             start_timestamp = start_date.timestamp()
             sday = start_timestamp / Days
         except ValueError as e:
             print(f"Warning: Invalid start date format! Ignoring start date! \n {str(e)}")
 
-    req_url = apiurl(args, "/users/me/machine-earnings", {"owner": "me", "sday": sday, "eday": eday, "machid" :args.machine_id});
-    r = http_get(args, req_url)
-    r.raise_for_status()
-    rows = r.json()
-
-    if args.raw:
-        return rows
-    print(json.dumps(rows, indent=1, sort_keys=True))
+    rows = api_call(args, "GET", "/users/me/machine-earnings", query_args={"owner": "me", "sday": sday, "eday": eday, "machid": args.machine_id})
+    return output_result(args, rows)
 
 
-def sum(X, k):
+def sum_field(X, k):
+    """Sum the values of field k across all items in X."""
     y = 0
     for x in X:
-        a = float(x.get(k,0))
+        a = float(x.get(k, 0))
         y += a
     return y
 
@@ -5124,16 +6205,14 @@ def select(X,k):
 
 @parser.command(
     argument("-s", "--show-values", action="store_true", help="Show the values of environment variables"),
+    description="List environment variables set for your account",
     usage="vastai show env-vars [-s]",
-    help="Show user environment variables",
+    help="List environment variables set for your account",
 )
 def show__env_vars(args):
     """Show the environment variables for the current user."""
-    url = apiurl(args, "/secrets/")
-    r = http_get(args, url, headers=headers)
-    r.raise_for_status()
-
-    env_vars = r.json().get("secrets", {})
+    result = api_call(args, "GET", "/secrets/")
+    env_vars = result.get("secrets", {})
 
     if args.raw:
         if not args.show_values:
@@ -5165,8 +6244,9 @@ def show__env_vars(args):
     argument("-c", "--only_charges", action="store_true", help="Show only charge items"),
     argument("-p", "--only_credits", action="store_true", help="Show only credit items"),
     argument("--instance_label", help="Filter charges on a particular instance label (useful for autoscaler groups)"),
+    description="[Deprecated] Get billing history - use show invoices-v1 instead",
     usage="(DEPRECATED) vastai show invoices [OPTIONS]",
-    help="(DEPRECATED) Get billing history reports",
+    help="[Deprecated] Get billing history - use show invoices-v1 instead",
 )
 def show__invoices(args):
     """
@@ -5182,7 +6262,12 @@ def show__invoices(args):
 
     r = http_get(args, req_url)
     r.raise_for_status()
-    rows = r.json()["invoices"]
+    try:
+        rj = r.json()
+    except JSONDecodeError:
+        print("Error: API returned invalid JSON response", file=sys.stderr)
+        return
+    rows = rj.get("invoices", [])
     # print("Timestamp for first row: ", rows[0]["timestamp"])
     invoice_filter_data = filter_invoice_items(args, rows)
     rows = invoice_filter_data["rows"]
@@ -5208,7 +6293,7 @@ def show__invoices(args):
         
         result = http_post(args, url, headers=headers,json=req_json)
         result.raise_for_status()
-        filtered_rows = result.json()["contracts"]
+        filtered_rows = result.json().get("contracts", [])
         #print(rows)
 
         contract_ids = select(filtered_rows, 'id')
@@ -5216,17 +6301,17 @@ def show__invoices(args):
 
         rows2 = []
         for row in rows:
-            id = row.get("instance_id", None)
-            if id in contract_ids:
+            instance_id = row.get("instance_id", None)
+            if instance_id in contract_ids:
                 rows2.append(row)
         rows = rows2
 
-    current_charges = r.json()["current"]
+    current_charges = rj.get("current")
     if args.quiet:
         for row in rows:
-            id = row.get("id", None)
-            if id is not None:
-                print(id)
+            row_id = row.get("id", None)
+            if row_id is not None:
+                print(row_id)
     elif args.raw:
         # sort keys
         return rows
@@ -5234,7 +6319,7 @@ def show__invoices(args):
     else:
         print(filter_header)
         display_table(rows, invoice_fields)
-        print(f"Total: ${sum(rows, 'amount')}")
+        print(f"Total: ${sum_field(rows, 'amount')}")
         print("Current: ", current_charges)
 
 # Helper to convert date string or int to timestamp
@@ -5244,13 +6329,13 @@ def to_timestamp_(val):
     if isinstance(val, str):
         if val.isdigit():
             return int(val)
-        return int(datetime.strptime(val + "+0000", '%Y-%m-%d%z').timestamp())
+        return int(datetime.strptime(val, '%Y-%m-%d').timestamp())
     raise ValueError("Invalid date format")
 
 charge_types = ['instance','volume','serverless', 'i', 'v', 's']
 invoice_types = {
-    "transfers": "transfer",
-    "stripe": "stripe_payments",
+    "transfers": "stripe_payments",
+    "stripe": "transfer",
     "bitpay": "bitpay",
     "coinbase": "coinbase",
     "crypto.com": "crypto.com",
@@ -5271,8 +6356,9 @@ invoice_types = {
     argument('-f', '--format', choices=['table', 'tree'], default='table', help='Output format for charges (default: table)'),
     argument('-v', '--verbose', action='store_true', help='Include full Instance Charge details and Invoice Metadata (tree view only)'),
     argument('--latest-first', action='store_true', help='Sort by latest first'),
+    description="Get billing history with invoices and charges",
     usage="vastai show invoices-v1 [OPTIONS]",
-    help="Get billing (invoices/charges) history reports with advanced filtering and pagination",
+    help="Get billing history with invoices and charges",
     epilog=deindent("""
         This command supports colored output and rich formatting if the 'rich' python module is installed!
 
@@ -5361,7 +6447,11 @@ def show__invoices_v1(args):
     while looping:
         response = http_get(args, url)
         response.raise_for_status()
-        response = response.json()
+        try:
+            response = response.json()
+        except JSONDecodeError:
+            print("Error: API returned invalid JSON response", file=sys.stderr)
+            return
 
         found_results += response.get('results', [])
         found_count += response.get('count', 0)
@@ -5551,9 +6641,10 @@ def create_rich_table_from_rows(rows, headers=None, title='', sort_key=None):
 
 
 @parser.command(
-    argument("id", help="id of instance to get", type=int),
-    usage="vastai show instance [--api-key API_KEY] [--raw]",
-    help="Display user's current instances"
+    argument("id", help="id of instance to show", type=int),
+    description="Show details for a specific instance",
+    usage="vastai show instance ID [OPTIONS]",
+    help="Show details for a specific instance"
 )
 def show__instance(args):
     """
@@ -5562,26 +6653,31 @@ def show__instance(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-
-    #req_url = apiurl(args, "/instance", {"owner": "me"});
-    req_url = apiurl(args, "/instances/{id}/".format(id=args.id) , {"owner": "me"} )
-   
-    #r = http_get(req_url)
-    r = http_get(args, req_url)
-    r.raise_for_status()
-    row = r.json()["instances"]
+    result = api_call(args, "GET", f"/instances/{args.id}/", query_args={"owner": "me"})
+    row = result.get("instances")
+    if not row:
+        print("Error: API response missing required 'instances' field", file=sys.stderr)
+        return
     row['duration'] = time.time() - row['start_date']
     row['extra_env'] = {env_var[0]: env_var[1] for env_var in row['extra_env']}
-    if args.raw:
-        return row
-    else:
-        #print(row)
-        display_table([row], instance_fields)
+    return output_result(args, row, instance_fields)
 
 @parser.command(
     argument("-q", "--quiet", action="store_true", help="only display numeric ids"),
+    description="List all your running and stopped instances",
     usage="vastai show instances [OPTIONS] [--api-key API_KEY] [--raw]",
-    help="Display user's current instances"
+    help="List all your running and stopped instances",
+    epilog=deindent("""
+        Lists all instances owned by the authenticated user, including running, pending, and stopped instances.
+
+        Examples:
+            vastai show instances                      # List all instances in table format
+            vastai show instances --raw                # Output as JSON for scripting
+            vastai show instances --raw | jq '.[0]'   # Get first instance details
+            vastai show instances -q                   # List only instance IDs
+
+        Output includes: instance ID, machine ID, status, GPU info, rental cost, duration, and connection details.
+    """),
 )
 def show__instances(args = {}, extra = {}):
     """
@@ -5594,18 +6690,26 @@ def show__instances(args = {}, extra = {}):
     #r = http_get(req_url)
     r = http_get(args, req_url)
     r.raise_for_status()
-    rows = r.json()["instances"]
+    try:
+        rj = r.json()
+    except JSONDecodeError:
+        print("Error: API returned invalid JSON response", file=sys.stderr)
+        return
+    rows = rj.get("instances", [])
+    new_rows = []
     for row in rows:
-        row = {k: strip_strings(v) for k, v in row.items()} 
+        row = {k: strip_strings(v) for k, v in row.items()}
         row['duration'] = time.time() - row['start_date']
         row['extra_env'] = {env_var[0]: env_var[1] for env_var in row['extra_env']}
+        new_rows.append(row)
+    rows = new_rows
     if 'internal' in extra:
         return [str(row[extra['field']]) for row in rows]
     elif args.quiet:
         for row in rows:
-            id = row.get("id", None)
-            if id is not None:
-                print(id)
+            row_id = row.get("id", None)
+            if row_id is not None:
+                print(row_id)
     elif args.raw:
         return rows
     else:
@@ -5615,8 +6719,9 @@ def show__instances(args = {}, extra = {}):
 
 
 @parser.command(
+    description="Show history of IP addresses used by your instances",
     usage="vastai show ipaddrs [--api-key API_KEY] [--raw]",
-    help="Display user's history of ip addresses"
+    help="Show history of IP addresses used by your instances"
 )
 def show__ipaddrs(args):
     """
@@ -5625,29 +6730,21 @@ def show__ipaddrs(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-
-    req_url = apiurl(args, "/users/me/ipaddrs", {"owner": "me"});
-    r = http_get(args, req_url);
-    r.raise_for_status()
-    rows = r.json()["results"]
-    if args.raw:
-        return rows
-    else:
-        display_table(rows, ipaddr_fields)
+    data = api_call(args, "GET", "/users/me/ipaddrs", query_args={"owner": "me"})
+    rows = data["results"]
+    return output_result(args, rows, ipaddr_fields)
 
 
 @parser.command(
+    description="[Beta] List all your machine clusters",
     usage="vastai show clusters",
-    help="Show clusters associated with your account.",
+    help="[Beta] List all your machine clusters",
     epilog=deindent("""
         Show clusters associated with your account.
     """)
 )
 def show__clusters(args: argparse.Namespace):
-    req_url = apiurl(args, "/clusters/")
-    r = http_get(args, req_url)
-    r.raise_for_status()
-    response_data = r.json()
+    response_data = api_call(args, "GET", "/clusters/")
 
     if args.raw:
         return response_data
@@ -5656,7 +6753,13 @@ def show__clusters(args: argparse.Namespace):
     for cluster_id, cluster_data in response_data['clusters'].items():
         machine_ids = [ node["machine_id"] for node in cluster_data["nodes"]]
 
-        manager_node = next(node for node in cluster_data['nodes'] if node['is_cluster_manager'])
+        manager_node = next(
+            (node for node in cluster_data['nodes'] if node['is_cluster_manager']),
+            None
+        )
+        if manager_node is None:
+            # Cluster has no manager node, skip displaying this cluster
+            continue
 
         row_data = {
             'id': cluster_id,
@@ -5673,17 +6776,15 @@ def show__clusters(args: argparse.Namespace):
 
 
 @parser.command(
+    description="[Beta] List all your overlay networks",
     usage="vastai show overlays",
-    help="Show overlays associated with your account.",
+    help="[Beta] List all your overlay networks",
     epilog=deindent("""
         Show overlays associated with your account.
     """)
 )
 def show__overlays(args: argparse.Namespace):
-    req_url = apiurl(args, "/overlay/")
-    r = http_get(args, req_url)
-    r.raise_for_status()
-    response_data = r.json()
+    response_data = api_call(args, "GET", "/overlay/")
     if args.raw:
         return response_data
     rows = []
@@ -5704,8 +6805,9 @@ def show__overlays(args: argparse.Namespace):
 
 @parser.command(
     argument("-q", "--quiet", action="store_true", help="display subaccounts from current user"),
+    description="List all subaccounts under your account",
     usage="vastai show subaccounts [OPTIONS]",
-    help="Get current subaccounts"
+    help="List all subaccounts under your account"
 )
 def show__subaccounts(args):
     """
@@ -5714,60 +6816,59 @@ def show__subaccounts(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, "/subaccounts", {"owner": "me"});
-    r = http_get(args, req_url);
-    r.raise_for_status()
-    rows = r.json()["users"]
-    if args.raw:
-        return rows
-    else:
-        display_table(rows, user_fields)
+    data = api_call(args, "GET", "/subaccounts", query_args={"owner": "me"})
+    rows = data["users"]
+    return output_result(args, rows, user_fields)
 
 @parser.command(
+    description="List all members in your team",
     usage="vastai show members",
-    help="Show your team members",
+    help="List all members in your team",
 )
 def show__members(args):
-    url = apiurl(args, "/team/members/")
-    r = http_get(args, url, headers=headers)
-    r.raise_for_status()
-
-    if args.raw:
-        return r
-    else:
-        print(r.json())
+    result = api_call(args, "GET", "/team/members/")
+    return output_result(args, result)
 
 @parser.command(
     argument("NAME", help="name of the role", type=str),
+    description="Show details for a specific team role",
     usage="vastai show team-role NAME",
-    help="Show your team role",
+    help="Show details for a specific team role",
 )
 def show__team_role(args):
-    url = apiurl(args, "/team/roles/{id}/".format(id=args.NAME))
-    r = http_get(args, url, headers=headers)
-    r.raise_for_status()
-    print(json.dumps(r.json(), indent=1, sort_keys=True))
+    result = api_call(args, "GET", f"/team/roles/{args.NAME}/")
+    return output_result(args, result)
 
 @parser.command(
+    description="List all roles defined for your team",
     usage="vastai show team-roles",
-    help="Show roles for a team"
+    help="List all roles defined for your team"
 )
 def show__team_roles(args):
-    url = apiurl(args, "/team/roles-full/")
-    r = http_get(args, url, headers=headers)
-    r.raise_for_status()
-
-    if args.raw:
-        return r
-    else:
-        print(r.json())
+    result = api_call(args, "GET", "/team/roles-full/")
+    return output_result(args, result)
 
 @parser.command(
     argument("-q", "--quiet", action="store_true", help="display information about user"),
+    description="Show your account information and balance",
     usage="vastai show user [OPTIONS]",
-    help="Get current user data",
+    help="Show your account information and balance",
     epilog=deindent("""
-        Shows stats for logged-in user. These include user balance, email, and ssh key. Does not show API key.
+        Displays account information for the authenticated user.
+
+        Examples:
+            vastai show user                           # Show user info in table format
+            vastai show user --raw                     # Output as JSON for scripting
+
+        Information displayed:
+          - Account balance and credit
+          - Email address
+          - Username
+          - SSH public key (if configured)
+          - Account settings
+
+        Note: API key is NOT displayed for security reasons.
+        Use 'vastai set api-key' to update your stored API key.
     """)
 )
 def show__user(args):
@@ -5777,21 +6878,15 @@ def show__user(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, "/users/current", {"owner": "me"});
-    r = http_get(args, req_url);
-    r.raise_for_status()
-    user_blob = r.json()
+    user_blob = api_call(args, "GET", "/users/current", query_args={"owner": "me"})
     user_blob.pop("api_key")
-
-    if args.raw:
-        return user_blob
-    else:
-        display_table([user_blob], user_fields)
+    return output_result(args, user_blob, user_fields)
 
 @parser.command(
     argument("-t", "--type", help="volume type to display. Default to all. Possible values are \"local\", \"all\", \"network\"", type=str, default="all"),
+    description="List all your storage volumes and their status",
     usage="vastai show volumes [OPTIONS]",
-    help="Show stats on owned volumes.",
+    help="List all your storage volumes and their status",
     epilog=deindent("""
         Show stats on owned volumes
     """)
@@ -5803,13 +6898,11 @@ def show__volumes(args: argparse.Namespace):
         "all": "all_volume"
     }
     type = types.get(args.type, "all")
-    req_url = apiurl(args, "/volumes", {"owner": "me", "type" : type});
-    r = http_get(args, req_url)
-    r.raise_for_status()
-    rows = r.json()["volumes"]
+    result = api_call(args, "GET", "/volumes", query_args={"owner": "me", "type": type})
+    rows = result.get("volumes", [])
     processed = []
     for row in rows:
-        row = {k: strip_strings(v) for k, v in row.items()} 
+        row = {k: strip_strings(v) for k, v in row.items()}
         row['duration'] = time.time() - row['start_date']
         processed.append(row)
     if args.raw:
@@ -5822,8 +6915,9 @@ def show__volumes(args: argparse.Namespace):
     argument("cluster_id", help="ID of cluster you want to remove machine from.", type=int),
     argument("machine_id", help="ID of machine to remove from cluster.", type=int),
     argument("new_manager_id", help="ID of machine to promote to manager. Must already be in cluster", type=int, nargs="?"),
+    description="[Host] [Beta] Remove a machine from a cluster",
     usage="vastai remove-machine-from-cluster CLUSTER_ID MACHINE_ID NEW_MANAGER_ID",
-    help="Removes machine from cluster",
+    help="[Host] [Beta] Remove a machine from a cluster",
     epilog=deindent("""Removes machine from cluster and also reassigns manager ID, 
     if we're removing the manager node""")
 )
@@ -5843,745 +6937,77 @@ def remove_machine_from_cluster(args: argparse.Namespace):
     r.raise_for_status()
 
     if args.raw:
-        return r
+        return r.json()
 
-    print(r.json()["msg"])
-
-
-
-def handle_failed_tfa_verification(args, e):
-    error_data = e.response.json()
-    error_msg = error_data.get("msg", str(e))
-    error_code = error_data.get("error", "")
-
-    if args.raw:
-        print(json.dumps(error_data, indent=2))
-    
-    print(f"\n{FAIL} Error: {error_msg}")
-    
-    # Provide helpful context for common errors
-    if error_code in {"tfa_locked", "2fa_verification_failed"}:
-        fail_count = error_data.get("fail_count", 0)
-        locked_until = error_data.get("locked_until")
-        
-        if fail_count > 0:
-            print(f"   Failed attempts: {fail_count}")
-        if locked_until:
-            lock_time_sec = (datetime.fromtimestamp(locked_until) - datetime.now()).seconds
-            minutes, seconds = divmod(lock_time_sec, 60)
-            print(f"   Time Remaining for 2FA Lock: {minutes} minutes and {seconds} seconds...")
-
-    elif error_code == "2fa_expired":
-        # Note: Only SMS uses tfa challenges that expire when verifying
-        print("\n   The SMS code and secret have expired. Please start over:")
-        print("     vastai tfa send-sms")
+    print(r.json().get("msg", "Unknown error"))
 
 
-def format_backup_codes(backup_codes):
-    """Format backup codes for display or file output."""
-    output_lines = [
-        "=" * 60, "  VAST.AI 2FA BACKUP CODES", "=" * 60,
-        f"\nGenerated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"\n{WARN}  WARNING: All previous backup codes are now invalid!",
-        "\nYour New Backup Codes (one-time use only):",
-        "-" * 40,
-    ]
-    
-    for i, code in enumerate(backup_codes, 1):
-        output_lines.append(f"  {i:2d}. {code}")
-    
-    output_lines.extend([
-        "-" * 40,
-        "\nIMPORTANT:",
-        " • Each code can only be used once",
-        " • Store them in a secure location",
-        " • Use these codes to log in if you lose access to your 2FA device",
-        "\n" + "=" * 60,
-    ])
-    return "\n".join(output_lines)
 
 
-def confirm_destructive_action(prompt="Are you sure? (y/n): "):
-    """Prompt user for confirmation of destructive actions"""
-    try:
-        response = input(f" {prompt}").strip().lower()
-        return 'y' in response
-    except (EOFError, KeyboardInterrupt):
-        print("\nOperation cancelled.")
-        raise
-
-def save_to_file(content, filepath):
-    """Save content to file, creating parent directories if needed."""
-    try:
-        filepath = os.path.abspath(os.path.expanduser(filepath))
-        
-        # If directory provided, this should be handled by caller
-        parent_dir = os.path.dirname(filepath)
-        if parent_dir:
-            os.makedirs(parent_dir, exist_ok=True)
-        
-        with open(filepath, "w") as f:
-            f.write(content)
-        return True
-    except (IOError, OSError) as e:
-        print(f"\n{FAIL} Error saving file: {e}")
-        return False
 
 
-def get_backup_codes_filename():
-    """Generate a timestamped filename for backup codes."""
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    return f"vastai_backup_codes_{timestamp}.txt"
-
-def save_backup_codes(backup_codes):
-    """Save or display 2FA backup codes based on user choice."""
-    print(f"\nBackup codes regenerated successfully! {SUCCESS}")
-    print(f"\n{WARN}  WARNING: All previous backup codes are now invalid!")
-    
-    formatted_content = format_backup_codes(backup_codes)
-    filename = get_backup_codes_filename()
-    
-    while True:
-        print("\nHow would you like to save your new backup codes?")
-        print(f"  1. Save to default location (~/Downloads/{filename})")
-        print(f"  2. Save to a custom path")
-        print(f"  3. Print to screen ({WARN}  potentially unsafe - visible to onlookers)")
-        
-        try:
-            choice = input("\nEnter choice (1-3): ").strip()
-            
-            if choice in {'1', '2'}:
-                # Determine filepath
-                if choice == '1':
-                    downloads_dir = os.path.expanduser("~/Downloads")
-                    filepath = os.path.join(downloads_dir, filename)
-                else:  # choice == '2'
-                    custom_path = input("\nEnter full path for backup codes file: ").strip()
-                    if not custom_path:
-                        print("Error: Path cannot be empty")
-                        continue
-                    
-                    filepath = os.path.abspath(os.path.expanduser(custom_path))
-                    
-                    # If directory provided, add filename
-                    if os.path.isdir(filepath):
-                        filepath = os.path.join(filepath, filename)
-                
-                # Try to save
-                if save_to_file(formatted_content, filepath):
-                    print(f"\n{SUCCESS} Backup codes saved to: {filepath}")
-                    print(f"\nIMPORTANT:")
-                    print(f" • The file contains {len(backup_codes)} one-time use backup codes")
-                    if choice == '1':
-                        print(f" • Move this file to a secure location")
-                    return
-                else:
-                    print("Please try again with a different path.")
-                    continue
-            
-            elif choice == '3':
-                print(f"\n{WARN}  WARNING: Printing sensitive codes to screen!")
-                confirm = input("\nAre you sure? Anyone nearby can see these codes. (yes/no): ").strip().lower()
-                
-                if confirm in {'yes', 'y'}:
-                    print("\n" + formatted_content + "\n")
-                    return
-                else:
-                    print("Cancelled. Please choose another option.")
-                    continue
-            
-            else:
-                print("Invalid choice. Please enter 1, 2, or 3.")
-        
-        except (EOFError, KeyboardInterrupt):
-            print("\n\nOperation cancelled. Your backup codes were generated but not saved.")
-            print("You will need to regenerate them to get new codes.")
-            raise
 
 
-def build_tfa_verification_payload(args, **kwargs):
-    """Build common payload for TFA verification requests."""
-    payload = {
-        "tfa_method_id": getattr(args, 'method_id', None),
-        "tfa_method": "sms" if getattr(args, 'sms', False) else "totp",
-        "code": getattr(args, 'code', None),
-        "backup_code": getattr(args, 'backup_code', None),
-        "secret": getattr(args, 'secret', None),
-    }
-    for key, value in kwargs.items():
-        payload[key] = value
-
-    return {k:v for k,v in payload.items() if v}
-
-@parser.command(
-    argument("code", help="6-digit verification code from SMS or Authenticator app", type=str),
-    argument("--sms", help="Use SMS 2FA method instead of TOTP", action="store_true"),
-    argument("--secret", help="Secret token from setup process (required)", type=str, required=True),
-    argument("--phone-number", help="Phone number for SMS method (E.164 format)", type=str, default=None),
-    argument("-l", "--label", help="Label for the new 2FA method", type=str, default=None),
-    usage="vastai tfa activate CODE --secret SECRET [--sms] [--phone-number PHONE_NUMBER] [--label LABEL]",
-    help="Activate a new 2FA method by verifying the code",
-    epilog=deindent("""
-        Complete the 2FA setup process by verifying your code.
-        
-        For TOTP (Authenticator app):
-         1. Run 'vastai tfa totp-setup' to get the manual key/QR code and secret
-         2. Enter the manual key or scan the QR code with your Authenticator app
-         3. Run this command with the 6-digit code from your app and the secret token from step 1
-        
-        For SMS:
-         1. Run 'vastai tfa send-sms --phone-number <PHONE_NUMBER>' to receive SMS and get secret token
-         2. Run this command with the code you received via SMS and the phone number it was sent to
-        
-        If this is your first 2FA method, backup codes will be generated and displayed.
-        Save these backup codes in a secure location!
-        
-        Examples:
-         vastai tfa activate --secret abc123def456 123456
-         vastai tfa activate --secret abc123def456 --phone-number +12345678901 123456
-         vastai tfa activate --secret abc123def456 --phone-number +12345678901 --label "Work Phone" 123456
-    """),
-)
-def tfa__activate(args):
-    """Activate a new 2FA method by confirming the verification code."""
-    url = apiurl(args, "/api/v0/tfa/test-submit/")
-    
-    # Build the request payload
-    payload = build_tfa_verification_payload(args, phone_number=args.phone_number, label=args.label)
-    
-    r = http_post(args, url, headers=apiheaders(args), json=payload)
-    r.raise_for_status()
-    
-    response_data = r.json()
-    
-    # Display success message
-    method_name = "SMS" if args.phone_number or args.sms else "TOTP (Authenticator App)"
-    print(f"\n{SUCCESS} {method_name} 2FA method activated successfully!")
-    
-    # Display backup codes if this is the first 2FA method
-    if "backup_codes" in response_data:
-        save_backup_codes(response_data["backup_codes"])
 
 
 @parser.command(
-    argument("-id", "--id-to-delete", help="ID of the 2FA method to delete (see `vastai tfa status`)", type=int, default=None),
-    argument("-c", "--code", mutex_group='code_grp', required=True, help="2FA code from your Authenticator app or SMS to authorize deletion", type=str),
-    argument("--sms", mutex_group="type_grp", help="Use SMS 2FA method instead of TOTP", action="store_true"),
-    argument("-s", "--secret", help="Secret token (required for SMS authorization)", type=str, default=None),
-    argument("-bc", "--backup-code", mutex_group='code_grp', required=True, help="One-time backup code (alternative to regular 2FA code)", type=str, default=None),
-    argument("--method-id", help="2FA Method ID if you have more than one of the same type ('id' from `tfa status`)", type=str, default=None),
-    usage="vastai tfa delete [--id-to-delete ID] [--code CODE] [--sms] [--secret SECRET] [--backup-code BACKUP_CODE] [--method-id ID]",
-    help="Remove a 2FA method from your account",
-    epilog=deindent(f"""
-        Remove a 2FA method from your account.
-        
-        This action requires 2FA verification to prevent unauthorized removals.
-        
-        {'*'*120}
-        NOTE: If you do not specify --id-to-delete, the system will attempt to delete the method you are using to authenticate.
-              However please be advised, it is much safer to specify the ID to avoid confusion if you have multiple methods.
-        {'*'*120}
-
-           Use `vastai tfa status` to see your active methods and their IDs.
-        
-        Examples:
-         # Delete method #123, authorize with TOTP/Authenticator code
-         vastai tfa delete --id-to-delete 123 --code 456789
-         
-         # Delete method #123, authorize with SMS and secret from `tfa send-sms`
-         vastai tfa delete -id 123 --sms --secret abc123def456 -c 456789
-         
-         # Delete method #123, authorize with backup code
-         vastai tfa delete --id-to-delete 123 --backup-code ABCD-EFGH-IJKL
-         
-         # Delete method #123, specify which TOTP method to use if you have multiple
-         vastai tfa delete -id 123 --method-id 456 -c 456789
-
-         # Delete the TOTP method you are using to authenticate (use with caution)
-         vastai tfa delete -c 456789
-    """),
-)
-def tfa__delete(args):
-    """Remove a 2FA method from the user's account after verifying authorization."""
-    url = apiurl(args, "/api/v0/tfa/")
-
-    if args.sms and not args.secret:
-        print(f"\n{FAIL} Error: --secret is required for deletion authorization when using --sms.")
-        print("\nPlease use:  `vastai tfa send-sms` to get the missing secret and try again.")
-        return 1
-    
-    # Confirm action since this invalidates existing codes
-    prompt = "\nAre you sure you want to delete this 2FA method? (y|n): "
-    if confirm_destructive_action(prompt) == False:
-        print("Operation cancelled.")
-        return
-    
-    # Build the request payload
-    payload = build_tfa_verification_payload(args, target_id=args.id_to_delete)
-    try:
-        r = http_del(args, url, headers=apiheaders(args), json=payload)
-        r.raise_for_status()
-        
-        response_data = r.json()
-        
-        print(f"\n{SUCCESS} 2FA method deleted successfully.")
-        
-        if "remaining_methods" in response_data:
-            remaining = response_data["remaining_methods"]
-            print(f"\nYou have {remaining} 2FA method{'s' if remaining != 1 else ''} remaining.")
-        else:
-            print(f"\n{WARN}  WARNING: You have removed all 2FA methods from your account.")
-            print("Your backup codes have been invalidated and 2FA is now fully disabled.")
-    
-    except requests.exceptions.HTTPError as e:
-        handle_failed_tfa_verification(args, e)
-        return 1
-
-
-@parser.command(
-    argument("-c", "--code", mutex_group='code_grp', required=True, help="2FA code from Authenticator app (default) or SMS", type=str),
-    argument("--sms", mutex_group="type_grp", help="Use SMS 2FA method instead of TOTP", action="store_true"),
-    argument("-s", "--secret", help="Secret token from previous login step (required for SMS)", type=str, default=None),
-    argument("-bc", "--backup-code", mutex_group='code_grp', required=True, help="One-time backup code (alternative to regular 2FA code)", type=str, default=None),
-    argument("-id", "--method-id", mutex_group="type_grp", help="2FA Method ID if you have more than one of the same type ('id' from `tfa status`)", type=str, default=None),
-    
-    usage="vastai tfa login [--code CODE] [--sms] [--secret SECRET] [--backup-code BACKUP_CODE]",
-    help="Complete 2FA login by verifying code",
-    epilog=deindent("""
-        Complete Two-Factor Authentication login by providing the 2FA code.
-        
-        For TOTP (default): Provide the 6-digit code from your Authenticator app
-        For SMS: Include the --sms flag and provide -s/--secret from the `tfa send-sms` command response
-        For backup code: Use --backup-code instead of code (codes may only be used once)
-        
-        Examples:
-         vastai tfa login -c 123456
-         vastai tfa login --code 123456 --sms --secret abc123def456
-         vastai tfa login --backup-code ABCD-EFGH-IJKL
-                    
-    """),
-)
-def tfa__login(args):
-    """Complete 2FA login and store the session key."""
-    url = apiurl(args, "/api/v0/tfa/")
-    
-    # Build the request payload
-    payload = build_tfa_verification_payload(args)
-
-    try:
-        r = http_post(args, url, headers=apiheaders(args), json=payload)
-        r.raise_for_status()
-        
-        response_data = r.json()
-        
-        # Check for session_key in response and save it
-        if "session_key" in response_data:
-            session_key = response_data["session_key"]
-            if session_key != args.api_key:
-                # Write the session key to the TFA key file
-                with open(TFAKEY_FILE, "w") as f:
-                    f.write(session_key)
-                print(f"{SUCCESS} 2FA login successful! Session key saved to {TFAKEY_FILE}")
-            else:
-                print(f"{SUCCESS} 2FA login successful! Your session key has been refreshed.")
-            
-            # Display remaining backup codes if present
-            if "backup_codes_remaining" in response_data:
-                remaining = response_data["backup_codes_remaining"]
-                if remaining == 0:
-                    print(f"{WARN}  Warning: You have no backup codes remaining! Please generate new backup codes immediately to avoid being locked out of your account if you lose access to your 2FA device.")
-                elif remaining <= 3:
-                    print(f"{WARN}  Warning: You only have {remaining} backup codes remaining. Consider regenerating them.")
-                else:
-                    print(f"Backup codes remaining: {remaining}")
-        else:
-            print("2FA login successful but a session key was not returned. Please check that you have an API Key that's properly set up")
-    
-    except requests.exceptions.HTTPError as e:
-        handle_failed_tfa_verification(args, e)
-        return 1
-
-
-@parser.command(
-    argument("-p", "--phone-number", help="Phone number to receive SMS code (E.164 format, e.g., +1234567890)", type=str, default=None),
-    argument("-s", "--secret", help="Secret token from the original 2FA login attempt", type=str, required=True),
-    usage="vastai tfa resend-sms --secret SECRET [--phone-number PHONE_NUMBER]",
-    help="Resend SMS 2FA code",
-    epilog=deindent("""
-        Resend the SMS verification code to your phone.
-        
-        This is useful if:
-        • You didn't receive the original SMS
-        • The code expired before you could use it
-        • You accidentally deleted the message
-        
-        You must provide the same secret token from the original request.
-        
-        Example:
-         vastai tfa resend-sms --secret abc123def456
-    """),
-)
-def tfa__resend_sms(args):
-    """Resend SMS 2FA code to the user's phone."""
-    url = apiurl(args, "/api/v0/tfa/resend/")
-    payload = build_tfa_verification_payload(args, phone_number=args.phone_number)
-    
-    r = http_post(args, url, headers=apiheaders(args), json=payload)
-    r.raise_for_status()
-    
-    response_data = r.json()
-    
-    print(f"{SUCCESS} SMS code resent successfully!")
-    print(f"\n{response_data['msg']}")
-    print(f"\nOnce you receive the SMS code, complete your 2FA login with:")
-    print(f"  vastai tfa login --sms --secret {args.secret} -c <CODE>")
-
-
-@parser.command(
-    argument("-c", "--code", mutex_group='code_grp', required=True, help="2FA code from Authenticator app (default) or SMS", type=str),
-    argument("--sms", mutex_group="type_grp", help="Use SMS 2FA method instead of TOTP", action="store_true"),
-    argument("-s", "--secret", help="Secret token from previous login step (required for SMS)", type=str, default=None),
-    argument("-bc", "--backup-code", mutex_group='code_grp', required=True, help="One-time backup code (alternative to regular 2FA code)", type=str, default=None),
-    argument("-id", "--method-id", mutex_group="type_grp", help="2FA Method ID if you have more than one of the same type ('id' from `tfa status`)", type=str, default=None),
-    usage="vastai tfa regen-codes [--code CODE] [--sms] [--secret SECRET] [--backup-code BACKUP_CODE] [--method-id ID]",
-    help="Regenerate backup codes for 2FA",
-    epilog=deindent("""
-        Generate a new set of backup codes for your account.
-        
-        This action requires 2FA verification to prevent unauthorized regeneration.
-        
-        WARNING: This will invalidate all existing backup codes!
-        Any previously generated codes will no longer work.
-        
-        Backup codes are one-time use codes that allow you to log in
-        if you lose access to your primary 2FA method (lost phone, etc).
-        
-        You should regenerate your backup codes if:
-        • You've used several codes and are running low
-        • You think your codes may have been compromised
-        • You lost your saved codes and need new ones
-        
-        Important: Save the new codes in a secure location immediately!
-        They will not be shown again.
-        
-        Examples:
-         vastai tfa regen-codes --code 123456
-         vastai tfa regen-codes -c 123456 --sms --secret abc123def456
-         vastai tfa regen-codes --backup-code ABCD-EFGH-IJKL
-    """),
-)
-def tfa__regen_codes(args):
-    """Regenerate backup codes for 2FA recovery."""
-    url = apiurl(args, "/api/v0/tfa/regen-backup-codes/")
-    
-    # Confirm action since this invalidates existing codes
-    prompt = "\nThis will invalidate all existing backup codes. Continue? (y|n): "
-    if confirm_destructive_action(prompt) == False:
-        print("Operation cancelled.")
-        return
-    
-    # Build the request payload with verification
-    payload = build_tfa_verification_payload(args)
-    try:
-        r = http_put(args, url, headers=apiheaders(args), json=payload)
-        r.raise_for_status()
-        
-        response_data = r.json()
-        
-        # Display the new backup codes
-        if "backup_codes" in response_data:
-            save_backup_codes(response_data["backup_codes"])
-        else:
-            print(f"\n{SUCCESS} Backup codes regenerated successfully!")
-            print("(No codes returned in response - this may be an error)")
-
-    except requests.exceptions.HTTPError as e:
-        handle_failed_tfa_verification(args, e)
-        return 1
-
-
-@parser.command(
-    argument("-p", "--phone-number", help="Phone number to receive SMS code (E.164 format, e.g., +1234567890)", type=str, default=None),
-    usage="vastai tfa send-sms [--phone-number PHONE_NUMBER]",
-    help="Request a 2FA SMS verification code",
-    epilog=deindent("""
-        Request a two-factor authentication code to be sent via SMS.
-        
-        If --phone-number is not provided, uses the phone number on your account.
-        The secret token will be returned and must be used with 'vastai tfa activate'.
-        
-        Examples:
-         vastai tfa send-sms
-         vastai tfa send-sms --phone-number +12345678901
-    """),
-)
-def tfa__send_sms(args):
-    """Request a 2FA SMS code to be sent to the user's phone."""
-    url = apiurl(args, "/api/v0/tfa/test/")
-    
-    # Build the request payload
-    payload = {}
-    
-    # Add phone number if provided
-    if args.phone_number:
-        payload["phone_number"] = args.phone_number
-    
-    r = http_post(args, url, headers=apiheaders(args), json=payload)
-    r.raise_for_status()
-    
-    response_data = r.json()
-    
-    # Extract and display the secret token
-    secret = response_data["secret"]
-    print(f"{SUCCESS} SMS code sent successfully!")
-    print(f"  Secret token: {secret}")
-    print(f"\nOnce you receive the SMS code:")
-    print(f"\n  If you are setting up SMS 2FA for the first time, run:")
-    phone_num = f"--phone-number {args.phone_number}" if args.phone_number else "[--phone-number <PHONE_NUMBER>]"
-    print(f"    vastai tfa activate --sms --secret {secret} {phone_num} [--label <LABEL>] <CODE>")
-    print(f"\n  Otherwise you can complete your 2FA log in with:")
-    print(f"    vastai tfa login --sms --secret {secret} -c <CODE>\n")
-
-
-TFA_METHOD_FIELDS = (
-    ("id", "ID", "{}", None, True),
-    ("user_id", "User ID", "{}", None, True),
-    ("is_primary", "Primary", "{}", None, True),
-    ("method", "Method", "{}", None, True),
-    ("label", "Label", "{}", None, True),
-    ("phone_number", "Phone Number", "{}", None, False),
-    ("created_at", "Created", "{}", lambda x: datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if x else "N/A", True),
-    ("last_used", "Last Used", "{}", lambda x: datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if x else "Never", True),
-    ("fail_count", "Failures", "{}", None, True),
-    ("locked_until", "Locked Until", "{}", lambda x: datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if x else "N/A", True),
-)
-def display_tfa_methods(methods):
-    """Helper function to display 2FA methods in a table."""
-    method_fields = TFA_METHOD_FIELDS
-    has_sms = any(m['method'] == 'sms' for m in methods)
-    if not has_sms:  # Don't show Phone Number column if the user has no SMS methods
-        method_fields = tuple(field for field in TFA_METHOD_FIELDS if field[0] != 'phone_number')
-    
-    display_table(methods, method_fields, replace_spaces=False)
-
-
-@parser.command(
-    help="Shows the current 2FA status and configured methods",
-    epilog=deindent("""
-        Show the current 2FA status for your account, including:
-         • Whether or not 2FA is enabled
-         • A list of active 2FA methods
-         • The number of backup codes remaining (if 2FA is enabled)
-    """)
-)
-def tfa__status(args):
-    """Show the current 2FA status for the user."""
-    url = apiurl(args, "/tfa/status/")
-    r = http_get(args, url)
-    r.raise_for_status()
-    response_data = r.json()
-
-    if args.raw:
-        print(json.dumps(response_data, indent=2))
-        return
-
-    tfa_enabled = response_data.get("tfa_enabled", False)
-    methods = response_data.get("methods", [])
-    backup_codes_remaining = response_data.get("backup_codes_remaining", 0)
-    
-    if not tfa_enabled or not methods:
-        print(f"{WARN}  No active 2FA methods found")
-    else:
-        print(f"2FA Status: Enabled {SUCCESS}")
-        print(f"\nActive 2FA Methods:")
-        display_tfa_methods(methods)
-        print(f"\nBackup codes remaining: {backup_codes_remaining}")
-
-
-@parser.command(
-    usage="vastai tfa totp-setup",
-    help="Generate TOTP secret and QR code for Authenticator app setup",
-    epilog=deindent("""
-        Set up TOTP (Time-based One-Time Password) 2FA using an Authenticator app.
-        
-        This command generates a new TOTP secret and displays:
-        • A QR code (for scanning with your app)
-        • A manual entry key (for typing into your app)
-        • A secret token (needed for the next step)
-        
-        Workflow:
-         1. Run this command to generate the TOTP secret
-         2. Add the account to your Authenticator app by either:
-            • Scanning the displayed QR code, OR
-            • Manually entering the key shown
-         3. Once added, your app will display a 6-digit code
-         4. Complete setup by running:
-            vastai tfa activate --secret <SECRET> <CODE>
-        
-        Supported Authenticator Apps:
-         • Google Authenticator
-         • Microsoft Authenticator
-         • Authy
-         • 1Password
-         • Any TOTP-compatible app
-        
-        Example:
-         vastai tfa totp-setup
-    """),
-)
-def tfa__totp_setup(args):
-    """Generate a TOTP secret and QR code for setting up Authenticator app 2FA."""
-    url = apiurl(args, "/api/v0/tfa/totp-setup/")
-    
-    r = http_post(args, url, headers=apiheaders(args), json={})
-    r.raise_for_status()
-    
-    response_data = r.json()
-    if args.raw:
-        print(json.dumps(response_data, indent=2))
-        return
-    
-    # Extract the secret and provisioning URI
-    secret = response_data["secret"]
-    provisioning_uri = response_data["provisioning_uri"]
-    
-    # Display the setup information
-    print("\n" + "="*60)
-    print("TOTP (Authenticator App) 2FA Setup")
-    print("="*60)
-
-    print("\nScan this QR code with your Authenticator app:\n")
-    
-    try:  # Generate and display QR code in terminal
-        import qrcode
-        qr = qrcode.QRCode(border=2)
-        qr.add_data(provisioning_uri)
-        qr.make()
-        qr.print_ascii(tty=True)
-    except ImportError:
-        print("  [QR code display requires 'qrcode' package]")
-        print(f"  Install with: pip install qrcode")
-        print(f"\n  Or manually enter this URI in your app:")
-        print(f"  {provisioning_uri}")
-
-    print("\nOR Manual Entry Key (type this into your Authenticator app):")
-    print(f"  {secret}")
-    
-    print("\nNext Steps:")
-    print("  1. Your Authenticator app should now display a 6-digit code")
-    print("  2. Complete setup by running:")
-    print(f"     vastai tfa activate --secret {secret} <CODE>")
-    print("\n" + "="*60 + "\n")
-
-
-@parser.command(
-    argument("method_id", metavar="METHOD_ID", help="ID of the 2FA method to update (see `vastai tfa status`)", type=int),
-    argument("-l", "--label", help="New label/name for this 2FA method", type=str, default=None),
-    argument("-p", "--set-primary", help="Set this method as the primary/default 2FA method", default=None),
-    usage="vastai tfa update METHOD_ID [--label LABEL] [--set-primary]",
-    help="Update a 2FA method's settings",
-    epilog=deindent("""
-        Update the label or primary status of a 2FA method.
-        
-        The label is a friendly name to help you identify different methods
-        (e.g. "Work Phone", "Personal Authenticator").
-        
-        The primary method is your preferred/default 2FA method.
-        
-        Examples:
-         vastai tfa update 123 --label "Work Phone"
-         vastai tfa update 456 --set-primary
-         vastai tfa update 789 --label "Backup Authenticator" --set-primary
-    """),
-)
-def tfa__update(args):
-    """Update settings for an existing 2FA method."""
-    url = apiurl(args, "/api/v0/tfa/update/")
-    
-    # Build payload with only provided fields
-    payload = {
-        "tfa_method_id": args.method_id
-    }
-    
-    if args.label is not None:
-        payload["label"] = args.label
-    
-    if args.set_primary is not None:
-        if args.set_primary.lower() in {'true', 't'}:
-            args.set_primary = True
-        elif args.set_primary.lower() in {'false', 'f'}:
-            args.set_primary = False
-        else:            
-            print("Error: --set-primary must be <t|true> or <f|false>")
-            return
-        
-        payload["is_primary"] = args.set_primary
-    
-    # Validate that at least one update field was provided
-    if len(payload) == 1:  # only method_id
-        print("Error: You must specify at least one field to update (--label or --set-primary)")
-        return 1
-    
-    r = http_put(args, url, headers=apiheaders(args), json=payload)
-    r.raise_for_status()
-    
-    response_data = r.json()
-    if args.raw:
-        print(json.dumps(response_data, indent=2))
-        return
-    
-    method_info = response_data.get("method", {})
-    
-    print(f"\n{SUCCESS} 2FA method updated successfully!")
-    if args.label:
-        print(f"   New label: {args.label}")
-    if args.set_primary is not None:
-        print(f"   Set as primary method = {args.set_primary}")
-    if method_info:
-        print("\nUpdated 2FA Method:")
-        display_tfa_methods([method_info])
-    
-        
-
-@parser.command(
-    argument("recipient", help="email (or id) of recipient account", type=str),
-    argument("amount",    help="$dollars of credit to transfer ", type=float),
+    argument("recipient_pos", help=argparse.SUPPRESS, type=str, nargs='?', default=None),
+    argument("amount_pos",    help=argparse.SUPPRESS, type=float, nargs='?', default=None),
+    argument("--recipient", "-r", help="email (or id) of recipient account", type=str, default=None),
+    argument("--amount", "-a",    help="dollars of credit to transfer", type=float, default=None),
     argument("--skip",    help="skip confirmation", action="store_true", default=False),
-    usage="vastai transfer credit RECIPIENT AMOUNT",
+    description="Transfer credits to another account",
+    usage="vastai transfer credit [--recipient EMAIL] [--amount DOLLARS] [RECIPIENT AMOUNT]",
     help="Transfer credits to another account",
     epilog=deindent("""
-        Transfer (amount) credits to account with email (recipient).
+        Transfer credits to another account. This action is irreversible.
+
+        Supports two syntax styles (named flags recommended):
+          vastai transfer credit --recipient user@example.com --amount 10.00
+          vastai transfer credit user@example.com 10.00  (legacy positional)
+
+        Examples:
+          vastai transfer credit --recipient user@example.com --amount 25.50
+          vastai transfer credit -r user@example.com -a 25.50
+          vastai transfer credit user@example.com 25.50
     """),
 )
 def transfer__credit(args: argparse.Namespace):
     url = apiurl(args, "/commands/transfer_credit/")
- 
+
+    # Resolve arguments - prefer named flags over positional for clarity
+    recipient = args.recipient if args.recipient is not None else args.recipient_pos
+    amount = args.amount if args.amount is not None else args.amount_pos
+
+    if not recipient or amount is None:
+        print("Error: Both recipient and amount are required.")
+        print("Usage: vastai transfer credit --recipient EMAIL --amount DOLLARS")
+        print("   or: vastai transfer credit EMAIL AMOUNT (legacy)")
+        return
+
     if not args.skip:
-        print(f"Transfer ${args.amount} credit to account {args.recipient}?  This is irreversible.")
+        print(f"Transfer ${amount} credit to account {recipient}?  This is irreversible.")
         ok = input("Continue? [y/n] ")
         if ok.strip().lower() != "y":
             return
 
     json_blob = {
         "sender":    "me",
-        "recipient": args.recipient,
-        "amount":    args.amount,
+        "recipient": recipient,
+        "amount":    amount,
     }
     if (args.explain):
         print("request json: ")
         print(json_blob)
     r = http_put(args, url,  headers=headers,json=json_blob)
     r.raise_for_status()
-
-    if (r.status_code == 200):
-        rj = r.json();
-        if (rj["success"]):
-            print(f"Sent {args.amount} to {args.recipient} ".format(r.json()))
-        else:
-            print(rj["msg"]);
+    rj = r.json();
+    if args.raw:
+        return rj
+    if rj.get("success"):
+        print(f"Sent ${amount} to {recipient}")
     else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+        print(rj.get("msg", "Unknown error"));
 
 @parser.command(
     argument("id", help="id of autoscale group to update", type=int),
@@ -6598,6 +7024,7 @@ def transfer__credit(args: argparse.Namespace):
     argument("--launch_args",   help="launch args  string for create instance  ex: \"--onstart onstart_wget.sh  --env '-e ONSTART_PATH=https://s3.amazonaws.com/public.vast.ai/onstart_OOBA.sh' --image atinoda/text-generation-webui:default-nightly --disk 64\"", type=str),
     argument("--endpoint_name",   help="deployment endpoint name (allows multiple workergroups to share same deployment endpoint)", type=str),
     argument("--endpoint_id",   help="deployment endpoint id (allows multiple workergroups to share same deployment endpoint)", type=int),
+    description="Update an existing autoscale group",
     usage="vastai update workergroup WORKERGROUP_ID --endpoint_id ENDPOINT_ID [options]",
     help="Update an existing autoscale group",
     epilog=deindent("""
@@ -6605,8 +7032,8 @@ def transfer__credit(args: argparse.Namespace):
     """),
 )
 def update__workergroup(args):
-    id  = args.id
-    url = apiurl(args, f"/autojobs/{id}/" )
+    workergroup_id = args.id
+    url = apiurl(args, f"/autojobs/{workergroup_id}/")
     if args.no_default:
         query = ""
     else:
@@ -6621,7 +7048,10 @@ def update__workergroup(args):
     r.raise_for_status()
     if 'application/json' in r.headers.get('Content-Type', ''):
         try:
-            print("workergroup update {}".format(r.json()))
+            rj = r.json()
+            if args.raw:
+                return rj
+            print("workergroup update {}".format(rj))
         except requests.exceptions.JSONDecodeError:
             print("The response is not valid JSON.")
             print(r)
@@ -6641,6 +7071,7 @@ def update__workergroup(args):
     argument("--cold_workers", help="min number of workers to keep 'cold' when you have no load (default 5)", type=int),
     argument("--max_workers", help="max number of workers your endpoint group can have (default 20)", type=int),
     argument("--endpoint_name",   help="deployment endpoint name (allows multiple workergroups to share same deployment endpoint)", type=str),
+    description="Update an existing endpoint group",
     usage="vastai update endpoint ID [OPTIONS]",
     help="Update an existing endpoint group",
     epilog=deindent("""
@@ -6648,8 +7079,8 @@ def update__workergroup(args):
     """),
 )
 def update__endpoint(args):
-    id  = args.id
-    url = apiurl(args, f"/endptjobs/{id}/" )
+    endpoint_id = args.id
+    url = apiurl(args, f"/endptjobs/{endpoint_id}/")
     json_blob = {"client_id": "me", "endptjob_id": args.id, "min_load": args.min_load, "min_cold_load":args.min_cold_load,"target_util": args.target_util, "cold_mult": args.cold_mult, "cold_workers": args.cold_workers, "max_workers" : args.max_workers, "endpoint_name": args.endpoint_name, "endpoint_state": args.endpoint_state, "autoscaler_instance":args.auto_instance}
     if (args.explain):
         print("request json: ")
@@ -6658,7 +7089,10 @@ def update__endpoint(args):
     r.raise_for_status()
     if 'application/json' in r.headers.get('Content-Type', ''):
         try:
-            print("update endpoint {}".format(r.json()))
+            rj = r.json()
+            if args.raw:
+                return rj
+            print("update endpoint {}".format(rj))
         except requests.exceptions.JSONDecodeError:
             print("The response is not valid JSON.")
             print(r)
@@ -6670,6 +7104,7 @@ def update__endpoint(args):
 @parser.command(
     argument("name", help="Environment variable name to update", type=str),
     argument("value", help="New environment variable value", type=str),
+    description="Update an existing user environment variable",
     usage="vastai update env-var <name> <value>",
     help="Update an existing user environment variable",
 )
@@ -6681,6 +7116,8 @@ def update__env_var(args):
     r.raise_for_status()
 
     result = r.json()
+    if args.raw:
+        return result
     if result.get("success"):
         print(result.get("msg", "Environment variable updated successfully."))
     else:
@@ -6694,8 +7131,9 @@ def update__env_var(args):
     argument("--args", help="new arguments for the instance", type=str),
     argument("--env", help="new environment variables for the instance", type=json.loads),
     argument("--onstart", help="new onstart script for the instance", type=str),
+    description="Update an instance configuration or recreate from a template",
     usage="vastai update instance ID [OPTIONS]",
-    help="Update recreate an instance from a new/updated template",
+    help="Update an instance configuration or recreate from a template",
     epilog=deindent("""
         Example: vastai update instance 1234 --template_hash_id 661d064bbda1f2a133816b6d55da07c3
     """),
@@ -6707,7 +7145,7 @@ def update__instance(args):
     """
     url = apiurl(args, f"/instances/update_template/{args.id}/")
     json_blob = {"id": args.id}
-    
+
     if args.template_id:
         json_blob["template_id"] = args.template_id
     if args.template_hash_id:
@@ -6724,11 +7162,13 @@ def update__instance(args):
     if args.explain:
         print("request json: ")
         print(json_blob)
-    
+
     r = http_put(args, url, headers=headers, json=json_blob)
 
     if r.status_code == 200:
         response_data = r.json()
+        if args.raw:
+            return response_data
         if response_data.get("success"):
             print(f"Instance {args.id} updated successfully.")
             print("Updated instance details:")
@@ -6743,24 +7183,24 @@ def update__instance(args):
     argument("id", help="id of the role", type=int),
     argument("--name", help="name of the template", type=str),
     argument("--permissions", help="file path for json encoded permissions, look in the docs for more information", type=str),
+    description="Update an existing team role",
     usage="vastai update team-role ID --name NAME --permissions PERMISSIONS",
     help="Update an existing team role",
 )
 def update__team_role(args):
-    url = apiurl(args, "/team/roles/{id}/".format(id=args.id))
     permissions = load_permissions_from_file(args.permissions)
-    r = http_put(args, url,  headers=headers, json={"name": args.name, "permissions": permissions})
-    r.raise_for_status()
+    result = api_call(args, "PUT", "/team/roles/{id}/".format(id=args.id), json_body={"name": args.name, "permissions": permissions})
     if args.raw:
-        return r
+        return result
     else:
-        print(json.dumps(r.json(), indent=1))
+        print(json.dumps(result, indent=1))
 
 
 
 @parser.command(
     argument("HASH_ID", help="hash id of the template", type=str),
     *get_template_arguments(),
+    description="Update an existing template",
     usage="vastai update template HASH_ID",
     help="Update an existing template",
     epilog=deindent("""
@@ -6823,8 +7263,8 @@ def update__template(args):
     r.raise_for_status()
     try:
         rj = r.json()
-        if rj["success"]:
-            print(f"updated template: {json.dumps(rj['template'], indent=1)}")
+        if rj.get("success"):
+            print(f"updated template: {json.dumps(rj.get('template', ''), indent=1)}")
         else:
             print("template update failed")
     except requests.exceptions.JSONDecodeError as e:
@@ -6835,22 +7275,21 @@ def update__template(args):
 @parser.command(
     argument("id", help="id of the ssh key to update", type=int),
     argument("ssh_key", help="new public key value", type=str),
+    description="Update an SSH key's label or properties",
     usage="vastai update ssh-key ID SSH_KEY",
-    help="Update an existing SSH key",
+    help="Update an SSH key's label or properties",
 )
 def update__ssh_key(args):
     """Updates an existing SSH key for the authenticated user."""
     ssh_key = get_ssh_key(args.ssh_key)
-    url = apiurl(args, f"/ssh/{args.id}/")
 
     payload = {
         "id": args.id,
         "ssh_key": ssh_key,
     }
 
-    r = http_put(args, url, json=payload)
-    r.raise_for_status()
-    print(r.json())
+    result = api_call(args, "PUT", f"/ssh/{args.id}/", json_body=payload)
+    print(result)
 
 def convert_dates_to_timestamps(args):
     selector_flag = ""
@@ -6866,7 +7305,7 @@ def convert_dates_to_timestamps(args):
         try:
             end_date = dateutil.parser.parse(str(args.end_date))
             end_date_txt = end_date.isoformat()
-            end_timestamp = time.mktime(end_date.timetuple())
+            end_timestamp = calendar.timegm(end_date.timetuple())
         except ValueError as e:
             print(f"Warning: Invalid end date format! Ignoring end date! \n {str(e)}")
     
@@ -6874,9 +7313,9 @@ def convert_dates_to_timestamps(args):
         try:
             start_date = dateutil.parser.parse(str(args.start_date))
             start_date_txt = start_date.isoformat()
-            start_timestamp = time.mktime(start_date.timetuple())
+            start_timestamp = calendar.timegm(start_date.timetuple())
         except ValueError as e:
-            print(f"Warning: Invalid start date format! Ignoring end date! \n {str(e)}")
+            print(f"Warning: Invalid start date format! Ignoring start date! \n {str(e)}")
 
     return start_timestamp, end_timestamp
 
@@ -6921,14 +7360,14 @@ def filter_invoice_items(args: argparse.Namespace, rows: List) -> Dict:
         try:
             end_date = dateutil.parser.parse(str(args.end_date))
             end_date_txt = end_date.isoformat()
-            end_timestamp = time.mktime(end_date.timetuple())
+            end_timestamp = calendar.timegm(end_date.timetuple())
         except ValueError:
             print("Warning: Invalid end date format! Ignoring end date!")
     if args.start_date:
         try:
             start_date = dateutil.parser.parse(str(args.start_date))
             start_date_txt = start_date.isoformat()
-            start_timestamp = time.mktime(start_date.timetuple())
+            start_timestamp = calendar.timegm(start_date.timetuple())
         except ValueError:
             print("Warning: Invalid start date format! Ignoring start date!")
 
@@ -7041,8 +7480,9 @@ def filter_invoice_items(args: argparse.Namespace, rows: List) -> Dict:
     argument("machines", help="ids of machines to add disk to, that is networked to be on the same LAN as machine", type=int, nargs='+'),
     argument("mount_point", help="mount path of disk to add", type=str),
     argument("-d", "--disk_id", help="id of network disk to attach to machines in the cluster", type=int, nargs='?'),
+    description="[Host] [Beta] Attach a network disk to a machine cluster",
     usage="vastai add network-disk MACHINES MOUNT_PATH [options]",
-    help="[Host] Add Network Disk to Physical Cluster.",
+    help="[Host] [Beta] Attach a network disk to a machine cluster",
     epilog=deindent("""
         This variant can be used to add a network disk to a physical cluster.
         When you add a network disk for the first time, you just need to specify the machine(s) and mount_path.
@@ -7065,18 +7505,25 @@ def add__network_disk(args):
         print(json_blob)
     r = http_post(args, url, headers=headers, json=json_blob)
     r.raise_for_status()
- 
-    if args.raw:
-        return r
 
-    print("Attached network disk to machines. Disk id: " + str(r.json()["disk_id"]))
+    try:
+        rj = r.json()
+    except JSONDecodeError:
+        print("Error: API returned invalid JSON response", file=sys.stderr)
+        return
+
+    if args.raw:
+        return rj
+
+    print("Attached network disk to machines. Disk id: " + str(rj.get("disk_id", "unknown")))
 
 
 
 @parser.command(
     argument("id", help="id of machine to cancel maintenance(s) for", type=int),
+    description="[Host] Cancel a scheduled maintenance window",
     usage="vastai cancel maint id",
-    help="[Host] Cancel maint window",
+    help="[Host] Cancel a scheduled maintenance window",
     epilog=deindent("""
         For deleting a machine's scheduled maintenance window(s), use this cancel maint command.    
         Example: vastai cancel maint 8207
@@ -7100,8 +7547,13 @@ def cancel__maint(args):
         print(json_blob)
     r = http_put(args, url,  headers=headers,json=json_blob)
     r.raise_for_status()
-    print(r.text)
-    print(f"Cancel maintenance window(s) scheduled for machine {args.id} success".format(r.json()))
+    try:
+        rj = r.json()
+    except JSONDecodeError:
+        rj = {"success": True, "message": r.text}
+    if args.raw:
+        return rj
+    print(f"Cancel maintenance window(s) scheduled for machine {args.id} success")
 
 
 def cleanup_machine(args, machine_id):
@@ -7113,21 +7565,22 @@ def cleanup_machine(args, machine_id):
 
     if (r.status_code == 200):
         rj = r.json()
-        if (rj["success"]):
+        if (rj.get("success")):
             print(json.dumps(r.json(), indent=1))
         else:
             if args.raw:
-                return r
+                return r.json()
             else:
-                print(rj["msg"])
+                print(rj.get("msg", "Unknown error"))
     else:
         print(r.text)
         print("failed with error {r.status_code}".format(**locals()))
 
 @parser.command(
     argument("id", help="id of machine to cleanup", type=int),
+    description="[Host] Clean up expired storage to free disk space",
     usage="vastai cleanup machine ID [options]",
-    help="[Host] Remove all expired storage instances from the machine, freeing up space",
+    help="[Host] Clean up expired storage to free disk space",
     epilog=deindent("""
         Instances expire on their end date. Expired instances still pay storage fees, but can not start.
         Since hosts are still paid storage fees for expired instances, we do not auto delete them.
@@ -7145,8 +7598,9 @@ def cleanup__machine(args):
 
 @parser.command(
     argument("IDs", help="ids of machines", type=int, nargs='+'),
+    description="[Host] Rebuild larger GPU offers from orphaned single GPUs when possible",
     usage="vastai defragment machines IDs ",
-    help="[Host] Defragment machines",
+    help="[Host] Rebuild larger GPU offers from orphaned single GPUs when possible",
     epilog=deindent("""
         Defragment some of your machines. This will rearrange GPU assignments to try and make more multi-gpu offers available.
     """),
@@ -7157,11 +7611,14 @@ def defrag__machines(args):
     if (args.explain):
         print("request json: ")
         print(json_blob)
-    r = requests.put(url, headers=headers,json=json_blob)
+    r = http_put(args, url, headers=headers, json=json_blob)
     r.raise_for_status()
     if 'application/json' in r.headers.get('Content-Type', ''):
         try:
-            print(f"defragment result: {r.json()}")
+            rj = r.json()
+            if args.raw:
+                return rj
+            print(f"defragment result: {rj}")
         except requests.exceptions.JSONDecodeError:
             print("The response is not valid JSON.")
             print(r)
@@ -7172,8 +7629,9 @@ def defrag__machines(args):
 
 @parser.command(
    argument("id", help="id of machine to delete", type=int),
+    description="[Host] Remove a machine from your host account",
     usage="vastai delete machine <id>",
-    help="[Host] Delete machine if the machine is not being used by clients. host jobs on their own machines are disregarded and machine is force deleted.",
+    help="[Host] Remove a machine from your host account",
 ) 
 def delete__machine(args):
     """
@@ -7183,10 +7641,12 @@ def delete__machine(args):
     r = http_post(args, req_url, headers=headers)
     if (r.status_code == 200):
         rj = r.json()
-        if (rj["success"]):
+        if args.raw:
+            return rj
+        if (rj.get("success")):
             print("deleted machine_id ({machine_id}) and all related contracts.".format(machine_id=args.id));
         else:
-            print(rj["msg"]);
+            print(rj.get("msg", "Unknown error"));
     else:
         print(r.text);
         print("failed with error {r.status_code}".format(**locals()));
@@ -7216,7 +7676,7 @@ def list_machine(args, id):
 
     if (r.status_code == 200):
         rj = r.json()
-        if (rj["success"]):
+        if (rj.get("success")):
             price_gpu_ = str(args.price_gpu) if args.price_gpu is not None else "def"
             price_inetu_ = str(args.price_inetu)
             price_inetd_ = str(args.price_inetd)
@@ -7225,7 +7685,7 @@ def list_machine(args, id):
             discount_rate_ = str(args.discount_rate)
             duration_ = str(args.duration)
             if args.raw:
-                return r
+                return r.json()
             else:
                 print("offers created/updated for machine {id},  @ ${price_gpu_}/gpu/hr, ${price_inetu_}/GB up, ${price_inetd_}/GB down, {min_chunk_}/min gpus, max discount_rate {discount_rate_}, till {end_date_}, duration {duration_}".format(**locals()))
                 num_extended = rj.get("extended", 0)
@@ -7235,9 +7695,9 @@ def list_machine(args, id):
 
         else:
             if args.raw:
-                return r
+                return r.json()
             else:
-                print(rj["msg"])
+                print(rj.get("msg", "Unknown error"))
     else:
         print(r.text)
         print("failed with error {r.status_code}".format(**locals()))
@@ -7257,8 +7717,9 @@ def list_machine(args, id):
     argument("-l", "--duration", help="Updates end_date daily to be duration from current date. Cannot be combined with end_date. Format is: `n days`, `n weeks`, `n months`, `n years`, or total intended duration in seconds."),
     argument("-v", "--vol_size", help="Size for volume contract offer. Defaults to half of available disk. Set 0 to not create a volume contract offer.", type=int),
     argument("-z", "--vol_price", help="Price for disk on volume contract offer. Defaults to price_disk. Invalid if vol_size is 0.", type=float),
+    description="[Host] List a single machine for rent on the marketplace",
     usage="vastai list machine ID [options]",
-    help="[Host] list a machine for rent",
+    help="[Host] List a single machine for rent on the marketplace",
     epilog=deindent("""
         Performs the same action as pressing the "LIST" button on the site https://cloud.vast.ai/host/machines.
         On the end date the listing will expire and your machine will unlist. However any existing client jobs will still remain until ended by their owners.
@@ -7276,7 +7737,7 @@ def list__machine(args):
 
 
 @parser.command(
-    argument("ids", help="ids of instance to list", type=int, nargs='+'),
+    argument("ids", help="ids of machines to list", type=int, nargs='+'),
     argument("-g", "--price_gpu", help="per gpu on-demand rental price in $/hour (base price for active instances)", type=float),
     argument("-s", "--price_disk",
              help="storage price in $/GB/month (price for inactive instances), default: $0.10/GB/month", type=float),
@@ -7289,8 +7750,9 @@ def list__machine(args):
     argument("-l", "--duration", help="Updates end_date daily to be duration from current date. Cannot be combined with end_date. Format is: `n days`, `n weeks`, `n months`, `n years`, or total intended duration in seconds."),
     argument("-v", "--vol_size", help="Size for volume contract offer. Defaults to half of available disk. Set 0 to not create a volume contract offer.", type=int),
     argument("-z", "--vol_price", help="Price for disk on volume contract offer. Defaults to price_disk. Invalid if vol_size is 0.", type=float),
-    usage="vastai list machines IDs [options]",
-    help="[Host] list machines for rent",
+    description="[Host] List multiple machines for rent on the marketplace",
+    usage="vastai list machines IDS [OPTIONS]",
+    help="[Host] List multiple machines for rent on the marketplace",
     epilog=deindent("""
         This variant can be used to list or update the listings for multiple machines at once with the same args.
         You could extend the end dates of all your machines using a command combo like this:
@@ -7301,7 +7763,6 @@ def list__machines(args):
     """
     """
     return [list_machine(args, id) for id in args.ids]
-    return res
 
 
 
@@ -7312,8 +7773,9 @@ def list__machines(args):
     argument("-p", "--price_disk", help="storage price in $/GB/month, default: $%(default).2f/GB/month", default=.15, type=float),
     argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format), default 1 month", type=str, default=None),
     argument("-s", "--size", help="size of disk space allocated to offer in GB, default %(default)s GB", default=15, type=int),
+    description="[Host] [Beta] List disk space as a rentable network volume",
     usage="vastai list network volume DISK_ID [options]",
-    help="[Host] list disk space for rent as a network volume"
+    help="[Host] [Beta] List disk space as a rentable network volume"
 )
 def list__network_volume(args):
     json_blob = {
@@ -7334,9 +7796,9 @@ def list__network_volume(args):
     r = http_post(args, url, headers=headers, json=json_blob)
     r.raise_for_status()
     if args.raw:
-        return r
+        return r.json()
 
-    print(r.json()["msg"])
+    print(r.json().get("msg", "Unknown error"))
 
 
 
@@ -7346,13 +7808,14 @@ def list__network_volume(args):
              help="storage price in $/GB/month, default: $%(default).2f/GB/month", default=.10, type=float),
     argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format), default 3 months", type=str),
     argument("-s", "--size", help="size of disk space allocated to offer in GB, default %(default)s GB", default=15),
+    description="[Host] List disk space as a rentable volume",
     usage="vastai list volume ID [options]",
-    help="[Host] list disk space for rent as a volume on a machine",
+    help="[Host] List disk space as a rentable volume",
     epilog=deindent("""
         Allocates a section of disk on a machine to be used for volumes.  
     """)
 )
-def list__volume(args):        
+def list__volume(args):
     json_blob ={
         "size": int(args.size),
         "machine": int(args.id),
@@ -7370,19 +7833,20 @@ def list__volume(args):
     r = http_post(args, url,  headers=headers,json=json_blob)
     r.raise_for_status()
     if args.raw:
-        return r
+        return r.json()
     else:
         print("Created. {}".format(r.json()))
 
 
 @parser.command(
-    argument("ids", help="id of machines list", type=int, nargs='+'),
+    argument("ids", help="ids of machines to list volumes on", type=int, nargs='+'),
     argument("-p", "--price_disk",
              help="storage price in $/GB/month, default: $%(default).2f/GB/month", default=.10, type=float),
     argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format), default 3 months", type=str),
     argument("-s", "--size", help="size of disk space allocated to offer in GB, default %(default)s GB", default=15),
-    usage="vastai list volume IDs [options]",
-    help="[Host] list disk space for rent as a volume on machines",
+    description="[Host] List disk space on multiple machines as rentable volumes",
+    usage="vastai list volumes IDS [OPTIONS]",
+    help="[Host] List disk space on multiple machines as rentable volumes",
     epilog=deindent("""
         Allocates a section of disk on machines to be used for volumes.  
     """)
@@ -7405,7 +7869,7 @@ def list__volumes(args):
     r = http_post(args, url,  headers=headers,json=json_blob)
     r.raise_for_status()
     if args.raw:
-        return r
+        return r.json()
     else:
         print("Created. {}".format(r.json()))
 
@@ -7415,8 +7879,9 @@ def list__volumes(args):
 
 @parser.command(
     argument("id", help="id of machine to remove default instance from", type=int),
+    description="[Host] Remove default background jobs from a machine",
     usage="vastai remove defjob id",
-    help="[Host] Delete default jobs",
+    help="[Host] Remove default background jobs from a machine",
 )
 def remove__defjob(args):
     """
@@ -7431,10 +7896,12 @@ def remove__defjob(args):
 
     if (r.status_code == 200):
         rj = r.json();
-        if (rj["success"]):
+        if args.raw:
+            return rj
+        if (rj.get("success")):
             print("default instance for machine {machine_id} removed.".format(machine_id=args.id));
         else:
-            print(rj["msg"]);
+            print(rj.get("msg", "Unknown error"));
     else:
         print(r.text);
         print("failed with error {r.status_code}".format(**locals()));
@@ -7449,8 +7916,9 @@ def remove__defjob(args):
     argument("--url", help="Server REST API URL", default="https://console.vast.ai"),
     argument("--retry", help="Retry limit", type=int, default=3),
     argument("--ignore-requirements", action="store_true", help="Ignore the minimum system requirements and run the self test regardless"),
+    description="[Host] Run diagnostics on a hosted machine",
     usage="vastai self-test machine <machine_id> [--debugging] [--explain] [--api_key API_KEY] [--url URL] [--retry RETRY] [--raw] [--ignore-requirements]",
-    help="[Host] Perform a self-test on the specified machine",
+    help="[Host] Run diagnostics on a hosted machine",
     epilog=deindent("""
         This command tests if a machine meets specific requirements and 
         runs a series of tests to ensure it's functioning correctly.
@@ -7626,26 +8094,41 @@ def self_test__machine(args):
             try:
                 progress_print(args, f"Starting test with {docker_image}")
                 response = create__instance(create_args)
-                if isinstance(response, requests.Response):  # Check if it's an HTTP response
-                    if response.status_code == 200:
-                        try:
-                            instance_info = response.json()  # Parse JSON
-                            if args.debugging:
-                                debug_print(args, "Captured instance_info from create__instance:", instance_info)
-                        except json.JSONDecodeError as e:
-                            progress_print(args, f"Error parsing JSON response: {e}")
-                            debug_print(args, f"Raw response content: {response.text}")
-                            raise Exception("Failed to parse JSON from instance creation response.")
-                    else:
-                        progress_print(args, f"HTTP error during instance creation: {response.status_code}")
-                        debug_print(args, f"Response text: {response.text}")
-                        raise Exception(f"Instance creation failed with status {response.status_code}")
+                if isinstance(response, dict):
+                    instance_info = response
+                elif isinstance(response, requests.Response):
+                    instance_info = response.json()
                 else:
-                    raise Exception("Unexpected response type from create__instance.")
+                    raise Exception(f"Unexpected return type from create__instance: {type(response).__name__}")
+                if args.debugging:
+                    debug_print(args, "Captured instance_info from create__instance:", instance_info)
+                if not instance_info.get("success", True):
+                    msg = instance_info.get("msg", "Unknown error")
+                    error_type = instance_info.get("error", "")
+                    raise Exception(f"API error ({error_type}): {msg}")
+            except requests.exceptions.HTTPError as e:
+                status = e.response.status_code
+                try:
+                    err_body = e.response.json()
+                    msg = err_body.get("msg", e.response.text)
+                except (JSONDecodeError, ValueError):
+                    msg = e.response.text
+                error_messages = {
+                    400: f"Bad request: {msg}",
+                    401: f"Unauthorized: {msg}",
+                    403: f"Permission denied: {msg}",
+                    404: f"Offer {ask_contract_id} not found or not available: {msg}",
+                    410: f"Offer {ask_contract_id} is no longer available: {msg}",
+                    429: "Too many API requests. Please wait and try again.",
+                }
+                reason = error_messages.get(status, f"HTTP {status}: {msg}")
+                progress_print(args, f"Error creating instance: {reason}")
+                result["reason"] = reason
+                return result
             except Exception as e:
                 progress_print(args, f"Error creating instance: {e}")
-                result["reason"] = "Failed to create instance. Check the docker configuration. Use the self-test machine function in vast cli "
-                return result  # Cleanup handled in finally block
+                result["reason"] = str(e)
+                return result
 
             # Extract instance ID and proceed
             instance_id = instance_info.get("new_contract")
@@ -7720,8 +8203,9 @@ def set_ask(args):
     argument("--price_inetd", help="price for internet download bandwidth in $/GB", type=float),
     argument("--image", help="docker container image to launch", type=str),
     argument("--args", nargs=argparse.REMAINDER, help="list of arguments passed to container launch"),
+    description="[Host] Configure default background jobs for a machine",
     usage="vastai set defjob id [--api-key API_KEY] [--price_gpu PRICE_GPU] [--price_inetu PRICE_INETU] [--price_inetd PRICE_INETD] [--image IMAGE] [--args ...]",
-    help="[Host] Create default jobs for a machine",
+    help="[Host] Configure default background jobs for a machine",
     epilog=deindent("""
         Performs the same action as creating a background job at https://cloud.vast.ai/host/create.       
                     
@@ -7742,11 +8226,13 @@ def set__defjob(args):
     r = http_put(args, req_url, headers=headers, json=json_blob)
     if (r.status_code == 200):
         rj = r.json();
-        if (rj["success"]):
+        if args.raw:
+            return rj
+        if (rj.get("success")):
             print(
                 "bids created for machine {args.id},  @ ${args.price_gpu}/gpu/day, ${args.price_inetu}/GB up, ${args.price_inetd}/GB down".format(**locals()));
         else:
-            print(rj["msg"]);
+            print(rj.get("msg", "Unknown error"));
     else:
         print(r.text);
         print("failed with error {r.status_code}".format(**locals()));
@@ -7831,8 +8317,9 @@ def pretty_print_POST(req):
 @parser.command(
     argument("id", help="id of machine to set min bid price for", type=int),
     argument("--price", help="per gpu min bid price in $/hour", type=float),
+    description="[Host] Set minimum price for interruptible/spot instance rentals",
     usage="vastai set min_bid id [--price PRICE]",
-    help="[Host] Set the minimum bid/rental price for a machine",
+    help="[Host] Set minimum price for interruptible/spot instance rentals",
     epilog=deindent("""
         Change the current min bid price of machine id to PRICE.
     """),
@@ -7850,7 +8337,10 @@ def set__min_bid(args):
         print(json_blob)
     r = http_put(args, url,  headers=headers,json=json_blob)
     r.raise_for_status()
-    print("Per gpu min bid price changed".format(r.json()))
+    rj = r.json()
+    if args.raw:
+        return rj
+    print("Per gpu min bid price changed".format(rj))
 
 
 @parser.command(
@@ -7858,8 +8348,9 @@ def set__min_bid(args):
     argument("--sdate",      help="maintenance start date in unix epoch time (UTC seconds)", type=float),
     argument("--duration",   help="maintenance duration in hours", type=float),
     argument("--maintenance_category",   help="(optional) can be one of [power, internet, disk, gpu, software, other]", type=str, default="not provided"),
+    description="[Host] Schedule a maintenance window for a machine",
     usage="vastai schedule maintenance id [--sdate START_DATE --duration DURATION --maintenance_category MAINTENANCE_CATEGORY]",
-    help="[Host] Schedule upcoming maint window",
+    help="[Host] Schedule a maintenance window for a machine",
     epilog=deindent("""
         The proper way to perform maintenance on your machine is to wait until all active contracts have expired or the machine is vacant.
         For unplanned or unscheduled maintenance, use this schedule maint command. That will notify the client that you have to take the machine down and that they should save their work. 
@@ -7888,13 +8379,17 @@ def schedule__maint(args):
         print(json_blob)
     r = http_put(args, url,  headers=headers,json=json_blob)
     r.raise_for_status()
-    print(f"Maintenance window scheduled for {dt} success".format(r.json()))
+    rj = r.json()
+    if args.raw:
+        return rj
+    print(f"Maintenance window scheduled for {dt} success".format(rj))
 
 @parser.command(
-    argument("Machine", help="id of machine to display", type=int),
+    argument("id", help="id of machine to display", type=int),
     argument("-q", "--quiet", action="store_true", help="only display numeric ids"),
+    description="[Host] Show details for a specific hosted machine",
     usage="vastai show machine ID [OPTIONS]",
-    help="[Host] Show hosted machines",
+    help="[Host] Show details for a specific hosted machine",
 )
 def show__machine(args):
     """
@@ -7903,12 +8398,11 @@ def show__machine(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, f"/machines/{args.Machine}", {"owner": "me"});
-    r = http_get(args, req_url)
-    r.raise_for_status()
-    rows = r.json()
+    rows = api_call(args, "GET", f"/machines/{args.id}", query_args={"owner": "me"})
+    if isinstance(rows, dict):
+        rows = [rows]
     if args.raw:
-        return r
+        return rows
     else:
         if args.quiet:
             ids = [f"{row['id']}" for row in rows]
@@ -7919,8 +8413,9 @@ def show__machine(args):
 
 @parser.command(
     argument("-q", "--quiet", action="store_true", help="only display numeric ids"),
+    description="[Host] List all your hosted machines",
     usage="vastai show machines [OPTIONS]",
-    help="[Host] Show hosted machines",
+    help="[Host] List all your hosted machines",
 )
 def show__machines(args):
     """
@@ -7929,14 +8424,12 @@ def show__machines(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, "/machines", {"owner": "me"});
-    r = http_get(args, req_url)
-    r.raise_for_status()
-    rows = r.json()["machines"]
+    result = api_call(args, "GET", "/machines", query_args={"owner": "me"})
+    rows = result.get("machines", [])
     if args.raw:
-        return r
+        return rows
     else:
-        if args.quiet:            
+        if args.quiet:
             ids = [f"{row['id']}" for row in rows]
             print(" ".join(id for id in ids))
         else:
@@ -7944,10 +8437,11 @@ def show__machines(args):
 
 
 @parser.command(
-    argument("-ids", help="comma seperated string of machine_ids for which to get maintenance information", type=str),
+    argument("-i", "--ids", help="comma separated string of machine_ids for which to get maintenance information", type=str),
     argument("-q", "--quiet", action="store_true", help="only display numeric ids of the machines in maintenance"),
-    usage="\nvastai show maints -ids 'machine_id_1' [OPTIONS]\nvastai show maints -ids 'machine_id_1, machine_id_2' [OPTIONS]",
-    help="[Host] Show maintenance information for host machines",
+    description="[Host] List scheduled maintenance windows",
+    usage="vastai show maints --ids MACHINE_IDS [OPTIONS]",
+    help="[Host] List scheduled maintenance windows",
 )
 def show__maints(args):
     """
@@ -7959,14 +8453,11 @@ def show__maints(args):
     machine_ids = args.ids.split(',')
     machine_ids = list(map(int, machine_ids))
 
-    req_url = apiurl(args, "/machines/maintenances", {"owner": "me", "machine_ids" : machine_ids});
-    r = http_get(args, req_url)
-    r.raise_for_status()
-    rows = r.json()
+    rows = api_call(args, "GET", "/machines/maintenances", query_args={"owner": "me", "machine_ids": machine_ids})
     if args.raw:
-        return r
+        return rows
     else:
-        if args.quiet:   
+        if args.quiet:
             ids = [f"{row['machine_id']}" for row in rows]
             print(" ".join(id for id in ids))
         else:
@@ -7974,8 +8465,9 @@ def show__maints(args):
 
 
 @parser.command(
+    description="[Host] [Beta] List network disks attached to your machines",
     usage="vastai show network-disks",
-    help="[Host] Show network disks associated with your account.",
+    help="[Host] [Beta] List network disks attached to your machines",
     epilog=deindent("""
         Show network disks associated with your account.
     """)
@@ -7984,7 +8476,11 @@ def show__network_disks(args: argparse.Namespace):
     req_url = apiurl(args, "/network_disk/")
     r = http_get(args, req_url)
     r.raise_for_status()
-    response_data = r.json()
+    try:
+        response_data = r.json()
+    except JSONDecodeError:
+        print("Error: API returned invalid JSON response", file=sys.stderr)
+        return
 
     if args.raw:
         return response_data
@@ -8008,8 +8504,9 @@ def show__network_disks(args: argparse.Namespace):
 
 @parser.command(
     argument("id", help="id of machine to unlist", type=int),
+    description="[Host] Remove a machine from the rental marketplace",
     usage="vastai unlist machine <id>",
-    help="[Host] Unlist a listed machine",
+    help="[Host] Remove a machine from the rental marketplace",
 )
 
 def unlist__machine(args):
@@ -8023,18 +8520,21 @@ def unlist__machine(args):
     r = http_del(args, req_url, headers=headers)
     if (r.status_code == 200):
         rj = r.json();
-        if (rj["success"]):
+        if args.raw:
+            return rj
+        if (rj.get("success")):
             print("all offers for machine {machine_id} removed, machine delisted.".format(machine_id=args.id));
         else:
-            print(rj["msg"]);
+            print(rj.get("msg", "Unknown error"));
     else:
         print(r.text);
         print("failed with error {r.status_code}".format(**locals()));
 
 @parser.command(
     argument("id", help="id of network volume offer to unlist", type=int),
+    description="[Host] [Beta] Remove a network volume offer from the marketplace",
     usage="vastai unlist network volume OFFER_ID",
-    help="[Host] Unlists network volume offer",
+    help="[Host] [Beta] Remove a network volume offer from the marketplace",
 )
 def unlist__network_volume(args):
     json_blob = {
@@ -8050,20 +8550,21 @@ def unlist__network_volume(args):
     r = http_post(args, url, headers=headers, json=json_blob)
     r.raise_for_status()
     if args.raw:
-        return r
- 
-    print(r.json()["msg"])
+        return r.json()
+
+    print(r.json().get("msg", "Unknown error"))
 
 @parser.command(
     argument("id", help="volume ID you want to unlist", type=int),
+    description="[Host] Remove a volume offer from the marketplace",
     usage="vastai unlist volume ID",
-    help="[Host] unlist volume offer"
+    help="[Host] Remove a volume offer from the marketplace",
 )
 def unlist__volume(args):
-    id = args.id
+    volume_id = args.id
 
     json_blob = {
-        "id": id
+        "id": volume_id
     }
 
     url = apiurl(args, "/volumes/unlist")
@@ -8074,9 +8575,9 @@ def unlist__volume(args):
     r = http_post(args, url, headers, json_blob)
     r.raise_for_status()
     if args.raw:
-        return r
+        return r.json()
     else:
-        print(r.json()["msg"])
+        print(r.json().get("msg", "Unknown error"))
 
 
 def suppress_stdout():
@@ -8297,7 +8798,7 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
             return 'unknown'
 
     # Prepare destroy_args with required attributes set to False as needed
-    destroy_args = argparse.Namespace(api_key=api_key, url="https://console.vast.ai", retry=3, explain=False, raw=args.raw, debbuging=args.debugging,)
+    destroy_args = argparse.Namespace(api_key=api_key, url="https://console.vast.ai", retry=3, explain=False, raw=args.raw, debugging=args.debugging,)
 
     # Delay start if specified
     if delay > 0:
@@ -8327,16 +8828,31 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
                 return False, reason
 
             # Attempt to connect to the progress endpoint
+            # Use a fresh session with custom SSL adapter to avoid state pollution
             try:
                 if args.debugging:
                     debug_print(args, f"Sending GET request to https://{ip_address}:{port}/progress")
-                response = requests.get(f'https://{ip_address}:{port}/progress', verify=False, timeout=10)
-                
-                if response.status_code == 200 and not first_connection_established:
-                    progress_print(args, "Successfully established HTTPS connection to the server.")
-                    first_connection_established = True
 
-                message = response.text.strip()
+                from requests.adapters import HTTPAdapter
+                from urllib3.util.ssl_ import create_urllib3_context
+
+                class FreshSSLAdapter(HTTPAdapter):
+                    def init_poolmanager(self, *args, **kwargs):
+                        ctx = create_urllib3_context()
+                        ctx.check_hostname = False
+                        ctx.verify_mode = ssl.CERT_NONE
+                        kwargs['ssl_context'] = ctx
+                        return super().init_poolmanager(*args, **kwargs)
+
+                with requests.Session() as session:
+                    session.mount('https://', FreshSSLAdapter())
+                    response = session.get(f'https://{ip_address}:{port}/progress', verify=False, timeout=10)
+
+                    if response.status_code == 200 and not first_connection_established:
+                        progress_print(args, "Successfully established HTTPS connection to the server.")
+                        first_connection_established = True
+
+                    message = response.text.strip()
                 if args.debugging:
                     debug_print(args, f"Received message: '{message}'")
             except requests.exceptions.RequestException as e:
@@ -8505,7 +9021,7 @@ def check_requirements(machine_id, api_key, args):
         # 8. System RAM vs. Total GPU RAM
         gpu_total_ram = safe_float(top_offer.get('gpu_total_ram'))  # in MB
         cpu_ram = safe_float(top_offer.get('cpu_ram'))  # in MB
-        if cpu_ram < .95*gpu_total_ram: # .95 to allow for reserved hardware memory
+        if cpu_ram < .95*gpu_total_ram:  # .95 to allow for reserved hardware memory
             unmet_reasons.append("System RAM is less than total VRAM.")
 
         # Debugging Information for RAM
@@ -8658,7 +9174,7 @@ try:
       pre = super().quote_completions(completions, cword_prequote, last_wordbreak_pos)
       # preference the non-hyphenated options first
       return sorted(pre, key=lambda x: x.startswith('-'))
-except:
+except (NameError, AttributeError):
   pass
 
 
@@ -8705,17 +9221,13 @@ def main():
         try:
             res = args.func(args)
             if args.raw and res is not None:
-                # There's two types of responses right now
-                try:
-                    print(json.dumps(res, indent=1, sort_keys=True))
-                except:
-                    print(json.dumps(res.json(), indent=1, sort_keys=True))
+                print(json.dumps(res, indent=1, sort_keys=True))
                 sys.exit(0)
             sys.exit(res)
-        
+
         except requests.exceptions.HTTPError as e:
             try:
-                errmsg = e.response.json().get("msg");
+                errmsg = e.response.json().get("msg")
             except JSONDecodeError:
                 if e.response.status_code == 401:
                     errmsg = "Please log in or sign up"
@@ -8737,11 +9249,19 @@ def main():
                         print("Please log in using the `tfa login` command and try again.")
                         break
 
-            print(f"Failed with error {e.response.status_code}: {errmsg}")
+            if hasattr(args, 'raw') and args.raw:
+                error = {"error": True, "status_code": e.response.status_code, "msg": errmsg}
+                print(json.dumps(error, indent=1))
+            else:
+                print(f"Failed with error {e.response.status_code}: {errmsg}")
             break
-        
+
         except ValueError as e:
-            print(e)
+            if hasattr(args, 'raw') and args.raw:
+                error = {"error": True, "msg": str(e)}
+                print(json.dumps(error, indent=1))
+            else:
+                print(e)
             break
 
 

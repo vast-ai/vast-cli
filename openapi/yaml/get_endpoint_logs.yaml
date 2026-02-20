@@ -1,18 +1,19 @@
 openapi: 3.0.0
 info:
   title: Get Endpoint Logs API
-  description: Retrieve logs for a specific endpoint from the autoscaler
+  description: Retrieve logs for a specific endpoint
   version: 1.0.0
 paths:
   /get_endpoint_logs/:
     post:
       servers:
       - url: https://run.vast.ai
-        description: Autoscaler server
+        description: Production server
       summary: get endpoint logs
-      description: 'Retrieves logs for a specific endpoint by name.
+      description: |
+        Retrieves logs for a specific endpoint by name.
 
-        '
+        CLI Usage: `vastai get endpoint logs <endpoint_name> [--tail <num_lines>]`
       security:
       - BearerAuth: []
       requestBody:
@@ -27,7 +28,7 @@ paths:
                 endpoint:
                   type: string
                   description: Name of the endpoint
-                  example: your_endpoint_name
+                  example: vLLM-Qwen3-8B
                 tail:
                   type: integer
                   description: Number of log lines to retrieve from the end
@@ -35,7 +36,7 @@ paths:
                   example: 1000
       responses:
         '200':
-          description: Response from autoscaler
+          description: Successfully retrieved endpoint logs.
           content:
             application/json:
               schema:
@@ -50,7 +51,7 @@ paths:
                 - title: Error Response
                   type: string
                   description: Error message when endpoint not found or authentication fails
-                  example: "authenticate_endpoint_apikey: invalid api_key or endpoint TGI-Llama32 not found"
+                  example: "authenticate_endpoint_apikey: invalid api_key or endpoint vLLM-Qwen3-8B not found"
       tags:
       - Serverless
 components:

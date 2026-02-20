@@ -7,8 +7,10 @@ paths:
   /api/v0/commands/copy_direct/:
     delete:
       summary: cancel copy
-      description: Cancel a remote copy operation specified by the destination ID
-        (dst_id).
+      description: |
+        Cancel a remote copy operation specified by the destination ID (dst_id).
+
+        CLI Usage: `vastai cancel copy --dst_id <destination_id>`
       operationId: cancelRemoteRsync
       requestBody:
         required: true

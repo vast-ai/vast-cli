@@ -7,17 +7,13 @@ servers:
   - url: https://console.vast.ai
     description: Production server
 paths:
-  /api/v0/instances/{id}/ssh/{key}/:
+  /api/v0/instances/{id}/ssh/{ssh_key_id}/:
     delete:
       summary: detach ssh-key
       description: |
-        Detaches an SSH key from a specified instance, removing SSH access for
-        that key.
-        
-        
-        CLI Usage: vastai detach <instance_id> <ssh_key_id>
+        Detaches an SSH key from a specified instance, removing SSH access for that key.
 
-        Example: vastai detach 99999 12345
+        CLI Usage: `vastai detach <instance_id> <ssh_key_id>`
       security:
         - BearerAuth: []
       parameters:
@@ -28,10 +24,11 @@ paths:
           schema:
             type: integer
             example: 99999
-        - name: key
+        - name: ssh_key_id
           in: path
           required: true
-          description: Numeric ID of the SSH key to detach
+          description: |
+            Numeric ID of the SSH key to detach. Obtainable via `show ssh-keys` command
           schema:
             type: integer
             example: 12345

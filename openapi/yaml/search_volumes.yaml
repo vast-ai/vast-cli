@@ -10,8 +10,10 @@ paths:
   /api/v0/volumes/search/:
     post:
       summary: search volumes
-      description: 'Search for available volumes based on specified criteria.
-        CLI Usage: vastai search volumes <query> [OPTIONS]'
+      description: |
+        Search for available volumes based on specified criteria.
+
+        CLI Usage: `vastai search volumes <query> [options]`
       security:
       - BearerAuth: []
       parameters:

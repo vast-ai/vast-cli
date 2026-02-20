@@ -15,13 +15,10 @@ paths:
   /api/v0/endptjobs/:
     post:
       summary: create endpoint
-      description: 'This endpoint creates a new job processing endpoint with specified
-        parameters.
+      description: |
+        This endpoint creates a new job processing endpoint with specified parameters.
 
-
-        CLI Usage: vast-ai create endpoint
-
-        '
+        CLI Usage: `vastai create endpoint [options]`
       security:
       - BearerAuth: []
       requestBody:
@@ -164,4 +161,4 @@ x-cli-commands:
   endpoint: /api/v0/endptjobs/
   method: POST
   example: vast-ai create endpoint --min_load 0.5 --target_util 0.75 --cold_mult 1.0
-    --cold_workers 2 --max_workers 10 --endpoint_name my_endpoint
+    --cold_workers 2 --max_workers 10 --endpoint_name "vLLM-Qwen3-8B"

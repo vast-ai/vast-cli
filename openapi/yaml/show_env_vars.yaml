@@ -10,13 +10,10 @@ paths:
   /api/v0/secrets/:
     get:
       summary: show env vars
-      description: 'Retrieve a list of environment variables (secrets) for the authenticated
-        user.
+      description: |
+        Retrieve a list of environment variables (secrets) for the authenticated user.
 
-
-        CLI Usage: vast-ai show env-vars [-s]
-
-        '
+        CLI Usage: `vastai show env-vars [-s]`
       security:
       - BearerAuth: []
       responses:

@@ -7,20 +7,20 @@ servers:
 - url: https://console.vast.ai
   description: Production server
 paths:
-  /api/v0/team/roles/{id}:
+  /api/v0/team/roles/{name}:
     delete:
       summary: remove team role
-      description: 'Removes a role from the team. Cannot remove the team owner role.
+      description: |
+        Removes a role from the team. Cannot remove the team owner role.
 
-
-        CLI Usage: vast-ai remove team-role NAME
-
-        Example: vast-ai remove team-role developer
-
-        '
+        CLI Usage: `vastai remove team-role <name>`
+      security:
+      - BearerAuth: []
+      tags:
+      - Team
       parameters:
       - in: path
-        name: id
+        name: name
         required: true
         schema:
           type: string
@@ -134,4 +134,4 @@ x-cli-commands:
   description: Remove a role from your team
   endpoint: /api/v0/team/roles/{id}
   method: DELETE
-  example: vast-ai remove team-role developer
+  example: vastai remove team-role developer

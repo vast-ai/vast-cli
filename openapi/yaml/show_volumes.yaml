@@ -10,11 +10,12 @@ paths:
   /api/v0/volumes/:
     get:
       summary: list volumes
-      description: 'Retrieve information about all volumes rented by you.
-        CLI Usage: vastai show volumes'
+      description: |
+        Retrieve information about all volumes rented by you.
+
+        CLI Usage: `vastai show volumes`
       security:
       - BearerAuth: []
-      parameters: []
       responses:
         '200':
           description: Success response

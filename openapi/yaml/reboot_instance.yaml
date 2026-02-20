@@ -10,9 +10,10 @@ paths:
   /api/v0/instances/reboot/{id}/:
     put:
       summary: reboot instance
-      description: "Stops and starts a container without losing GPU priority. Updates\
-        \ container status to 'rebooting' \nand executes docker stop/start commands\
-        \ on the host machine.\n\nCLI Usage: vastai reboot instance <ID>\n"
+      description: |
+        Stops and starts a container without losing GPU priority. Updates container status to 'rebooting' and executes docker stop/start commands on the host machine.
+
+        CLI Usage: `vastai reboot instance <id>`
       security:
       - BearerAuth: []
       parameters:

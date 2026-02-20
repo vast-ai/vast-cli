@@ -1,22 +1,19 @@
 openapi: 3.0.0
 info:
-  title: Show Autogroups API
-  description: Retrieve the list of autojob groups for the authenticated user
+  title: Show Workergroups API
+  description: Retrieve the list of workergroups for the authenticated user
   version: 1.0.0
 servers:
 - url: https://console.vast.ai
   description: Production server
 paths:
-  /api/v0/autojobs/:
+  /api/v0/workergroups/:
     get:
-      summary: show autogroup
-      description: 'Retrieves the list of autojob groups associated with the authenticated
-        user.
+      summary: show workergroup
+      description: |
+        Retrieves the list of workergroups associated with the authenticated user.
 
-
-        CLI Usage: vastai show autogroups
-
-        '
+        CLI Usage: `vastai show workergroups`
       security:
       - BearerAuth: []
       responses:
@@ -59,7 +56,7 @@ paths:
                         search_query:
                           type: object
                           description: Parsed search parameters as JSON object
-                          example: {"verified": {"eq": true}, "rentable": {"eq": true}}
+                          example: 'verified=true rentable=true rented=false'
                         launch_args:
                           type: string
                           example: "--env VAR=value"
@@ -133,8 +130,8 @@ x-rate-limit:
   per: request
   description: Maximum request frequency per IP address for this endpoint
 x-cli-commands:
-- name: show autogroups
-  description: Retrieve the list of autojob groups for the authenticated user
-  endpoint: /api/v0/autojobs/
+- name: show workergroups
+  description: Retrieve the list of workergroups for the authenticated user
+  endpoint: /api/v0/workergroups/
   method: GET
-  example: vastai show autogroups
+  example: vastai show workergroups

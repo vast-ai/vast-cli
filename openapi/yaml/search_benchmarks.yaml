@@ -10,12 +10,10 @@ paths:
   /api/v0/benchmarks/:
     get:
       summary: search benchmarks
-      description: 'Retrieve benchmark data based on search parameters.
+      description: |
+        Retrieve benchmark data based on search parameters.
 
-
-        CLI Usage: vast-ai search benchmarks
-
-        '
+        CLI Usage: `vastai search benchmarks`
       security:
       - BearerAuth: []
       parameters:

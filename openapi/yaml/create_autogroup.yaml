@@ -1,23 +1,19 @@
 openapi: 3.0.0
 info:
-  title: Create Autoscaling Job API
-  description: Creates a new autoscaling job configuration for serverless endpoints
+  title: Create Workergroup API
+  description: Creates a new workergroup configuration for serverless endpoints
   version: 1.0.0
 servers:
 - url: https://console.vast.ai
   description: Production server
 paths:
-  /api/v0/autojobs/:
+  /api/v0/workergroups/:
     post:
       summary: create workergroup
-      description: 'Creates a new autoscaling job configuration that manages worker
-        instances for a serverless endpoint.
+      description: |
+        Creates a new workergroup configuration that manages worker instances for a serverless endpoint.
 
-
-        CLI Usage: vast-ai create workergroup --template_hash <HASH> --endpoint_name
-        <NAME> [options]
-
-        '
+        CLI Usage: `vastai create workergroup --template_hash <hash> --endpoint_name <name> [options]`
       security:
       - BearerAuth: []
       requestBody:
@@ -30,7 +26,7 @@ paths:
                 endpoint_name:
                   type: string
                   description: Name of the endpoint group
-                  example: LLama
+                  example: vLLM-Qwen3-8B
                 endpoint_id:
                   type: integer
                   description: ID of existing endpoint group (alternative to endpoint_name)
@@ -47,7 +43,7 @@ paths:
                   type: string
                   description: Search query for finding worker instances (alternative
                     to template)
-                  default: '{"verified": {"eq": true}, "rentable": {"eq": true}, "rented": {"eq": false}}'
+                  default: 'verified=true rentable=true rented=false'
                   example: gpu_name=RTX_3090 rentable=true
                 launch_args:
                   type: string
@@ -90,7 +86,7 @@ paths:
                   example: 24
       responses:
         '200':
-          description: Successfully created autoscaling job
+          description: Successfully created workergroup
           content:
             application/json:
               schema:
@@ -162,7 +158,7 @@ x-rate-limit:
 x-cli-commands:
 - name: create workergroup
   description: Create a new workergroup
-  endpoint: /api/v0/autojobs/
+  endpoint: /api/v0/workergroups/
   method: POST
-  example: vast-ai create workergroup --template_hash abc123 --endpoint_name "LLama"
+  example: vast-ai create workergroup --template_hash abc123 --endpoint_name "vLLM-Qwen3-8B"
     --test_workers 5

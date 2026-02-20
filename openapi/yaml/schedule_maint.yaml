@@ -10,14 +10,10 @@ paths:
   /api/v0/machines/{machine_id}/dnotify:
     put:
       summary: schedule maint
-      description: 'Schedules a maintenance window for a specified machine and notifies
-        clients.
+      description: |
+        Schedules a maintenance window for a specified machine and notifies clients.
 
-
-        CLI Usage: vast-ai schedule maint {machine_id} --sdate {sdate} --duration
-        {duration}
-
-        '
+        CLI Usage: `vastai schedule maint <machine_id> --sdate <sdate> --duration <duration>`
       security:
       - BearerAuth: []
       parameters:

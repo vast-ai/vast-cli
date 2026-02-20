@@ -10,15 +10,10 @@ paths:
   /api/v0/instances/{id}/:
     delete:
       summary: destroy instance
-      description: 'Destroys/deletes an instance permanently. This is irreversible
-        and will delete all data.
+      description: |
+        Destroys/deletes an instance permanently. This is irreversible and will delete all data.
 
-
-        CLI Usage: vast-ai destroy instance <id>
-
-        Example: vast-ai destroy instance 4242
-
-        '
+        CLI Usage: `vastai destroy instance <id>`
       parameters:
       - in: path
         name: id

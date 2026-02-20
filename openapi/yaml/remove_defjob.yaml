@@ -7,16 +7,13 @@ servers:
 - url: https://console.vast.ai
   description: Production server
 paths:
-  /api/v0/machines/{machine_id}/defjob:
+  /api/v0/machines/{machine_id}/defjob/:
     delete:
       summary: remove defjob
-      description: 'Deletes the default job (background instances) for a specified
-        machine.
+      description: |
+        Deletes the default job (background instances) for a specified machine.
 
-
-        CLI Usage: vast-ai remove defjob {machine_id}
-
-        '
+        CLI Usage: `vastai remove defjob <machine_id>`
       security:
       - BearerAuth: []
       parameters:

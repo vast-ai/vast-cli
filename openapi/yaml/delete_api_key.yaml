@@ -10,14 +10,11 @@ paths:
   /api/v0/auth/apikeys/{id}/:
     delete:
       summary: delete api key
-      description: 'Deletes an existing API key belonging to the authenticated user.
-
+      description: |
+        Deletes an existing API key belonging to the authenticated user.
         The API key is soft-deleted by setting a deleted_at timestamp.
 
-
-        CLI Usage: vastai delete api-key ID
-
-        '
+        CLI Usage: `vastai delete api-key <id>`
       security:
       - BearerAuth: []
       parameters:

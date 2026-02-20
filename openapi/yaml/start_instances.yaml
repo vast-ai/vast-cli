@@ -10,12 +10,10 @@ paths:
   /api/v0/instances/start:
     post:
       summary: start instances
-      description: 'Start a list of instances specified by their IDs.
+      description: |
+        Start a list of instances specified by their IDs.
 
-
-        CLI Usage: vast-ai start instances [OPTIONS] ID0 ID1 ID2...
-
-        '
+        CLI Usage: `vastai start instances [options] <id0> <id1> <id2>...`
       security:
       - BearerAuth: []
       requestBody:

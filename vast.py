@@ -1344,8 +1344,11 @@ def get_ssh_key(argstr):
         Attach an ssh key to an instance. This will allow you to connect to the instance with the ssh key.
 
         Examples:
-         vastai attach "ssh 12371 ssh-rsa AAAAB3NzaC1yc2EAAA..."
-         vastai attach "ssh 12371 ssh-rsa $(cat ~/.ssh/id_rsa)"
+         vast attach ssh 12371 AAAAB3NzaC1yc2EAAA...
+         vast attach ssh 12371 $(cat ~/.ssh/id_rsa.pub)
+         vast attach ssh 12371 ~/.ssh/id_rsa.pub
+
+        All examples attaches the ssh key to instance 12371
     """),
 )
 def attach__ssh(args):
@@ -1354,6 +1357,8 @@ def attach__ssh(args):
     req_json = {"ssh_key": ssh_key}
     r = http_post(args, url, headers=headers, json=req_json)
     r.raise_for_status()
+    if args.raw:
+        return r
     print(r.json())
 
 @parser.command(

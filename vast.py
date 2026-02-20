@@ -1530,7 +1530,7 @@ def change__bid(args: argparse.Namespace):
     argument("dest", help="id of volume offer volume is being copied to", type=int),
     argument("-s", "--size", help="Size of new volume contract, in GB. Must be greater than or equal to the source volume, and less than or equal to the destination offer.", type=float),
     argument("-d", "--disable_compression", action="store_true", help="Do not compress volume data before copying."),
-    usage="vastai copy volume <source_id> <dest_id> [options]",
+    usage="vastai clone volume <source_id> <dest_id> [options]",
     help="Clone an existing volume",
     epilog=deindent("""
         Create a new volume with the given offer, by copying the existing volume. 

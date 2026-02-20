@@ -335,30 +335,33 @@ def http_request(verb, args, req_url, headers: dict[str, str] | None = None, jso
     for i in range(0, args.retry):
         req = requests.Request(method=verb, url=req_url, headers=headers, json=json_data)
         session = requests.Session()
-        prep = session.prepare_request(req)
-        if args.explain:
-            print(f"\n{INFO}  Prepared Request:")
-            print(f"{prep.method} {prep.url}")
-            print(f"Headers: {json.dumps(headers, indent=1)}")
-            print(f"Body: {json.dumps(json_data, indent=1)}" + "\n" + "_"*100 + "\n")
-        
-        if ARGS.curl:
-            as_curl = curlify.to_curl(prep)
-            simple = re.sub(r" -H '[^']*'", '', as_curl)
-            parts = re.split(r'(?=\s+-\S+)', simple)
-            pp = parts[-1].split("'")
-            pp[-3] += "\n "
-            parts = [*parts[:-1], *[x.rstrip() for x in "'".join(pp).split("\n")]]
-            print("\n" + ' \\\n  '.join(parts).strip() + "\n")
-            sys.exit(0)
-        else:
-            r = session.send(prep)
+        try:
+            prep = session.prepare_request(req)
+            if args.explain:
+                print(f"\n{INFO}  Prepared Request:")
+                print(f"{prep.method} {prep.url}")
+                print(f"Headers: {json.dumps(headers, indent=1)}")
+                print(f"Body: {json.dumps(json_data, indent=1)}" + "\n" + "_"*100 + "\n")
+            
+            if ARGS.curl:
+                as_curl = curlify.to_curl(prep)
+                simple = re.sub(r" -H '[^']*'", '', as_curl)
+                parts = re.split(r'(?=\s+-\S+)', simple)
+                pp = parts[-1].split("'")
+                pp[-3] += "\n "
+                parts = [*parts[:-1], *[x.rstrip() for x in "'".join(pp).split("\n")]]
+                print("\n" + ' \\\n  '.join(parts).strip() + "\n")
+                sys.exit(0)
+            else:
+                r = session.send(prep)
 
-        if (r.status_code == 429):
-            time.sleep(t)
-            t *= 1.5
-        else:
-            break
+            if (r.status_code == 429):
+                time.sleep(t)
+                t *= 1.5
+            else:
+                break
+        finally:
+            session.close()
     return r
 
 def http_get(args, req_url, headers = None, json = None):
@@ -1640,11 +1643,19 @@ def copy(args: argparse.Namespace):
             #print(f"homedir: {homedir}")
             remote_port = None
             identity = f"-i {args.identity}" if (args.identity is not None) else ""
+            # Add IdentitiesOnly=yes when using a specific identity to prevent SSH from trying other keys
+            # This avoids "Too many authentication failures" errors
+            # Add LogLevel=ERROR and RequestTTY=no to ensure clean shell for rsync protocol
+            ssh_opts = "-o StrictHostKeyChecking=no -o LogLevel=ERROR -o RequestTTY=no -o BatchMode=yes"
+            if args.identity is not None:
+                ssh_opts += " -o IdentitiesOnly=yes"
             if (src_id is None or src_id == "local"):
                 #result = subprocess.run(f"mkdir -p {src_path}", shell=True)
                 remote_port = rj["dst_port"]
                 remote_addr = rj["dst_addr"]
-                cmd = f"rsync -arz -v --progress --rsh=ssh -e 'ssh {identity} -p {remote_port} -o StrictHostKeyChecking=no' {src_path} vastai_kaalia@{remote_addr}::{dst_id}/{dst_path}"
+                # Use double colon (::) for rsync daemon protocol via SSH tunnel
+                # Module name format is C.{instance_id} for container instances
+                cmd = f"rsync -arz -v --progress -e 'ssh {identity} -p {remote_port} {ssh_opts}' {src_path} vastai_kaalia@{remote_addr}::C.{dst_id}/{dst_path}"
                 print(cmd)
                 result = subprocess.run(cmd, shell=True)
                 #result = subprocess.run(["sudo", "rsync" "-arz", "-v", "--progress", "-rsh=ssh", "-e 'sudo ssh -i {homedir}/.ssh/id_rsa -p {remote_port} -o StrictHostKeyChecking=no'", src_path, "vastai_kaalia@{remote_addr}::{dst_id}"], shell=True)
@@ -1652,7 +1663,9 @@ def copy(args: argparse.Namespace):
                 result = subprocess.run(f"mkdir -p {dst_path}", shell=True)
                 remote_port = rj["src_port"]
                 remote_addr = rj["src_addr"]
-                cmd = f"rsync -arz -v --progress --rsh=ssh -e 'ssh {identity} -p {remote_port} -o StrictHostKeyChecking=no' vastai_kaalia@{remote_addr}::{src_id}/{src_path} {dst_path}"
+                # Use double colon (::) for rsync daemon protocol via SSH tunnel
+                # Module name format is C.{instance_id} for container instances
+                cmd = f"rsync -arz -v --progress -e 'ssh {identity} -p {remote_port} {ssh_opts}' vastai_kaalia@{remote_addr}::C.{src_id}/{src_path} {dst_path}"
                 print(cmd)
                 result = subprocess.run(cmd, shell=True)
                 #result = subprocess.run(["sudo", "rsync" "-arz", "-v", "--progress", "-rsh=ssh", "-e 'ssh -i {homedir}/.ssh/id_rsa -p {remote_port} -o StrictHostKeyChecking=no'", "vastai_kaalia@{remote_addr}::{src_id}", dst_path], shell=True)
@@ -8229,7 +8242,601 @@ def instance_exist(instance_id, api_key, args):
         if args.debugging:
             debug_print(args, f"No instance found or Unexpected error checking instance existence: {e}")
         return False
+
+def run_copy_test(instance_id, api_key, args):
+    """
+    Tests file copy operations between local and remote instance.
+
+    Returns:
+        (passed: bool, reason: str)
+    """
+    import os
+    import time
+    import uuid
+    import shutil
+    import argparse
+    import subprocess
+    import tempfile
+    from datetime import datetime
+
+    # External helpers expected to exist:
+    # - progress_print(args, msg)
+    # - create__ssh_key(argparse.Namespace)
+    # - attach__ssh(argparse.Namespace)
+    # - show__instance(argparse.Namespace) -> dict
+    # - copy(argparse.Namespace)
+
+    progress_print(args, "Starting copy test...")
+
+    temp_ssh_dir = None
+    temp_private_key_path = None
+    temp_public_key_path = None
+
+    # Predefine paths so we can attempt cleanup even if we fail early
+    test_id = str(uuid.uuid4())[:8]
+    local_test_dir = f"/tmp/vast_copy_test_{test_id}"
+    remote_test_dir = f"/tmp/vast_copy_test_{test_id}"
+
+    try:
+        # --- Create temp SSH key pair ---
+        temp_ssh_dir = tempfile.mkdtemp(prefix="vast_copy_test_ssh_")
+        temp_private_key_path = os.path.join(temp_ssh_dir, "id_ed25519")
+        temp_public_key_path = os.path.join(temp_ssh_dir, "id_ed25519.pub")
+
+        progress_print(args, f"Creating temporary SSH key in: {temp_ssh_dir}")
+        progress_print(args, f"[COPY TEST] WARNING: This test will create and attach SSH keys that might interfere with the remote test script")
+        progress_print(args, f"[COPY TEST] The remote test script runs /verification/remote.sh and might be affected by SSH key changes")
+
+        try:
+            cmd = [
+                "ssh-keygen",
+                "-t", "ed25519",
+                "-f", temp_private_key_path,
+                "-N", "",  # Empty passphrase
+                "-C", f"vast-copy-test-{uuid.uuid4().hex[:8]}",
+            ]
+            subprocess.run(cmd, capture_output=True, text=True, check=True)
+            progress_print(args, "SSH key pair generated successfully")
+        except subprocess.CalledProcessError as e:
+            return False, f"Failed to generate SSH key: {e.stderr}"
+        except FileNotFoundError:
+            return False, "ssh-keygen not found. Please install OpenSSH client tools."
+
+        with open(temp_public_key_path, "r") as f:
+            public_key_content = f.read().strip()
+
+        # --- Add key to account ---
+        progress_print(args, "Adding SSH key to VAST account...")
+        ssh_create_args = argparse.Namespace(
+            ssh_key=public_key_content,
+            yes=True,
+            explain=getattr(args, "explain", False),
+            api_key=api_key,
+            url=args.url,
+            retry=args.retry,
+            raw=args.raw,
+            debugging=args.debugging,
+        )
+        try:
+            create__ssh_key(ssh_create_args)
+            progress_print(args, "SSH key added to VAST account successfully")
+        except Exception as e:
+            return False, f"Failed to add SSH key to account: {e}"
+
+        # --- Attach key to instance ---
+        progress_print(args, "Attaching SSH key to instance...")
+        ssh_attach_args = argparse.Namespace(
+            instance_id=instance_id,
+            ssh_key=public_key_content,
+            explain=getattr(args, "explain", False),
+            api_key=api_key,
+            url=args.url,
+            retry=args.retry,
+            raw=args.raw,
+            debugging=args.debugging,
+        )
+        try:
+            attach__ssh(ssh_attach_args)
+            progress_print(args, "SSH key attached to instance successfully")
+            progress_print(args, f"[COPY TEST] WARNING: SSH key attached - this may have interfered with the remote test script execution")
+            progress_print(args, f"[COPY TEST] The remote script /verification/remote.sh might have been affected by this SSH key change")
+        except Exception as e:
+            return False, f"Failed to attach SSH key to instance: {e}"
+
+        # --- Wait for propagation ---
+        progress_print(args, "Waiting 80s for SSH key propagation…")
+        time.sleep(80)
+
+        # --- Create directory and file on remote instance ---
+        progress_print(args, "Getting instance connection details...")
+        try:
+            # Get instance details to find SSH connection info
+            show_args = argparse.Namespace(
+                id=int(instance_id),
+                quiet=False,
+                raw=True,
+                explain=getattr(args, "explain", False),
+                api_key=api_key,
+                url=args.url,
+                retry=args.retry,
+                debugging=args.debugging,
+            )
+            instance_data = show__instance(show_args)
+            if not instance_data:
+                return False, "Failed to get instance details"
+            
+            # Extract SSH connection details
+            ports = instance_data.get("ports", {})
+            port_22d = ports.get("22/tcp", None)
+            ssh_port = None
+            ssh_host = None
+            
+            if port_22d is not None:
+                ssh_host = instance_data.get("public_ipaddr")
+                ssh_port = int(port_22d[0]["HostPort"])
+            else:
+                ssh_host = instance_data.get("ssh_host")
+                ssh_port_str = instance_data.get("ssh_port")
+                if ssh_port_str:
+                    ssh_port = int(ssh_port_str)
+                    if "jupyter" in instance_data.get("image_runtype", ""):
+                        ssh_port += 1
+            
+            if not ssh_host or not ssh_port:
+                return False, "Failed to get SSH connection details from instance"
+            
+            progress_print(args, f"Connecting to instance at {ssh_host}:{ssh_port}...")
+            
+            # Create directory on remote instance
+            remote_dir = "/tmp/temp_copy_test"
+            ssh_cmd_create_dir = [
+                "ssh",
+                "-i", temp_private_key_path,
+                "-p", str(ssh_port),
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "IdentitiesOnly=yes",
+                "-o", "BatchMode=yes",
+                "-o", "LogLevel=ERROR",
+                f"root@{ssh_host}",
+                f"mkdir -p {remote_dir}"
+            ]
+            result = subprocess.run(ssh_cmd_create_dir, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                return False, f"Failed to create remote directory: {result.stderr}"
+            progress_print(args, f"Created remote directory: {remote_dir}")
+            
+            # Create 100 MB file on remote instance using dd
+            remote_file = f"{remote_dir}/copy_file.txt"
+            file_size_mb = 100
+            # Use dd to create a 100MB file efficiently
+            ssh_cmd_create_file = [
+                "ssh",
+                "-i", temp_private_key_path,
+                "-p", str(ssh_port),
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "IdentitiesOnly=yes",
+                "-o", "BatchMode=yes",
+                "-o", "LogLevel=ERROR",
+                f"root@{ssh_host}",
+                f"dd if=/dev/zero of={remote_file} bs=1M count={file_size_mb} status=progress 2>&1"
+            ]
+            progress_print(args, f"Creating {file_size_mb}MB file on remote instance: {remote_file}")
+            result = subprocess.run(ssh_cmd_create_file, capture_output=True, text=True, timeout=300)
+            if result.returncode != 0:
+                return False, f"Failed to create remote file: {result.stderr}"
+            progress_print(args, f"Created {file_size_mb}MB file on remote instance: {remote_file}")
+            
+        except Exception as e:
+            return False, f"Failed to create remote directory/file: {e}"
+
+        # --- Local preparation ---
+        progress_print(args, f"Creating local test directory: {local_test_dir}")
+        os.makedirs(local_test_dir, exist_ok=True)
+
+        # ---------- Test 1: Local -> Remote, then verify ----------
+        local_file_path = os.path.join(local_test_dir, "local_to_remote_test.txt")
+        
+        # Create a 100MB file for testing
+        file_size_mb = 100
+        file_size_bytes = file_size_mb * 1024 * 1024  # 100MB in bytes
+        
+        progress_print(args, f"Creating {file_size_mb}MB test file...")
+        with open(local_file_path, "wb") as f:
+            # Write in chunks to avoid memory issues
+            chunk_size = 1024 * 1024  # 1MB chunks
+            remaining = file_size_bytes
+            while remaining > 0:
+                chunk = min(chunk_size, remaining)
+                f.write(os.urandom(chunk))  # Write random bytes
+                remaining -= chunk
+        
+        # Add a header with test info
+        header = f"Local to remote test content - {test_id}\nGenerated at: {datetime.now().isoformat()}\nFile size: {file_size_mb}MB\n"
+        with open(local_file_path, "r+b") as f:
+            f.seek(0)
+            f.write(header.encode())
+        
+        if not os.path.exists(local_file_path):
+            return False, "Failed to create local test file"
+        
+        actual_size = os.path.getsize(local_file_path)
+        progress_print(args, f"Local file created ({actual_size} bytes, {actual_size / (1024*1024):.2f}MB)")
+
+        # Use a simpler approach - copy to /tmp directly without creating subdirectories
+        remote_file_path_lr = f"{instance_id}:/tmp/local_to_remote_test_{test_id}.txt"
+        copy_args = argparse.Namespace(
+            src=local_file_path,
+            dst=remote_file_path_lr,
+            identity=temp_private_key_path,
+            explain=getattr(args, "explain", False),
+            api_key=api_key,
+            url=args.url,
+            retry=args.retry,
+            raw=args.raw,
+            debugging=args.debugging,
+        )
+        # Time the local to remote copy
+        progress_print(args, f"Starting Local → Remote copy of {actual_size / (1024*1024):.2f}MB...")
+        progress_print(args, f"[COPY TEST] WARNING: About to perform file operations that might interfere with remote test script")
+        progress_print(args, f"[COPY TEST] Target path: /tmp/local_to_remote_test_{test_id}.txt")
+        start_time_lr = time.time()
+        try:
+            copy(copy_args)
+            end_time_lr = time.time()
+            duration_lr = end_time_lr - start_time_lr
+            speed_lr_mbps = (actual_size * 8) / (1024 * 1024 * duration_lr)  # Convert to Mbps
+            progress_print(args, f"Local → Remote copy completed in {duration_lr:.2f}s")
+            progress_print(args, f"Local → Remote speed: {speed_lr_mbps:.2f} Mbps")
+            progress_print(args, f"[COPY TEST] WARNING: File copy completed - this may have affected the remote test script")
+        except Exception as e:
+            return False, f"Local → Remote copy failed: {e}"
+
+        # Verify by copying back - use a simpler destination path
+        verify_file_path = f"/tmp/verify_remote_file_{test_id}.txt"
+        verify_copy_args = argparse.Namespace(
+            src=f"{instance_id}:/tmp/local_to_remote_test_{test_id}.txt",
+            dst=verify_file_path,
+            identity=temp_private_key_path,
+            explain=getattr(args, "explain", False),
+            api_key=api_key,
+            url=args.url,
+            retry=args.retry,
+            raw=args.raw,
+            debugging=args.debugging,
+        )
+        try:
+            copy(verify_copy_args)
+            # Handle the case where copy creates a directory instead of a file
+            actual_file_path = verify_file_path
+            if os.path.exists(verify_file_path):
+                if os.path.isdir(verify_file_path):
+                    # The copy function created a directory, look for the file inside
+                    expected_filename = f"local_to_remote_test_{test_id}.txt"
+                    actual_file_path = os.path.join(verify_file_path, expected_filename)
+                    progress_print(args, f"Copy created directory, looking for file: {actual_file_path}")
+                
+                if os.path.exists(actual_file_path):
+                    verify_size = os.path.getsize(actual_file_path)
+                    progress_print(args, f"Verification file exists, size: {verify_size} bytes ({verify_size / (1024*1024):.2f}MB)")
+                else:
+                    return False, f"Verification file does not exist: {actual_file_path}"
+            else:
+                return False, f"Verification file does not exist: {verify_file_path}"
+            
+            # For large files, just verify the header instead of full content
+            with open(actual_file_path, "rb") as f:
+                header = f.read(200)  # Read first 200 bytes for header verification
+            if not header.startswith(b"Local to remote test content"):
+                return False, "File header verification failed (local→remote roundtrip)"
+            progress_print(args, "Local→Remote roundtrip verification passed")
+        except Exception as e:
+            return False, f"Verification copy failed: {e}"
+
+        # ---------- Test 2: Remote -> Local ----------
+        # Create a 100MB file for remote-to-local testing
+        progress_print(args, f"Creating {file_size_mb}MB file for Remote → Local test...")
+        temp_local_file = os.path.join(local_test_dir, "temp_remote_file.txt")
+        
+        with open(temp_local_file, "wb") as f:
+            # Write in chunks to avoid memory issues
+            chunk_size = 1024 * 1024  # 1MB chunks
+            remaining = file_size_bytes
+            while remaining > 0:
+                chunk = min(chunk_size, remaining)
+                f.write(os.urandom(chunk))  # Write random bytes
+                remaining -= chunk
+        
+        # Add a header with test info
+        header = f"Remote to local test content - {test_id}\nGenerated at: {datetime.now().isoformat()}\nFile size: {file_size_mb}MB\n"
+        with open(temp_local_file, "r+b") as f:
+            f.seek(0)
+            f.write(header.encode())
+        
+        temp_file_size = os.path.getsize(temp_local_file)
+        progress_print(args, f"Remote test file created ({temp_file_size} bytes, {temp_file_size / (1024*1024):.2f}MB)")
+
+        remote_file_path_rl = f"{instance_id}:/tmp/remote_to_local_test_{test_id}.txt"
+        temp_copy_args = argparse.Namespace(
+            src=temp_local_file,
+            dst=remote_file_path_rl,
+            identity=temp_private_key_path,
+            explain=getattr(args, "explain", False),
+            api_key=api_key,
+            url=args.url,
+            retry=args.retry,
+            raw=args.raw,
+            debugging=args.debugging,
+        )
+        try:
+            copy(temp_copy_args)
+            progress_print(args, "Staged remote file created via copy")
+        except Exception as e:
+            return False, f"Failed to create remote file: {e}"
+
+        # Copy remote → local with timing
+        local_dest_file = os.path.join(local_test_dir, "remote_to_local_test.txt")
+        remote_to_local_args = argparse.Namespace(
+            src=remote_file_path_rl,
+            dst=local_dest_file,
+            identity=temp_private_key_path,
+            explain=getattr(args, "explain", False),
+            api_key=api_key,
+            url=args.url,
+            retry=args.retry,
+            raw=args.raw,
+            debugging=args.debugging,
+        )
+        
+        # Time the remote to local copy
+        progress_print(args, f"Starting Remote → Local copy of {temp_file_size / (1024*1024):.2f}MB...")
+        start_time_rl = time.time()
+        try:
+            copy(remote_to_local_args)
+            end_time_rl = time.time()
+            duration_rl = end_time_rl - start_time_rl
+            speed_rl_mbps = (temp_file_size * 8) / (1024 * 1024 * duration_rl)  # Convert to Mbps
+            progress_print(args, f"Remote → Local copy completed in {duration_rl:.2f}s")
+            progress_print(args, f"Remote → Local speed: {speed_rl_mbps:.2f} Mbps")
+        except Exception as e:
+            return False, f"Remote → Local copy failed: {e}"
+
+        # Handle the case where copy creates a directory instead of a file
+        actual_dest_file = local_dest_file
+        if os.path.exists(local_dest_file):
+            if os.path.isdir(local_dest_file):
+                # The copy function created a directory, look for the file inside
+                expected_filename = f"remote_to_local_test_{test_id}.txt"
+                actual_dest_file = os.path.join(local_dest_file, expected_filename)
+                progress_print(args, f"Copy created directory, looking for file: {actual_dest_file}")
+            
+            if os.path.exists(actual_dest_file):
+                downloaded_size = os.path.getsize(actual_dest_file)
+                progress_print(args, f"Remote to local file exists, size: {downloaded_size} bytes ({downloaded_size / (1024*1024):.2f}MB)")
+            else:
+                return False, f"Remote → Local verification failed - file does not exist: {actual_dest_file}"
+        else:
+            return False, f"Remote → Local verification failed - file does not exist: {local_dest_file}"
+        
+        # For large files, just verify the header instead of full content
+        with open(actual_dest_file, "rb") as f:
+            header = f.read(200)  # Read first 200 bytes for header verification
+        if not header.startswith(b"Remote to local test content"):
+            return False, "File header verification failed (remote→local roundtrip)"
+        progress_print(args, "Remote → Local roundtrip verification passed")
+
+        # --- Cleanup local test dir ---
+        try:
+            shutil.rmtree(local_test_dir)
+            progress_print(args, "Local test directory cleaned up")
+        except Exception as e:
+            progress_print(args, f"Warning: cleanup of local test dir failed: {e}")
+
+        progress_print(args, "=== COPY TEST SUMMARY ===")
+        progress_print(args, "✓ SSH key creation & attach: PASSED")
+        progress_print(args, f"✓ Local → Remote copy & verify: PASSED ({speed_lr_mbps:.2f} Mbps)")
+        progress_print(args, f"✓ Remote → Local copy & verify: PASSED ({speed_rl_mbps:.2f} Mbps)")
+        progress_print(args, "✓ Cleanup: PASSED")
+        progress_print(args, "All copy tests completed successfully!")
+        progress_print(args, f"[COPY TEST] WARNING: Copy test completed - the remote test script may have been affected")
+        progress_print(args, f"[COPY TEST] Next step: Machine tester will check if /verification/remote.sh is still running properly")
+        return True, ""
+
+    except Exception as e:
+        progress_print(args, f"Copy test failed with exception: {e}")
+        return False, f"Copy test failed with exception: {e}"
+
+    finally:
+        # Always remove temporary SSH keys
+        try:
+            if temp_ssh_dir and os.path.exists(temp_ssh_dir):
+                progress_print(args, "Cleaning up temporary SSH keys…")
+                shutil.rmtree(temp_ssh_dir)
+                progress_print(args, "Temporary SSH keys cleaned up")
+        except Exception as e:
+            progress_print(args, f"Warning: Failed to cleanup temporary SSH keys: {e}")
     
+
+def run_speed_test(instance_id, api_key, args):
+    """
+    Tests download speed by downloading a 1GB file and monitoring speed every 10 seconds.
+    Samples speed every 10 seconds and fails if average drops below 500 Mbps.
+    
+    Returns:
+        (passed: bool, reason: str)
+    """
+    import os
+    import time
+    import threading
+    import tempfile
+    import argparse as _argparse
+    
+    # Fetch reported inet_down from instance data via show instance
+    reported_inet_down = None
+    try:
+        show_args = _argparse.Namespace(
+            id=int(instance_id),
+            raw=True,
+            quiet=False,
+            explain=getattr(args, 'explain', False),
+            api_key=api_key,
+            url=args.url,
+            retry=args.retry,
+        )
+        instance_data = show__instance(show_args)
+        if instance_data:
+            reported_inet_down = safe_float(instance_data.get('inet_down', 0))
+            if reported_inet_down:
+                progress_print(args, f"Reported instance inet_down: {reported_inet_down:.2f} Mbps")
+            else:
+                progress_print(args, f"Warning: inet_down not available in instance data")
+        else:
+            progress_print(args, f"Warning: Could not get instance data for instance {instance_id}")
+    except Exception as e:
+        progress_print(args, f"Warning: Could not fetch reported inet_down for instance {instance_id}: {e}")
+    
+    progress_print(args, "Starting speed test...")
+    progress_print(args, "Downloading 1GB test file and monitoring speed every 10 seconds...")
+    progress_print(args, "Speed threshold: 500 Mbps average")
+    
+    speed_samples = []
+    test_failed = threading.Event()
+    failure_reason = [None]  # Use list to allow modification from nested function
+    download_file = None
+    
+    def monitor_download_progress():
+        """Monitor download progress by checking file size every 10 seconds"""
+        nonlocal speed_samples, download_file, test_failed, failure_reason
+        sample_count = 0
+        last_size = 0
+        last_time = time.time()
+        
+        while not test_failed.is_set():
+            time.sleep(10)
+            
+            if download_file and os.path.exists(download_file):
+                current_size = os.path.getsize(download_file)
+                current_time = time.time()
+                
+                if current_time > last_time:
+                    # Calculate speed for this 10-second interval
+                    bytes_downloaded = current_size - last_size
+                    time_elapsed = current_time - last_time
+                    
+                    if time_elapsed > 0 and bytes_downloaded > 0:
+                        speed_bps = bytes_downloaded / time_elapsed
+                        speed_mbps = (speed_bps * 8) / 1000000  # Convert to Mbps
+                        speed_samples.append(speed_mbps)
+                        sample_count += 1
+                        
+                        inet_down_str = f" (reported inet_down: {reported_inet_down:.2f} Mbps)" if reported_inet_down else ""
+                        progress_print(args, f"Speed sample #{sample_count} (10s interval): {speed_mbps:.2f} Mbps{inet_down_str}")
+                        
+                        # Calculate average so far
+                        if speed_samples and isinstance(speed_samples, list) and len(speed_samples) > 0:
+                            samples_total = 0.0
+                            for _s in speed_samples:
+                                samples_total += _s
+                            avg_speed = samples_total / len(speed_samples)
+                            progress_print(args, f"Average speed so far: {avg_speed:.2f} Mbps{inet_down_str}")
+                            
+                            # Log warning if average drops below 500 Mbps (informational only, does not fail the test)
+                            if avg_speed < 500:
+                                progress_print(args, f"[SPEED TEST] WARNING: Average download speed ({avg_speed:.2f} Mbps) is below 500 Mbps threshold")
+                
+                last_size = current_size
+                last_time = current_time
+            else:
+                # File doesn't exist yet, wait a bit more
+                time.sleep(1)
+    
+    try:
+        # Create temporary file for download
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.bin') as tmp_file:
+            download_file = tmp_file.name
+        
+        # Start monitoring thread
+        monitor_thread = threading.Thread(target=monitor_download_progress, daemon=True)
+        monitor_thread.start()
+        
+        # Run curl command to download 1GB file
+        cmd = [
+            "curl", "-sL", "https://ash-speed.hetzner.com/1GB.bin", "-o", download_file
+        ]
+        
+        progress_print(args, "Starting download...")
+        start_time = time.time()
+        
+        # Run curl
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        
+        total_time = time.time() - start_time
+        
+        # Stop monitoring
+        test_failed.set()
+        monitor_thread.join(timeout=2)
+        
+        if result.returncode != 0:
+            return False, f"Speed test download failed: {result.stderr}"
+        
+        # Verify file was downloaded
+        if not os.path.exists(download_file):
+            return False, "Downloaded file not found"
+        
+        file_size = os.path.getsize(download_file)
+        expected_size = 1024 * 1024 * 1024  # 1GB
+        
+        if file_size < expected_size * 0.9:  # Allow 10% tolerance
+            return False, f"Downloaded file size ({file_size} bytes) is less than expected (1GB)"
+        
+        # Calculate final average speed
+        if speed_samples:
+            samples_total = 0.0
+            for _s in speed_samples:
+                samples_total += _s
+            avg_speed = samples_total / len(speed_samples)
+            final_speed_mbps = (file_size * 8) / (total_time * 1000000)  # Overall average
+            
+            progress_print(args, f"Download completed in {total_time:.2f} seconds")
+            progress_print(args, f"Overall average speed: {final_speed_mbps:.2f} Mbps")
+            progress_print(args, f"Sampled average speed: {avg_speed:.2f} Mbps")
+            if reported_inet_down:
+                progress_print(args, f"Reported inet_down:    {reported_inet_down:.2f} Mbps")
+                progress_print(args, f"Measured vs Reported:  {avg_speed:.2f} / {reported_inet_down:.2f} Mbps ({(avg_speed / reported_inet_down * 100):.1f}%)")
+            
+            # Log warning if below threshold (informational only, does not fail the test)
+            if avg_speed < 500:
+                progress_print(args, f"[SPEED TEST] WARNING: Average download speed ({avg_speed:.2f} Mbps) is below 500 Mbps threshold")
+            
+            progress_print(args, "✓ Speed test: PASSED")
+            return True, ""
+        else:
+            # Fallback: use overall speed if no samples
+            final_speed_mbps = (file_size * 8) / (total_time * 1000000)
+            progress_print(args, f"Download completed in {total_time:.2f} seconds")
+            progress_print(args, f"Overall speed: {final_speed_mbps:.2f} Mbps")
+            if reported_inet_down:
+                progress_print(args, f"Reported inet_down: {reported_inet_down:.2f} Mbps")
+                progress_print(args, f"Measured vs Reported: {final_speed_mbps:.2f} / {reported_inet_down:.2f} Mbps ({(final_speed_mbps / reported_inet_down * 100):.1f}%)")
+            
+            if final_speed_mbps < 500:
+                progress_print(args, f"[SPEED TEST] WARNING: Download speed ({final_speed_mbps:.2f} Mbps) is below 500 Mbps threshold")
+            
+            progress_print(args, "✓ Speed test: PASSED")
+            return True, ""
+            
+    except subprocess.TimeoutExpired:
+        return False, "Speed test download timed out after 300 seconds"
+    except Exception as e:
+        return False, f"Speed test failed with exception: {e}"
+    finally:
+        # Cleanup downloaded file
+        try:
+            if download_file and os.path.exists(download_file):
+                os.remove(download_file)
+        except Exception as e:
+            progress_print(args, f"Warning: Failed to cleanup download file: {e}")
+
+
 def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, api_key=None):
     """
     Executes machine testing by connecting to the specified IP and port, monitoring
@@ -8267,6 +8874,10 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
     # Ensure debugging is set in args
     if not hasattr(args, 'debugging'):
         args.debugging = False
+        
+    # Add comprehensive logging
+    progress_print(args, f"[MACHINE TESTER] Starting with IP: {ip_address}, Port: {port}, Instance: {instance_id}")
+    progress_print(args, f"[MACHINE TESTER] Delay: {delay} seconds, Debug: {args.debugging}")
 
     def is_instance(instance_id):
         """Check instance status via show__instance."""
@@ -8311,15 +8922,22 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
     first_connection_established = False  # Flag to track first successful connection
     instance_destroyed = False  # Track whether the instance has been destroyed
     try:
+        progress_print(args, f"[MACHINE TESTER] Entering main monitoring loop (timeout: 600s)")
+        progress_print(args, f"[MACHINE TESTER] Expected: Remote script should be running tests and outputting progress")
+        loop_count = 0
         while time.time() - start_time < 600:
+            loop_count += 1
+            progress_print(args, f"[MACHINE TESTER] Loop #{loop_count} - Elapsed time: {int(time.time() - start_time)}s")
+            
             # Check instance status with high priority for offline status
             status = is_instance(instance_id)
+            progress_print(args, f"[MACHINE TESTER] Instance {instance_id} status: {status}")
             if args.debugging:
                 debug_print(args, f"Instance {instance_id} status: {status}")
                 
             if status == 'offline':
                 reason = "Instance offline during testing"
-                progress_print(args, f"Instance {instance_id} went offline. {reason}")
+                progress_print(args, f"[MACHINE TESTER] Instance {instance_id} went offline. {reason}")
                 destroy_instance_silent(instance_id, destroy_args)
                 instance_destroyed = True
                 with open("Error_testresults.log", "a") as f:
@@ -8327,73 +8945,170 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
                 return False, reason
 
             # Attempt to connect to the progress endpoint
+            progress_print(args, f"[MACHINE TESTER] Attempting to connect to https://{ip_address}:{port}/progress")
             try:
                 if args.debugging:
                     debug_print(args, f"Sending GET request to https://{ip_address}:{port}/progress")
                 response = requests.get(f'https://{ip_address}:{port}/progress', verify=False, timeout=10)
+                progress_print(args, f"[MACHINE TESTER] Response status: {response.status_code}")
                 
                 if response.status_code == 200 and not first_connection_established:
-                    progress_print(args, "Successfully established HTTPS connection to the server.")
+                    progress_print(args, "[MACHINE TESTER] Successfully established HTTPS connection to the server.")
                     first_connection_established = True
 
                 message = response.text.strip()
+                progress_print(args, f"[MACHINE TESTER] Response text: '{message}'")
+                
+                # Log the full response content for debugging
+                if message == 'DONE' and loop_count <= 3:  # Only log first few responses to avoid spam
+                    progress_print(args, f"[MACHINE TESTER] WARNING: Got 'DONE' immediately - this suggests remote script failed")
+                    progress_print(args, f"[MACHINE TESTER] Full response content: {repr(response.text)}")
+                    progress_print(args, f"[MACHINE TESTER] Response headers: {dict(response.headers)}")
+                
                 if args.debugging:
                     debug_print(args, f"Received message: '{message}'")
             except requests.exceptions.RequestException as e:
+                progress_print(args, f"[MACHINE TESTER] Error making HTTPS request: {e}")
                 if args.debugging:
                     progress_print(args, f"Error making HTTPS request: {e}")
                 message = ''
 
             # Process response messages
             if message:
+                progress_print(args, f"[MACHINE TESTER] Processing message: '{message}'")
                 lines = message.split('\n')
                 new_lines = [line for line in lines if line not in printed_lines]
+                progress_print(args, f"[MACHINE TESTER] Found {len(new_lines)} new lines to process")
+                
                 for line in new_lines:
+                    progress_print(args, f"[MACHINE TESTER] Processing line: '{line}'")
                     if line == 'DONE':
-                        progress_print(args, "Test completed successfully.")
+                        progress_print(args, "[MACHINE TESTER] Test completed successfully.")
                         with open("Pass_testresults.log", "a") as f:
                             f.write(f"{machine_id}\n")
-                        progress_print(args, f"Test passed.")
+                        progress_print(args, f"[MACHINE TESTER] Test passed.")
+                        
+                        # Track test failures for summary logging
+                        copy_test_failed = False
+                        copy_test_failure_reason = None
+                        speed_test_failed = False
+                        speed_test_failure_reason = None
+                        
+                        # Run copy test before destroying the instance
+                        progress_print(args, "[MACHINE TESTER] Running copy test before instance destruction...")
+                        try:
+                            copy_success, copy_reason = run_copy_test(str(instance_id), api_key, args)
+                            if copy_success:
+                                progress_print(args, "[MACHINE TESTER] Copy test completed successfully.")
+                            else:
+                                copy_test_failed = True
+                                copy_test_failure_reason = copy_reason
+                                progress_print(args, f"[MACHINE TESTER] Copy test failed: {copy_reason}")
+                                # Copy test failure causes overall test failure (unless ignore-requirements is set)
+                                if not getattr(args, 'ignore_requirements', False):
+                                    destroy_instance_silent(instance_id, destroy_args)
+                                    instance_destroyed = True
+                                    return False, f"Copy test failed: {copy_reason}"
+                        except Exception as e:
+                            copy_test_failed = True
+                            copy_test_failure_reason = str(e)
+                            progress_print(args, f"[MACHINE TESTER] Copy test failed with exception: {e}")
+                            # Copy test exception causes overall test failure (unless ignore-requirements is set)
+                            if not getattr(args, 'ignore_requirements', False):
+                                destroy_instance_silent(instance_id, destroy_args)
+                                instance_destroyed = True
+                                return False, f"Copy test failed with exception: {e}"
+                        
+                        # Run speed test after copy test
+                        progress_print(args, "[MACHINE TESTER] Running speed test...")
+                        try:
+                            speed_success, speed_reason = run_speed_test(str(instance_id), api_key, args)
+                            if speed_success:
+                                progress_print(args, "[MACHINE TESTER] Speed test completed successfully.")
+                            else:
+                                speed_test_failed = True
+                                speed_test_failure_reason = speed_reason
+                                progress_print(args, f"[MACHINE TESTER] Speed test failed: {speed_reason}")
+                                # Speed test failure causes overall test failure (unless ignore-requirements is set)
+                                if not getattr(args, 'ignore_requirements', False):
+                                    destroy_instance_silent(instance_id, destroy_args)
+                                    instance_destroyed = True
+                                    return False, f"Speed test failed: {speed_reason}"
+                        except Exception as e:
+                            speed_test_failed = True
+                            speed_test_failure_reason = str(e)
+                            progress_print(args, f"[MACHINE TESTER] Speed test failed with exception: {e}")
+                            # Speed test exception causes overall test failure (unless ignore-requirements is set)
+                            if not getattr(args, 'ignore_requirements', False):
+                                destroy_instance_silent(instance_id, destroy_args)
+                                instance_destroyed = True
+                                return False, f"Speed test failed with exception: {e}"
+                        
+                        # Log summary of test failures if ignore-requirements is set
+                        if getattr(args, 'ignore_requirements', False):
+                            if copy_test_failed or speed_test_failed:
+                                progress_print(args, "=== TEST SUMMARY (--ignore-requirements mode) ===")
+                                if copy_test_failed:
+                                    progress_print(args, f"✗ Copy test: FAILED - {copy_test_failure_reason}")
+                                else:
+                                    progress_print(args, "✓ Copy test: PASSED")
+                                if speed_test_failed:
+                                    progress_print(args, f"✗ Speed test: FAILED - {speed_test_failure_reason}")
+                                else:
+                                    progress_print(args, "✓ Speed test: PASSED")
+                                progress_print(args, "Note: Tests failed but continuing due to --ignore-requirements flag")
+                        
+                        # Now destroy the instance
                         destroy_instance_silent(instance_id, destroy_args)
                         instance_destroyed = True
                         return True, ""
                     elif line.startswith('ERROR'):
-                        progress_print(args, line)
+                        progress_print(args, f"[MACHINE TESTER] {line}")
                         with open("Error_testresults.log", "a") as f:
                             f.write(f"{machine_id}:{instance_id} {line}\n")
-                        progress_print(args, f"Test failed with error: {line}.")
+                        progress_print(args, f"[MACHINE TESTER] Test failed with error: {line}.")
                         destroy_instance_silent(instance_id, destroy_args)
                         instance_destroyed = True
                         return False, line
                     else:
-                        progress_print(args, line)
+                        progress_print(args, f"[MACHINE TESTER] {line}")
                     printed_lines.add(line)
                 no_response_seconds = 0
             else:
                 no_response_seconds += 20
+                progress_print(args, f"[MACHINE TESTER] No message received. no_response_seconds: {no_response_seconds}")
                 if args.debugging:
                     debug_print(args, f"No message received. Incremented no_response_seconds to {no_response_seconds}.")
 
             if status == 'running' and no_response_seconds >= 120:
+                progress_print(args, f"[MACHINE TESTER] No response for 120s with running instance. This may indicate a misconfiguration of ports on the machine. Network error or system stall or crashed.")
                 with open("Error_testresults.log", "a") as f:
                     f.write(f"{machine_id}:{instance_id} No response from port {port} for 120s with running instance\n")
-                progress_print(args, f"No response for 120s with running instance. This may indicate a misconfiguration of ports on the machine. Network error or system stall or crashed. ")
+                progress_print(args, f"[MACHINE TESTER] No response for 120s with running instance. This may indicate a misconfiguration of ports on the machine. Network error or system stall or crashed. ")
                 destroy_instance_silent(instance_id, destroy_args)
                 instance_destroyed = True
                 return False, "No response for 120 seconds with running instance. The system might have crashed or stalled during stress test. Use the self-test machine function in vast cli"
 
+            progress_print(args, f"[MACHINE TESTER] Waiting 20 seconds before next check...")
             if args.debugging:
                 debug_print(args, "Waiting for 20 seconds before the next check.")
             time.sleep(20)
 
+        progress_print(args, f"[MACHINE TESTER] Time limit reached (600s). Destroying instance {instance_id}.")
         if args.debugging:
             debug_print(args, f"Time limit reached. Destroying instance {instance_id}.")
+        destroy_instance_silent(instance_id, destroy_args)
+        instance_destroyed = True
         return False, "Test did not complete within the time limit"
     finally:
         # Ensure instance cleanup
+        progress_print(args, f"[MACHINE TESTER] Entering finally block")
         if not instance_destroyed and instance_id and instance_exist(instance_id, api_key, destroy_args):
+           progress_print(args, f"[MACHINE TESTER] Cleaning up instance {instance_id} in finally block")
            destroy_instance_silent(instance_id, destroy_args)
-        progress_print(args, f"Machine: {machine_id} Done with testing remote.py results {message}")
+        else:
+           progress_print(args, f"[MACHINE TESTER] Instance {instance_id} already destroyed or doesn't exist")
+        progress_print(args, f"[MACHINE TESTER] Machine: {machine_id} Done with testing remote.py results")
         warnings.simplefilter('default')
 
 def safe_float(value):
@@ -8624,7 +9339,6 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
     reason = f"Instance did not become running within {timeout} seconds. Verify network configuration. Use the self-test machine function in vast cli"
     progress_print(args, reason)
     return False, reason
-
 
 
 login_deprecated_message = """

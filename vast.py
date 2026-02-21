@@ -2300,6 +2300,7 @@ def create__workergroup(args):
     argument("--endpoint_name", help="deployment endpoint name (allows multiple autoscale groups to share same deployment endpoint)", type=str),
     argument("--max_queue_time", help="maximum seconds requests may be queued on each worker (default 30.0)", type=float),
     argument("--target_queue_time", help="target seconds for the queue to be cleared (default 10.0)", type=float),
+    argument("--inactivity_timeout", help="seconds of inactivity before the endpoint scales to zero", type=int),
     argument("--auto_instance", help=argparse.SUPPRESS, type=str, default="prod"),
 
     usage="vastai create endpoint [OPTIONS]",
@@ -2313,7 +2314,7 @@ def create__workergroup(args):
 def create__endpoint(args):
     url = apiurl(args, "/endptjobs/" )
 
-    json_blob = {"client_id": "me", "min_load": args.min_load, "min_cold_load":args.min_cold_load, "target_util": args.target_util, "cold_mult": args.cold_mult, "cold_workers" : args.cold_workers, "max_workers" : args.max_workers, "endpoint_name": args.endpoint_name, "max_queue_time": args.max_queue_time, "target_queue_time": args.target_queue_time, "autoscaler_instance": args.auto_instance}
+    json_blob = {"client_id": "me", "min_load": args.min_load, "min_cold_load":args.min_cold_load, "target_util": args.target_util, "cold_mult": args.cold_mult, "cold_workers" : args.cold_workers, "max_workers" : args.max_workers, "endpoint_name": args.endpoint_name, "max_queue_time": args.max_queue_time, "target_queue_time": args.target_queue_time, "inactivity_timeout": args.inactivity_timeout, "autoscaler_instance": args.auto_instance}
 
     if (args.explain):
         print("request json: ")
@@ -6647,6 +6648,7 @@ def update__workergroup(args):
     argument("--endpoint_name",   help="deployment endpoint name (allows multiple workergroups to share same deployment endpoint)", type=str),
     argument("--max_queue_time", help="maximum seconds requests may be queued on each worker (default 30.0)", type=float),
     argument("--target_queue_time", help="target seconds for the queue to be cleared (default 10.0)", type=float),
+    argument("--inactivity_timeout", help="seconds of inactivity before the endpoint scales to zero", type=int),
     usage="vastai update endpoint ID [OPTIONS]",
     help="Update an existing endpoint group",
     epilog=deindent("""
@@ -6656,7 +6658,7 @@ def update__workergroup(args):
 def update__endpoint(args):
     id  = args.id
     url = apiurl(args, f"/endptjobs/{id}/" )
-    json_blob = {"client_id": "me", "endptjob_id": args.id, "min_load": args.min_load, "min_cold_load":args.min_cold_load,"target_util": args.target_util, "cold_mult": args.cold_mult, "cold_workers": args.cold_workers, "max_workers" : args.max_workers, "endpoint_name": args.endpoint_name, "max_queue_time": args.max_queue_time, "target_queue_time": args.target_queue_time, "endpoint_state": args.endpoint_state, "autoscaler_instance":args.auto_instance}
+    json_blob = {"client_id": "me", "endptjob_id": args.id, "min_load": args.min_load, "min_cold_load":args.min_cold_load,"target_util": args.target_util, "cold_mult": args.cold_mult, "cold_workers": args.cold_workers, "max_workers" : args.max_workers, "endpoint_name": args.endpoint_name, "max_queue_time": args.max_queue_time, "target_queue_time": args.target_queue_time, "inactivity_timeout": args.inactivity_timeout, "endpoint_state": args.endpoint_state, "autoscaler_instance":args.auto_instance}
     if (args.explain):
         print("request json: ")
         print(json_blob)

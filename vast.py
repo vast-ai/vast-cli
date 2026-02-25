@@ -710,7 +710,7 @@ displayable_fields_reserved = (
 vol_offers_fields = {
         "cpu_arch",
         "cuda_vers",
-        "cluster_id",
+        # "cluster_id",
         "nw_disk_min_bw",
         "nw_disk_avg_bw",
         "nw_disk_max_bw",
@@ -767,7 +767,7 @@ nw_vol_displayable_fields = (
     ("duration", "Max_Days", "{:0.1f}", lambda x: x / (24.0 * 60.0 * 60.0), True),
     ("verification", "status", "{}", None, True),
     ("host_id", "host_id", "{}", None, True),
-    ("cluster_id", "cluster_id", "{}", None, True),
+    # ("cluster_id", "cluster_id", "{}", None, True),
     ("geolocation", "country", "{}", None, True),
     ("nw_disk_min_bw", "Min BW MiB/s", "{}", None, True),
     ("nw_disk_max_bw", "Max BW MiB/s", "{}", None, True),
@@ -802,15 +802,15 @@ instance_fields = (
     ("uptime_mins", "uptime(mins)", "{:0.2f}",  None, True),
 )
 
-cluster_fields = (
-    ("id", "ID", "{}", None, True),
-    ("subnet", "Subnet", "{}", None, True),
-    ("node_count", "Nodes", "{}", None, True),
-    ("manager_id", "Manager ID", "{}", None, True),
-    ("manager_ip", "Manager IP", "{}", None, True),
-    ("machine_ids", "Machine ID's", "{}", None, True)
-)
-
+# cluster_fields = (
+#     ("id", "ID", "{}", None, True),
+#     ("subnet", "Subnet", "{}", None, True),
+#     ("node_count", "Nodes", "{}", None, True),
+#     ("manager_id", "Manager ID", "{}", None, True),
+#     ("manager_ip", "Manager IP", "{}", None, True),
+#     ("machine_ids", "Machine ID's", "{}", None, True)
+# )
+#
 network_disk_fields = (
     ("network_disk_id", "Network Disk ID", "{}", None, True),
     ("free_space", "Free Space (GB)", "{}", None, True),
@@ -822,17 +822,17 @@ network_disk_machine_fields = (
     ("mount_point", "Mount Point", "{}", None, True),
 )
 
-overlay_fields = (
-    ("overlay_id", "Overlay ID", "{}", None, True),
-    ("name", "Name", "{}", None, True),
-    ("subnet", "Subnet", "{}", None, True),
-    ("cluster_id", "Cluster ID", "{}", None, True),
-    ("instance_count", "Instances", "{}", None, True),
-    ("instances", "Instance IDs", "{}", None, True),
-)
+# overlay_fields = (
+#     ("overlay_id", "Overlay ID", "{}", None, True),
+#     ("name", "Name", "{}", None, True),
+#     ("subnet", "Subnet", "{}", None, True),
+#     # ("cluster_id", "Cluster ID", "{}", None, True),
+#     ("instance_count", "Instances", "{}", None, True),
+#     ("instances", "Instance IDs", "{}", None, True),
+# )
 volume_fields = (
     ("id", "ID", "{}", None, True),
-    ("cluster_id", "Cluster ID", "{}", None, True),
+    # ("cluster_id", "Cluster ID", "{}", None, True),
     ("label", "Name", "{}", None, True),
     ("disk_space", "Disk", "{:.0f}", None, True),
     ("status", "status", "{}", None, True),
@@ -1026,7 +1026,7 @@ offers_fields = {
     "verified",
     "vms_enabled",
     "geolocation",
-    "cluster_id"
+    # "cluster_id"
 }
 
 offers_alias = {
@@ -2033,34 +2033,34 @@ def create__api_key(args):
         print("An unexpected error occurred:", e)
 
 
-@parser.command(
-    argument("subnet", help="local subnet for cluster, ex: '0.0.0.0/24'", type=str),
-    argument("manager_id", help="Machine ID of manager node in cluster. Must exist already.", type=int),
-    usage="vastai create cluster SUBNET MANAGER_ID",
-    help="Create Vast cluster",
-    epilog=deindent("""
-        Create Vast Cluster by defining a local subnet and manager id.""")
-)
-def create__cluster(args: argparse.Namespace):
-
-    json_blob = {
-        "subnet": args.subnet,
-        "manager_id": args.manager_id
-    }
-
-    #TODO: this should happen at the decorator level for all CLI commands to reduce boilerplate
-    if args.explain:
-        print("request json: ")
-        print(json_blob)
-
-    req_url = apiurl(args, "/cluster/")
-    r  = http_post(args, req_url, json=json_blob)
-    r.raise_for_status()
-
-    if args.raw:
-        return r
-
-    print(r.json()["msg"])
+# @parser.command(
+#     argument("subnet", help="local subnet for cluster, ex: '0.0.0.0/24'", type=str),
+#     argument("manager_id", help="Machine ID of manager node in cluster. Must exist already.", type=int),
+#     usage="vastai create cluster SUBNET MANAGER_ID",
+#     help="Create Vast cluster",
+#     epilog=deindent("""
+#         Create Vast Cluster by defining a local subnet and manager id.""")
+# )
+# def create__cluster(args: argparse.Namespace):
+#
+#     json_blob = {
+#         "subnet": args.subnet,
+#         "manager_id": args.manager_id
+#     }
+#
+#     #TODO: this should happen at the decorator level for all CLI commands to reduce boilerplate
+#     if args.explain:
+#         print("request json: ")
+#         print(json_blob)
+#
+#     req_url = apiurl(args, "/cluster/")
+#     r  = http_post(args, req_url, json=json_blob)
+#     r.raise_for_status()
+#
+#     if args.raw:
+#         return r
+#
+    # print(r.json()["msg"])
 
 @parser.command(
     argument("name", help="Environment variable name", type=str),
@@ -2783,31 +2783,31 @@ def create__network_volume(args: argparse.Namespace):
     else:
         print("Created. {}".format(r.json()))
 
-@parser.command(
-    argument("cluster_id", help="ID of cluster to create overlay on top of", type=int),
-    argument("name", help="overlay network name"),
-    usage="vastai create overlay CLUSTER_ID OVERLAY_NAME",
-    help="Creates overlay network on top of a physical cluster",
-    epilog=deindent("""
-    Creates an overlay network to allow local networking between instances on a physical cluster""")
-)
-def create__overlay(args: argparse.Namespace):
-    json_blob = {
-        "cluster_id": args.cluster_id,
-        "name": args.name
-    }
-
-    if args.explain:
-        print("request json:", json_blob)
-
-    req_url = apiurl(args, "/overlay/")
-    r = http_post(args, req_url, json=json_blob)
-    r.raise_for_status()
-
-    if args.raw:
-        return r
-
-    print(r.json()["msg"])
+# @parser.command(
+#     argument("cluster_id", help="ID of cluster to create overlay on top of", type=int),
+#     argument("name", help="overlay network name"),
+#     usage="vastai create overlay CLUSTER_ID OVERLAY_NAME",
+#     help="Creates overlay network on top of a physical cluster",
+#     epilog=deindent("""
+#     Creates an overlay network to allow local networking between instances on a physical cluster""")
+# )
+# def create__overlay(args: argparse.Namespace):
+#     json_blob = {
+#         "cluster_id": args.cluster_id,
+#         "name": args.name
+#     }
+#
+#     if args.explain:
+#         print("request json:", json_blob)
+#
+#     req_url = apiurl(args, "/overlay/")
+#     r = http_post(args, req_url, json=json_blob)
+#     r.raise_for_status()
+#
+#     if args.raw:
+#         return r
+#
+#     print(r.json()["msg"])
 
 @parser.command(
     argument("id", help="id of apikey to remove", type=int),
@@ -2844,30 +2844,30 @@ def delete__scheduled_job(args):
 
 
 
-@parser.command(
-    argument("cluster_id", help="ID of cluster to delete", type=int),
-    usage="vastai delete cluster CLUSTER_ID",
-    help="Delete Cluster",
-    epilog=deindent("""
-        Delete Vast Cluster""")
-)
-def delete__cluster(args: argparse.Namespace):
-    json_blob = {
-        "cluster_id": args.cluster_id
-    }
-
-    if args.explain:
-        print("request json:", json_blob)
-
-    req_url = apiurl(args, "/cluster/")
-    r = http_del(args, req_url, json=json_blob)
-    r.raise_for_status()
-
-    if args.raw:
-        return r
-
-    print(r.json()["msg"])
-
+# @parser.command(
+#     argument("cluster_id", help="ID of cluster to delete", type=int),
+#     usage="vastai delete cluster CLUSTER_ID",
+#     help="Delete Cluster",
+#     epilog=deindent("""
+#         Delete Vast Cluster""")
+# )
+# def delete__cluster(args: argparse.Namespace):
+#     json_blob = {
+#         "cluster_id": args.cluster_id
+#     }
+#
+#     if args.explain:
+#         print("request json:", json_blob)
+#
+#     req_url = apiurl(args, "/cluster/")
+#     r = http_del(args, req_url, json=json_blob)
+#     r.raise_for_status()
+#
+#     if args.raw:
+#         return r
+#
+#     print(r.json()["msg"])
+#
 
 @parser.command(
     argument("id", help="id of group to delete", type=int),
@@ -2944,35 +2944,35 @@ def delete__env_var(args):
     else:
         print(f"Failed to delete environment variable: {result.get('msg', 'Unknown error')}")
 
-@parser.command(
-    argument("overlay_identifier", help="ID (int) or name (str) of overlay to delete", nargs="?"),
-    usage="vastai delete overlay OVERLAY_IDENTIFIER",
-    help="Deletes overlay and removes all of its associated instances"
-)
-def delete__overlay(args: argparse.Namespace):
-    identifier = args.overlay_identifier
-    try:
-        overlay_id = int(identifier)
-        json_blob = {
-            "overlay_id": overlay_id
-        }
-    except (ValueError, TypeError):
-        json_blob = {
-            "overlay_name": identifier
-        }
-
-    if args.explain:
-        print("request json:", json_blob)
-
-    req_url = apiurl(args, "/overlay/")
-    r = http_del(args, req_url, json=json_blob)
-    r.raise_for_status()
-
-    if args.raw:
-        return r
-
-    print(r.json()["msg"])
-
+# @parser.command(
+#     argument("overlay_identifier", help="ID (int) or name (str) of overlay to delete", nargs="?"),
+#     usage="vastai delete overlay OVERLAY_IDENTIFIER",
+#     help="Deletes overlay and removes all of its associated instances"
+# )
+# def delete__overlay(args: argparse.Namespace):
+#     identifier = args.overlay_identifier
+#     try:
+#         overlay_id = int(identifier)
+#         json_blob = {
+#             "overlay_id": overlay_id
+#         }
+#     except (ValueError, TypeError):
+#         json_blob = {
+#             "overlay_name": identifier
+#         }
+#
+#     if args.explain:
+#         print("request json:", json_blob)
+#
+#     req_url = apiurl(args, "/overlay/")
+#     r = http_del(args, req_url, json=json_blob)
+#     r.raise_for_status()
+#
+#     if args.raw:
+#         return r
+#
+#     print(r.json()["msg"])
+#
 @parser.command(
     argument("--template-id", help="Template ID of Template to Delete", type=int),
     argument("--hash-id", help="Hash ID of Template to Delete", type=str),
@@ -3268,60 +3268,60 @@ def invite__member(args):
         print(f"failed with error {r.status_code}")
 
 
-@parser.command(
-    argument("cluster_id", help="ID of cluster to add machine to", type=int),
-    argument("machine_ids", help="machine id(s) to join cluster", type=int, nargs="+"),
-    usage="vastai join cluster CLUSTER_ID MACHINE_IDS",
-    help="Join Machine to Cluster",
-    epilog=deindent("""
-        Join's Machine to Vast Cluster
-    """)
-)
-def join__cluster(args: argparse.Namespace):
-    json_blob = {
-        "cluster_id": args.cluster_id,
-        "machine_ids": args.machine_ids
-    }
+# @parser.command(
+#     argument("cluster_id", help="ID of cluster to add machine to", type=int),
+#     argument("machine_ids", help="machine id(s) to join cluster", type=int, nargs="+"),
+#     usage="vastai join cluster CLUSTER_ID MACHINE_IDS",
+#     help="Join Machine to Cluster",
+#     epilog=deindent("""
+#         Join's Machine to Vast Cluster
+#     """)
+# )
+# def join__cluster(args: argparse.Namespace):
+#     json_blob = {
+#         "cluster_id": args.cluster_id,
+#         "machine_ids": args.machine_ids
+#     }
+#
+#     if args.explain:
+#         print("request json:", json_blob)
+#
+#     req_url = apiurl(args, "/cluster/")
+#     r = http_put(args, req_url, json=json_blob)
+#     r.raise_for_status()
+#
+#     if args.raw:
+#         return r
+#
+#     print(r.json()["msg"])
+#
 
-    if args.explain:
-        print("request json:", json_blob)
-
-    req_url = apiurl(args, "/cluster/")
-    r = http_put(args, req_url, json=json_blob)
-    r.raise_for_status()
-
-    if args.raw:
-        return r
-
-    print(r.json()["msg"])
-
-
-@parser.command(
-    argument("name", help="Overlay network name to join instance to.", type=str),
-    argument("instance_id", help="Instance ID to add to overlay.", type=int),
-    usage="vastai join overlay OVERLAY_NAME INSTANCE_ID",
-    help="Adds instance to an overlay network",
-    epilog=deindent("""
-    Adds an instance to a compatible overlay network.""")
-)
-def join__overlay(args: argparse.Namespace):
-    json_blob = {
-        "name": args.name,
-        "instance_id": args.instance_id
-    }
-
-    if args.explain:
-        print("request json:", json_blob)
-
-    req_url = apiurl(args, "/overlay/")
-    r = http_put(args, req_url, json=json_blob)
-    r.raise_for_status()
-
-    if args.raw:
-        return r
-
-    print(r.json()["msg"])
-
+# @parser.command(
+#     argument("name", help="Overlay network name to join instance to.", type=str),
+#     argument("instance_id", help="Instance ID to add to overlay.", type=int),
+#     usage="vastai join overlay OVERLAY_NAME INSTANCE_ID",
+#     help="Adds instance to an overlay network",
+#     epilog=deindent("""
+#     Adds an instance to a compatible overlay network.""")
+# )
+# def join__overlay(args: argparse.Namespace):
+#     json_blob = {
+#         "name": args.name,
+#         "instance_id": args.instance_id
+#     }
+#
+#     if args.explain:
+#         print("request json:", json_blob)
+#
+#     req_url = apiurl(args, "/overlay/")
+#     r = http_put(args, req_url, json=json_blob)
+#     r.raise_for_status()
+#
+#     if args.raw:
+#         return r
+#
+#     print(r.json()["msg"])
+#
 
 
 @parser.command(
@@ -5640,69 +5640,69 @@ def show__ipaddrs(args):
         display_table(rows, ipaddr_fields)
 
 
-@parser.command(
-    usage="vastai show clusters",
-    help="Show clusters associated with your account.",
-    epilog=deindent("""
-        Show clusters associated with your account.
-    """)
-)
-def show__clusters(args: argparse.Namespace):
-    req_url = apiurl(args, "/clusters/")
-    r = http_get(args, req_url)
-    r.raise_for_status()
-    response_data = r.json()
+# @parser.command(
+#     usage="vastai show clusters",
+#     help="Show clusters associated with your account.",
+#     epilog=deindent("""
+#         Show clusters associated with your account.
+#     """)
+# )
+# def show__clusters(args: argparse.Namespace):
+#     req_url = apiurl(args, "/clusters/")
+#     r = http_get(args, req_url)
+#     r.raise_for_status()
+#     response_data = r.json()
+#
+#     if args.raw:
+#         return response_data
+#
+#     rows = []
+#     for cluster_id, cluster_data in response_data['clusters'].items():
+#         machine_ids = [ node["machine_id"] for node in cluster_data["nodes"]]
+#
+#         manager_node = next(node for node in cluster_data['nodes'] if node['is_cluster_manager'])
+#
+#         row_data = {
+#             'id': cluster_id,
+#             'subnet': cluster_data['subnet'],
+#             'node_count': len(cluster_data['nodes']),
+#             'machine_ids': str(machine_ids),
+#             'manager_id': str(manager_node['machine_id']),
+#             'manager_ip': manager_node['local_ip'],
+#         }
+#
+#         rows.append(row_data)
+#
+#     display_table(rows, cluster_fields, replace_spaces=False)
 
-    if args.raw:
-        return response_data
 
-    rows = []
-    for cluster_id, cluster_data in response_data['clusters'].items():
-        machine_ids = [ node["machine_id"] for node in cluster_data["nodes"]]
-
-        manager_node = next(node for node in cluster_data['nodes'] if node['is_cluster_manager'])
-
-        row_data = {
-            'id': cluster_id,
-            'subnet': cluster_data['subnet'],
-            'node_count': len(cluster_data['nodes']),
-            'machine_ids': str(machine_ids),
-            'manager_id': str(manager_node['machine_id']),
-            'manager_ip': manager_node['local_ip'],
-        }
-
-        rows.append(row_data)
-
-    display_table(rows, cluster_fields, replace_spaces=False)
-
-
-@parser.command(
-    usage="vastai show overlays",
-    help="Show overlays associated with your account.",
-    epilog=deindent("""
-        Show overlays associated with your account.
-    """)
-)
-def show__overlays(args: argparse.Namespace):
-    req_url = apiurl(args, "/overlay/")
-    r = http_get(args, req_url)
-    r.raise_for_status()
-    response_data = r.json()
-    if args.raw:
-        return response_data
-    rows = []
-    for overlay in response_data:
-        row_data = {
-            'overlay_id': overlay['overlay_id'],
-            'name': overlay['name'],
-            'subnet': overlay['internal_subnet'] if overlay['internal_subnet'] else 'N/A',
-            'cluster_id': overlay['cluster_id'],
-            'instance_count': len(overlay['instances']),
-            'instances': str(overlay['instances']),
-        }
-        rows.append(row_data)
-    display_table(rows, overlay_fields, replace_spaces=False)
-
+# @parser.command(
+#     usage="vastai show overlays",
+#     help="Show overlays associated with your account.",
+#     epilog=deindent("""
+#         Show overlays associated with your account.
+#     """)
+# )
+# def show__overlays(args: argparse.Namespace):
+#     req_url = apiurl(args, "/overlay/")
+#     r = http_get(args, req_url)
+#     r.raise_for_status()
+#     response_data = r.json()
+#     if args.raw:
+#         return response_data
+#     rows = []
+#     for overlay in response_data:
+#         row_data = {
+#             'overlay_id': overlay['overlay_id'],
+#             'name': overlay['name'],
+#             'subnet': overlay['internal_subnet'] if overlay['internal_subnet'] else 'N/A',
+#             'cluster_id': overlay['cluster_id'],
+#             'instance_count': len(overlay['instances']),
+#             'instances': str(overlay['instances']),
+#         }
+#         rows.append(row_data)
+#     display_table(rows, overlay_fields, replace_spaces=False)
+#
 
 
 
@@ -5822,35 +5822,35 @@ def show__volumes(args: argparse.Namespace):
         display_table(processed, volume_fields, replace_spaces=False)
 
 
-@parser.command(
-    argument("cluster_id", help="ID of cluster you want to remove machine from.", type=int),
-    argument("machine_id", help="ID of machine to remove from cluster.", type=int),
-    argument("new_manager_id", help="ID of machine to promote to manager. Must already be in cluster", type=int, nargs="?"),
-    usage="vastai remove-machine-from-cluster CLUSTER_ID MACHINE_ID NEW_MANAGER_ID",
-    help="Removes machine from cluster",
-    epilog=deindent("""Removes machine from cluster and also reassigns manager ID, 
-    if we're removing the manager node""")
-)
-def remove_machine_from_cluster(args: argparse.Namespace):
-    json_blob = {
-        "cluster_id": args.cluster_id,
-        "machine_id": args.machine_id,
-    }
-
-    if args.new_manager_id:
-        json_blob["new_manager_id"] = args.new_manager_id
-    if args.explain:
-        print("request json:", json_blob)
-
-    req_url = apiurl(args, "/cluster/remove_machine/")
-    r = http_del(args, req_url, json=json_blob)
-    r.raise_for_status()
-
-    if args.raw:
-        return r
-
-    print(r.json()["msg"])
-
+# @parser.command(
+#     argument("cluster_id", help="ID of cluster you want to remove machine from.", type=int),
+#     argument("machine_id", help="ID of machine to remove from cluster.", type=int),
+#     argument("new_manager_id", help="ID of machine to promote to manager. Must already be in cluster", type=int, nargs="?"),
+#     usage="vastai remove-machine-from-cluster CLUSTER_ID MACHINE_ID NEW_MANAGER_ID",
+#     help="Removes machine from cluster",
+#     epilog=deindent("""Removes machine from cluster and also reassigns manager ID, 
+#     if we're removing the manager node""")
+# )
+# def remove_machine_from_cluster(args: argparse.Namespace):
+#     json_blob = {
+#         "cluster_id": args.cluster_id,
+#         "machine_id": args.machine_id,
+#     }
+#
+#     if args.new_manager_id:
+#         json_blob["new_manager_id"] = args.new_manager_id
+#     if args.explain:
+#         print("request json:", json_blob)
+#
+#     req_url = apiurl(args, "/cluster/remove_machine/")
+#     r = http_del(args, req_url, json=json_blob)
+#     r.raise_for_status()
+#
+#     if args.raw:
+#         return r
+#
+#     print(r.json()["msg"])
+#
 
 
 def handle_failed_tfa_verification(args, e):
@@ -7192,40 +7192,40 @@ def filter_invoice_items(args: argparse.Namespace, rows: List) -> Dict:
 #
 #
 
-@parser.command(
-    argument("machines", help="ids of machines to add disk to, that is networked to be on the same LAN as machine", type=int, nargs='+'),
-    argument("mount_point", help="mount path of disk to add", type=str),
-    argument("-d", "--disk_id", help="id of network disk to attach to machines in the cluster", type=int, nargs='?'),
-    usage="vastai add network-disk MACHINES MOUNT_PATH [options]",
-    help="[Host] Add Network Disk to Physical Cluster.",
-    epilog=deindent("""
-        This variant can be used to add a network disk to a physical cluster.
-        When you add a network disk for the first time, you just need to specify the machine(s) and mount_path.
-        When you add a network disk for the second time, you need to specify the disk_id.
-        Example:
-        vastai add network-disk 1 /mnt/disk1
-        vastai add network-disk 1 /mnt/disk1 -d 12345
-    """)
-)
-def add__network_disk(args):
-    json_blob = {
-        "machines": [int(id) for id in args.machines],
-        "mount_point": args.mount_point,
-    }
-    if args.disk_id is not None:
-        json_blob["disk_id"] = args.disk_id
-    url = apiurl(args, "/network_disk/")
-    if args.explain:
-        print("request json: ")
-        print(json_blob)
-    r = http_post(args, url, headers=headers, json=json_blob)
-    r.raise_for_status()
- 
-    if args.raw:
-        return r
-
-    print("Attached network disk to machines. Disk id: " + str(r.json()["disk_id"]))
-
+# @parser.command(
+#     argument("machines", help="ids of machines to add disk to, that is networked to be on the same LAN as machine", type=int, nargs='+'),
+#     argument("mount_point", help="mount path of disk to add", type=str),
+#     argument("-d", "--disk_id", help="id of network disk to attach to machines in the cluster", type=int, nargs='?'),
+#     usage="vastai add network-disk MACHINES MOUNT_PATH [options]",
+#     help="[Host] Add Network Disk to Physical Cluster.",
+#     epilog=deindent("""
+#         This variant can be used to add a network disk to a physical cluster.
+#         When you add a network disk for the first time, you just need to specify the machine(s) and mount_path.
+#         When you add a network disk for the second time, you need to specify the disk_id.
+#         Example:
+#         vastai add network-disk 1 /mnt/disk1
+#         vastai add network-disk 1 /mnt/disk1 -d 12345
+#     """)
+# )
+# def add__network_disk(args):
+#     json_blob = {
+#         "machines": [int(id) for id in args.machines],
+#         "mount_point": args.mount_point,
+#     }
+#     if args.disk_id is not None:
+#         json_blob["disk_id"] = args.disk_id
+#     url = apiurl(args, "/network_disk/")
+#     if args.explain:
+#         print("request json: ")
+#         print(json_blob)
+#     r = http_post(args, url, headers=headers, json=json_blob)
+#     r.raise_for_status()
+#
+#     if args.raw:
+#         return r
+#
+#     print("Attached network disk to machines. Disk id: " + str(r.json()["disk_id"]))
+#
 
 
 @parser.command(
@@ -8126,39 +8126,39 @@ def show__maints(args):
         else:
             display_table(rows, maintenance_fields)
 
-
-@parser.command(
-    usage="vastai show network-disks",
-    help="[Host] Show network disks associated with your account.",
-    epilog=deindent("""
-        Show network disks associated with your account.
-    """)
-)
-def show__network_disks(args: argparse.Namespace):
-    req_url = apiurl(args, "/network_disk/")
-    r = http_get(args, req_url)
-    r.raise_for_status()
-    response_data = r.json()
-
-    if args.raw:
-        return response_data
-
-    for cluster_data in response_data['data']:
-        print(f"Cluster ID: {cluster_data['cluster_id']}")
-        display_table(cluster_data['network_disks'], network_disk_fields, replace_spaces=False)
-
-        machine_rows = []
-        for machine_id in cluster_data['machine_ids']:
-            machine_rows.append(
-                {
-                    "machine_id": machine_id,
-                    "mount_point": cluster_data['mounts'].get(str(machine_id), "N/A"),
-                }
-            )
-        print()
-        display_table(machine_rows, network_disk_machine_fields, replace_spaces=False)
-        print("\n")
-
+#
+# @parser.command(
+#     usage="vastai show network-disks",
+#     help="[Host] Show network disks associated with your account.",
+#     epilog=deindent("""
+#         Show network disks associated with your account.
+#     """)
+# )
+# def show__network_disks(args: argparse.Namespace):
+#     req_url = apiurl(args, "/network_disk/")
+#     r = http_get(args, req_url)
+#     r.raise_for_status()
+#     response_data = r.json()
+#
+#     if args.raw:
+#         return response_data
+#
+#     for cluster_data in response_data['data']:
+#         print(f"Cluster ID: {cluster_data['cluster_id']}")
+#         display_table(cluster_data['network_disks'], network_disk_fields, replace_spaces=False)
+#
+#         machine_rows = []
+#         for machine_id in cluster_data['machine_ids']:
+#             machine_rows.append(
+#                 {
+#                     "machine_id": machine_id,
+#                     "mount_point": cluster_data['mounts'].get(str(machine_id), "N/A"),
+#                 }
+#             )
+#         print()
+#         display_table(machine_rows, network_disk_machine_fields, replace_spaces=False)
+#         print("\n")
+#
 
 @parser.command(
     argument("id", help="id of machine to unlist", type=int),

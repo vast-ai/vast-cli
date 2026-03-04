@@ -3415,6 +3415,7 @@ def _parse_region(region):
     argument("-r", "--region", type=str, help="Geographical location of the instance"),
     argument("-i", "--image", required=True, help="Name of the image to use for instance"),
     argument("-d", "--disk", type=float, default=16.0, help="Disk space required in GB"),
+    argument("--cpu-ram", type=float, default=None, help="Minimum system RAM required in GB"),
     argument("--limit", default=3, type=int, help=""),
     argument("-o", "--order", type=str, help="Comma-separated list of fields to sort on. postfix field with - to sort desc. ex: -o 'num_gpus,total_flops-'.  default='score-'", default='score-'),
     argument("--login", help="docker login arguments for private repo authentication, surround with '' ", type=str),
@@ -3485,6 +3486,9 @@ def launch__instance(args):
     if args.disk:
         args_query += f" disk_space>={args.disk}"
 
+    if args.cpu_ram:
+        args_query += f" cpu_ram>={args.cpu_ram}"
+
     base_query = {"verified": {"eq": True}, "external": {"eq": False}, "rentable": {"eq": True}, "rented": {"eq": False}}
     query = parse_query(args_query, base_query, offers_fields, offers_alias, offers_mult)
 
@@ -3540,7 +3544,8 @@ def launch__instance(args):
         "jupyter_dir": args.jupyter_dir,
         "force": args.force,
         "cancel_unavail": args.cancel_unavail,
-        "template_hash_id" : args.template_hash
+        "template_hash_id" : args.template_hash,
+        "cpu_ram": args.cpu_ram
     }
     # don't send runtype with template_hash
     if args.template_hash is None:

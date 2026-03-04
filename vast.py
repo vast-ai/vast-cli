@@ -7727,6 +7727,15 @@ def self_test__machine(args):
             offers = search__offers(search_args)
             if not offers:
                 progress_print(args, f"Machine ID {machine_id} not found or not rentable.")
+                progress_print(args, f"Possible reasons and how to investigate:")
+                progress_print(args, f"  1. Already rented — the machine has no remaining capacity.")
+                progress_print(args, f"     Check: vastai search offers 'machine_id={machine_id} rented=true rentable=any verified=any'")
+                progress_print(args, f"  2. Machine went offline — it may have disconnected since you last checked.")
+                progress_print(args, f"     Check: vastai show machines  (look for machine {machine_id} and its status)")
+                progress_print(args, f"  3. No active offer / not configured as rentable — the host may not have listed this machine.")
+                progress_print(args, f"     Check: vastai search offers 'machine_id={machine_id} rentable=any rented=any verified=any'")
+                progress_print(args, f"  4. Bid price below ask — your bid may be lower than the host's minimum price.")
+                progress_print(args, f"     Check: vastai search offers 'machine_id={machine_id} rentable=any verified=any' and compare prices.")
                 return None
             sorted_offers = sorted(offers, key=lambda x: x.get("dlperf", 0), reverse=True)
             return sorted_offers[0] if sorted_offers else None
@@ -8615,6 +8624,15 @@ def check_requirements(machine_id, api_key, args):
         if not offers:
             unmet_reasons.append(f"Machine ID {machine_id} not found or not rentable.")
             progress_print(args, f"Machine ID {machine_id} not found or not rentable.")
+            progress_print(args, f"Possible reasons and how to investigate:")
+            progress_print(args, f"  1. Already rented — the machine has no remaining capacity.")
+            progress_print(args, f"     Check: vastai search offers 'machine_id={machine_id} rented=true rentable=any verified=any'")
+            progress_print(args, f"  2. Machine went offline — it may have disconnected since you last checked.")
+            progress_print(args, f"     Check: vastai show machines  (look for machine {machine_id} and its status)")
+            progress_print(args, f"  3. No active offer / not configured as rentable — the host may not have listed this machine.")
+            progress_print(args, f"     Check: vastai search offers 'machine_id={machine_id} rentable=any rented=any verified=any'")
+            progress_print(args, f"  4. Bid price below ask — your bid may be lower than the host's minimum price.")
+            progress_print(args, f"     Check: vastai search offers 'machine_id={machine_id} rentable=any verified=any' and compare prices.")
             return False, unmet_reasons
 
         # Sort offers based on 'dlperf' in descending order

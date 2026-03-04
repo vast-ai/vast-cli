@@ -7830,7 +7830,15 @@ def self_test__machine(args):
                         port_mappings = instance_info.get("ports", {}).get("5000/tcp", [])
                         port = port_mappings[0].get("HostPort") if port_mappings else None
                         if not port:
-                            result["reason"] = "Failed to retrieve mapped port."
+                            all_ports = instance_info.get("ports", {})
+                            progress_print(args, f"Port 5000/tcp not found in instance port mappings.")
+                            progress_print(args, f"All mapped ports on instance: {all_ports if all_ports else 'none'}")
+                            progress_print(args, f"Possible causes:")
+                            progress_print(args, f"  - The machine's firewall is blocking port 5000.")
+                            progress_print(args, f"  - direct_port_count is too low on this machine (must be > 3).")
+                            progress_print(args, f"  - The container failed to expose the port correctly.")
+                            progress_print(args, f"Check direct_port_count: vastai search offers 'machine_id={args.machine_id} rentable=any verified=any'")
+                            result["reason"] = f"Port 5000/tcp not mapped. Available ports: {all_ports}"
                         else:
                             delay = "15"
                             success, reason = run_machinetester(
@@ -8468,6 +8476,9 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
             debug_print(args, f"Sleeping for {delay} seconds before starting tests.")
         time.sleep(delay)
 
+    progress_print(args, f"Polling test progress at https://{ip_address}:{port}/progress every 20s (max 600s).")
+    progress_print(args, f"To manually check: curl -k https://{ip_address}:{port}/progress")
+
     start_time = time.time()
     no_response_seconds = 0
     printed_lines = set()
@@ -8538,12 +8549,40 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
                     debug_print(args, f"No message received. Incremented no_response_seconds to {no_response_seconds}.")
 
             if status == 'running' and no_response_seconds >= 120:
+                if not first_connection_established:
+                    reason_msg = (
+                        f"Port {port} was never reachable on {ip_address}. "
+                        f"The container may have crashed before the test server started, "
+                        f"or port 5000 is blocked by the machine's firewall."
+                    )
+                    suggestions = [
+                        f"  - Verify port is accessible: curl -k https://{ip_address}:{port}/progress",
+                        f"  - Check direct_port_count: vastai search offers 'machine_id={machine_id} rentable=any verified=any'",
+                        f"  - The container may have crashed on startup (CUDA/driver error). Ask the host to check: docker logs <container>",
+                        f"  - Check nvidia-smi is working on the host machine.",
+                    ]
+                    return_reason = f"Port {port} unreachable — container startup failure or port misconfiguration."
+                else:
+                    reason_msg = (
+                        f"Connection to port {port} on {ip_address} was established but then lost. "
+                        f"The container likely crashed mid-test (OOM, GPU error, or a failing test)."
+                    )
+                    suggestions = [
+                        f"  - Ask the host to check docker logs for the container.",
+                        f"  - Check available system RAM vs GPU VRAM (OOM risk).",
+                        f"  - Check nvidia-smi for GPU errors on the host.",
+                        f"  - Run tests individually to isolate which test caused the crash.",
+                    ]
+                    return_reason = "Connection lost mid-test — likely OOM, GPU error, or crash during tests."
                 with open("Error_testresults.log", "a") as f:
-                    f.write(f"{machine_id}:{instance_id} No response from port {port} for 120s with running instance\n")
-                progress_print(args, f"No response for 120s with running instance. This may indicate a misconfiguration of ports on the machine. Network error or system stall or crashed. ")
+                    f.write(f"{machine_id}:{instance_id} {return_reason} (first_connection={first_connection_established}, port={port}, ip={ip_address})\n")
+                progress_print(args, f"No response for 120s with running instance. {reason_msg}")
+                progress_print(args, f"Suggestions to investigate:")
+                for s in suggestions:
+                    progress_print(args, s)
                 destroy_instance_silent(instance_id, destroy_args)
                 instance_destroyed = True
-                return False, "No response for 120 seconds with running instance. The system might have crashed or stalled during stress test. Use the self-test machine function in vast cli"
+                return False, return_reason
 
             if args.debugging:
                 debug_print(args, "Waiting for 20 seconds before the next check.")

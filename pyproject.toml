@@ -37,7 +37,7 @@ dependencies = [
   "rich",
   "fonttools>=4.60.2",
   "qrcode",
-  "pillow>=10.3.0"
+  "pillow (>=10.3.0, <12.1.1)"
 ]
 
 [tool.poetry]

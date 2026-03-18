@@ -5961,6 +5961,14 @@ def _build_filters_panel(filters):
     """),
 )
 def show__instances_v1(args):
+    try:
+        from rich.prompt import Confirm
+        from rich.text import Text
+        from rich.padding import Padding
+        has_rich = True
+    except ImportError:
+        has_rich = False
+    
     # ── build select_filters ──────────────────────────────────────────────
     select_filters = {}
     active_display_filters = {}
@@ -6010,12 +6018,14 @@ def show__instances_v1(args):
     # Only restrict columns when not in raw mode — raw users want the full response
     if not args.raw:
         params["select_cols"] = _VERBOSE_INSTANCE_SELECT_COLS if args.verbose else _DEFAULT_INSTANCE_SELECT_COLS
+    if not has_rich:
+        params["select_cols"] = [s[0] for s in instance_fields]  # fall back to old set of fields for non-rich display to avoid missing data
     if args.next_token:
         params["after_token"] = args.next_token
 
     endpoint = "/api/v1/instances/"
 
-    # ── optional: fetch filter breakdown for verbose summary ──────────────
+    # ── fetch filter breakdown for filter summary ────────────────────────
     filter_combos = None
     if not args.quiet and not args.raw:
         try:
@@ -6026,15 +6036,7 @@ def show__instances_v1(args):
             pass  # non-fatal; summary just won't show breakdown
 
     # ── pagination loop ───────────────────────────────────────────────────
-    try:
-        from rich.prompt import Confirm
-        from rich.text import Text
-        from rich.padding import Padding
-        has_rich = True
-    except ImportError:
-        has_rich = False
-
-    user_cols = [c.strip() for c in args.cols.split(",")] if args.cols else None
+    user_cols = [c.strip() for c in args.cols.split(",")] if args.cols and has_rich else None
 
     page = 0
     offset = 0
@@ -6123,10 +6125,42 @@ def show__instances_v1(args):
                 output_parts.append(rich_object_to_string(padded, no_color=args.no_color))
                 if next_token:
                     output_parts.append(f"Next page token: {next_token}\n")
-        else:
+        else:  # Plain Text Reslt Display (no Rich)
+            if page == 1 or args.all:
+                if filter_combos:
+                    statuses = sorted({f["actual_status"] for f in filter_combos if f.get("actual_status")})
+                    verifs   = sorted({f["verification"]   for f in filter_combos if f.get("verification")})
+                    gpus     = sorted({f["gpu_name"]        for f in filter_combos if f.get("gpu_name")})
+                    print("Filterable Values:")
+                    print(f"  --status:       {' | '.join(statuses) if statuses else '(none)'}")
+                    print(f"  --verification: {' | '.join(verifs) if verifs else '(none)'}")
+                    print(f"  --gpu-name:     {' | '.join(gpus) if gpus else '(none)'}")
+                    print()
+                summary_lines = [f"Total: {total} instances"]
+                if label_cnts:
+                    lbl_parts = [f"{(lbl or '(unlabeled)')}: {cnt}" for lbl, cnt in sorted(label_cnts.items(), key=lambda x: -x[1])]
+                    summary_lines.append(f"Labels: {'  ·  '.join(lbl_parts)}")
+                if active_display_filters:
+                    filter_parts = [f"{k}={' | '.join(str(v) for v in vals)}" for k, vals in active_display_filters.items()]
+                    summary_lines.append(f"Filters: {'   '.join(filter_parts)}")
+                if args.order_by:
+                    order_parts = [f"{o['col']} ({o['dir']})" for o in order_by]
+                    summary_lines.append(f"Order by: {'  >  '.join(order_parts)}")
+                print("Results Summary:")
+                for line in summary_lines:
+                    print(f"  {line}")
+                print()
+
+            if not instances:
+                print("No instances matched your filters." if active_display_filters else "No instances found.")
+            else:
+                display_table(instances, instance_fields)
+                if not args.all:
+                    print(f"[Page {page}]  Fetched Results: {offset + 1} – {offset + len(instances)} of {total}")
+                if next_token:
+                    print(f"Next page token: {next_token}")
             if page == 1:
-                output_parts.append("NOTE: install the 'rich' module for colored output  (pip install rich)\n")
-            display_table(instances, instance_fields)
+                print("\nNOTE: install the 'rich' module for colored output  (pip install rich)")
 
         if not args.all:
             offset += len(instances)

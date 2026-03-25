@@ -2571,6 +2571,7 @@ def create__subaccount(args):
 
 @parser.command(
     argument("--team_name", help="name of the team", type=str),
+    argument("--transfer_credit", help="amount of personal credit to transfer to the new team", type=float, default=0),
     usage="vastai create-team --team_name TEAM_NAME",
     help="Create a new team",
     epilog=deindent("""
@@ -2600,7 +2601,10 @@ def create__subaccount(args):
 
 def create__team(args):
     url = apiurl(args, "/team/")
-    r = http_post(args, url, headers=headers, json={"team_name": args.team_name})
+    json_data = {"team_name": args.team_name}
+    if args.transfer_credit:
+        json_data["transfer_credit"] = args.transfer_credit
+    r = http_post(args, url, headers=headers, json=json_data)
     r.raise_for_status()
     print(r.json())
 

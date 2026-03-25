@@ -1,0 +1,21 @@
+services:
+  test-container:
+    build:
+      context: .
+    container_name: test-container
+    environment:
+      MODEL_LOG: "/workspace/model.log"
+      CONTAINER_ID: "12345"
+      REPORT_ADDR: "https://run.vast.ai"
+      VAST_TCP_PORT_3000: "3000"
+      USE_SSL: "true"
+      PUBLIC_IPADDR: "0.0.0.0"
+      WORKER_PORT: "3000"
+      SDK_BRANCH: "${SDK_BRANCH:-main}"
+      PYWORKER_REF: "${PYWORKER_REF:-main}"
+      UNSECURED: "true"
+      BACKEND: "comfyui-json"
+      HF_TOKEN: "hello"
+    ports:
+      - "3001:3000"
+    restart: no

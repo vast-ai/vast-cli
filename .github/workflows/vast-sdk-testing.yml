@@ -1,0 +1,102 @@
+# .github/workflows/vast-sdk-testing.yml
+name: Vast SDK Testing
+
+on:
+  pull_request:
+    # Optional, but explicitly define the types of pull requests that should trigger the workflow.
+    types: [opened, synchronize, reopened, ready_for_review]
+    # Optional: limit what changes trigger it
+    # paths:
+    #   - "**/*.py"
+    #   - "pyproject.toml"
+    # paths-ignore:
+    #   - "docs/**"
+
+# Auto-cancel older runs for the same PR. This is important to prevent the same PR from being tested multiple times.
+concurrency:
+  group: vast-sdk-testing-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+
+jobs:
+  # --------------------------------------------------------------------------
+  #                           Detect Changes
+  # --------------------------------------------------------------------------
+  detect-changes:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      serverless: ${{ steps.filter.outputs.serverless }}
+      sdk: ${{ steps.filter.outputs.sdk }}
+    steps:
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            serverless:
+              - 'vastai/serverless/**'
+              - 'tests/serverless/**'
+            sdk:
+              - 'vastai/**'
+              - 'tests/cli/**'
+              - 'tests/api/**'
+              - 'tests/sdk/**'
+
+  # --------------------------------------------------------------------------
+  #                      Unit & Integration Tests
+  # --------------------------------------------------------------------------
+  unit-and-integration:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.sdk == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry and plugins
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          poetry self add "poetry-dynamic-versioning[plugin]"
+
+      - name: Install test dependencies
+        run: poetry install -C tests --no-interaction
+
+      - name: Run CLI, API, and SDK tests
+        run: poetry run -C tests pytest -vvv -s --tb=short cli api sdk
+
+  # --------------------------------------------------------------------------
+  #                           Serverless Tests
+  # --------------------------------------------------------------------------
+  serverless-testing:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.serverless == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry and plugins
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          poetry self add "poetry-dynamic-versioning[plugin]"
+
+      - name: Install test dependencies
+        run: poetry install -C tests --no-interaction
+
+      - name: Run serverless tests
+        run: poetry run -C tests pytest -vvv -s --tb=short --log-cli-level=INFO serverless

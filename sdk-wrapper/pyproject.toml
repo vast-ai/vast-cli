@@ -1,0 +1,32 @@
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "vastai-sdk"
+version = "0.0.0"
+description = "Vast.ai SDK - installs the vastai package (CLI + SDK + Serverless)"
+readme = "README.md"
+authors = [
+  "Chris McKenzie <chris@vast.ai>",
+  "Lucas Armand <lucas@vast.ai>",
+  "Zuby Javed <zuby@vast.ai>"
+]
+homepage = "https://vast.ai"
+repository = "https://github.com/vast-ai/vast-cli"
+packages = [
+  { include = "vastai_sdk" }
+]
+
+[tool.poetry-dynamic-versioning]
+enable = true
+style = "pep440"
+vcs = "git"
+
+[tool.poetry.dependencies]
+python = ">=3.9"
+vastai = ">=0.1.0"
+
+[tool.poetry.urls]
+Homepage = "https://vast.ai"
+Source = "https://github.com/vast-ai/vast-cli"

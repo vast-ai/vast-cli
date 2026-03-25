@@ -1,185 +1,110 @@
-# Welcome to Vast.ai’s Documentation!
-
-## Overview
-This repository contains the open source command line interface for Vast.ai. This CLI replicates much of the functionality available in the Vast.ai website GUI by using the same underlying REST API. Most of the functionality is contained within the single script file `vast.py`, while additional features (such as PDF invoice generation) are provided by the supplementary script `vast_pdf.py`. 
-
-Our Python SDK is maintained through a separate repository [vast-ai/vast-sdk](https://github.com/vast-ai/vast-sdk).
-
+# Vast.ai Python SDK & CLI
 [![PyPI version](https://badge.fury.io/py/vastai.svg)](https://badge.fury.io/py/vastai)
 
-## Table of Contents
-1. [Quickstart](#quickstart)
-2. [Usage](#usage)
-3. [Install](#install)
-4. [Commands](#commands)
-5. [List of Commands and Associated Help Message](#list-of-commands-and-associated-help-message)
-6. [Self-Test a Machine (Single Machine)](#self-test-a-machine-single-machine)
-7. [Host Machine Testing with `vast_machine_tester.py`](#host-machine-testing-with-vast_machine_testerpy)
-8. [Usage Examples](#usage-examples)
-9. [Tab-Completion](#tab-completion)
-
-## Quickstart
-It is recommended that you create a dedicated subdirectory to store this script and its related files. For example, you might create a directory named `vid` (short for "Vast Install Directory"):
-```bash
-mkdir vid
-cd vid
-```
-Once inside your directory, download the `vast.py` script:
-```bash
-wget https://raw.githubusercontent.com/vast-ai/vast-python/master/vast.py
-chmod +x vast.py
-```
-Verify that the script is working by running:
-```bash
-./vast.py --help
-```
-You should see a list of available commands. Next, log in to the Vast.ai website and obtain your API key from [https://vast.ai/console/cli/](https://vast.ai/console/cli/). Copy the provided command under "Login / Set API Key" and run it. The command will look similar to:
-```bash
-./vast.py set api-key xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-```
-This command saves your API key in a hidden file in your home directory. **Keep your API key secure.**
-
-You can test a search command with:
-```bash
-./vast.py search offers --limit 3
-```
-This should display a short list of machine offers.
-
-We also now support Poetry as our dependency manager! If you're having trouble installing external packages, through `requirements.txt`, we recommend to use Poetry which manages this all for you.
-In order to get started -
-
-```bash
-# Install poetry if you don't have it already.
-curl -sSL https://install.python-poetry.org | python3 -
-# Install project dependencies
-poetry install
-# Run vast.py
-python vast.py
-
-```
-## Usage
-The Vast.ai CLI provides a variety of commands for interacting with the Vast.ai platform. For example, you can search for available machines by running:
-```bash
-./vast.py search offers
-```
-To refine your search, consult the extensive help by running:
-```bash
-./vast.py search offers --help
-```
-You can filter results based on numerous parameters, similar to the website GUI.
-
-For example, to find Turing GPU instances (with compute capability 7.0 or higher):
-```bash
-./vast.py search offers 'compute_cap > 700'
-```
-Or to find instances with a reliability score ≥ 0.99 and at least 4 GPUs (ordered by GPU count descending):
-```bash
-./vast.py search offers 'reliability > 0.99 num_gpus>=4' -o 'num_gpus-'
-```
+The official Vast.ai Python package — provides both the CLI and SDK for managing Vast.ai GPU cloud resources, plus a serverless client for endpoint inference.
 
 ## Install
-If you followed the [Quickstart](#quickstart) instructions, you have already installed the main CLI script (`vast.py`).  
-For generating PDF invoices, you will need the `vast_pdf.py` script (found in this repository) and the third-party library [Borb](https://github.com/jorisschellekens/borb). To install Borb, run:
+
 ```bash
-pip3 install borb
+pip install vastai
 ```
 
-## Commands
-The Vast.ai CLI is primarily contained within the `vast.py` script. Commands follow a simple "verb-object" pattern. For example, to run the command "show machines", you would type:
+> **Note:** `pip install vastai-sdk` also works and installs the same package. Both package names are supported for backward compatibility.
+
+## Quickstart
+
+1. Get your API key from [https://cloud.vast.ai/manage-keys/](https://cloud.vast.ai/manage-keys/)
+
+2. Set your API key:
 ```bash
-./vast.py show machines
+vastai set api-key YOUR_API_KEY
 ```
 
-## List of Commands and Associated Help Message
-For a full list of commands and help messages, run:
+3. Test a search:
 ```bash
-./vast.py --help
+vastai search offers --limit 3
 ```
-This will display available commands including, but not limited to:
-- `help`
-- `create instance`
-- `destroy instance`
-- `search offers`
-- `self-test machine`
-- `show instances`
-... and many others.
+You should see a short list of available GPU offers.
 
-## Self-Test a Machine (Single Machine)
-Hosts can perform a **self-test** on a single machine to verify that it meets the necessary requirements and passes reliability and stress tests.
+## CLI Usage
 
-### Usage
+The `vastai` command provides full access to the Vast.ai platform from your terminal:
+
 ```bash
-./vast.py self-test machine <machine_id> [--ignore-requirements]
+vastai search offers 'gpu_name=RTX_4090 num_gpus>=4'
+vastai create instance 12345 --image pytorch/pytorch --disk 32 --ssh --direct
+vastai show instances
+vastai stop instance 12345
+vastai destroy instance 12345
 ```
-- **`machine_id`**: The numeric ID of the machine to test.
-- **`--ignore-requirements`** (optional): Continues tests even if system requirements are not met. If omitted, the self-test stops at the first requirement failure.
 
-**Examples:**
+Run `vastai --help` for a full list of commands. You can also use `--help` on any subcommand:
+
 ```bash
-# Standard self-test, respecting requirements:
-./vast.py self-test machine 12345
-
-# Self-test ignoring system requirements:
-./vast.py self-test machine 12345 --ignore-requirements
+vastai search offers --help
+vastai create instance --help
 ```
 
-**Output:**
-1. **Requirements Check:**  
-   The script verifies whether the machine meets all necessary requirements. If any requirements are not met, it will report the failures.
-2. **Instance Creation:**  
-   A temporary test instance is launched.
-3. **Test Execution:**  
-   A series of tests are performed (system checks, GPU tests, stress tests, etc.).
-4. **Summary:**  
-   The results are displayed, indicating whether the machine passed or failed along with any error messages.
+## SDK Usage
 
-The temporary test instance is automatically destroyed after testing.
+```python
+from vastai import VastAI
 
-## Usage Examples
+vast = VastAI()  # uses VAST_API_KEY env var, or pass api_key="..."
 
-### Single Machine Self-Test
+vast.search_offers(query='gpu_name=RTX_4090 num_gpus>=4')
+vast.show_instances()
+vast.start_instance(id=12345)
+vast.stop_instance(id=12345)
+```
+
+Use `help(vast.search_offers)` to view documentation for any method.
+
+> **Migrating from `vastai-sdk`?** The old import still works: `from vastai_sdk import VastAI`
+
+## Using the Serverless Client
+
+1. Create the client
+```python
+from vastai import Serverless
+serverless = Serverless() # or, Serverless("YOUR_API_KEY")
+```
+2. Get an endpoint
+```python
+endpoint = await serverless.get_endpoint("my-endpoint")
+```
+3. Make a request
+```python
+request_body = {
+    "model": "Qwen/Qwen3-8B",
+    "prompt" : "Who are you?",
+    "max_tokens" : 100,
+    "temperature" : 0.7
+}
+response = await serverless.request("/v1/completions", request_body)
+```
+4. Read the response
+```python
+text = response["response"]["choices"][0]["text"]
+print(text)
+```
+
+Find more examples in the `examples/` directory.
+
+## Tab Completion
+
+Tab completion is supported in Bash and Zsh via [argcomplete](https://github.com/kislyuk/argcomplete) (installed automatically). To enable it:
+
 ```bash
-./vast.py self-test machine 54321
+activate-global-python-argcomplete
 ```
-If the machine fails to meet requirements, the output will indicate the failure reasons and the test will stop.
 
-### Self-Test with Ignored Requirements
+Or for a single session:
+
 ```bash
-./vast.py self-test machine 54321 --ignore-requirements
+eval "$(register-python-argcomplete vastai)"
 ```
-This command will display the failing requirements but continue with the self-test.
 
-### Testing Multiple Machines Automatically
-```bash
-python3 vast_machine_tester.py --host_id 123456 --ignore-requirements
-```
-This command will run self-tests on multiple machines from the specified host and output the results to `passed_machines.txt` and `failed_machines.txt`.
+## Contributing
 
-### Testing a Sample of Machines
-```bash
-python3 vast_machine_tester.py --host_id 123456 --sample-pct 30
-```
-This command tests approximately 30% of the machines, randomly sampled from the total list.
-
-## Tab-Completion
-The `vast.py` script supports tab-completion in both Bash and Zsh shells if the [argcomplete](https://github.com/kislyuk/argcomplete) package is installed. To enable tab-completion:
-
-1. Install `argcomplete`:
-   ```bash
-   pip3 install argcomplete
-   ```
-2. Enable global tab-completion by running:
-   ```bash
-   activate-global-python-argcomplete
-   ```
-   Alternatively, for a single session, run:
-   ```bash
-   eval "$(register-python-argcomplete vast.py)"
-   ```
-   
-*Note:* Rapid invocations via tab-completion might trigger API rate limits. If you experience issues, please report them in the project's GitHub issues.
-
----
-
-This documentation should help you get started with the Vast.ai CLI tools and understand the available commands and usage patterns. For more detailed information, refer to the inline help provided by each command.
-```
+This [repository](https://github.com/vast-ai/vast-cli) is open source. If you find a bug, please [open an issue](https://github.com/vast-ai/vast-cli/issues). PRs are welcome.

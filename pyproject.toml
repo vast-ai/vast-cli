@@ -4,6 +4,7 @@ build-backend = "poetry_dynamic_versioning.backend"
 
 [project]
 name = "vastai"
+description = "CLI and SDK for Vast.ai GPU Cloud Service"
 authors = [
   { name = "jake cannell", email = "jake@vast.ai" },
   { name = "chris mckenzie", email = "chris@vast.ai" },
@@ -15,40 +16,57 @@ authors = [
   { name = "karthik pillalamarri", email = "karthik@vast.ai" },
   { name = "sammy javed", email = "sammy@vast.ai" },
   { name = "rob ballantyne", email = "rob@vast.ai" },
+  { name = "lucas armand", email = "lucas@vast.ai" },
+  { name = "zuby javed", email = "zuby@vast.ai" },
 ]
 readme = "README.md"
-requires-python = ">3.9.1, <4.0"
+requires-python = ">=3.9"
 license = { text = "MIT" }
 dynamic = ["version"]
 dependencies = [
-  "xdg",
-  "argcomplete==3.5.1",
-  "requests (>=2.32.4)",
-  "borb (==2.1.25)",
-  "python-dateutil>=2.8.2,<3",
-  "pytz",
-  "urllib3>=2.6.3",
-  "poetry-dynamic-versioning (>=1.8.1,<2.0.0)",
-  "gitpython (>=3.1.44,<4.0.0)",
-  "toml (>=0.10.2,<0.11.0)",
-  "curlify (>=2.2.1,<3.0.0)",
+  "jsonschema>=3.2",
+  "xdg>=1.0.0",
+  "borb~=2.1.25",
+  "requests>=2.32.3",
+  "python-dateutil>=2.8.2",
+  "pytz>=2023.3",
+  "urllib3>=2.0,<3.0",
+  "pyparsing>=3.1,<4.0",
+  "fastapi>=0.110,<1.0",
+  "uvicorn[standard]>=0.24,<0.32",
+  "aiohttp>=3.9.1",
+  "aiodns>=3.6.0",
+  "pycares==4.11.0",
+  "anyio~=4.4",
+  "nltk~=3.9",
+  "psutil~=6.0",
+  "pycryptodome~=3.20",
+  "transformers~=4.52",
+  "hf_transfer>=0.1.9",
+  "argcomplete>=2.0",
+  "curlify>=2.2",
+  "rich>=13.0",
+  "cryptography>=41.0",
+  "gitpython>=3.1",
+  "toml>=0.10",
+  "qrcode>=7.4",
   "setuptools",
-  "cryptography (>=44.0.2,<45.0.0)",
-  "rich",
   "fonttools>=4.60.2",
-  "qrcode"
 ]
 
 [tool.poetry]
-packages = [{ include = "utils" }, { include = "vast.py" }]
+packages = [
+  { include = "vastai" },
+  { include = "vastai_sdk" },
+]
 version = "0.0.0"
 
 [project.scripts]
-vastai = "vast:main"
+vastai = "vastai.cli.main:main"
 
 [project.urls]
-homepage = "https://cloud.vast.ai/"
-repository = "https://github.com/vast-ai/vast-cli/"
+Homepage = "https://vast.ai"
+Repository = "https://github.com/vast-ai/vast-cli"
 
 [tool.poetry-dynamic-versioning]
 enable = true
@@ -58,3 +76,14 @@ style = "semver"
 
 [tool.poetry.requires-plugins]
 poetry-dynamic-versioning = { version = ">=1.0.0,<2.0.0", extras = ["plugin"] }
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+pytest-mock = "^3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "live: tests that hit the real Vast.ai API (require VAST_API_KEY)",
+]
+addopts = "-m 'not live' --tb=short -q"

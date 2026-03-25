@@ -2601,10 +2601,7 @@ def create__subaccount(args):
 
 def create__team(args):
     url = apiurl(args, "/team/")
-    json_data = {"team_name": args.team_name}
-    if args.transfer_credit:
-        json_data["transfer_credit"] = args.transfer_credit
-    r = http_post(args, url, headers=headers, json=json_data)
+    r = http_post(args, url, headers=headers, json={"team_name": args.team_name, "transfer_credit": args.transfer_credit})
     r.raise_for_status()
     print(r.json())
 

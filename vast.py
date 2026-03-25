@@ -2570,8 +2570,8 @@ def create__subaccount(args):
         print(f"Failed with error {r.status_code}")
 
 @parser.command(
-    argument("--team_name", help="name of the team", type=str),
-    argument("--transfer_credit", help="amount of personal credit to transfer to the new team", type=float, default=0),
+    argument("--team-name", help="name of the team", type=str),
+    argument("--transfer-credit", help="amount of personal credit to transfer to the new team", type=float, default=0),
     usage="vastai create-team --team_name TEAM_NAME",
     help="Create a new team",
     epilog=deindent("""

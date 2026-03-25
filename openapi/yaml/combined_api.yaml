@@ -6861,10 +6861,12 @@ paths:
   /api/v0/instances/:
     get:
       summary: show instances
-      description: 'Retrieve a list of instances for the authenticated user.
-
-
-        CLI Usage: `vastai show instances [OPTIONS] [--api-key API_KEY] [--raw]`'
+      deprecated: true
+      description: "> \u26A0\uFE0F **Deprecated:** This endpoint has been superseded\
+        \ by [`/api/v1/instances/`](#tag/Instances/GET/api/v1/instances/), which adds\
+        \ keyset pagination, filtering, column selection, and sorting.\n> Please migrate\
+        \ to v1.\n\nRetrieve a list of instances for the authenticated user.\n\nCLI\
+        \ Usage: `vastai show instances [OPTIONS] [--api-key API_KEY] [--raw]`"
       security:
       - BearerAuth: []
       responses:
@@ -7261,6 +7263,507 @@ paths:
                   detail:
                     type: string
                     example: API requests too frequent endpoint threshold=2.0
+      tags:
+      - Instances
+  /api/v1/instances/:
+    get:
+      summary: show instances (v1)
+      description: 'Retrieve a paginated list of instances for the authenticated user.
+
+        Supports keyset pagination (max 25 per page), filtering, column selection,
+        and sorting.
+
+
+        CLI Usage: `vastai show instances [OPTIONS] [--api-key API_KEY] [--raw]`'
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        description: "Instances per page. Default 25, max 25. Values \u2264 0 are\
+          \ treated as 5."
+        schema:
+          type: integer
+          default: 25
+          maximum: 25
+        example: 25
+      - name: after_token
+        in: query
+        required: false
+        description: Keyset pagination cursor from the previous response's `next_token`.
+          An invalid token returns a 400 error.
+        schema:
+          type: string
+        example: eyJ2YWx1ZXMiOiB7ImlkIjogMTIzfX0=
+      - name: order_by
+        in: query
+        required: false
+        description: 'JSON array of sort directives, e.g. `[{"col":"id","dir":"asc"}]`.
+          Valid `dir` values: `asc`, `desc` (anything else treated as `asc`). `id`
+          is always appended as a tiebreaker. Invalid column returns 400.'
+        schema:
+          type: string
+        example: '[{"col":"id","dir":"asc"}]'
+      - name: select_cols
+        in: query
+        required: false
+        description: JSON array of column names to return, e.g. `["id","label","actual_status"]`.
+          Use `["*"]` for all columns (default). Unknown column names are returned
+          as `null`.
+        schema:
+          type: string
+          default: '["*"]'
+        example: '["id","label","actual_status","dph_total"]'
+      - name: select_filters
+        in: query
+        required: false
+        description: 'JSON object of column filters. Supported operators: `eq`, `neq`,
+          `gt`, `gte`, `lt`, `lte`, `in`, `notin`.
+
+          Filterable columns: `actual_status`, `gpu_name`, `verification`, `id`, `label`,
+          and other columns stored directly on the contract record. Computed fields
+          (e.g. `dph_total`, `num_gpus`) are not filterable and return 400.
+
+          '
+        schema:
+          type: string
+          default: '{}'
+        example: '{"actual_status":{"eq":"running"}}'
+      responses:
+        '200':
+          description: Paginated list of instances
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  instances_found:
+                    type: integer
+                    description: Number of instances returned in this page.
+                    example: 5
+                  total_instances:
+                    type: integer
+                    description: Total number of instances matching the filters.
+                    example: 42
+                  label_counts:
+                    type: object
+                    description: Count of instances grouped by label. Unlabelled instances
+                      are keyed by empty string.
+                    example:
+                      ML Training Job: 3
+                      ? ''
+                      : 2
+                  next_token:
+                    type: string
+                    nullable: true
+                    description: Pagination cursor for the next page. `null` when
+                      no more pages.
+                    example: eyJ2YWx1ZXMiOiB7ImlkIjogMTIzfX0=
+                  instances:
+                    type: array
+                    description: List of instance objects.
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                          example: 312
+                        actual_status:
+                          type: string
+                          nullable: true
+                          example: running
+                        cur_state:
+                          type: string
+                          example: running
+                        next_state:
+                          type: string
+                          example: running
+                        intended_status:
+                          type: string
+                          example: running
+                        label:
+                          type: string
+                          nullable: true
+                          example: ML Training Job 2025
+                        template_id:
+                          type: integer
+                          nullable: true
+                          example: 2048
+                        template_hash_id:
+                          type: string
+                          nullable: true
+                          example: abcde12345
+                        template_name:
+                          type: string
+                          nullable: true
+                          example: Tensorflow GPU Template
+                        image_uuid:
+                          type: string
+                          example: nvidia/cuda:11.0.3-devel-ubuntu18.04
+                        image_args:
+                          type: array
+                          items:
+                            type: string
+                          example:
+                          - bash
+                          - -c
+                          - apt update; apt install -y wget
+                        image_runtype:
+                          type: string
+                          example: ssh ssh_direc ssh_proxy
+                        extra_env:
+                          type: array
+                          items:
+                            type: array
+                            items:
+                              type: string
+                          example:
+                          - - DOG
+                            - CAT
+                          - - -p 70001:70001
+                            - '1'
+                        onstart:
+                          type: string
+                          example: echo 'hello'; echo $DOG;
+                        jupyter_token:
+                          type: string
+                          example: df77e27085bd4b3bd5d9024bdefb9e6df614b27adb0689e9d8f066fce5e01f0c
+                        status_msg:
+                          type: string
+                          nullable: true
+                          example: success, running nvidia/cuda_11.0.3-devel-ubuntu18.04/ssh
+                        public_ipaddr:
+                          type: string
+                          example: 192.0.2.45
+                        local_ipaddrs:
+                          type: string
+                          example: 10.0.0.5 172.17.0.2
+                        ssh_host:
+                          type: string
+                          example: ssh123.vast.ai
+                        ssh_idx:
+                          type: string
+                          example: '6'
+                        ssh_port:
+                          type: integer
+                          example: 10600
+                        machine_dir_ssh_port:
+                          type: integer
+                          example: 21000
+                        machine_id:
+                          type: integer
+                          example: 12
+                        start_date:
+                          type: number
+                          format: float
+                          example: 1668804745.1223178
+                        end_date:
+                          type: number
+                          format: float
+                          example: 1735689600.0
+                        uptime_mins:
+                          type: number
+                          nullable: true
+                          example: null
+                        duration:
+                          type: number
+                          format: float
+                          example: 86400.0
+                        cpu_arch:
+                          type: string
+                          example: amd64
+                        cpu_cores:
+                          type: integer
+                          example: 4
+                        cpu_cores_effective:
+                          type: number
+                          format: float
+                          example: 4.0
+                        cpu_name:
+                          type: string
+                          example: "Core\u2122 i5-6500"
+                        cpu_ram:
+                          type: integer
+                          example: 15989
+                        cpu_util:
+                          type: number
+                          format: float
+                          example: 0.0
+                        mem_limit:
+                          type: number
+                          nullable: true
+                          example: 15.71815424
+                        mem_usage:
+                          type: number
+                          nullable: true
+                          example: 0.00996352
+                        vmem_usage:
+                          type: number
+                          nullable: true
+                          example: 0.543945
+                        gpu_name:
+                          type: string
+                          example: RTX 4090
+                        gpu_arch:
+                          type: string
+                          example: nvidia
+                        gpu_totalram:
+                          type: integer
+                          example: 24576
+                        gpu_ram:
+                          type: integer
+                          example: 24576
+                        gpu_util:
+                          type: number
+                          nullable: true
+                          example: 0.0
+                        gpu_temp:
+                          type: number
+                          nullable: true
+                          example: 38.999981
+                        gpu_frac:
+                          type: number
+                          format: float
+                          example: 1.0
+                        gpu_lanes:
+                          type: integer
+                          example: 16
+                        gpu_mem_bw:
+                          type: number
+                          format: float
+                          example: 1008.0
+                        bw_nvlink:
+                          type: number
+                          format: float
+                          example: 0.0
+                        disk_name:
+                          type: string
+                          example: Samsung SSD 870
+                        disk_space:
+                          type: number
+                          format: float
+                          example: 10.08
+                        disk_bw:
+                          type: number
+                          format: float
+                          example: 500.0
+                        disk_util:
+                          type: number
+                          format: float
+                          example: 0.05
+                        disk_usage:
+                          type: number
+                          format: float
+                          example: 0.05
+                        direct_port_count:
+                          type: integer
+                          example: 1001
+                        direct_port_start:
+                          type: integer
+                          example: 20000
+                        direct_port_end:
+                          type: integer
+                          example: 20002
+                        ports:
+                          type: object
+                          nullable: true
+                          description: Port mappings. Only present on running instances.
+                          additionalProperties:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                HostIp:
+                                  type: string
+                                HostPort:
+                                  type: string
+                          example:
+                            8888/tcp:
+                            - HostIp: 0.0.0.0
+                              HostPort: '8888'
+                            22/tcp:
+                            - HostIp: 0.0.0.0
+                              HostPort: '20000'
+                        static_ip:
+                          type: boolean
+                          example: false
+                        geolocation:
+                          type: string
+                          example: California, United States
+                        verification:
+                          type: string
+                          example: verified
+                        rentable:
+                          type: boolean
+                          example: true
+                        host_id:
+                          type: integer
+                          example: 7
+                        min_bid:
+                          type: number
+                          format: float
+                          example: 0.296
+                        is_bid:
+                          type: boolean
+                          example: false
+                        dph_base:
+                          type: number
+                          format: float
+                          example: 0.8
+                        dph_total:
+                          type: number
+                          format: float
+                          example: 0.8021
+                        dlperf:
+                          type: number
+                          nullable: true
+                          example: null
+                        dlperf_per_dphtotal:
+                          type: number
+                          nullable: true
+                          example: null
+                        flops_per_dphtotal:
+                          type: number
+                          format: float
+                          example: 15.41
+                        total_flops:
+                          type: number
+                          format: float
+                          example: 12.36
+                        score:
+                          type: number
+                          nullable: true
+                          example: null
+                        reliability2:
+                          type: number
+                          format: float
+                          example: 0.9686655
+                        os_version:
+                          type: string
+                          nullable: true
+                          example: null
+                        mobo_name:
+                          type: string
+                          example: Z790 Gaming
+                        pci_gen:
+                          type: number
+                          format: float
+                          example: 4.0
+                        pcie_bw:
+                          type: number
+                          format: float
+                          example: 28.0
+                        num_gpus:
+                          type: integer
+                          example: 1
+                        webpage:
+                          type: string
+                          nullable: true
+                          example: null
+                        search:
+                          type: object
+                          example:
+                            gpuCostPerHour: 0.8
+                            diskHour: 0.0021
+                            totalHour: 0.8021
+                            discountTotalHour: 0
+                            discountedTotalPerHour: 0.8013
+                        instance:
+                          type: object
+                          example:
+                            gpuCostPerHour: 0.8
+                            diskHour: 0.0013
+                            totalHour: 0.8021
+                            discountTotalHour: 0
+                            discountedTotalPerHour: 0.5034
+                        storage_cost:
+                          type: number
+                          format: float
+                          example: 0.15
+                        storage_total_cost:
+                          type: number
+                          format: float
+                          example: 0.0021
+                        vram_costperhour:
+                          type: number
+                          format: float
+                          example: 4.94e-05
+                        credit_balance:
+                          type: number
+                          nullable: true
+                          example: 4792.99
+                        credit_discount:
+                          type: number
+                          nullable: true
+                          example: 0.37
+                        credit_discount_max:
+                          type: number
+                          nullable: true
+                          example: 0.4
+                        client_run_time:
+                          type: number
+                          format: float
+                          example: 100000000.0
+                        host_run_time:
+                          type: number
+                          format: float
+                          example: 1.0
+                        external:
+                          type: boolean
+                          example: false
+                        time_remaining:
+                          type: string
+                          example: 12 Mon 24 D 16 Hr
+                        time_remaining_isbid:
+                          type: string
+                          example: 11 Mon 26 D 6 Hr
+                        country_code:
+                          type: string
+                          nullable: true
+                          example: null
+                        volume_info:
+                          type: array
+                          items:
+                            type: object
+                          example: []
+        '400':
+          description: Bad request. Returned for invalid filter column/operator, invalid
+            `order_by` column, or invalid `after_token`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    enum:
+                    - invalid_request
+                    - invalid_token
+                    example: invalid_request
+                  msg:
+                    type: string
+                    example: 'Error in query parameters: dph_total is not a valid
+                      search key'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=1.0
       tags:
       - Instances
   /api/v1/invoices/:

@@ -7415,7 +7415,13 @@ def update__workers(args):
         print(f"{url} with request json: ")
         print(json_blob)
     r = http_post(args, url, headers=headers, json=json_blob)
-    r.raise_for_status()
+    if r.status_code != 200:
+        try:
+            result = r.json()
+            print(f"Error ({r.status_code}): {result.get('error_msg') or result.get('msg') or r.text}")
+        except (requests.exceptions.JSONDecodeError, ValueError):
+            print(f"Error ({r.status_code}): {r.text}")
+        return
     if 'application/json' in r.headers.get('Content-Type', ''):
         try:
             result = r.json()

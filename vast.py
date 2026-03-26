@@ -7389,6 +7389,57 @@ def update__endpoint(args):
         print(r.text)
 
 @parser.command(
+    argument("id", help="id of workergroup to update workers for", type=int),
+    argument("--cancel", action="store_true", help="cancel an in-progress update for the workergroup"),
+    usage="vastai update workers WORKERGROUP_ID [--cancel]",
+    help="Trigger a rolling update of all workers in a workergroup, or cancel an in-progress update",
+    epilog=deindent("""
+        Starts a rolling update of all workers in the specified workergroup. The autoscaler
+        will cycle through workers, updating them while maintaining capacity.
+
+        Use --cancel to cancel an update that is currently in progress.
+
+        Examples:
+            vastai update workers 4242
+            vastai update workers 4242 --cancel
+    """),
+)
+def update__workers(args):
+    if args.url == server_url_default:
+        args.url = None
+    url = (args.url or "https://run.vast.ai") + "/update_workers/"
+    json_blob = {"workergroup_id": args.id, "api_key": args.api_key}
+    if args.cancel:
+        json_blob["cancel_update"] = True
+    if args.explain:
+        print(f"{url} with request json: ")
+        print(json_blob)
+    r = http_post(args, url, headers=headers, json=json_blob)
+    if r.status_code != 200:
+        try:
+            result = r.json()
+            print(f"Error ({r.status_code}): {result.get('error_msg') or result.get('msg') or r.text}")
+        except (requests.exceptions.JSONDecodeError, ValueError):
+            print(f"Error ({r.status_code}): {r.text}")
+        return
+    if 'application/json' in r.headers.get('Content-Type', ''):
+        try:
+            result = r.json()
+            if result.get("success"):
+                if result.get("cancelled"):
+                    print(f"Update cancelled for workergroup {args.id}")
+                else:
+                    print(f"Update started for workergroup {args.id} ({result.get('workers_to_update', 0)} workers)")
+            else:
+                print(f"Error: {result.get('error_msg', 'unknown error')}")
+        except requests.exceptions.JSONDecodeError:
+            print("The response is not valid JSON.")
+            print(r.text)
+    else:
+        print("The response is not JSON. Content-Type:", r.headers.get('Content-Type'))
+        print(r.text)
+
+@parser.command(
     argument("name", help="Environment variable name to update", type=str),
     argument("value", help="New environment variable value", type=str),
     usage="vastai update env-var <name> <value>",

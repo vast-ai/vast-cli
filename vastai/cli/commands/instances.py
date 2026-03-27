@@ -69,6 +69,7 @@ def show__instances(args, extra_filters=None):
 
 @parser.command(
     argument("id", help="id of instance to show info for", type=int),
+    argument("-q", "--quiet", action="store_true", help="only display numeric id"),
     usage="vastai show instance ID [options]",
     help="Display user's current instance",
 )

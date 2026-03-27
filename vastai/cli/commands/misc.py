@@ -119,19 +119,9 @@ def logs(args):
     rj = instances_api.logs(client, instance_id=args.INSTANCE_ID, tail=args.tail,
                             filter=args.filter, daemon_logs=args.daemon_logs)
 
-    if rj.get("result_url"):
-        for i in range(0, 30):
-            time.sleep(0.3)
-            url = rj["result_url"]
-            print(f"waiting on logs for instance {args.INSTANCE_ID} fetching from {url}")
-            r2 = req_lib.get(url)
-            if r2.status_code == 200:
-                result = r2.text
-                cleaned_text = re.sub(r'\n\s*\n', '\n', result)
-                print(cleaned_text)
-                break
-        else:
-            print(rj.get("msg", "Timed out waiting for logs"))
+    if isinstance(rj, str):
+        cleaned_text = re.sub(r'\n\s*\n', '\n', rj)
+        print(cleaned_text)
     else:
         print(rj.get("msg", rj))
 

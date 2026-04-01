@@ -68,10 +68,10 @@ def show__instances(args, extra_filters=None):
 
 
 @parser.command(
-    argument("id", help="id of instance to show info for", type=int),
+    argument("id", help="id of instance to get", type=int),
     argument("-q", "--quiet", action="store_true", help="only display numeric id"),
     usage="vastai show instance ID [options]",
-    help="Display user's current instance",
+    help="Display user's current instances",
 )
 def show__instance(args):
     """Shows stats for a single instance."""
@@ -255,14 +255,29 @@ _create_instance_args = [
     epilog=deindent("""
         Performs the same action as pressing the "RENT" button on the website at https://console.vast.ai/create/
         Creates an instance from an offer ID (which is returned from "search offers"). Each offer ID can only be used to create one instance.
+        Besides the offer ID, you must pass in an '--image' argument as a minimum.
+
+        If you use args/entrypoint launch mode, we create a container from your image as is, without attempting to inject ssh and or jupyter.
+        If you use the args launch mode, you can override the entrypoint with --entrypoint, and pass arguments to the entrypoint with --args.
+        If you use --args, that must be the last argument, as any following tokens are consumed into the args string.
+        For ssh/jupyter launch types, use --onstart-cmd to pass in startup script, instead of --entrypoint and --args.
 
         Examples:
 
         # create an on-demand instance with the PyTorch (cuDNN Devel) template and 64GB of disk
         vastai create instance 384826 --template_hash 661d064bbda1f2a133816b6d55da07c3 --disk 64
 
-        # create an on-demand instance with the pytorch/pytorch image, 40GB of disk, direct ssh
-        vastai create instance 6995713 --image pytorch/pytorch --disk 40 --ssh --direct --onstart-cmd "env | grep _ >> /etc/environment; echo 'starting up'";
+        # create an on-demand instance with the pytorch/pytorch image, 40GB of disk, open 8081 udp, direct ssh, set hostname to billybob, and a small onstart script
+        vastai create instance 6995713 --image pytorch/pytorch --disk 40 --env '-p 8081:8081/udp -h billybob' --ssh --direct --onstart-cmd "env | grep _ >> /etc/environment; echo 'starting up'";
+
+        # create an on-demand instance with the bobsrepo/pytorch:latest image, 20GB of disk, open 22, 8080, jupyter ssh, and set some env variables
+        vastai create instance 384827  --image bobsrepo/pytorch:latest --login '-u bob -p 9d8df!fd89ufZ docker.io' --jupyter --direct --env '-e TZ=PDT -e XNAME=XX4 -p 22:22 -p 8080:8080' --disk 20
+
+        # create an on-demand instance with the pytorch/pytorch image, 40GB of disk, override the entrypoint to bash and pass bash a simple command to keep the instance running. (args launch without ssh/jupyter)
+        vastai create instance 5801802 --image pytorch/pytorch --disk 40 --onstart-cmd 'bash' --args -c 'echo hello; sleep infinity;'
+
+        # create an interruptible (spot) instance with the PyTorch (cuDNN Devel) template, 64GB of disk, and a bid price of $0.10/hr
+        vastai create instance 384826 --template_hash 661d064bbda1f2a133816b6d55da07c3 --disk 64 --bid_price 0.1
 
         Return value:
         Returns a json reporting the instance ID of the newly created instance:
@@ -351,7 +366,8 @@ def start_instance_impl(id, args):
     usage="vastai start instance ID [OPTIONS]",
     help="Start a stopped instance",
     epilog=deindent("""
-        This command attempts to bring an instance from the "stopped" state into the "running" state.
+        This command attempts to bring an instance from the "stopped" state into the "running" state. This is subject to resource availability on the machine that the instance is located on.
+        If your instance is stuck in the "scheduling" state for more than 30 seconds after running this, it likely means that the required resources on the machine to run your instance are currently unavailable.
         Examples:
             vastai start instances $(vastai show instances -q)
             vastai start instance 329838
@@ -393,7 +409,9 @@ def stop_instance_impl(id, args):
     usage="vastai stop instance ID [OPTIONS]",
     help="Stop a running instance",
     epilog=deindent("""
-        This command brings an instance from the "running" state into the "stopped" state.
+        This command brings an instance from the "running" state into the "stopped" state. When an instance is "stopped" all of your data on the instance is preserved,
+        and you can resume use of your instance by starting it again. Once stopped, starting an instance is subject to resource availability on the machine that the instance is located on.
+        There are ways to move data off of a stopped instance, which are described here: https://vast.ai/docs/gpu-instances/data-movement
     """),
 )
 def stop__instance(args):
@@ -619,15 +637,38 @@ def change__bid(args):
     argument("--args", nargs=argparse.REMAINDER, help="list of arguments passed to container ENTRYPOINT. Onstart is recommended for this purpose. (must be last argument)"),
     argument("--force", help="Skip sanity checks when creating from an existing instance", action="store_true"),
     argument("--cancel-unavail", help="Return error if scheduling fails (rather than creating a stopped instance)", action="store_true"),
-    argument("--template_hash", help="template hash which contains all relevant information about an instance", type=str),
+    argument("--template_hash", help="template hash which contains all relevant information about an instance. This can be used as a replacement for other parameters describing the instance configuration", type=str),
     usage="vastai launch instance [--help] [--api-key API_KEY] <gpu_name> <num_gpus> <image> [geolocation] [disk_space]",
     help="Launch the top instance from the search offers based on the given parameters",
     epilog=deindent("""
-        Launches an instance based on the given parameters.
+        Launches an instance based on the given parameters. The instance will be created with the top offer from the search results.
+        Besides the gpu_name and num_gpus, you must pass in an '--image' argument as a minimum.
+
+        If you use args/entrypoint launch mode, we create a container from your image as is, without attempting to inject ssh and or jupyter.
+        If you use the args launch mode, you can override the entrypoint with --entrypoint, and pass arguments to the entrypoint with --args.
+        If you use --args, that must be the last argument, as any following tokens are consumed into the args string.
+        For ssh/jupyter launch types, use --onstart-cmd to pass in startup script, instead of --entrypoint and --args.
 
         Examples:
+
+            # launch a single RTX 3090 instance with the pytorch image and 16 GB of disk space located anywhere
             python vast.py launch instance -g RTX_3090 -n 1 -i pytorch/pytorch
+
+            # launch a 4x RTX 3090 instance with the pytorch image and 32 GB of disk space located in North America
             python vast.py launch instance -g RTX_3090 -n 4 -i pytorch/pytorch -d 32.0 -r North_America
+
+        Available fields:
+
+            Name                    Type      Description
+
+            num_gpus:               int       # of GPUs
+            gpu_name:               string    GPU model name
+            region:                 string    Region of the instance
+            image:                  string    Docker image name
+            disk_space:             float     Disk space in GB
+            ssh, jupyter, direct:   bool      Flags to specify the instance type and connection method.
+            env:                    str       Environment variables and port mappings, encapsulated in single quotes.
+            args:                   list      Arguments passed to the container's ENTRYPOINT, used only if '--args' is specified.
     """),
 )
 def launch__instance(args):

@@ -340,8 +340,33 @@ def delete__env_var(args):
     argument("--secret", help="Secret token from setup process (required)", type=str, required=True),
     argument("--phone-number", help="Phone number for SMS method (E.164 format)", type=str, default=None),
     argument("-l", "--label", help="Label for the new 2FA method", type=str, default=None),
-    usage="vastai tfa activate CODE --secret SECRET [--method-type {sms,totp}] [--phone-number PHONE_NUMBER] [--label LABEL]",
+    usage="vastai tfa activate CODE --secret SECRET [--method-type METHOD_TYPE] [--phone-number PHONE_NUMBER] [--label LABEL]",
     help="Activate a new 2FA method by verifying the code",
+    epilog=deindent(f"""
+        Complete the 2FA setup process by verifying your code.
+
+        {'*'*120}
+        NOTE: Prior to running this command, you must authorize your attempt to create a new 2FA method by following the instructions in the `vastai tfa auth-new` command.
+        This is required to ensure that only you can add new 2FA methods to your account.
+        {'*'*120}
+
+        For TOTP (Authenticator app):
+         1. Run 'vastai tfa totp-setup' to get the manual key/QR code and secret
+         2. Enter the manual key or scan the QR code with your Authenticator app
+         3. Run this command with the 6-digit code from your app and the secret token from step 1
+
+        For SMS:
+         1. Run 'vastai tfa send-sms --phone-number <PHONE_NUMBER>' to receive SMS and get secret token
+         2. Run this command with the code you received via SMS and the phone number it was sent to
+
+        If this is your first 2FA method, backup codes will be generated and displayed.
+        Save these backup codes in a secure location!
+
+        Examples:
+         vastai tfa activate --method-type totp --secret abc123def456 123456
+         vastai tfa activate --method-type sms --secret abc123def456 --phone-number +12345678901 123456
+         vastai tfa activate --method-type sms --secret abc123def456 --phone-number +12345678901 --label "Work Phone" 123456
+    """),
 )
 def tfa__activate(args):
     """Activate a new 2FA method by confirming the verification code."""
@@ -364,8 +389,39 @@ def tfa__activate(args):
     argument("-s", "--secret", help="Secret token (required for SMS or Email 2FA)", type=str, default=None),
     argument("-bc", "--backup-code", mutex_group='code_grp', required=True, help="One-time backup code (alternative to regular 2FA code)", type=str, default=None),
     argument("--method-id", mutex_group="type_grp", help="2FA Method ID to use if you have more than one of the same type ('id' from `tfa status`)", type=str, default=None),
-    usage="vastai tfa delete [--id-to-delete ID] [--code CODE | --backup-code CODE] [--method-type {email,sms,totp}]",
+    usage="vastai tfa delete [--id-to-delete ID] [--code CODE] [--method-type METHOD_TYPE] [--secret SECRET] [--backup-code BACKUP_CODE] [--method-id ID]",
     help="Remove a 2FA method from your account",
+    epilog=deindent(f"""
+        Remove a 2FA method from your account.
+
+        This action requires 2FA verification to prevent unauthorized removals.
+
+        {'*'*120}
+        NOTE: If you do not specify --id-to-delete, the system will attempt to delete the method you are using to authenticate.
+              However please be advised, it is much safer to specify the ID to avoid confusion if you have multiple methods.
+        {'*'*120}
+
+           Use `vastai tfa status` to see your active methods and their IDs.
+
+        Examples:
+         # Delete method #123, authorize with email code and secret from `tfa send-email`
+         vastai tfa delete --id-to-delete 123 --method-type email --secret abc123def456 -c 456789
+
+         # Delete method #123, authorize with TOTP/Authenticator code
+         vastai tfa delete --id-to-delete 123 --method-type totp --code 456789
+
+         # Delete method #123, authorize with SMS and secret from `tfa send-sms`
+         vastai tfa delete -id 123 --method-type sms --secret abc123def456 -c 456789
+
+         # Delete method #123, authorize with backup code
+         vastai tfa delete --id-to-delete 123 --backup-code ABCD-EFGH-IJKL
+
+         # Delete method #123, specify which TOTP method to use if you have multiple
+         vastai tfa delete -id 123 --method-id 456 -c 456789
+
+         # Delete the TOTP method you are using to authenticate (use with caution)
+         vastai tfa delete -c 456789
+    """),
 )
 def tfa__delete(args):
     """Remove a 2FA method from the user's account."""
@@ -410,8 +466,22 @@ def tfa__delete(args):
     argument("-s", "--secret", help="Secret token from previous login step (required for SMS or Email 2FA)", type=str, default=None),
     argument("-bc", "--backup-code", mutex_group='code_grp', required=True, help="One-time backup code (alternative to regular 2FA code)", type=str, default=None),
     argument("-id", "--method-id", mutex_group="type_grp", help="2FA Method ID if you have more than one of the same type ('id' from `tfa status`)", type=str, default=None),
-    usage="vastai tfa login [--code CODE | --backup-code CODE] [--method-type {email,sms,totp}] [--secret SECRET]",
+    usage="vastai tfa login [--code CODE] [--method-type METHOD_TYPE] [--secret SECRET] [--backup-code BACKUP_CODE]",
     help="Complete 2FA login by verifying code",
+    epilog=deindent("""
+        Complete Two-Factor Authentication login by providing the 2FA code.
+
+        For Email: Include the --method-type email flag and provide -s/--secret from the `tfa send-email` command response
+        For TOTP: Include the --method-type totp and provide the 6-digit code from your Authenticator app
+        For SMS: Include the --method-type sms flag and provide -s/--secret from the `tfa send-sms` command response
+        For backup code: Use --backup-code instead of code (codes may only be used once)
+
+        Examples:
+         vastai tfa login --method-type totp -c 123456
+         vastai tfa login --method-type sms --code 123456 --secret abc123def456
+         vastai tfa login -t email -c 123456 -s abc123def456
+         vastai tfa login --backup-code ABCD-EFGH-IJKL
+    """),
 )
 def tfa__login(args):
     """Complete 2FA login and store the session key."""
@@ -453,10 +523,23 @@ def tfa__login(args):
 
 
 @parser.command(
-    argument("-p", "--phone-number", help="Phone number to receive SMS code (E.164 format)", type=str, default=None),
+    argument("-p", "--phone-number", help="Phone number to receive SMS code (E.164 format, e.g., +1234567890)", type=str, default=None),
     argument("-s", "--secret", help="Secret token from the original 2FA login attempt", type=str, required=True),
     usage="vastai tfa resend-sms --secret SECRET [--phone-number PHONE_NUMBER]",
     help="Resend SMS 2FA code",
+    epilog=deindent("""
+        Resend the SMS verification code to your phone.
+
+        This is useful if:
+        \u2022 You didn't receive the original SMS
+        \u2022 The code expired before you could use it
+        \u2022 You accidentally deleted the message
+
+        You must provide the same secret token from the original request.
+
+        Example:
+         vastai tfa resend-sms --secret abc123def456
+    """),
 )
 def tfa__resend_sms(args):
     """Resend SMS 2FA code to the user's phone."""
@@ -473,8 +556,32 @@ def tfa__resend_sms(args):
     argument("-s", "--secret", help="Secret token from previous login step (required for SMS or Email 2FA)", type=str, default=None),
     argument("-bc", "--backup-code", mutex_group='code_grp', required=True, help="One-time backup code (alternative to regular 2FA code)", type=str, default=None),
     argument("-id", "--method-id", mutex_group="type_grp", help="2FA Method ID if you have more than one of the same type ('id' from `tfa status`)", type=str, default=None),
-    usage="vastai tfa regen-codes [--code CODE | --backup-code CODE] [--method-type {email,sms,totp}]",
+    usage="vastai tfa regen-codes [--code CODE] [--method-type METHOD_TYPE] [--secret SECRET] [--backup-code BACKUP_CODE] [--method-id ID]",
     help="Regenerate backup codes for 2FA",
+    epilog=deindent("""
+        Generate a new set of backup codes for your account.
+
+        This action requires 2FA verification to prevent unauthorized regeneration.
+
+        WARNING: This will invalidate all existing backup codes!
+        Any previously generated codes will no longer work.
+
+        Backup codes are one-time use codes that allow you to log in
+        if you lose access to your primary 2FA method (lost phone, etc).
+
+        You should regenerate your backup codes if:
+        \u2022 You've used several codes and are running low
+        \u2022 You think your codes may have been compromised
+        \u2022 You lost your saved codes and need new ones
+
+        Important: Save the new codes in a secure location immediately!
+        They will not be shown again.
+
+        Examples:
+         vastai tfa regen-codes --code --method-type totp 123456
+         vastai tfa regen-codes -c 123456 -t sms --secret abc123def456
+         vastai tfa regen-codes --backup-code ABCD-EFGH-IJKL
+    """),
 )
 def tfa__regen_codes(args):
     """Regenerate backup codes for 2FA recovery."""
@@ -528,20 +635,20 @@ def tfa__send_sms(args):
     print(f"\nOnce you receive the SMS code:")
     phone_num = f"--phone-number {args.phone_number}" if args.phone_number else "[--phone-number <PHONE_NUMBER>]"
     print(f"\n  If you are setting up SMS 2FA for the first time, run:")
-    print(f"    vastai tfa activate --sms --secret {secret} {phone_num} [--label <LABEL>] <CODE>")
+    print(f"    vastai tfa activate --method-type sms --secret {secret} {phone_num} [--label <LABEL>] <CODE>")
     print(f"\n  Otherwise you can complete your 2FA log in with:")
-    print(f"    vastai tfa login --sms --secret {secret} -c <CODE>\n")
+    print(f"    vastai tfa login --method-type sms --secret {secret} -c <CODE>\n")
 
 
 @parser.command(
     usage="vastai tfa send-email",
     help="Request a 2FA Email verification code",
     epilog=deindent("""
-        Request a two-factor authentication code to be sent to your email.
+        Request a two-factor authentication code to be sent via Email.
 
-        The secret token will be returned and must be used with 'vastai tfa login'.
+        The secret token will be returned and must be used with 'vastai tfa activate'.
 
-        Example:
+        Examples:
          vastai tfa send-email
     """),
 )
@@ -555,18 +662,18 @@ def tfa__send_email(args):
     print(f"  Secret token: {secret}")
     print(f"\nOnce you receive the Email code:")
     print(f"\n  You can complete your 2FA log in with:")
-    print(f"    vastai tfa login --secret {secret} -c <CODE>\n")
+    print(f"    vastai tfa login --method-type email --secret {secret} -c <CODE>\n")
 
 
 def print_next_steps_after_new_method_auth():
     print(f"\nNext Steps:"
         "\n To add a new SMS 2FA method:"
         "\n    1. Run `vastai tfa send-sms --phone-number <PHONE_NUMBER>` to receive SMS and get secret token"
-        "\n    2. Run `vastai tfa activate --sms --secret <SECRET> --phone-number <PHONE_NUMBER> CODE`\n"
+        "\n    2. Run `vastai tfa activate --method-type sms --secret <SECRET> --phone-number <PHONE_NUMBER> CODE` to activate the new method with the code you received via SMS\n"
         "\n To add a new TOTP (Authenticator app) 2FA method:"
         "\n    1. Run `vastai tfa totp-setup` to get the manual key/QR code and secret"
         "\n    2. Enter the manual key or scan the QR code with your Authenticator app"
-        "\n    3. Run `vastai tfa activate --secret <SECRET> CODE`")
+        "\n    3. Run `vastai tfa activate --method-type totp --secret <SECRET> CODE` to activate the new method with the 6-digit code from your app")
 
 
 @parser.command(
@@ -586,16 +693,25 @@ def print_next_steps_after_new_method_auth():
         This is a required step to ensure that only you can add new 2FA methods to your account.
 
         Step 1. Run command with your chosen verification method:
-            - Use '--backup-code BACKUP_CODE' to immediately authorize (skip Step 2)
-            - Use --method-type {sms|totp} or --method-id ID to specify which existing method to use
-            - Use --method-type email if you have a verified email and/or no other 2FA methods
+            - If you have an existing 2FA method set up, you can use '--backup-code BACKUP_CODE' to immediately authorize (skip Step 2)
+            - Use --method-type {sms|totp} or --method-id ID to specify which existing method to use for verification (see `vastai tfa status` for available methods and their IDs)
+            - Use --method-type email if you have a verified email address and/or no other 2FA methods set up to receive a code via email
 
-        Step 2. When prompted, enter the 2FA code to confirm authorization.
+        Step 2. When prompted, enter the 2FA code from your 2FA method of choice to confirm authorization.
+
+        Note:
+        If you exit the command before being able to enter the code, you can run this command again
+        with --secret SECRET and --code CODE to complete the authorization step as long as the code has not expired.
 
         Examples:
-         vastai tfa auth-new
+         # Initiating New Method Authorization
+         vastai tfa auth-new  (method type is email by default)
          vastai tfa auth-new --method-type totp
+         vastai tfa auth-new -t sms
+         vastai tfa auth-new --method-id 456
          vastai tfa auth-new --backup-code ABCD-EFGH-IJKL
+
+         # Completing Authorization with code and secret if not completed in previous run
          vastai tfa auth-new --secret abc123def456 --code 123456
     """),
 )
@@ -654,10 +770,10 @@ def tfa__auth_new(args):
     help="Shows the current 2FA status and configured methods",
     epilog=deindent("""
         Show the current 2FA status for your account, including:
-         - Whether or not 2FA is enabled
-         - A list of active 2FA methods
-         - The number of backup codes remaining (if 2FA is enabled)
-    """),
+         \u2022 Whether or not 2FA is enabled
+         \u2022 A list of active 2FA methods
+         \u2022 The number of backup codes remaining (if 2FA is enabled)
+    """)
 )
 def tfa__status(args):
     """Show the current 2FA status for the user."""
@@ -688,25 +804,25 @@ def tfa__status(args):
         Set up TOTP (Time-based One-Time Password) 2FA using an Authenticator app.
 
         This command generates a new TOTP secret and displays:
-        - A QR code (for scanning with your app)
-        - A manual entry key (for typing into your app)
-        - A secret token (needed for the next step)
+        \u2022 A QR code (for scanning with your app)
+        \u2022 A manual entry key (for typing into your app)
+        \u2022 A secret token (needed for the next step)
 
         Workflow:
          1. Run this command to generate the TOTP secret
          2. Add the account to your Authenticator app by either:
-            - Scanning the displayed QR code, OR
-            - Manually entering the key shown
+            \u2022 Scanning the displayed QR code, OR
+            \u2022 Manually entering the key shown
          3. Once added, your app will display a 6-digit code
          4. Complete setup by running:
-            vastai tfa activate --secret <SECRET> <CODE>
+            vastai tfa activate --method-type totp --secret <SECRET> <CODE>
 
         Supported Authenticator Apps:
-         - Google Authenticator
-         - Microsoft Authenticator
-         - Authy
-         - 1Password
-         - Any TOTP-compatible app
+         \u2022 Google Authenticator
+         \u2022 Microsoft Authenticator
+         \u2022 Authy
+         \u2022 1Password
+         \u2022 Any TOTP-compatible app
 
         Example:
          vastai tfa totp-setup
@@ -748,7 +864,7 @@ def tfa__totp_setup(args):
     print("\nNext Steps:")
     print("  1. Your Authenticator app should now display a 6-digit code")
     print("  2. Complete setup by running:")
-    print(f"     vastai tfa activate --secret {secret} <CODE>")
+    print(f"     vastai tfa activate --method-type totp --secret {secret} <CODE>")
     print("\n" + "=" * 60 + "\n")
 
 

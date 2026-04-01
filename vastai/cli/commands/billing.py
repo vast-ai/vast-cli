@@ -308,8 +308,8 @@ def create_rich_table_for_invoices(results):
 
 @parser.command(
     argument("-q", "--quiet", action="store_true", help="only display numeric ids"),
-    argument("-s", "--start_date", help="start date and time for report. Many formats accepted", type=str),
-    argument("-e", "--end_date", help="end date and time for report. Many formats accepted", type=str),
+    argument("-s", "--start_date", help="start date and time for report. Many formats accepted (optional)", type=str),
+    argument("-e", "--end_date", help="end date and time for report. Many formats accepted (optional)", type=str),
     argument("-c", "--only_charges", action="store_true", help="Show only charge items"),
     argument("-p", "--only_credits", action="store_true", help="Show only credit items"),
     argument("--instance_label", help="Filter charges on a particular instance label (useful for autoscaler groups)"),
@@ -389,7 +389,7 @@ def show__invoices(args):
         This command supports colored output and rich formatting if the 'rich' python module is installed!
 
         Examples:
-            # Show the first 20 invoices in the last week
+            # Show the first 20 invoices in the last week  (note: default window is a 7 day period ending today)
             vastai show invoices-v1 --invoices
 
             # Show the first 50 charges over a 7 day period starting from 2025-11-30 in tree format
@@ -398,13 +398,13 @@ def show__invoices(args):
             # Show the first 20 invoices of specific types for the month of November 2025
             vastai show invoices-v1 -i -it stripe bitpay transfers --start-date 2025-11-01 --end-date 2025-11-30
 
-            # Show the first 20 charges for only volumes and serverless instances between two dates
+            # Show the first 20 charges for only volumes and serverless instances between two dates, including all details and metadata
             vastai show invoices-v1 -c --charge-type v s -s 2025-11-01 -e 2025-11-05 --format tree --verbose
 
-            # Get the next page of paginated invoices
-            vastai show invoices-v1 --invoices --limit 50 --next-token <TOKEN>
+            # Get the next page of paginated invoices, limit to 50 per page  (note: type/date filters MUST match previous request for pagination to work)
+            vastai show invoices-v1 --invoices --limit 50 --next-token eyJ2YWx1ZXMiOiB7ImlkIjogMjUwNzgyMzR9LCAib3NfcGFnZSI6IDB9
 
-            # Show the last 10 instance charges sorted by latest first
+            # Show the last 10 instance (only) charges over a 7 day period ending in 2025-12-25, sorted by latest charges first
             vastai show invoices-v1 --charges -ct instance --end-date 2025-12-25 -l 10 --latest-first
     """),
 )
@@ -510,7 +510,7 @@ def show__invoices_v1(args):
 @parser.command(
     argument("-q", "--quiet", action="store_true", help="only display numeric ids"),
     argument("-s", "--start_date", help="start date and time for report. Many formats accepted", type=str),
-    argument("-e", "--end_date", help="end date and time for report. Many formats accepted", type=str),
+    argument("-e", "--end_date", help="end date and time for report. Many formats accepted ", type=str),
     argument("-m", "--machine_id", help="Machine id (optional)", type=int),
     usage="vastai show earnings [OPTIONS]",
     help="Get machine earning history reports",
@@ -685,10 +685,13 @@ def show__ipaddrs(args):
 
 @parser.command(
     argument("recipient", help="email (or id) of recipient account", type=str),
-    argument("amount", help="$dollars of credit to transfer", type=float),
+    argument("amount",    help="$dollars of credit to transfer ", type=float),
     argument("--skip", help="skip confirmation", action="store_true", default=False),
     usage="vastai transfer credit RECIPIENT AMOUNT",
     help="Transfer credits to another account",
+    epilog=deindent("""
+        Transfer (amount) credits to account with email (recipient).
+    """),
 )
 def transfer__credit(args):
     """Transfer credits to another account."""

@@ -144,7 +144,7 @@ def cancel__copy(args):
 @parser.command(
     argument("dst", help="instance_id:/path to target of sync operation", type=str),
     usage="vastai cancel sync DST",
-    help="Cancel a remote cloud sync in progress, specified by DST id",
+    help="Cancel a remote copy in progress, specified by DST id",
     epilog=deindent("""
         Use this command to cancel any/all current remote cloud sync operations copying to a specific named instance, given by DST.
 
@@ -314,10 +314,56 @@ def show__connections(args):
     argument("-n", "--no-default", action="store_true", help="Disable default query"),
     argument("--limit", type=int, help=""),
     argument("--storage", type=float, default=1.0, help="Amount of storage to use for pricing, in GiB. default=1.0GiB"),
-    argument("-o", "--order", type=str, help="Comma-separated list of fields to sort on. postfix field with - to sort desc.", default='score-'),
+    argument("-o", "--order", type=str, help="Comma-separated list of fields to sort on. postfix field with - to sort desc. ex: -o 'disk_space,inet_up-'.  default='score-'", default='score-'),
     argument("query", help="Query to search for. default: 'external=false verified=true disk_space>=1', pass -n to ignore default", nargs="*", default=None),
     usage="vastai search volumes [--help] [--api-key API_KEY] [--raw] <query>",
     help="Search for volume offers using custom query",
+    epilog=deindent("""
+        Query syntax:
+
+            query = comparison comparison...
+            comparison = field op value
+            field = <name of a field>
+            op = one of: <, <=, ==, !=, >=, >, in, notin
+            value = <bool, int, float, string> | 'any' | [value0, value1, ...]
+            bool: True, False
+
+        note: to pass '>' and '<' on the command line, make sure to use quotes
+        note: to encode a string query value (ie for gpu_name), replace any spaces ' ' with underscore '_'
+
+        Examples:
+
+            # search for volumes with greater than 50GB of available storage and greater than 500 Mb/s upload and download speed
+            vastai search volumes "disk_space>50 inet_up>500 inet_down>500"
+
+        Available fields:
+
+              Name                  Type       Description
+
+            cpu_arch:               string    host machine cpu architecture (e.g. amd64, arm64)
+            cuda_vers:              float     machine max supported cuda version (based on driver version)
+            datacenter:             bool      show only datacenter offers
+            disk_bw:                float     disk read bandwidth, in MB/s
+            disk_space:             float     disk storage space, in GB
+            driver_version:         string    machine's nvidia/amd driver version as 3 digit string ex. "535.86.05"
+            duration:               float     max rental duration in days
+            geolocation:            string    Two letter country code. Works with operators =, !=, in, notin (e.g. geolocation not in ['XV','XZ'])
+            gpu_arch:               string    host machine gpu architecture (e.g. nvidia, amd)
+            gpu_name:               string    GPU model name (no quotes, replace spaces with underscores, ie: RTX_3090 rather than 'RTX 3090')
+            has_avx:                bool      CPU supports AVX instruction set.
+            id:                     int       volume offer unique ID
+            inet_down:              float     internet download speed in Mb/s
+            inet_up:                float     internet upload speed in Mb/s
+            machine_id:             int       machine id of volume offer
+            pci_gen:                float     PCIE generation
+            pcie_bw:                float     PCIE bandwidth (CPU to GPU)
+            reliability:            float     machine reliability score (see FAQ for explanation)
+            storage_cost:           float     storage cost in $/GB/month
+            static_ip:              bool      is the IP addr static/stable
+            total_flops:            float     total TFLOPs from all GPUs
+            ubuntu_version:         string    host machine ubuntu OS version
+            verified:               bool      is the machine verified
+    """),
 )
 def search__volumes(args):
     """Search for volume offers using custom query."""
@@ -378,10 +424,40 @@ def search__volumes(args):
     argument("-n", "--no-default", action="store_true", help="Disable default query"),
     argument("--limit", type=int, help=""),
     argument("--storage", type=float, default=1.0, help="Amount of storage to use for pricing, in GiB. default=1.0GiB"),
-    argument("-o", "--order", type=str, help="Comma-separated list of fields to sort on.", default='score-'),
-    argument("query", help="Query to search for.", nargs="*", default=None),
+    argument("-o", "--order", type=str, help="Comma-separated list of fields to sort on. postfix field with - to sort desc. ex: -o 'disk_space,inet_up-'.  default='score-'", default='score-'),
+    argument("query", help="Query to search for. default: 'external=false verified=true disk_space>=1', pass -n to ignore default", nargs="*", default=None),
     usage="vastai search network volumes [--help] [--api-key API_KEY] [--raw] <query>",
     help="Search for network volume offers using custom query",
+    epilog=deindent("""
+        Query syntax:
+
+            query = comparison comparison...
+            comparison = field op value
+            field = <name of a field>
+            op = one of: <, <=, ==, !=, >=, >, in, notin
+            value = <bool, int, float, string> | 'any' | [value0, value1, ...]
+            bool: True, False
+
+        note: to pass '>' and '<' on the command line, make sure to use quotes
+        note: to encode a string query value (ie for gpu_name), replace any spaces ' ' with underscore '_'
+
+        Examples:
+
+            # search for volumes with greater than 50GB of available storage and greater than 500 Mb/s upload and download speed
+            vastai search volumes "disk_space>50 inet_up>500 inet_down>500"
+
+        Available fields:
+
+              Name                  Type       Description
+            duration:               float     max rental duration in days
+            geolocation:            string    Two letter country code. Works with operators =, !=, in, notin (e.g. geolocation not in ['XV','XZ'])
+            id:                     int       volume offer unique ID
+            inet_down:              float     internet download speed in Mb/s
+            inet_up:                float     internet upload speed in Mb/s
+            reliability:            float     machine reliability score (see FAQ for explanation)
+            storage_cost:           float     storage cost in $/GB/month
+            verified:               bool      is the machine verified
+    """),
 )
 def search__network_volumes(args):
     """Search for network volume offers using custom query."""
@@ -440,10 +516,15 @@ def search__network_volumes(args):
 
 @parser.command(
     argument("id", help="id of volume offer", type=int),
-    argument("-s", "--size", help="size in GB of volume. Default 15 GB.", default=15, type=float),
+    argument("-s", "--size",
+             help="size in GB of volume. Default %(default)s GB.", default=15, type=float),
     argument("-n", "--name", help="Optional name of volume.", type=str),
     usage="vastai create volume ID [options]",
     help="Create a new volume",
+    epilog=deindent("""
+        Creates a volume from an offer ID (which is returned from "search volumes"). Each offer ID can be used to create multiple volumes,
+        provided the size of all volumes does not exceed the size of the offer.
+    """),
 )
 def create__volume(args):
     """Create a new volume from an offer ID."""
@@ -461,10 +542,15 @@ def create__volume(args):
 
 @parser.command(
     argument("id", help="id of network volume offer", type=int),
-    argument("-s", "--size", help="size in GB of network volume. Default 15 GB.", default=15, type=float),
+    argument("-s", "--size",
+             help="size in GB of network volume. Default %(default)s GB.", default=15, type=float),
     argument("-n", "--name", help="Optional name of network volume.", type=str),
     usage="vastai create network volume ID [options]",
     help="Create a new network volume",
+    epilog=deindent("""
+        Creates a network volume from an offer ID (which is returned from "search network volumes"). Each offer ID can be used to create multiple volumes,
+        provided the size of all volumes does not exceed the size of the offer.
+    """),
 )
 def create__network_volume(args):
     """Create a new network volume from an offer ID."""
@@ -484,6 +570,9 @@ def create__network_volume(args):
     argument("id", help="id of volume contract", type=int),
     usage="vastai delete volume ID",
     help="Delete a volume",
+    epilog=deindent("""
+        Deletes volume with the given ID. All instances using the volume must be destroyed before the volume can be deleted.
+    """),
 )
 def delete__volume(args):
     """Delete a volume."""
@@ -498,10 +587,14 @@ def delete__volume(args):
 @parser.command(
     argument("source", help="id of volume contract being cloned", type=int),
     argument("dest", help="id of volume offer volume is being copied to", type=int),
-    argument("-s", "--size", help="Size of new volume contract, in GB.", type=float),
+    argument("-s", "--size", help="Size of new volume contract, in GB. Must be greater than or equal to the source volume, and less than or equal to the destination offer.", type=float),
     argument("-d", "--disable_compression", action="store_true", help="Do not compress volume data before copying."),
-    usage="vastai copy volume <source_id> <dest_id> [options]",
+    usage="vastai clone volume <source_id> <dest_id> [options]",
     help="Clone an existing volume",
+    epilog=deindent("""
+        Create a new volume with the given offer, by copying the existing volume.
+        Size defaults to the size of the existing volume, but can be increased if there is available space.
+    """),
 )
 def clone__volume(args):
     """Clone an existing volume."""
@@ -526,6 +619,9 @@ def clone__volume(args):
     argument("-t", "--type", help="volume type to display. Default to all. Possible values are \"local\", \"all\", \"network\"", type=str, default="all"),
     usage="vastai show volumes [OPTIONS]",
     help="Show stats on owned volumes.",
+    epilog=deindent("""
+        Show stats on owned volumes
+    """),
 )
 def show__volumes(args):
     """Show stats on owned volumes."""
@@ -546,11 +642,15 @@ def show__volumes(args):
 
 @parser.command(
     argument("id", help="id of machine to list", type=int),
-    argument("-p", "--price_disk", help="storage price in $/GB/month, default: $0.10/GB/month", default=.10, type=float),
-    argument("-e", "--end_date", help="contract offer expiration date", type=str),
-    argument("-s", "--size", help="size of disk space allocated to offer in GB, default 15 GB", default=15),
+    argument("-p", "--price_disk",
+             help="storage price in $/GB/month, default: $%(default).2f/GB/month", default=.10, type=float),
+    argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format), default 3 months", type=str),
+    argument("-s", "--size", help="size of disk space allocated to offer in GB, default %(default)s GB", default=15),
     usage="vastai list volume ID [options]",
     help="[Host] list disk space for rent as a volume on a machine",
+    epilog=deindent("""
+        Allocates a section of disk on a machine to be used for volumes.
+    """),
 )
 def list__volume(args):
     """List disk space for rent as a volume on a machine."""
@@ -573,11 +673,15 @@ def list__volume(args):
 
 @parser.command(
     argument("ids", help="id of machines list", type=int, nargs='+'),
-    argument("-p", "--price_disk", help="storage price in $/GB/month, default: $0.10/GB/month", default=.10, type=float),
-    argument("-e", "--end_date", help="contract offer expiration date", type=str),
-    argument("-s", "--size", help="size of disk space allocated to offer in GB, default 15 GB", default=15),
+    argument("-p", "--price_disk",
+             help="storage price in $/GB/month, default: $%(default).2f/GB/month", default=.10, type=float),
+    argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format), default 3 months", type=str),
+    argument("-s", "--size", help="size of disk space allocated to offer in GB, default %(default)s GB", default=15),
     usage="vastai list volume IDs [options]",
     help="[Host] list disk space for rent as a volume on machines",
+    epilog=deindent("""
+        Allocates a section of disk on machines to be used for volumes.
+    """),
 )
 def list__volumes(args):
     """List disk space for rent as a volume on multiple machines."""
@@ -600,9 +704,9 @@ def list__volumes(args):
 
 @parser.command(
     argument("disk_id", help="id of network disk to list", type=int),
-    argument("-p", "--price_disk", help="storage price in $/GB/month, default: $0.15/GB/month", default=.15, type=float),
-    argument("-e", "--end_date", help="contract offer expiration date", type=str, default=None),
-    argument("-s", "--size", help="size of disk space allocated to offer in GB, default 15 GB", default=15, type=int),
+    argument("-p", "--price_disk", help="storage price in $/GB/month, default: $%(default).2f/GB/month", default=.15, type=float),
+    argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format), default 1 month", type=str, default=None),
+    argument("-s", "--size", help="size of disk space allocated to offer in GB, default %(default)s GB", default=15, type=int),
     usage="vastai list network volume DISK_ID [options]",
     help="[Host] list disk space for rent as a network volume",
 )

@@ -21,9 +21,11 @@ parser = _get_parser()
 
 @parser.command(
     argument("subnet", help="local subnet for cluster, ex: '0.0.0.0/24'", type=str),
-    argument("manager_id", help="Machine ID of manager node in cluster", type=int),
+    argument("manager_id", help="Machine ID of manager node in cluster. Must exist already.", type=int),
     usage="vastai create cluster SUBNET MANAGER_ID",
     help="Create Vast cluster",
+    epilog=deindent("""
+        Create Vast Cluster by defining a local subnet and manager id.""")
 )
 def create__cluster(args):
     """Create a Vast Cluster."""
@@ -42,6 +44,9 @@ def create__cluster(args):
 @parser.command(
     usage="vastai show clusters",
     help="Show clusters associated with your account.",
+    epilog=deindent("""
+        Show clusters associated with your account.
+    """)
 )
 def show__clusters(args):
     """Show clusters associated with your account."""
@@ -72,6 +77,8 @@ def show__clusters(args):
     argument("cluster_id", help="ID of cluster to delete", type=int),
     usage="vastai delete cluster CLUSTER_ID",
     help="Delete Cluster",
+    epilog=deindent("""
+        Delete Vast Cluster""")
 )
 def delete__cluster(args):
     """Delete a Vast Cluster."""
@@ -91,6 +98,9 @@ def delete__cluster(args):
     argument("machine_ids", help="machine id(s) to join cluster", type=int, nargs="+"),
     usage="vastai join cluster CLUSTER_ID MACHINE_IDS",
     help="Join Machine to Cluster",
+    epilog=deindent("""
+        Join's Machine to Vast Cluster
+    """)
 )
 def join__cluster(args):
     """Join machine(s) to a Vast Cluster."""
@@ -108,9 +118,11 @@ def join__cluster(args):
 @parser.command(
     argument("cluster_id", help="ID of cluster you want to remove machine from.", type=int),
     argument("machine_id", help="ID of machine to remove from cluster.", type=int),
-    argument("new_manager_id", help="ID of machine to promote to manager", type=int, nargs="?"),
+    argument("new_manager_id", help="ID of machine to promote to manager. Must already be in cluster", type=int, nargs="?"),
     usage="vastai remove-machine-from-cluster CLUSTER_ID MACHINE_ID NEW_MANAGER_ID",
     help="Removes machine from cluster",
+    epilog=deindent("""Removes machine from cluster and also reassigns manager ID,
+    if we're removing the manager node""")
 )
 def remove_machine_from_cluster(args):
     """Remove a machine from a cluster."""
@@ -138,6 +150,8 @@ def remove_machine_from_cluster(args):
     argument("name", help="overlay network name"),
     usage="vastai create overlay CLUSTER_ID OVERLAY_NAME",
     help="Creates overlay network on top of a physical cluster",
+    epilog=deindent("""
+    Creates an overlay network to allow local networking between instances on a physical cluster"""),
 )
 def create__overlay(args):
     """Create an overlay network on a physical cluster."""
@@ -155,6 +169,9 @@ def create__overlay(args):
 @parser.command(
     usage="vastai show overlays",
     help="Show overlays associated with your account.",
+    epilog=deindent("""
+        Show overlays associated with your account.
+    """),
 )
 def show__overlays(args):
     """Show overlays associated with your account."""
@@ -200,6 +217,8 @@ def delete__overlay(args):
     argument("instance_id", help="Instance ID to add to overlay.", type=int),
     usage="vastai join overlay OVERLAY_NAME INSTANCE_ID",
     help="Adds instance to an overlay network",
+    epilog=deindent("""
+    Adds an instance to a compatible overlay network."""),
 )
 def join__overlay(args):
     """Add an instance to an overlay network."""

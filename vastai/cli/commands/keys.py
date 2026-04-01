@@ -20,10 +20,14 @@ parser = _get_parser()
 
 @parser.command(
     argument("--name", help="name of the api-key", type=str),
-    argument("--permission_file", help="file path for json encoded permissions", type=str),
+    argument("--permission_file", help="file path for json encoded permissions, see https://vast.ai/docs/cli/roles-and-permissions for more information", type=str),
     argument("--key_params", help="optional wildcard key params for advanced keys", type=str),
     usage="vastai create api-key --name NAME --permission_file PERMISSIONS",
-    help="Create a new api-key with restricted permissions",
+    help="Create a new api-key with restricted permissions. Can be sent to other users and teammates",
+    epilog=deindent("""
+        In order to create api keys you must understand how permissions must be sent via json format.
+        You can find more information about permissions here: https://vast.ai/docs/cli/roles-and-permissions
+    """)
 )
 def create__api_key(args):
     """Create a new api-key with restricted permissions."""
@@ -79,7 +83,7 @@ def delete__api_key(args):
 
 @parser.command(
     usage="vastai reset api-key",
-    help="Reset your api-key (get new one)",
+    help="Reset your api-key (get new key from website)",
 )
 def reset__api_key(args):
     """Reset your api-key."""
@@ -96,10 +100,26 @@ def reset__api_key(args):
 # ---------------------------------------------------------------------------
 
 @parser.command(
-    argument("ssh_key", help="add your existing ssh public key to your account. If no key is provided, a new key pair will be generated.", type=str, nargs='?'),
+    argument("ssh_key", help="add your existing ssh public key to your account (from the .pub file). If no public key is provided, a new key pair will be generated.", type=str, nargs='?'),
     argument("-y", "--yes", help="automatically answer yes to prompts", action="store_true"),
     usage="vastai create ssh-key [ssh_public_key] [-y]",
     help="Create a new ssh-key",
+    epilog=deindent("""
+        You may use this command to add an existing public key, or create a new ssh key pair and add that public key, to your Vast account.
+
+        If you provide an ssh_public_key.pub argument, that public key will be added to your Vast account. All ssh public keys should be in OpenSSH format.
+
+                Example: $vastai create ssh-key 'ssh_public_key.pub'
+
+        If you don't provide an ssh_public_key.pub argument, a new Ed25519 key pair will be generated.
+
+                Example: $vastai create ssh-key
+
+        The generated keys are saved as ~/.ssh/id_ed25519 (private) and ~/.ssh/id_ed25519.pub (public). Any existing id_ed25519 keys are backed up as .backup_<timestamp>.
+        The public key will be added to your Vast account.
+
+        All ssh public keys are stored in your Vast account and can be used to connect to instances they've been added to.
+    """)
 )
 def create__ssh_key(args):
     """Create or add an SSH key to your account."""
@@ -167,7 +187,17 @@ def update__ssh_key(args):
     argument("instance_id", help="id of instance to attach to", type=int),
     argument("ssh_key", help="ssh key to attach to instance", type=str),
     usage="vastai attach ssh instance_id ssh_key",
-    help="Attach an ssh key to an instance",
+    help="Attach an ssh key to an instance. This will allow you to connect to the instance with the ssh key",
+    epilog=deindent("""
+        Attach an ssh key to an instance. This will allow you to connect to the instance with the ssh key.
+
+        Examples:
+         vast attach ssh 12371 AAAAB3NzaC1yc2EAAA...
+         vast attach ssh 12371 $(cat ~/.ssh/id_rsa.pub)
+         vast attach ssh 12371 ~/.ssh/id_rsa.pub
+
+        All examples attaches the ssh key to instance 12371
+    """),
 )
 def attach__ssh(args):
     """Attach an ssh key to an instance."""
@@ -184,6 +214,9 @@ def attach__ssh(args):
     argument("ssh_key_id", help="id of the key to detach from the instance", type=str),
     usage="vastai detach instance_id ssh_key_id",
     help="Detach an ssh key from an instance",
+    epilog=deindent("""
+        Example: vastai detach 99999 12345
+    """)
 )
 def detach__ssh(args):
     """Detach an ssh key from an instance."""

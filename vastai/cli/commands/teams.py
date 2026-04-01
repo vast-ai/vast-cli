@@ -22,8 +22,27 @@ parser = _get_parser()
     usage="vastai create-team --team_name TEAM_NAME",
     help="Create a new team",
     epilog=deindent("""
-        Creates a new team under your account.
+         Creates a new team under your account.
+
         Unlike legacy teams, this command does NOT convert your personal account into a team.
+        Each team is created as a separate account, and you can be a member of multiple teams.
+
+        When you create a team:
+          - You become the team owner.
+          - The team starts as an independent account with its own billing, credits, and resources.
+          - Default roles (owner, manager, member) are automatically created.
+          - You can invite others, assign roles, and manage resources within the team.
+
+        Optional:
+          You can transfer a portion of your existing personal credits to the team by using
+          the `--transfer_credit` flag. Example:
+              vastai create-team --team_name myteam --transfer_credit 25
+
+        Notes:
+          - You cannot create a team from within another team account.
+
+        For more details, see:
+        https://vast.ai/docs/teams-quickstart
     """),
 )
 def create__team(args):
@@ -50,9 +69,13 @@ def destroy__team(args):
 
 @parser.command(
     argument("--name", help="name of the role", type=str),
-    argument("--permissions", help="file path for json encoded permissions", type=str),
+    argument("--permissions", help="file path for json encoded permissions, look in the docs for more information", type=str),
     usage="vastai create team-role --name NAME --permissions PERMISSIONS",
     help="Add a new role to your team",
+    epilog=deindent("""
+        Creating a new team role involves understanding how permissions must be sent via json format.
+        You can find more information about permissions here: https://vast.ai/docs/cli/roles-and-permissions
+    """)
 )
 def create__team_role(args):
     """Create a new team role."""
@@ -92,7 +115,7 @@ def show__team_roles(args):
 @parser.command(
     argument("id", help="id of the role", type=int),
     argument("--name", help="name of the role", type=str),
-    argument("--permissions", help="file path for json encoded permissions", type=str),
+    argument("--permissions", help="file path for json encoded permissions, look in the docs for more information", type=str),
     usage="vastai update team-role ID --name NAME --permissions PERMISSIONS",
     help="Update an existing team role",
 )
@@ -109,9 +132,9 @@ def update__team_role(args):
 
 
 @parser.command(
-    argument("NAME", help="name of role to remove", type=str),
+    argument("NAME", help="name of the role", type=str),
     usage="vastai remove team-role NAME",
-    help="Remove a role from the team",
+    help="Remove a role from your team",
 )
 def remove__team_role(args):
     """Remove a team role."""
@@ -155,7 +178,7 @@ def show__members(args):
 @parser.command(
     argument("id", help="id of user to remove", type=int),
     usage="vastai remove member ID",
-    help="Remove a member from the team",
+    help="Remove a team member",
 )
 def remove__member(args):
     """Remove a team member."""

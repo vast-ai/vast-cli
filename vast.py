@@ -2300,10 +2300,7 @@ def create__workergroup(args):
     argument("--endpoint_name", help="deployment endpoint name (allows multiple autoscale groups to share same deployment endpoint)", type=str),
     argument("--max_queue_time", help="maximum seconds requests may be queued on each worker (default 30.0)", type=float),
     argument("--target_queue_time", help="target seconds for the queue to be cleared (default 10.0)", type=float),
-<<<<<<< Updated upstream
-=======
-    argument("--inactivity_timeout", help="seconds of inactivity before the endpoint is allowed to have fewer than 1 active worker and fewer than 1 cold worker, depending on endpoint settings", type=int),
->>>>>>> Stashed changes
+    argument("--inactivity_timeout", help="seconds of no traffic before the endpoint can scale to zero active workers", type=int),
     argument("--auto_instance", help=argparse.SUPPRESS, type=str, default="prod"),
 
     usage="vastai create endpoint [OPTIONS]",
@@ -7491,10 +7488,7 @@ def update__workergroup(args):
     argument("--endpoint_name",   help="deployment endpoint name (allows multiple workergroups to share same deployment endpoint)", type=str),
     argument("--max_queue_time", help="maximum seconds requests may be queued on each worker (default 30.0)", type=float),
     argument("--target_queue_time", help="target seconds for the queue to be cleared (default 10.0)", type=float),
-<<<<<<< Updated upstream
-=======
-    argument("--inactivity_timeout", help="seconds of inactivity before the endpoint is allowed to have fewer than 1 active worker and fewer than 1 cold worker, depending on endpoint settings", type=int),
->>>>>>> Stashed changes
+    argument("--inactivity_timeout", help="seconds of no traffic before the endpoint can scale to zero active workers", type=int),
     usage="vastai update endpoint ID [OPTIONS]",
     help="Update an existing endpoint group",
     epilog=deindent("""

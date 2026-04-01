@@ -2928,6 +2928,57 @@ def delete__endpoint(args):
         print(r.text)
 
 @parser.command(
+    argument("id", help="id of deployment to delete", type=int, nargs="?", default=None),
+    argument("--name", help="name of deployment to delete (deletes all tags unless --tag is specified)", type=str, default=None),
+    argument("--tag", help="tag to filter by when deleting by name", type=str, default=None),
+    usage="vastai delete deployment [ID | --name NAME [--tag TAG]]",
+    help="Delete a deployment by id, or by name and optional tag",
+    epilog=deindent("""
+        Examples:
+            vastai delete deployment 1234
+            vastai delete deployment --name my-deployment
+            vastai delete deployment --name my-deployment --tag prod
+    """),
+)
+def delete__deployment(args):
+    if args.id is not None and args.name is not None:
+        print("Error: specify either an id or --name, not both")
+        return
+    if args.tag is not None and args.name is None:
+        print("Error: --tag can only be used with --name")
+        return
+
+    if args.id is not None:
+        url = apiurl(args, f"/deployment/{args.id}/")
+        r = http_del(args, url, headers=headers)
+    elif args.name is not None:
+        url = apiurl(args, "/deployments/")
+        json_blob = {"name": args.name}
+        if args.tag is not None:
+            json_blob["tag"] = args.tag
+        if args.explain:
+            print("request json: ")
+            print(json_blob)
+        r = http_del(args, url, headers=headers, json=json_blob)
+    else:
+        print("Error: must specify either an id or --name")
+        return
+
+    r.raise_for_status()
+    if 'application/json' in r.headers.get('Content-Type', ''):
+        rj = r.json()
+        if rj.get("success"):
+            if "count" in rj:
+                print(f"Deleted {rj['count']} deployment(s)")
+            else:
+                print("Deployment deleted successfully")
+        else:
+            print(rj.get("msg", "Unknown error"))
+    else:
+        print("The response is not JSON. Content-Type:", r.headers.get('Content-Type'))
+        print(r.text)
+
+@parser.command(
     argument("name", help="Environment variable name to delete", type=str),
     usage="vastai delete env-var <name>",
     help="Delete a user environment variable",
@@ -5010,6 +5061,80 @@ def show__endpoints(args):
                 print(json.dumps(rows, indent=1, sort_keys=True))
         else:
             print(rj["msg"]);
+
+
+@parser.command(
+    usage="vastai show deployments [--api-key API_KEY]",
+    help="Display user's current deployments",
+    epilog=deindent("""
+        Example: vastai show deployments
+    """),
+)
+def show__deployments(args):
+    url = apiurl(args, "/deployments/")
+    r = http_get(args, url, headers=headers)
+    r.raise_for_status()
+
+    if r.status_code == 200:
+        rj = r.json()
+        if rj["success"]:
+            rows = rj["deployments"]
+            if args.raw:
+                return rows
+            else:
+                print(json.dumps(rows, indent=1, sort_keys=True))
+        else:
+            print(rj.get("msg", "Unknown error"))
+
+
+@parser.command(
+    argument("id", help="id of deployment to show", type=int),
+    usage="vastai show deployment ID",
+    help="Display details of a single deployment",
+    epilog=deindent("""
+        Example: vastai show deployment 1234
+    """),
+)
+def show__deployment(args):
+    url = apiurl(args, f"/deployment/{args.id}/")
+    r = http_get(args, url, headers=headers)
+    r.raise_for_status()
+
+    if r.status_code == 200:
+        rj = r.json()
+        if rj["success"]:
+            row = rj["deployment"]
+            if args.raw:
+                return row
+            else:
+                print(json.dumps(row, indent=1, sort_keys=True))
+        else:
+            print(rj.get("msg", "Unknown error"))
+
+
+@parser.command(
+    argument("id", help="id of deployment to show versions for", type=int),
+    usage="vastai show deployment-versions ID",
+    help="Display versions for a deployment",
+    epilog=deindent("""
+        Example: vastai show deployment-versions 1234
+    """),
+)
+def show__deployment_versions(args):
+    url = apiurl(args, f"/deployment/{args.id}/versions/")
+    r = http_get(args, url, headers=headers)
+    r.raise_for_status()
+
+    if r.status_code == 200:
+        rj = r.json()
+        if rj["success"]:
+            rows = rj["versions"]
+            if args.raw:
+                return rows
+            else:
+                print(json.dumps(rows, indent=1, sort_keys=True))
+        else:
+            print(rj.get("msg", "Unknown error"))
 
 
 @parser.command(

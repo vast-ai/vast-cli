@@ -2314,7 +2314,7 @@ def create__workergroup(args):
 def create__endpoint(args):
     url = apiurl(args, "/endptjobs/" )
 
-    json_blob = {"client_id": "me", "min_load": args.min_load, "min_cold_load":args.min_cold_load, "target_util": args.target_util, "cold_mult": args.cold_mult, "cold_workers" : args.cold_workers, "max_workers" : args.max_workers, "endpoint_name": args.endpoint_name, "max_queue_time": args.max_queue_time, "target_queue_time": args.target_queue_time, "autoscaler_instance": args.auto_instance}
+    json_blob = {"client_id": "me", "min_load": args.min_load, "min_cold_load":args.min_cold_load, "target_util": args.target_util, "cold_mult": args.cold_mult, "cold_workers" : args.cold_workers, "max_workers" : args.max_workers, "endpoint_name": args.endpoint_name, "max_queue_time": args.max_queue_time, "target_queue_time": args.target_queue_time, "inactivity_timeout": args.inactivity_timeout, "autoscaler_instance": args.auto_instance}
 
     if (args.explain):
         print("request json: ")
@@ -7498,7 +7498,7 @@ def update__workergroup(args):
 def update__endpoint(args):
     id  = args.id
     url = apiurl(args, f"/endptjobs/{id}/" )
-    json_blob = {"client_id": "me", "endptjob_id": args.id, "min_load": args.min_load, "min_cold_load":args.min_cold_load,"target_util": args.target_util, "cold_mult": args.cold_mult, "cold_workers": args.cold_workers, "max_workers" : args.max_workers, "endpoint_name": args.endpoint_name, "max_queue_time": args.max_queue_time, "target_queue_time": args.target_queue_time, "endpoint_state": args.endpoint_state, "autoscaler_instance":args.auto_instance}
+    json_blob = {"client_id": "me", "endptjob_id": args.id, "min_load": args.min_load, "min_cold_load":args.min_cold_load,"target_util": args.target_util, "cold_mult": args.cold_mult, "cold_workers": args.cold_workers, "max_workers" : args.max_workers, "endpoint_name": args.endpoint_name, "max_queue_time": args.max_queue_time, "target_queue_time": args.target_queue_time, "inactivity_timeout": args.inactivity_timeout, "endpoint_state": args.endpoint_state, "autoscaler_instance":args.auto_instance}
     if (args.explain):
         print("request json: ")
         print(json_blob)

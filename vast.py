@@ -778,6 +778,20 @@ nw_vol_displayable_fields = (
 
 
 # These fields are displayed when you do 'show instances'
+deployment_fields = (
+    ("id", "ID", "{}", None, True),
+    ("name", "Name", "{}", None, True),
+    ("tag", "Tag", "{}", None, True),
+    ("endpoint_id", "Endpoint", "{}", None, True),
+    ("endpoint_state", "State", "{}", None, True),
+    ("worker_count", "Workers", "{}", None, True),
+    ("image", "Image", "{}", None, True),
+    ("storage", "Storage", "{}", None, True),
+    ("current_version_id", "Version", "{}", None, True),
+    ("created_at", "Created", "{}", None, True),
+    ("updated_at", "Updated", "{}", None, True),
+)
+
 instance_fields = (
     ("id", "ID", "{}", None, True),
     ("machine_id", "Machine", "{}", None, True),
@@ -2929,6 +2943,37 @@ def delete__endpoint(args):
         print(r.text)
 
 @parser.command(
+    argument("id", help="id of deployment to delete", type=int),
+    usage="vastai delete deployment ID",
+    help="Delete a deployment",
+    epilog=deindent("""
+        Deletes the deployment with the given ID, including its endpoint and worker groups.
+
+        Example: vastai delete deployment 12345
+    """),
+)
+def delete__deployment(args):
+    """Delete a deployment by ID.
+
+    :param argparse.Namespace args: should supply all the command-line options
+    """
+    url = apiurl(args, "/deployment/{id}/".format(id=args.id))
+    if args.explain:
+        print("delete url: ", url)
+    r = http_del(args, url, headers=headers, json={})
+    r.raise_for_status()
+    if 'application/json' in r.headers.get('Content-Type', ''):
+        rj = r.json()
+        if rj.get("success"):
+            print("deployment {} deleted successfully.".format(args.id))
+        else:
+            print(rj.get("msg", "Failed to delete deployment."))
+    else:
+        print("The response is not JSON. Content-Type:", r.headers.get('Content-Type'))
+        print(r.text)
+
+
+@parser.command(
     argument("name", help="Environment variable name to delete", type=str),
     usage="vastai delete env-var <name>",
     help="Delete a user environment variable",
@@ -5034,6 +5079,59 @@ def show__connections(args):
         return rows
     else:
         display_table(rows, connection_fields)
+
+
+@parser.command(
+    argument("id", help="id of deployment to show", type=int),
+    usage="vastai show deployment ID [--api-key API_KEY] [--raw]",
+    help="Display details for a deployment",
+    epilog=deindent("""
+        Example: vastai show deployment 12345
+    """),
+)
+def show__deployment(args):
+    """Show details for a single deployment.
+
+    :param argparse.Namespace args: should supply all the command-line options
+    """
+    req_url = apiurl(args, "/deployment/{id}/".format(id=args.id))
+    r = http_get(args, req_url)
+    r.raise_for_status()
+    rj = r.json()
+    if rj.get("success"):
+        row = rj["deployment"]
+        if args.raw:
+            return row
+        else:
+            display_table([row], deployment_fields)
+    else:
+        print(rj.get("msg", "Failed to get deployment."))
+
+
+@parser.command(
+    usage="vastai show deployments [--api-key API_KEY] [--raw]",
+    help="Display user's current deployments",
+    epilog=deindent("""
+        Example: vastai show deployments
+    """),
+)
+def show__deployments(args):
+    """Show all deployments for the current user.
+
+    :param argparse.Namespace args: should supply all the command-line options
+    """
+    req_url = apiurl(args, "/deployments/")
+    r = http_get(args, req_url)
+    r.raise_for_status()
+    rj = r.json()
+    if rj.get("success"):
+        rows = rj["deployments"]
+        if args.raw:
+            return rows
+        else:
+            display_table(rows, deployment_fields)
+    else:
+        print(rj.get("msg", "Failed to list deployments."))
 
 
 @parser.command(

@@ -91,19 +91,48 @@ components:
         actual_status:
           type: string
           nullable: true
-          description: Current status of the instance container.
+          enum: [loading, running, stopped, frozen, exited, rebooting, unknown, offline]
+          description: |
+            Current status of the instance container. `null` while the instance is still being provisioned.
+
+            - `loading` — Docker image is downloading or the container is starting up.
+            - `running` — Container is actively executing. GPU charges apply.
+            - `stopped` — Container is halted. Disk charges continue; no GPU charges.
+            - `frozen` — Container is paused with memory preserved. GPU charges apply.
+            - `exited` — Container process exited unexpectedly.
+            - `rebooting` — Container is restarting (transient).
+            - `unknown` — Status cannot be determined; no recent heartbeat from the host.
+            - `offline` — Machine hosting this instance has disconnected from Vast servers. Computed at query time; the underlying `actual_status` value in the database is preserved.
           example: running
         intended_status:
           type: string
-          description: Intended status of the instance container.
+          enum: [running, stopped, frozen]
+          description: |
+            The user's desired target state for the container. The system continuously works to reconcile `actual_status` with this value.
+
+            - `running` — Container should be executing.
+            - `stopped` — Container should be halted.
+            - `frozen` — Container should be paused with memory preserved.
           example: running
         cur_state:
           type: string
-          description: Current state of the machine contract.
+          enum: [running, stopped, unloaded]
+          description: |
+            Current state of the machine contract (the hardware allocation for this instance).
+
+            - `running` — Allocation is active; hardware is in use.
+            - `stopped` — Allocation is paused.
+            - `unloaded` — Allocation has been released (instance is destroyed).
           example: running
         next_state:
           type: string
-          description: Next scheduled state for the machine contract.
+          enum: [running, stopped, unloaded]
+          description: |
+            Target state for the machine contract. The daemon transitions `cur_state` toward this value.
+
+            - `running` — Allocation should be active.
+            - `stopped` — Allocation should be paused.
+            - `unloaded` — Allocation should be released (set when destroying an instance).
           example: running
         label:
           type: string

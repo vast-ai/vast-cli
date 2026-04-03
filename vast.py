@@ -2255,7 +2255,7 @@ def generate_ssh_key(auto_yes=False):
     argument("--cold_mult",   help="[NOTE: this field isn't currently used at the workergroup level]cold/stopped instance capacity target as multiple of hot capacity target (default 2.0)", type=float),
     argument("--cold_workers",   help="min number of workers to keep 'cold' for this workergroup", type=int),
     argument("--auto_instance", help=argparse.SUPPRESS, type=str, default="prod"),
-    usage="vastai workergroup create [OPTIONS]",
+    usage="vastai create workergroup [OPTIONS]",
     help="Create a new autoscale group",
     epilog=deindent("""
         Create a new autoscaling group to manage a pool of worker instances.
@@ -2578,7 +2578,7 @@ def create__subaccount(args):
 @parser.command(
     argument("--team-name", help="name of the team", type=str),
     argument("--transfer-credit", help="amount of personal credit to transfer to the new team", type=float, default=0),
-    usage="vastai create-team --team_name TEAM_NAME",
+    usage="vastai create team [OPTIONS]",
     help="Create a new team",
     epilog=deindent("""
          Creates a new team under your account. 
@@ -5689,7 +5689,30 @@ def create_rich_table_from_rows(rows, headers=None, title='', sort_key=None):
 @parser.command(
     argument("id", help="id of instance to get", type=int),
     usage="vastai show instance [--api-key API_KEY] [--raw]",
-    help="Display user's current instances"
+    help="Display user's current instances",
+    epilog=deindent("""
+        Returns an instance object. Key status fields:
+
+        **actual_status** — current container state:
+
+        | Value | Meaning |
+        |-------|---------|
+        | `null` | Instance is being provisioned |
+        | `loading` | Docker image is downloading or container is starting up |
+        | `running` | Container is actively executing. GPU charges apply. |
+        | `stopped` | Container is halted. Disk charges continue; no GPU charges. |
+        | `frozen` | Container is paused with memory preserved. GPU charges apply. |
+        | `exited` | Container process exited unexpectedly |
+        | `rebooting` | Container is restarting (transient) |
+        | `unknown` | No recent heartbeat from the host |
+        | `offline` | Host machine disconnected from Vast servers (computed, not stored in DB) |
+
+        **intended_status** — user's desired target state: `running`, `stopped`, or `frozen`.
+
+        **cur_state** — machine contract / hardware allocation state: `running`, `stopped`, or `unloaded` (released on destroy).
+
+        **status_msg** — human-readable detail on the current status.
+    """),
 )
 def show__instance(args):
     """
@@ -5717,7 +5740,30 @@ def show__instance(args):
 @parser.command(
     argument("-q", "--quiet", action="store_true", help="only display numeric ids"),
     usage="vastai show instances [OPTIONS] [--api-key API_KEY] [--raw]",
-    help="Display user's current instances"
+    help="Display user's current instances",
+    epilog=deindent("""
+        Returns a list of instance objects. Key status fields per instance:
+
+        **actual_status** — current container state:
+
+        | Value | Meaning |
+        |-------|---------|
+        | `null` | Instance is being provisioned |
+        | `loading` | Docker image is downloading or container is starting up |
+        | `running` | Container is actively executing. GPU charges apply. |
+        | `stopped` | Container is halted. Disk charges continue; no GPU charges. |
+        | `frozen` | Container is paused with memory preserved. GPU charges apply. |
+        | `exited` | Container process exited unexpectedly |
+        | `rebooting` | Container is restarting (transient) |
+        | `unknown` | No recent heartbeat from the host |
+        | `offline` | Host machine disconnected from Vast servers (computed, not stored in DB) |
+
+        **intended_status** — user's desired target state: `running`, `stopped`, or `frozen`.
+
+        **cur_state** — machine contract / hardware allocation state: `running`, `stopped`, or `unloaded` (released on destroy).
+
+        **status_msg** — human-readable detail on the current status.
+    """),
 )
 def show__instances(args = {}, extra = {}):
     """
@@ -6072,6 +6118,28 @@ def _build_filters_panel(filters):
     usage="vastai show instances-v1 [OPTIONS] [--api-key API_KEY] [--raw]",
     help="List your running instances with filtering, sorting, and pagination",
     epilog=deindent("""
+        Returns a paginated list of instance objects. Key status fields per instance:
+
+        **actual_status** — current container state:
+
+        | Value | Meaning |
+        |-------|---------|
+        | `null` | Instance is being provisioned |
+        | `loading` | Docker image is downloading or container is starting up |
+        | `running` | Container is actively executing. GPU charges apply. |
+        | `stopped` | Container is halted. Disk charges continue; no GPU charges. |
+        | `frozen` | Container is paused with memory preserved. GPU charges apply. |
+        | `exited` | Container process exited unexpectedly |
+        | `rebooting` | Container is restarting (transient) |
+        | `unknown` | No recent heartbeat from the host |
+        | `offline` | Host machine disconnected from Vast servers (computed, not stored in DB) |
+
+        **intended_status** — user's desired target state: `running`, `stopped`, or `frozen`.
+
+        **cur_state** — machine contract / hardware allocation state: `running`, `stopped`, or `unloaded` (released on destroy).
+
+        **status_msg** — human-readable detail on the current status.
+
         Displays your instances in a table with auto-sizing columns. Narrow terminals
         drop lower-priority columns automatically; use --cols to override. Sorted by
         id asc by default. Paginated at 25 results; follow the next-page prompt or

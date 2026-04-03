@@ -7080,15 +7080,59 @@ paths:
                         actual_status:
                           type: string
                           nullable: true
+                          enum:
+                          - loading
+                          - running
+                          - stopped
+                          - frozen
+                          - exited
+                          - rebooting
+                          - unknown
+                          - offline
+                          description: "Current status of the instance container.\
+                            \ `null` while provisioning.\n\n- `loading` \u2014 Docker\
+                            \ image downloading or container starting up.\n- `running`\
+                            \ \u2014 Container executing. GPU charges apply.\n- `stopped`\
+                            \ \u2014 Container halted. Disk charges continue; no GPU\
+                            \ charges.\n- `frozen` \u2014 Container paused with memory\
+                            \ preserved. GPU charges apply.\n- `exited` \u2014 Container\
+                            \ process exited unexpectedly.\n- `rebooting` \u2014 Container\
+                            \ restarting (transient).\n- `unknown` \u2014 No recent\
+                            \ heartbeat from the host.\n- `offline` \u2014 Host machine\
+                            \ disconnected from Vast servers (computed, not stored).\n"
                           example: running
                         cur_state:
                           type: string
+                          enum:
+                          - running
+                          - stopped
+                          - unloaded
+                          description: "Current state of the machine contract (hardware\
+                            \ allocation).\n\n- `running` \u2014 Allocation active.\n\
+                            - `stopped` \u2014 Allocation paused.\n- `unloaded` \u2014\
+                            \ Allocation released (instance destroyed).\n"
                           example: running
                         next_state:
                           type: string
+                          enum:
+                          - running
+                          - stopped
+                          - unloaded
+                          description: "Target state for the machine contract. The\
+                            \ daemon transitions `cur_state` toward this value.\n\n\
+                            - `running` \u2014 Should be active.\n- `stopped` \u2014\
+                            \ Should be paused.\n- `unloaded` \u2014 Should be released.\n"
                           example: running
                         intended_status:
                           type: string
+                          enum:
+                          - running
+                          - stopped
+                          - frozen
+                          description: "User's desired target state for the container.\n\
+                            \n- `running` \u2014 Should be executing.\n- `stopped`\
+                            \ \u2014 Should be halted.\n- `frozen` \u2014 Should be\
+                            \ paused with memory preserved.\n"
                           example: running
                         label:
                           type: string
@@ -7562,15 +7606,59 @@ paths:
                         actual_status:
                           type: string
                           nullable: true
+                          enum:
+                          - loading
+                          - running
+                          - stopped
+                          - frozen
+                          - exited
+                          - rebooting
+                          - unknown
+                          - offline
+                          description: "Current status of the instance container.\
+                            \ `null` while provisioning.\n\n- `loading` \u2014 Docker\
+                            \ image downloading or container starting up.\n- `running`\
+                            \ \u2014 Container executing. GPU charges apply.\n- `stopped`\
+                            \ \u2014 Container halted. Disk charges continue; no GPU\
+                            \ charges.\n- `frozen` \u2014 Container paused with memory\
+                            \ preserved. GPU charges apply.\n- `exited` \u2014 Container\
+                            \ process exited unexpectedly.\n- `rebooting` \u2014 Container\
+                            \ restarting (transient).\n- `unknown` \u2014 No recent\
+                            \ heartbeat from the host.\n- `offline` \u2014 Host machine\
+                            \ disconnected from Vast servers (computed, not stored).\n"
                           example: running
                         cur_state:
                           type: string
+                          enum:
+                          - running
+                          - stopped
+                          - unloaded
+                          description: "Current state of the machine contract (hardware\
+                            \ allocation).\n\n- `running` \u2014 Allocation active.\n\
+                            - `stopped` \u2014 Allocation paused.\n- `unloaded` \u2014\
+                            \ Allocation released (instance destroyed).\n"
                           example: running
                         next_state:
                           type: string
+                          enum:
+                          - running
+                          - stopped
+                          - unloaded
+                          description: "Target state for the machine contract. The\
+                            \ daemon transitions `cur_state` toward this value.\n\n\
+                            - `running` \u2014 Should be active.\n- `stopped` \u2014\
+                            \ Should be paused.\n- `unloaded` \u2014 Should be released.\n"
                           example: running
                         intended_status:
                           type: string
+                          enum:
+                          - running
+                          - stopped
+                          - frozen
+                          description: "User's desired target state for the container.\n\
+                            \n- `running` \u2014 Should be executing.\n- `stopped`\
+                            \ \u2014 Should be halted.\n- `frozen` \u2014 Should be\
+                            \ paused with memory preserved.\n"
                           example: running
                         label:
                           type: string
@@ -9081,19 +9169,61 @@ components:
         actual_status:
           type: string
           nullable: true
-          description: Current status of the instance container.
+          enum:
+          - loading
+          - running
+          - stopped
+          - frozen
+          - exited
+          - rebooting
+          - unknown
+          - offline
+          description: "Current status of the instance container. `null` while the\
+            \ instance is still being provisioned.\n\n- `loading` \u2014 Docker image\
+            \ is downloading or the container is starting up.\n- `running` \u2014\
+            \ Container is actively executing. GPU charges apply.\n- `stopped` \u2014\
+            \ Container is halted. Disk charges continue; no GPU charges.\n- `frozen`\
+            \ \u2014 Container is paused with memory preserved. GPU charges apply.\n\
+            - `exited` \u2014 Container process exited unexpectedly.\n- `rebooting`\
+            \ \u2014 Container is restarting (transient).\n- `unknown` \u2014 Status\
+            \ cannot be determined; no recent heartbeat from the host.\n- `offline`\
+            \ \u2014 Machine hosting this instance has disconnected from Vast servers.\
+            \ Computed at query time; the underlying `actual_status` value in the\
+            \ database is preserved.\n"
           example: running
         intended_status:
           type: string
-          description: Intended status of the instance container.
+          enum:
+          - running
+          - stopped
+          - frozen
+          description: "The user's desired target state for the container. The system\
+            \ continuously works to reconcile `actual_status` with this value.\n\n\
+            - `running` \u2014 Container should be executing.\n- `stopped` \u2014\
+            \ Container should be halted.\n- `frozen` \u2014 Container should be paused\
+            \ with memory preserved.\n"
           example: running
         cur_state:
           type: string
-          description: Current state of the machine contract.
+          enum:
+          - running
+          - stopped
+          - unloaded
+          description: "Current state of the machine contract (the hardware allocation\
+            \ for this instance).\n\n- `running` \u2014 Allocation is active; hardware\
+            \ is in use.\n- `stopped` \u2014 Allocation is paused.\n- `unloaded` \u2014\
+            \ Allocation has been released (instance is destroyed).\n"
           example: running
         next_state:
           type: string
-          description: Next scheduled state for the machine contract.
+          enum:
+          - running
+          - stopped
+          - unloaded
+          description: "Target state for the machine contract. The daemon transitions\
+            \ `cur_state` toward this value.\n\n- `running` \u2014 Allocation should\
+            \ be active.\n- `stopped` \u2014 Allocation should be paused.\n- `unloaded`\
+            \ \u2014 Allocation should be released (set when destroying an instance).\n"
           example: running
         label:
           type: string

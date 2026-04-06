@@ -572,8 +572,8 @@ class Backend:
     async def __call_backend(
         self, handler: EndpointHandler[ApiPayload_T], payload: ApiPayload_T
     ) -> ClientResponse:
-        if handler.remote_dispatch_function:
-            return await self.__call_remote_dispatch(handler=handler, payload=payload)
+        if handler.remote_function:
+            return await self.__call_remote_function(handler=handler, payload=payload)
         else:
             return await self.__call_api(handler=handler, payload=payload)
 
@@ -584,19 +584,19 @@ class Backend:
         log.debug(f"posting to endpoint: '{handler.endpoint}', payload: {api_payload}")
         return await self.session.post(url=handler.endpoint, json=api_payload)
 
-    async def __call_remote_dispatch(
+    async def __call_remote_function(
         self, handler: EndpointHandler[ApiPayload_T], payload: ApiPayload_T
     ) -> ClientResponse:
         remote_func_params = payload.generate_payload_json()
         log.debug(
-            f"Calling remote dispatch function on {handler.endpoint} "
+            f"Calling remote function on {handler.endpoint} "
             f"with params {remote_func_params}"
         )
 
-        result = await handler.call_remote_dispatch_function(params=remote_func_params)
+        result = await handler.call_remote_function(params=remote_func_params)
 
         # Wrap the result in a fake ClientResponse-like object
-        class RemoteDispatchClientResponse:
+        class RemoteFunctionClientResponse:
             def __init__(self, data: Any, status: int = 200):
                 self._body = json.dumps({"result": data}).encode("utf-8")
                 self.status = status
@@ -606,8 +606,7 @@ class Backend:
             async def read(self) -> bytes:
                 return self._body
 
-        return RemoteDispatchClientResponse(result) 
-
+        return RemoteFunctionClientResponse(result)
     def __check_signature(self, auth_data: AuthData) -> bool:
         if self.unsecured is True:
             return True

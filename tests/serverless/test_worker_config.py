@@ -835,15 +835,15 @@ class TestEndpointHandlerFactoryCreatedHandler:
         assert response.body == b'{"ok": true}'
 
     @pytest.mark.asyncio
-    async def test_call_remote_dispatch_function_raises_when_not_configured(
+    async def test_call_remote_function_raises_when_not_configured(
         self, worker_config_with_handler
     ) -> None:
         """
-        Verifies that call_remote_dispatch_function raises RuntimeError when remote_function is None.
+        Verifies that call_remote_function raises RuntimeError when remote_function is None.
 
         This test verifies by:
         1. Getting handler created without remote_function
-        2. Calling call_remote_dispatch_function(params)
+        2. Calling call_remote_function(params)
         3. Asserting RuntimeError with "remote_function is not configured"
 
         Assumptions:
@@ -855,18 +855,18 @@ class TestEndpointHandlerFactoryCreatedHandler:
         factory = EndpointHandlerFactory(config)
         handler = factory.get_handler("/")
         with pytest.raises(RuntimeError, match="remote_function is not configured"):
-            await handler.call_remote_dispatch_function({})
+            await handler.call_remote_function({})
 
     @pytest.mark.asyncio
-    async def test_call_remote_dispatch_function_calls_remote(
+    async def test_call_remote_function_calls_remote(
         self, worker_config_from_handlers
     ) -> None:
         """
-        Verifies that call_remote_dispatch_function calls remote_function and returns result.
+        Verifies that call_remote_function calls remote_function and returns result.
 
         This test verifies by:
         1. Creating HandlerConfig with remote_function async that returns a value
-        2. Getting handler and calling call_remote_dispatch_function
+        2. Getting handler and calling call_remote_function
         3. Asserting return value matches
 
         Assumptions:
@@ -884,7 +884,7 @@ class TestEndpointHandlerFactoryCreatedHandler:
         ])
         factory = EndpointHandlerFactory(config)
         handler = factory.get_handler("/remote")
-        result = await handler.call_remote_dispatch_function({"x": 10})
+        result = await handler.call_remote_function({"x": 10})
         assert result == 11
 
     @pytest.mark.asyncio
@@ -922,15 +922,15 @@ class TestEndpointHandlerFactoryCreatedHandler:
             await handler.generate_client_response(mock_req, mock_resp)
 
     @pytest.mark.asyncio
-    async def test_call_remote_dispatch_function_raises_when_remote_raises(
+    async def test_call_remote_function_raises_when_remote_raises(
         self, worker_config_from_handlers
     ) -> None:
         """
-        Verifies that call_remote_dispatch_function raises RuntimeError when remote_function raises.
+        Verifies that call_remote_function raises RuntimeError when remote_function raises.
 
         This test verifies by:
         1. Creating HandlerConfig with remote_function that raises
-        2. Calling call_remote_dispatch_function
+        2. Calling call_remote_function
         3. Asserting RuntimeError with "Error calling remote dispatch function"
 
         Assumptions:
@@ -949,7 +949,7 @@ class TestEndpointHandlerFactoryCreatedHandler:
         factory = EndpointHandlerFactory(config)
         handler = factory.get_handler("/remote")
         with pytest.raises(RuntimeError, match="Error calling remote dispatch function"):
-            await handler.call_remote_dispatch_function({})
+            await handler.call_remote_function({})
 
     @pytest.mark.asyncio
     async def test_generate_client_response_default_streaming_passthrough(
@@ -1076,7 +1076,7 @@ class TestEndpointHandlerFactoryCustomHandlerClass:
             ) -> Union[web.Response, web.StreamResponse]:
                 return web.Response(text="ok")
 
-            async def call_remote_dispatch_function(self, params: dict):
+            async def call_remote_function(self, params: dict):
                 raise RuntimeError("not configured")
 
         config = worker_config_from_handlers([

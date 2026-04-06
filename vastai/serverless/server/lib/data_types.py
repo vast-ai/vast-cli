@@ -103,8 +103,7 @@ class EndpointHandler(ABC, Generic[ApiPayload_T]):
     benchmark_runs: int = 8
     allow_parallel_requests: bool = False
     max_queue_time: float = None
-    is_remote_dispatch: bool = False
-    remote_dispatch_function: Callable = None
+    remote_function: Callable = None
     do_warmup_benchmark: bool = True
 
     @property
@@ -140,9 +139,9 @@ class EndpointHandler(ABC, Generic[ApiPayload_T]):
         pass
 
     @abstractmethod
-    async def call_remote_dispatch_function(self, params: dict):
+    async def call_remote_function(self, params: dict):
         """
-        define a remote dispatch function for this endpoint, return the result
+        define a remote function for this endpoint, return the result
         """
         pass
 

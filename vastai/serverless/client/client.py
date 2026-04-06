@@ -134,11 +134,6 @@ class Serverless:
 
             ctx = ssl.create_default_context()
             ctx.load_verify_locations(cafile=tmpfile.name)
-            # The Vast.ai root CA cert has pathlen set without keyCertSign in
-            # Key Usage.  OpenSSL 3.x (Python ≥3.10) rejects this by default.
-            # Clearing VERIFY_X509_STRICT relaxes that single check while
-            # keeping full chain-of-trust and signature verification intact.
-            ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
             self.logger.info("Loaded Vast.ai SSL certificate")
 
             self._ssl_context = ctx

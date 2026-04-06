@@ -37,6 +37,7 @@ dependencies = [
   "aiohttp>=3.9.1",
   "aiodns>=3.6.0",
   "pycares==4.11.0",
+  "aiofiles>=23.0",
   "anyio~=4.4",
   "nltk~=3.9",
   "psutil~=6.0",
@@ -63,6 +64,7 @@ version = "0.0.0"
 
 [project.scripts]
 vastai = "vastai.cli.main:main"
+vast = "vastai.serverless.cli:main"
 
 [project.urls]
 Homepage = "https://vast.ai"

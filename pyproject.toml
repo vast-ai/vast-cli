@@ -89,5 +89,6 @@ pytest-mock = "^3.12"
 testpaths = ["tests"]
 markers = [
     "live: tests that hit the real Vast.ai API (require VAST_API_KEY)",
+    "integration: integration tests requiring API credentials and fixtures",
 ]
-addopts = "-m 'not live' --tb=short -q"
+addopts = "-m 'not live and not integration' --tb=short -q"

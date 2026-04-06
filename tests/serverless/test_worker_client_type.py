@@ -8,7 +8,7 @@ class TestWorkerFromDict:
     """Verify Worker.from_dict parses dict input into Worker instances correctly."""
 
     def test_from_dict_with_full_valid_dict_returns_worker_with_all_fields(
-        self, full_client_worker_dict: dict
+        self, client_worker_dict
     ) -> None:
         """
         Verifies that from_dict creates a Worker with all fields when given a complete dict.
@@ -21,6 +21,7 @@ class TestWorkerFromDict:
         Assumptions:
         - full_client_worker_dict fixture provides valid data for all fields
         """
+        full_client_worker_dict = client_worker_dict("full")
         worker = Worker.from_dict(full_client_worker_dict)
         assert worker.id == full_client_worker_dict["id"]
         assert worker.status == full_client_worker_dict["status"]
@@ -38,7 +39,7 @@ class TestWorkerFromDict:
         assert worker.started_at == full_client_worker_dict["started_at"]
 
     def test_from_dict_with_minimal_dict_uses_defaults_for_missing_fields(
-        self, minimal_client_worker_dict: dict
+        self, client_worker_dict
     ) -> None:
         """
         Verifies that from_dict uses default values for missing optional fields.
@@ -51,6 +52,7 @@ class TestWorkerFromDict:
         Assumptions:
         - minimal_client_worker_dict provides id only
         """
+        minimal_client_worker_dict = client_worker_dict("minimal")
         worker = Worker.from_dict(minimal_client_worker_dict)
         assert worker.id == minimal_client_worker_dict["id"]
         assert worker.status == "UNKNOWN"
@@ -68,7 +70,7 @@ class TestWorkerFromDict:
         assert worker.started_at == 0.0
 
     def test_from_dict_with_status_none_uses_unknown(
-        self, minimal_client_worker_dict: dict
+        self, client_worker_dict
     ) -> None:
         """
         Verifies that from_dict treats None or falsy status as "UNKNOWN".
@@ -81,6 +83,7 @@ class TestWorkerFromDict:
         Assumptions:
         - d.get("status") or "UNKNOWN" handles None and empty string
         """
+        minimal_client_worker_dict = client_worker_dict("minimal")
         worker_none = Worker.from_dict({**minimal_client_worker_dict, "status": None})
         assert worker_none.status == "UNKNOWN"
 
@@ -163,7 +166,7 @@ class TestWorkerFromDict:
             Worker.from_dict({})
 
     def test_from_dict_with_various_status_values_preserves_status(
-        self, minimal_client_worker_dict: dict
+        self, client_worker_dict
     ) -> None:
         """
         Verifies that from_dict preserves non-empty status values.
@@ -175,6 +178,7 @@ class TestWorkerFromDict:
         Assumptions:
         - status is passed through when truthy
         """
+        minimal_client_worker_dict = client_worker_dict("minimal")
         for status in ("RUNNING", "IDLE", "LOADING", "OFFLINE"):
             worker = Worker.from_dict({**minimal_client_worker_dict, "status": status})
             assert worker.status == status
@@ -208,7 +212,7 @@ class TestWorkerFromDict:
             Worker.from_dict({"id": "not_a_number", "status": "RUNNING"})
 
     def test_from_dict_with_invalid_float_value_raises(
-        self, minimal_client_worker_dict: dict
+        self, client_worker_dict
     ) -> None:
         """
         Verifies that from_dict raises when a numeric field has invalid value.
@@ -220,11 +224,12 @@ class TestWorkerFromDict:
         Assumptions:
         - float() raises ValueError for invalid string input
         """
+        minimal_client_worker_dict = client_worker_dict("minimal")
         with pytest.raises(ValueError):
             Worker.from_dict({**minimal_client_worker_dict, "cur_load": "not_a_number"})
 
     def test_from_dict_with_negative_numeric_values_accepted(
-        self, minimal_client_worker_dict: dict
+        self, client_worker_dict
     ) -> None:
         """
         Verifies that from_dict accepts negative values for numeric fields.
@@ -236,6 +241,7 @@ class TestWorkerFromDict:
         Assumptions:
         - Negative numbers are valid (e.g. for load metrics)
         """
+        minimal_client_worker_dict = client_worker_dict("minimal")
         data = {
             **minimal_client_worker_dict,
             "status": "RUNNING",

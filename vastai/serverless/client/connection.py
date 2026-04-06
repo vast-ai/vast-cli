@@ -74,7 +74,7 @@ async def _open_once(
     Execute one HTTP attempt and return the aiohttp response object.
     Caller is responsible for reading/closing via 'async with' or resp.release()/resp.close().
     """
-    request_fn = session.get if method == "GET" else session.post
+    request_fn = {"GET": session.get, "POST": session.post, "PUT": session.put, "DELETE": session.delete}.get(method, session.post)
     return await request_fn(url + route, **kwargs)
 
 async def _make_request(
@@ -223,7 +223,8 @@ async def _make_request(
                 stream=False,
             )
 
-            async with await (session.get(full_url, **kwargs) if method == "GET" else session.post(full_url, **kwargs)) as resp:
+            request_fn = {"GET": session.get, "POST": session.post, "PUT": session.put, "DELETE": session.delete}.get(method, session.post)
+            async with await request_fn(full_url, **kwargs) as resp:
                 status = resp.status
                 text = await resp.text()
 

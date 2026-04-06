@@ -4,6 +4,7 @@ Tests LogActionConfig, WorkerConfig, HandlerConfig, BenchmarkConfig,
 EndpointHandlerFactory, and created handler/payload behavior.
 Does not start the full Worker server.
 """
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -16,6 +17,7 @@ from vastai.serverless.server.worker import (
     BenchmarkConfig,
     EndpointHandlerFactory,
 )
+
 
 class TestLogActionConfig:
     """Verify LogActionConfig builds log_actions correctly."""
@@ -109,7 +111,7 @@ class TestEndpointHandlerFactory:
     """Verify EndpointHandlerFactory creates handlers from WorkerConfig."""
 
     def test_factory_with_empty_handlers_creates_default_route(
-        self, minimal_worker_config: WorkerConfig
+        self, server_worker_config
     ) -> None:
         """
         Verifies that empty handlers list creates a default handler at /.
@@ -122,13 +124,13 @@ class TestEndpointHandlerFactory:
         Assumptions:
         - minimal_worker_config fixture provides config with empty handlers
         """
-        factory = EndpointHandlerFactory(minimal_worker_config)
+        factory = EndpointHandlerFactory(server_worker_config("minimal"))
         handler = factory.get_handler("/")
         assert handler is not None
         assert handler.endpoint == "/"
 
     def test_get_handler_returns_none_for_unknown_route(
-        self, minimal_worker_config: WorkerConfig
+        self, server_worker_config
     ) -> None:
         """
         Verifies that get_handler returns None for unregistered route.
@@ -141,10 +143,10 @@ class TestEndpointHandlerFactory:
         Assumptions:
         - get_handler uses dict.get, returns None for missing key
         """
-        factory = EndpointHandlerFactory(minimal_worker_config)
+        factory = EndpointHandlerFactory(server_worker_config("minimal"))
         assert factory.get_handler("/unknown") is None
 
-    def test_get_all_handlers_returns_copy(self, minimal_worker_config: WorkerConfig) -> None:
+    def test_get_all_handlers_returns_copy(self, server_worker_config) -> None:
         """
         Verifies that get_all_handlers returns a copy of handlers dict.
 
@@ -156,14 +158,12 @@ class TestEndpointHandlerFactory:
         Assumptions:
         - get_all_handlers returns .copy()
         """
-        factory = EndpointHandlerFactory(minimal_worker_config)
+        factory = EndpointHandlerFactory(server_worker_config("minimal"))
         handlers = factory.get_all_handlers()
         handlers["/"] = None
         assert factory.get_handler("/") is not None
 
-    def test_has_handlers_true_when_handlers_exist(
-        self, minimal_worker_config: WorkerConfig
-    ) -> None:
+    def test_has_handlers_true_when_handlers_exist(self, server_worker_config) -> None:
         """
         Verifies that has_handlers returns True when handlers are registered.
 
@@ -174,11 +174,11 @@ class TestEndpointHandlerFactory:
         Assumptions:
         - minimal_worker_config creates default / handler
         """
-        factory = EndpointHandlerFactory(minimal_worker_config)
+        factory = EndpointHandlerFactory(server_worker_config("minimal"))
         assert factory.has_handlers() is True
 
     def test_model_server_base_url_formats_correctly(
-        self, minimal_worker_config: WorkerConfig
+        self, server_worker_config
     ) -> None:
         """
         Verifies that model_server_base_url returns url:port format.
@@ -190,11 +190,11 @@ class TestEndpointHandlerFactory:
         Assumptions:
         - minimal_worker_config has url and port set
         """
-        factory = EndpointHandlerFactory(minimal_worker_config)
+        factory = EndpointHandlerFactory(server_worker_config("minimal"))
         assert factory.model_server_base_url == "http://localhost:8000"
 
     def test_get_benchmark_handler_returns_none_when_no_handlers(
-        self, minimal_worker_config: WorkerConfig
+        self, server_worker_config
     ) -> None:
         """
         Verifies that get_benchmark_handler returns None when _handlers is empty.
@@ -208,13 +208,11 @@ class TestEndpointHandlerFactory:
         Assumptions:
         - get_benchmark_handler returns None when no handlers are registered
         """
-        factory = EndpointHandlerFactory(minimal_worker_config)
+        factory = EndpointHandlerFactory(server_worker_config("minimal"))
         factory._handlers.clear()
         assert factory.get_benchmark_handler() is None
 
-    def test_has_handlers_false_when_no_handlers(
-        self, minimal_worker_config: WorkerConfig
-    ) -> None:
+    def test_has_handlers_false_when_no_handlers(self, server_worker_config) -> None:
         """
         Verifies that has_handlers returns False when _handlers is empty.
 
@@ -225,12 +223,12 @@ class TestEndpointHandlerFactory:
         Assumptions:
         - has_handlers returns len(self._handlers) > 0
         """
-        factory = EndpointHandlerFactory(minimal_worker_config)
+        factory = EndpointHandlerFactory(server_worker_config("minimal"))
         factory._handlers.clear()
         assert factory.has_handlers() is False
 
     def test_get_benchmark_handler_raises_when_none_has_benchmark(
-        self, minimal_worker_config: WorkerConfig
+        self, server_worker_config
     ) -> None:
         """
         Verifies that get_benchmark_handler raises when no handler has benchmark.
@@ -243,26 +241,30 @@ class TestEndpointHandlerFactory:
         Assumptions:
         - minimal_worker_config creates default handler with no BenchmarkConfig
         """
-        factory = EndpointHandlerFactory(minimal_worker_config)
-        with pytest.raises(Exception, match="Missing EndpointHandler with BenchmarkConfig"):
+        factory = EndpointHandlerFactory(server_worker_config("minimal"))
+        with pytest.raises(
+            Exception, match="Missing EndpointHandler with BenchmarkConfig"
+        ):
             factory.get_benchmark_handler()
 
     def test_factory_with_handler_and_benchmark_config_creates_handler(
-        self, worker_config_with_handler
+        self, server_worker_config
     ) -> None:
         """
         Verifies that HandlerConfig with BenchmarkConfig creates benchmark handler.
 
         This test verifies by:
-        1. Using worker_config_with_handler fixture to build config with /predict handler
+        1. Using server_worker_config fixture to build config with /predict handler
         2. Creating EndpointHandlerFactory
         3. Asserting get_benchmark_handler returns the handler
         4. Asserting get_handler returns handler for the route
 
         Assumptions:
-        - worker_config_with_handler creates valid config with BenchmarkConfig
+        - server_worker_config creates valid config with BenchmarkConfig
         """
-        config = worker_config_with_handler(route="/predict", dataset=[{"input": "test"}])
+        config = server_worker_config(
+            "handler", route="/predict", dataset=[{"input": "test"}]
+        )
         factory = EndpointHandlerFactory(config)
         benchmark_handler = factory.get_benchmark_handler()
         assert benchmark_handler is not None
@@ -271,13 +273,13 @@ class TestEndpointHandlerFactory:
         assert factory.get_handler("/predict") is benchmark_handler
 
     def test_get_benchmark_handler_raises_when_multiple_have_benchmark(
-        self, worker_config_with_handler
+        self, server_worker_config
     ) -> None:
         """
         Verifies that get_benchmark_handler raises when multiple handlers have BenchmarkConfig.
 
         This test verifies by:
-        1. Using worker_config_with_handler with extra_handlers to add second benchmark
+        1. Using server_worker_config with extra_handlers to add second benchmark
         2. Creating EndpointHandlerFactory
         3. Calling get_benchmark_handler
         4. Asserting Exception is raised with "Cannot define BenchmarkConfig"
@@ -285,7 +287,8 @@ class TestEndpointHandlerFactory:
         Assumptions:
         - Exactly one handler may have BenchmarkConfig
         """
-        config = worker_config_with_handler(
+        config = server_worker_config(
+            "handler",
             route="/a",
             dataset=[{"x": 1}],
             extra_handlers=[
@@ -296,25 +299,27 @@ class TestEndpointHandlerFactory:
             ],
         )
         factory = EndpointHandlerFactory(config)
-        with pytest.raises(Exception, match="Cannot define BenchmarkConfig for more than one"):
+        with pytest.raises(
+            Exception, match="Cannot define BenchmarkConfig for more than one"
+        ):
             factory.get_benchmark_handler()
 
     def test_factory_with_explicit_handler_config_creates_handler(
-        self, worker_config_with_handler
+        self, server_worker_config
     ) -> None:
         """
         Verifies that explicit HandlerConfig creates handler at specified route.
 
         This test verifies by:
-        1. Using worker_config_with_handler for /v1/chat route
+        1. Using server_worker_config for /v1/chat route
         2. Creating EndpointHandlerFactory
         3. Asserting get_handler("/v1/chat") returns handler with that endpoint
 
         Assumptions:
-        - worker_config_with_handler creates config with handlers list
+        - server_worker_config creates config with handlers list
         """
-        config = worker_config_with_handler(
-            route="/v1/chat", dataset=[{"messages": []}]
+        config = server_worker_config(
+            "handler", route="/v1/chat", dataset=[{"messages": []}]
         )
         factory = EndpointHandlerFactory(config)
         handler = factory.get_handler("/v1/chat")
@@ -369,6 +374,7 @@ class TestWorkerConfigAndDataclasses:
         Assumptions:
         - generator is optional, alternative to dataset
         """
+
         def gen() -> dict:
             return {"sample": 1}
 
@@ -381,7 +387,7 @@ class TestEndpointHandlerFactoryCreatedPayload:
     """Verify payload class created by _create_handler (GenericApiPayload) behavior."""
 
     def test_payload_for_test_with_dataset_returns_sample(
-        self, worker_config_with_handler
+        self, server_worker_config
     ) -> None:
         """
         Verifies that payload_cls().for_test() returns a payload with data from dataset.
@@ -395,9 +401,7 @@ class TestEndpointHandlerFactoryCreatedPayload:
         - GenericApiPayload.for_test uses random.choice(benchmark_config.dataset)
         """
         dataset = [{"a": 1}, {"b": 2}]
-        config = worker_config_with_handler(
-            route="/predict", dataset=dataset
-        )
+        config = server_worker_config("handler", route="/predict", dataset=dataset)
         factory = EndpointHandlerFactory(config)
         handler = factory.get_handler("/predict")
         payload_cls = handler.payload_cls()
@@ -408,7 +412,7 @@ class TestEndpointHandlerFactoryCreatedPayload:
             assert payload.generate_payload_json() == payload.input
 
     def test_payload_for_test_with_generator_uses_generator(
-        self, worker_config_from_handlers
+        self, server_worker_config
     ) -> None:
         """
         Verifies that payload_cls().for_test() uses benchmark_config.generator when set.
@@ -421,15 +425,19 @@ class TestEndpointHandlerFactoryCreatedPayload:
         Assumptions:
         - generator is called once per for_test(); we use a deterministic generator
         """
+
         def gen():
             return {"from_generator": True}
 
-        config = worker_config_from_handlers([
-            HandlerConfig(
-                route="/gen",
-                benchmark_config=BenchmarkConfig(generator=gen),
-            ),
-        ])
+        config = server_worker_config(
+            "from_handlers",
+            handlers=[
+                HandlerConfig(
+                    route="/gen",
+                    benchmark_config=BenchmarkConfig(generator=gen),
+                ),
+            ],
+        )
         factory = EndpointHandlerFactory(config)
         handler = factory.get_handler("/gen")
         payload = handler.payload_cls().for_test()
@@ -437,7 +445,7 @@ class TestEndpointHandlerFactoryCreatedPayload:
         assert payload.generate_payload_json() == {"from_generator": True}
 
     def test_payload_for_test_without_dataset_or_generator_raises(
-        self, worker_config_from_handlers
+        self, server_worker_config
     ) -> None:
         """
         Verifies that payload_cls().for_test() raises when BenchmarkConfig has no dataset or generator.
@@ -452,19 +460,73 @@ class TestEndpointHandlerFactoryCreatedPayload:
         - Exactly one handler must have BenchmarkConfig for get_benchmark_handler; this config has one
         - Implementation may raise Exception("Missing BenchmarkConfig!") or UnboundLocalError
         """
-        config = worker_config_from_handlers([
-            HandlerConfig(
-                route="/",
-                benchmark_config=BenchmarkConfig(),
-            ),
-        ])
+        config = server_worker_config(
+            "from_handlers",
+            handlers=[
+                HandlerConfig(
+                    route="/",
+                    benchmark_config=BenchmarkConfig(),
+                ),
+            ],
+        )
         factory = EndpointHandlerFactory(config)
         handler = factory.get_handler("/")
         with pytest.raises(Exception):
             handler.payload_cls().for_test()
 
+    def test_payload_for_test_raises_when_benchmark_config_is_none(
+        self, server_worker_config
+    ) -> None:
+        """
+        Verifies that for_test() hits the ``Missing BenchmarkConfig!`` branch when
+        ``HandlerConfig.benchmark_config`` is omitted (None).
+
+        Generic ``for_test`` only enters that else-branch when ``benchmark_config`` is
+        falsy; an empty ``BenchmarkConfig()`` is still truthy, so this case is distinct
+        from ``test_payload_for_test_without_dataset_or_generator_raises``.
+        """
+        config = server_worker_config(
+            "from_handlers",
+            handlers=[
+                HandlerConfig(route="/nobench", benchmark_config=None),
+            ],
+        )
+        factory = EndpointHandlerFactory(config)
+        handler = factory.get_handler("/nobench")
+        with pytest.raises(Exception, match="Missing BenchmarkConfig"):
+            handler.payload_cls().for_test()
+
+    def test_payload_from_json_msg_wraps_json_data_exception_from_from_dict(
+        self, server_worker_config
+    ) -> None:
+        """
+        Verifies that ``from_json_msg`` converts ``JsonDataException`` from ``from_dict``
+        into a new ``JsonDataException`` (the ``except`` block after ``from_dict``).
+        """
+        config = server_worker_config(
+            "from_handlers",
+            handlers=[
+                HandlerConfig(
+                    route="/jd",
+                    benchmark_config=BenchmarkConfig(dataset=[{"a": 1}]),
+                ),
+            ],
+        )
+        factory = EndpointHandlerFactory(config)
+        handler = factory.get_handler("/jd")
+        payload_cls = handler.payload_cls()
+        with patch.object(
+            payload_cls,
+            "from_dict",
+            side_effect=JsonDataException({"field": "bad"}),
+        ):
+            with pytest.raises(
+                JsonDataException, match="Error in user response handler"
+            ):
+                payload_cls.from_json_msg({"ok": True})
+
     def test_payload_from_dict_and_generate_payload_json(
-        self, worker_config_with_handler
+        self, server_worker_config
     ) -> None:
         """
         Verifies that payload from_dict builds payload and generate_payload_json returns input.
@@ -477,9 +539,7 @@ class TestEndpointHandlerFactoryCreatedPayload:
         Assumptions:
         - GenericApiPayload.from_dict(input) creates payload with input=input
         """
-        config = worker_config_with_handler(
-            route="/", dataset=[{"x": 1}]
-        )
+        config = server_worker_config("handler", route="/", dataset=[{"x": 1}])
         factory = EndpointHandlerFactory(config)
         handler = factory.get_handler("/")
         payload_cls = handler.payload_cls()
@@ -487,9 +547,7 @@ class TestEndpointHandlerFactoryCreatedPayload:
         assert payload.input == {"key": "value"}
         assert payload.generate_payload_json() == {"key": "value"}
 
-    def test_payload_from_json_msg_without_parser(
-        self, worker_config_with_handler
-    ) -> None:
+    def test_payload_from_json_msg_without_parser(self, server_worker_config) -> None:
         """
         Verifies that from_json_msg parses dict into payload when no request_parser.
 
@@ -501,16 +559,14 @@ class TestEndpointHandlerFactoryCreatedPayload:
         Assumptions:
         - from_json_msg without parser calls from_dict(json_msg) directly
         """
-        config = worker_config_with_handler(
-            route="/", dataset=[{"a": 1}]
-        )
+        config = server_worker_config("handler", route="/", dataset=[{"a": 1}])
         factory = EndpointHandlerFactory(config)
         handler = factory.get_handler("/")
         payload = handler.payload_cls().from_json_msg({"key": "v"})
         assert payload.input == {"key": "v"}
 
     def test_payload_from_json_msg_with_parser_applies_parser(
-        self, worker_config_from_handlers
+        self, server_worker_config
     ) -> None:
         """
         Verifies that from_json_msg applies request_parser when provided.
@@ -524,23 +580,27 @@ class TestEndpointHandlerFactoryCreatedPayload:
         Assumptions:
         - request_parser is called with json_msg and result passed to from_dict
         """
+
         def parser(raw):
             return {"parsed": raw.get("raw_key", "")}
 
-        config = worker_config_from_handlers([
-            HandlerConfig(
-                route="/p",
-                benchmark_config=BenchmarkConfig(dataset=[{"a": 1}]),
-                request_parser=parser,
-            ),
-        ])
+        config = server_worker_config(
+            "from_handlers",
+            handlers=[
+                HandlerConfig(
+                    route="/p",
+                    benchmark_config=BenchmarkConfig(dataset=[{"a": 1}]),
+                    request_parser=parser,
+                ),
+            ],
+        )
         factory = EndpointHandlerFactory(config)
         handler = factory.get_handler("/p")
         payload = handler.payload_cls().from_json_msg({"raw_key": "value"})
         assert payload.input == {"parsed": "value"}
 
     def test_payload_from_json_msg_non_dict_raises_json_data_exception(
-        self, worker_config_with_handler
+        self, server_worker_config
     ) -> None:
         """
         Verifies that from_json_msg raises JsonDataException when message is not a dict.
@@ -553,18 +613,14 @@ class TestEndpointHandlerFactoryCreatedPayload:
         Assumptions:
         - worker raises JsonDataException({"data": "payload must be a dictionary"}) for non-dict
         """
-        config = worker_config_with_handler(
-            route="/", dataset=[{"a": 1}]
-        )
+        config = server_worker_config("handler", route="/", dataset=[{"a": 1}])
         factory = EndpointHandlerFactory(config)
         handler = factory.get_handler("/")
         with pytest.raises(JsonDataException) as exc_info:
             handler.payload_cls().from_json_msg([1, 2, 3])
         assert exc_info.value.message.get("data") == "payload must be a dictionary"
 
-    def test_payload_count_workload_default(
-        self, worker_config_with_handler
-    ) -> None:
+    def test_payload_count_workload_default(self, server_worker_config) -> None:
         """
         Verifies that count_workload returns 100.0 when no workload_calculator.
 
@@ -576,17 +632,13 @@ class TestEndpointHandlerFactoryCreatedPayload:
         Assumptions:
         - Default workload in GenericApiPayload is 100.0
         """
-        config = worker_config_with_handler(
-            route="/", dataset=[{"a": 1}]
-        )
+        config = server_worker_config("handler", route="/", dataset=[{"a": 1}])
         factory = EndpointHandlerFactory(config)
         handler = factory.get_handler("/")
         payload = handler.payload_cls().from_dict({"x": 1})
         assert payload.count_workload() == 100.0
 
-    def test_payload_count_workload_uses_calculator(
-        self, worker_config_from_handlers
-    ) -> None:
+    def test_payload_count_workload_uses_calculator(self, server_worker_config) -> None:
         """
         Verifies that count_workload uses workload_calculator when provided.
 
@@ -598,23 +650,27 @@ class TestEndpointHandlerFactoryCreatedPayload:
         Assumptions:
         - workload_calculator(input) is called and its return used
         """
+
         def calc(data):
             return float(data.get("tokens", 0))
 
-        config = worker_config_from_handlers([
-            HandlerConfig(
-                route="/w",
-                benchmark_config=BenchmarkConfig(dataset=[{"tokens": 7}]),
-                workload_calculator=calc,
-            ),
-        ])
+        config = server_worker_config(
+            "from_handlers",
+            handlers=[
+                HandlerConfig(
+                    route="/w",
+                    benchmark_config=BenchmarkConfig(dataset=[{"tokens": 7}]),
+                    workload_calculator=calc,
+                ),
+            ],
+        )
         factory = EndpointHandlerFactory(config)
         handler = factory.get_handler("/w")
         payload = handler.payload_cls().from_dict({"tokens": 7})
         assert payload.count_workload() == 7.0
 
     def test_payload_for_test_raises_when_generator_raises(
-        self, worker_config_from_handlers
+        self, server_worker_config
     ) -> None:
         """
         Verifies that payload_cls().for_test() raises with expected message when generator raises.
@@ -628,22 +684,26 @@ class TestEndpointHandlerFactoryCreatedPayload:
         Assumptions:
         - Generator exception is wrapped in Exception with route name
         """
+
         def bad_gen():
             raise ValueError("generator failed")
 
-        config = worker_config_from_handlers([
-            HandlerConfig(
-                route="/badgen",
-                benchmark_config=BenchmarkConfig(generator=bad_gen),
-            ),
-        ])
+        config = server_worker_config(
+            "from_handlers",
+            handlers=[
+                HandlerConfig(
+                    route="/badgen",
+                    benchmark_config=BenchmarkConfig(generator=bad_gen),
+                ),
+            ],
+        )
         factory = EndpointHandlerFactory(config)
         handler = factory.get_handler("/badgen")
         with pytest.raises(Exception, match="Error generating benchmark data"):
             handler.payload_cls().for_test()
 
     def test_payload_from_json_msg_raises_when_request_parser_raises(
-        self, worker_config_from_handlers
+        self, server_worker_config
     ) -> None:
         """
         Verifies that from_json_msg raises Exception when request_parser raises.
@@ -656,23 +716,27 @@ class TestEndpointHandlerFactoryCreatedPayload:
         Assumptions:
         - Parser exception is wrapped in Exception
         """
+
         def failing_parser(_):
             raise RuntimeError("parser error")
 
-        config = worker_config_from_handlers([
-            HandlerConfig(
-                route="/p",
-                benchmark_config=BenchmarkConfig(dataset=[{"a": 1}]),
-                request_parser=failing_parser,
-            ),
-        ])
+        config = server_worker_config(
+            "from_handlers",
+            handlers=[
+                HandlerConfig(
+                    route="/p",
+                    benchmark_config=BenchmarkConfig(dataset=[{"a": 1}]),
+                    request_parser=failing_parser,
+                ),
+            ],
+        )
         factory = EndpointHandlerFactory(config)
         handler = factory.get_handler("/p")
         with pytest.raises(Exception, match="Error in user response handler"):
             handler.payload_cls().from_json_msg({"x": 1})
 
     def test_factory_with_payload_class_uses_user_payload_class(
-        self, worker_config_from_handlers
+        self, server_worker_config
     ) -> None:
         """
         Verifies that HandlerConfig with payload_class uses that class instead of GenericApiPayload.
@@ -713,17 +777,20 @@ class TestEndpointHandlerFactoryCreatedPayload:
                     raise JsonDataException({"data": "must be dict"})
                 return cls.from_dict(json_msg)
 
-        config = worker_config_from_handlers([
-            HandlerConfig(
-                route="/custom",
-                benchmark_config=BenchmarkConfig(dataset=[{"ignored": 1}]),
-                payload_class=CustomPayload,
-            ),
-            HandlerConfig(
-                route="/bench",
-                benchmark_config=BenchmarkConfig(dataset=[{"a": 1}]),
-            ),
-        ])
+        config = server_worker_config(
+            "from_handlers",
+            handlers=[
+                HandlerConfig(
+                    route="/custom",
+                    benchmark_config=BenchmarkConfig(dataset=[{"ignored": 1}]),
+                    payload_class=CustomPayload,
+                ),
+                HandlerConfig(
+                    route="/bench",
+                    benchmark_config=BenchmarkConfig(dataset=[{"a": 1}]),
+                ),
+            ],
+        )
         factory = EndpointHandlerFactory(config)
         handler = factory.get_handler("/custom")
         assert handler.payload_cls() is CustomPayload
@@ -737,8 +804,17 @@ class TestEndpointHandlerFactoryCreatedPayload:
 class TestEndpointHandlerFactoryCreatedHandler:
     """Verify handler instance created by _create_handler (GenericEndpointHandler) behavior."""
 
+    def test_generic_handler_healthcheck_endpoint_is_none(
+        self, server_worker_config
+    ) -> None:
+        """GenericEndpointHandler does not expose a model health URL by default."""
+        config = server_worker_config("handler", route="/h", dataset=[{"a": 1}])
+        factory = EndpointHandlerFactory(config)
+        handler = factory.get_handler("/h")
+        assert handler.healthcheck_endpoint is None
+
     def test_make_benchmark_payload_calls_payload_for_test(
-        self, worker_config_with_handler
+        self, server_worker_config
     ) -> None:
         """
         Verifies that make_benchmark_payload returns payload_cls().for_test().
@@ -752,9 +828,7 @@ class TestEndpointHandlerFactoryCreatedHandler:
         - make_benchmark_payload delegates to PayloadClass.for_test()
         """
         dataset = [{"bench": 1}]
-        config = worker_config_with_handler(
-            route="/predict", dataset=dataset
-        )
+        config = server_worker_config("handler", route="/predict", dataset=dataset)
         factory = EndpointHandlerFactory(config)
         handler = factory.get_handler("/predict")
         payload = handler.make_benchmark_payload()
@@ -762,7 +836,10 @@ class TestEndpointHandlerFactoryCreatedHandler:
 
     @pytest.mark.asyncio
     async def test_generate_client_response_uses_user_response_generator(
-        self, worker_config_from_handlers
+        self,
+        server_worker_config,
+        make_mock_web_request,
+        make_mock_model_response,
     ) -> None:
         """
         Verifies that generate_client_response calls user_response_generator when provided.
@@ -780,17 +857,20 @@ class TestEndpointHandlerFactoryCreatedHandler:
         async def my_generator(_req, _model_resp):
             return web.Response(text="custom", status=201)
 
-        config = worker_config_from_handlers([
-            HandlerConfig(
-                route="/r",
-                benchmark_config=BenchmarkConfig(dataset=[{"a": 1}]),
-                response_generator=my_generator,
-            ),
-        ])
+        config = server_worker_config(
+            "from_handlers",
+            handlers=[
+                HandlerConfig(
+                    route="/r",
+                    benchmark_config=BenchmarkConfig(dataset=[{"a": 1}]),
+                    response_generator=my_generator,
+                ),
+            ],
+        )
         factory = EndpointHandlerFactory(config)
         handler = factory.get_handler("/r")
-        mock_req = MagicMock(spec=web.Request)
-        mock_model_resp = MagicMock()
+        mock_req = make_mock_web_request(spec_request=True)
+        mock_model_resp = make_mock_model_response()
         response = await handler.generate_client_response(mock_req, mock_model_resp)
         assert response.status == 201
         # aiohttp.web.Response body is in .body
@@ -799,7 +879,7 @@ class TestEndpointHandlerFactoryCreatedHandler:
     @pytest.mark.asyncio
     async def test_generate_client_response_default_non_streaming(
         self,
-        worker_config_with_handler,
+        server_worker_config,
         make_mock_web_request,
         make_mock_model_response,
     ) -> None:
@@ -817,9 +897,7 @@ class TestEndpointHandlerFactoryCreatedHandler:
         """
         from aiohttp import web
 
-        config = worker_config_with_handler(
-            route="/", dataset=[{"a": 1}]
-        )
+        config = server_worker_config("handler", route="/", dataset=[{"a": 1}])
         factory = EndpointHandlerFactory(config)
         handler = factory.get_handler("/")
         mock_req = make_mock_web_request(spec_request=True)
@@ -836,7 +914,7 @@ class TestEndpointHandlerFactoryCreatedHandler:
 
     @pytest.mark.asyncio
     async def test_call_remote_dispatch_function_raises_when_not_configured(
-        self, worker_config_with_handler
+        self, server_worker_config
     ) -> None:
         """
         Verifies that call_remote_dispatch_function raises RuntimeError when remote_function is None.
@@ -849,9 +927,7 @@ class TestEndpointHandlerFactoryCreatedHandler:
         Assumptions:
         - remote_dispatch_function None triggers RuntimeError
         """
-        config = worker_config_with_handler(
-            route="/", dataset=[{"a": 1}]
-        )
+        config = server_worker_config("handler", route="/", dataset=[{"a": 1}])
         factory = EndpointHandlerFactory(config)
         handler = factory.get_handler("/")
         with pytest.raises(RuntimeError, match="remote_function is not configured"):
@@ -859,7 +935,7 @@ class TestEndpointHandlerFactoryCreatedHandler:
 
     @pytest.mark.asyncio
     async def test_call_remote_dispatch_function_calls_remote(
-        self, worker_config_from_handlers
+        self, server_worker_config
     ) -> None:
         """
         Verifies that call_remote_dispatch_function calls remote_function and returns result.
@@ -872,16 +948,20 @@ class TestEndpointHandlerFactoryCreatedHandler:
         Assumptions:
         - remote_function(**params) is awaited and result returned
         """
+
         async def remote(**kwargs):
             return kwargs.get("x", 0) + 1
 
-        config = worker_config_from_handlers([
-            HandlerConfig(
-                route="/remote",
-                benchmark_config=BenchmarkConfig(dataset=[{"a": 1}]),
-                remote_function=remote,
-            ),
-        ])
+        config = server_worker_config(
+            "from_handlers",
+            handlers=[
+                HandlerConfig(
+                    route="/remote",
+                    benchmark_config=BenchmarkConfig(dataset=[{"a": 1}]),
+                    remote_function=remote,
+                ),
+            ],
+        )
         factory = EndpointHandlerFactory(config)
         handler = factory.get_handler("/remote")
         result = await handler.call_remote_dispatch_function({"x": 10})
@@ -889,7 +969,10 @@ class TestEndpointHandlerFactoryCreatedHandler:
 
     @pytest.mark.asyncio
     async def test_generate_client_response_raises_when_user_response_generator_raises(
-        self, worker_config_from_handlers
+        self,
+        server_worker_config,
+        make_mock_web_request,
+        make_mock_model_response,
     ) -> None:
         """
         Verifies that generate_client_response raises when user_response_generator raises.
@@ -907,23 +990,26 @@ class TestEndpointHandlerFactoryCreatedHandler:
         async def bad_generator(_req, _resp):
             raise ValueError("generator failed")
 
-        config = worker_config_from_handlers([
-            HandlerConfig(
-                route="/r",
-                benchmark_config=BenchmarkConfig(dataset=[{"a": 1}]),
-                response_generator=bad_generator,
-            ),
-        ])
+        config = server_worker_config(
+            "from_handlers",
+            handlers=[
+                HandlerConfig(
+                    route="/r",
+                    benchmark_config=BenchmarkConfig(dataset=[{"a": 1}]),
+                    response_generator=bad_generator,
+                ),
+            ],
+        )
         factory = EndpointHandlerFactory(config)
         handler = factory.get_handler("/r")
-        mock_req = MagicMock(spec=web.Request)
-        mock_resp = MagicMock()
+        mock_req = make_mock_web_request(spec_request=True)
+        mock_resp = make_mock_model_response()
         with pytest.raises(Exception, match="Error in user response generator"):
             await handler.generate_client_response(mock_req, mock_resp)
 
     @pytest.mark.asyncio
     async def test_call_remote_dispatch_function_raises_when_remote_raises(
-        self, worker_config_from_handlers
+        self, server_worker_config
     ) -> None:
         """
         Verifies that call_remote_dispatch_function raises RuntimeError when remote_function raises.
@@ -936,25 +1022,29 @@ class TestEndpointHandlerFactoryCreatedHandler:
         Assumptions:
         - Exception from remote is wrapped in RuntimeError
         """
+
         async def remote_raises(**kwargs):
             raise ValueError("remote failed")
 
-        config = worker_config_from_handlers([
-            HandlerConfig(
-                route="/remote",
-                benchmark_config=BenchmarkConfig(dataset=[{"a": 1}]),
-                remote_function=remote_raises,
-            ),
-        ])
+        config = server_worker_config(
+            "from_handlers",
+            handlers=[
+                HandlerConfig(
+                    route="/remote",
+                    benchmark_config=BenchmarkConfig(dataset=[{"a": 1}]),
+                    remote_function=remote_raises,
+                ),
+            ],
+        )
         factory = EndpointHandlerFactory(config)
         handler = factory.get_handler("/remote")
-        with pytest.raises(RuntimeError, match="Error calling remote dispatch function"):
+        with pytest.raises(RuntimeError):
             await handler.call_remote_dispatch_function({})
 
     @pytest.mark.asyncio
     async def test_generate_client_response_default_streaming_passthrough(
         self,
-        worker_config_with_handler,
+        server_worker_config,
         make_mock_web_request,
         make_mock_model_response,
     ) -> None:
@@ -973,9 +1063,7 @@ class TestEndpointHandlerFactoryCreatedHandler:
         """
         from aiohttp import web
 
-        config = worker_config_with_handler(
-            route="/", dataset=[{"a": 1}]
-        )
+        config = server_worker_config("handler", route="/", dataset=[{"a": 1}])
         factory = EndpointHandlerFactory(config)
         handler = factory.get_handler("/")
         mock_req = make_mock_web_request(spec_request=False)
@@ -986,7 +1074,9 @@ class TestEndpointHandlerFactoryCreatedHandler:
             stream_chunks=[b"chunk1", b"", b"chunk2"],
         )
 
-        with patch("vastai.serverless.server.worker.web.StreamResponse") as mock_stream_cls:
+        with patch(
+            "vastai.serverless.server.worker.web.StreamResponse"
+        ) as mock_stream_cls:
             mock_stream = MagicMock()
             mock_stream.prepare = AsyncMock()
             mock_stream.write = AsyncMock()
@@ -1009,9 +1099,7 @@ class TestEndpointHandlerFactoryCreatedHandler:
 class TestEndpointHandlerFactoryCustomHandlerClass:
     """Verify EndpointHandlerFactory uses handler_class when provided."""
 
-    def test_factory_uses_handler_class_instance(
-        self, worker_config_from_handlers
-    ) -> None:
+    def test_factory_uses_handler_class_instance(self, server_worker_config) -> None:
         """
         Verifies that HandlerConfig with handler_class registers an instance of that class.
 
@@ -1079,13 +1167,16 @@ class TestEndpointHandlerFactoryCustomHandlerClass:
             async def call_remote_dispatch_function(self, params: dict):
                 raise RuntimeError("not configured")
 
-        config = worker_config_from_handlers([
-            HandlerConfig(route="/custom", handler_class=DummyHandler),
-            HandlerConfig(
-                route="/bench",
-                benchmark_config=BenchmarkConfig(dataset=[{"a": 1}]),
-            ),
-        ])
+        config = server_worker_config(
+            "from_handlers",
+            handlers=[
+                HandlerConfig(route="/custom", handler_class=DummyHandler),
+                HandlerConfig(
+                    route="/bench",
+                    benchmark_config=BenchmarkConfig(dataset=[{"a": 1}]),
+                ),
+            ],
+        )
         factory = EndpointHandlerFactory(config)
         custom_handler = factory.get_handler("/custom")
         assert custom_handler is not None

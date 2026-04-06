@@ -481,7 +481,7 @@ class TestOpenOnce:
     """Verify _open_once executes single HTTP request."""
 
     async def test_open_once_uses_get_for_get_method(
-        self, make_mock_session
+        self, make_aiohttp_client_session_mock
     ) -> None:
         """
         Verifies that _open_once calls session.get when method is GET.
@@ -493,9 +493,9 @@ class TestOpenOnce:
 
         Assumptions:
         - GET uses session.get
-        - make_mock_session fixture provides mock session factory
+        - make_aiohttp_client_session_mock fixture provides mock session factory
         """
-        mock_session = make_mock_session(get_returns=MagicMock())
+        mock_session = make_aiohttp_client_session_mock(get_returns=MagicMock())
 
         await _open_once(
             session=mock_session,
@@ -509,7 +509,7 @@ class TestOpenOnce:
         mock_session.post.assert_not_called()
 
     async def test_open_once_uses_post_for_post_method(
-        self, make_mock_session
+        self, make_aiohttp_client_session_mock
     ) -> None:
         """
         Verifies that _open_once calls session.post when method is POST.
@@ -521,9 +521,9 @@ class TestOpenOnce:
 
         Assumptions:
         - POST uses session.post
-        - make_mock_session fixture provides mock session factory
+        - make_aiohttp_client_session_mock fixture provides mock session factory
         """
-        mock_session = make_mock_session(post_returns=MagicMock())
+        mock_session = make_aiohttp_client_session_mock(post_returns=MagicMock())
 
         kwargs = {"headers": {}, "json": {"x": 1}}
         await _open_once(
@@ -544,7 +544,7 @@ class TestMakeRequest:
     async def test_make_request_success_returns_ok_result(
         self,
         make_mock_http_response,
-        make_mock_make_request_client,
+        make_request_http_mocks,
         patch_build_kwargs,
     ) -> None:
         """
@@ -564,7 +564,7 @@ class TestMakeRequest:
             text='{"result": "ok"}',
             json_data={"result": "ok"},
         )
-        _, mock_client = make_mock_make_request_client(mock_resp)
+        _, mock_client = make_request_http_mocks(mock_resp)
 
         result = await _make_request(
             client=mock_client,
@@ -582,7 +582,7 @@ class TestMakeRequest:
     async def test_make_request_non_retryable_4xx_returns_ok_false(
         self,
         make_mock_http_response,
-        make_mock_make_request_client,
+        make_request_http_mocks,
         patch_build_kwargs,
     ) -> None:
         """
@@ -601,7 +601,7 @@ class TestMakeRequest:
             status=404,
             text="Not Found",
         )
-        _, mock_client = make_mock_make_request_client(mock_resp)
+        _, mock_client = make_request_http_mocks(mock_resp)
 
         result = await _make_request(
             client=mock_client,
@@ -619,7 +619,7 @@ class TestMakeRequest:
     async def test_make_request_successful_json_parse_failure_raises(
         self,
         make_mock_http_response,
-        make_mock_make_request_client,
+        make_request_http_mocks,
         patch_build_kwargs,
     ) -> None:
         """
@@ -639,7 +639,7 @@ class TestMakeRequest:
             text="not json",
             json_side_effect=Exception("json decode error"),
         )
-        _, mock_client = make_mock_make_request_client(mock_resp)
+        _, mock_client = make_request_http_mocks(mock_resp)
 
         with pytest.raises(Exception, match="Invalid JSON"):
             await _make_request(
@@ -654,7 +654,7 @@ class TestMakeRequest:
     async def test_make_request_sets_full_url_in_result(
         self,
         make_mock_http_response,
-        make_mock_make_request_client,
+        make_request_http_mocks,
         patch_build_kwargs,
     ) -> None:
         """
@@ -673,7 +673,7 @@ class TestMakeRequest:
             text="{}",
             json_data={},
         )
-        _, mock_client = make_mock_make_request_client(mock_resp)
+        _, mock_client = make_request_http_mocks(mock_resp)
 
         result = await _make_request(
             client=mock_client,
@@ -688,7 +688,7 @@ class TestMakeRequest:
 
     async def test_make_request_stream_success_returns_stream_iterator(
         self,
-        make_mock_make_request_client,
+        make_request_http_mocks,
         make_sse_response,
         patch_build_kwargs,
     ) -> None:
@@ -708,13 +708,7 @@ class TestMakeRequest:
         mock_resp.headers = {}
         mock_resp.release = MagicMock()
 
-        mock_session = MagicMock()
-        mock_session.get = AsyncMock(return_value=mock_resp)
-        mock_session.post = AsyncMock()
-
-        mock_client = MagicMock()
-        mock_client._get_session = AsyncMock(return_value=mock_session)
-        mock_client.get_ssl_context = AsyncMock(return_value=None)
+        _, mock_client = make_request_http_mocks(mock_resp)
 
         result = await _make_request(
             client=mock_client,
@@ -737,7 +731,7 @@ class TestMakeRequest:
     async def test_make_request_stream_non_2xx_returns_ok_false(
         self,
         make_mock_http_response,
-        make_mock_make_request_client,
+        make_request_http_mocks,
         patch_build_kwargs,
     ) -> None:
         """
@@ -756,7 +750,7 @@ class TestMakeRequest:
             text="Internal Server Error",
         )
         mock_resp.release = MagicMock()
-        _, mock_client = make_mock_make_request_client(mock_resp)
+        _, mock_client = make_request_http_mocks(mock_resp)
 
         result = await _make_request(
             client=mock_client,
@@ -775,7 +769,7 @@ class TestMakeRequest:
     async def test_make_request_non_2xx_with_json_body_parses_best_effort(
         self,
         make_mock_http_response,
-        make_mock_make_request_client,
+        make_request_http_mocks,
         patch_build_kwargs,
     ) -> None:
         """
@@ -792,7 +786,7 @@ class TestMakeRequest:
             status=400,
             text='{"error": "bad request"}',
         )
-        _, mock_client = make_mock_make_request_client(mock_resp)
+        _, mock_client = make_request_http_mocks(mock_resp)
 
         result = await _make_request(
             client=mock_client,
@@ -808,7 +802,7 @@ class TestMakeRequest:
 
     async def test_make_request_timeout_on_last_attempt_raises(
         self,
-        make_mock_make_request_client,
+        make_request_http_mocks,
         patch_build_kwargs,
     ) -> None:
         """
@@ -822,13 +816,9 @@ class TestMakeRequest:
         Assumptions:
         - Timeout on final attempt propagates as TimeoutError
         """
-        mock_session = MagicMock()
-        mock_session.get = AsyncMock(side_effect=asyncio.TimeoutError())
-        mock_session.post = AsyncMock()
-
-        mock_client = MagicMock()
-        mock_client._get_session = AsyncMock(return_value=mock_session)
-        mock_client.get_ssl_context = AsyncMock(return_value=None)
+        _, mock_client = make_request_http_mocks(
+            get_side_effect=asyncio.TimeoutError(),
+        )
 
         with pytest.raises(TimeoutError, match="timed out after"):
             await _make_request(
@@ -843,7 +833,7 @@ class TestMakeRequest:
 
     async def test_make_request_stream_timeout_on_last_attempt_raises(
         self,
-        make_mock_make_request_client,
+        make_request_http_mocks,
         patch_build_kwargs,
     ) -> None:
         """
@@ -857,13 +847,9 @@ class TestMakeRequest:
         Assumptions:
         - Stream path TimeoutError on final attempt propagates
         """
-        mock_session = MagicMock()
-        mock_session.get = AsyncMock(side_effect=asyncio.TimeoutError())
-        mock_session.post = AsyncMock()
-
-        mock_client = MagicMock()
-        mock_client._get_session = AsyncMock(return_value=mock_session)
-        mock_client.get_ssl_context = AsyncMock(return_value=None)
+        _, mock_client = make_request_http_mocks(
+            get_side_effect=asyncio.TimeoutError(),
+        )
 
         with pytest.raises(TimeoutError, match="timed out after"):
             await _make_request(
@@ -879,7 +865,7 @@ class TestMakeRequest:
     async def test_make_request_stream_non_2xx_json_parse_fails_silent(
         self,
         make_mock_http_response,
-        make_mock_make_request_client,
+        make_request_http_mocks,
         patch_build_kwargs,
     ) -> None:
         """
@@ -897,7 +883,7 @@ class TestMakeRequest:
             text='{ invalid json }',
         )
         mock_resp.release = MagicMock()
-        _, mock_client = make_mock_make_request_client(mock_resp)
+        _, mock_client = make_request_http_mocks(mock_resp)
 
         result = await _make_request(
             client=mock_client,
@@ -914,7 +900,7 @@ class TestMakeRequest:
 
     async def test_make_request_exception_on_last_attempt_raises(
         self,
-        make_mock_make_request_client,
+        make_request_http_mocks,
         patch_build_kwargs,
     ) -> None:
         """
@@ -928,13 +914,9 @@ class TestMakeRequest:
         Assumptions:
         - Generic exception on final attempt propagates
         """
-        mock_session = MagicMock()
-        mock_session.get = AsyncMock(side_effect=ConnectionError("refused"))
-        mock_session.post = AsyncMock()
-
-        mock_client = MagicMock()
-        mock_client._get_session = AsyncMock(return_value=mock_session)
-        mock_client.get_ssl_context = AsyncMock(return_value=None)
+        _, mock_client = make_request_http_mocks(
+            get_side_effect=ConnectionError("refused"),
+        )
 
         with pytest.raises(ConnectionError, match="refused"):
             await _make_request(
@@ -949,7 +931,7 @@ class TestMakeRequest:
     async def test_make_request_client_with_logger_logs_on_success(
         self,
         make_mock_http_response,
-        make_mock_make_request_client,
+        make_request_http_mocks,
         patch_build_kwargs,
     ) -> None:
         """
@@ -968,7 +950,7 @@ class TestMakeRequest:
             text='{"ok": true}',
             json_data={"ok": True},
         )
-        _, mock_client = make_mock_make_request_client(mock_resp)
+        _, mock_client = make_request_http_mocks(mock_resp)
         mock_client.logger = MagicMock()
 
         await _make_request(
@@ -985,7 +967,7 @@ class TestMakeRequest:
     async def test_make_request_method_uppercased(
         self,
         make_mock_http_response,
-        make_mock_make_request_client,
+        make_request_http_mocks,
         patch_build_kwargs,
     ) -> None:
         """
@@ -1003,16 +985,10 @@ class TestMakeRequest:
             text="{}",
             json_data={},
         )
-        mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
-        mock_resp.__aexit__ = AsyncMock(return_value=None)
 
-        mock_session = MagicMock()
-        mock_session.get = AsyncMock()
-        mock_session.post = AsyncMock(return_value=mock_resp)
-
-        mock_client = MagicMock()
-        mock_client._get_session = AsyncMock(return_value=mock_session)
-        mock_client.get_ssl_context = AsyncMock(return_value=None)
+        mock_session, mock_client = make_request_http_mocks(
+            post_return=mock_resp,
+        )
 
         with patch("vastai.serverless.client.connection._build_kwargs") as mock_build:
             mock_build.return_value = {
@@ -1037,7 +1013,7 @@ class TestMakeRequest:
     async def test_make_request_stream_non_2xx_with_json_parses_best_effort(
         self,
         make_mock_http_response,
-        make_mock_make_request_client,
+        make_request_http_mocks,
         patch_build_kwargs,
     ) -> None:
         """
@@ -1055,7 +1031,7 @@ class TestMakeRequest:
             text='{"error": "server"}',
         )
         mock_resp.release = MagicMock()
-        _, mock_client = make_mock_make_request_client(mock_resp)
+        _, mock_client = make_request_http_mocks(mock_resp)
 
         result = await _make_request(
             client=mock_client,
@@ -1073,7 +1049,7 @@ class TestMakeRequest:
     async def test_make_request_stream_retryable_retries_then_returns(
         self,
         make_mock_http_response,
-        make_mock_make_request_client,
+        make_request_http_mocks,
         patch_build_kwargs,
     ) -> None:
         """
@@ -1092,15 +1068,9 @@ class TestMakeRequest:
         mock_resp_404 = make_mock_http_response(status=404, text="Not Found")
         mock_resp_404.release = MagicMock()
 
-        mock_session = MagicMock()
-        mock_session.get = AsyncMock(
-            side_effect=[mock_resp_503, mock_resp_404]
+        mock_session, mock_client = make_request_http_mocks(
+            get_side_effect=[mock_resp_503, mock_resp_404],
         )
-        mock_session.post = AsyncMock()
-
-        mock_client = MagicMock()
-        mock_client._get_session = AsyncMock(return_value=mock_session)
-        mock_client.get_ssl_context = AsyncMock(return_value=None)
 
         with patch(
             "vastai.serverless.client.connection.asyncio.sleep",
@@ -1123,7 +1093,7 @@ class TestMakeRequest:
     async def test_make_request_stream_timeout_retries_then_succeeds(
         self,
         make_mock_http_response,
-        make_mock_make_request_client,
+        make_request_http_mocks,
         patch_build_kwargs,
     ) -> None:
         """
@@ -1143,15 +1113,9 @@ class TestMakeRequest:
             json_data={"ok": True},
         )
 
-        mock_session = MagicMock()
-        mock_session.get = AsyncMock(
-            side_effect=[asyncio.TimeoutError(), mock_resp]
+        mock_session, mock_client = make_request_http_mocks(
+            get_side_effect=[asyncio.TimeoutError(), mock_resp],
         )
-        mock_session.post = AsyncMock()
-
-        mock_client = MagicMock()
-        mock_client._get_session = AsyncMock(return_value=mock_session)
-        mock_client.get_ssl_context = AsyncMock(return_value=None)
 
         with patch(
             "vastai.serverless.client.connection.asyncio.sleep",
@@ -1173,7 +1137,7 @@ class TestMakeRequest:
     async def test_make_request_stream_exception_retries_then_succeeds(
         self,
         make_mock_http_response,
-        make_mock_make_request_client,
+        make_request_http_mocks,
         patch_build_kwargs,
     ) -> None:
         """
@@ -1193,15 +1157,9 @@ class TestMakeRequest:
             json_data={"ok": True},
         )
 
-        mock_session = MagicMock()
-        mock_session.get = AsyncMock(
-            side_effect=[ConnectionError("reset"), mock_resp]
+        mock_session, mock_client = make_request_http_mocks(
+            get_side_effect=[ConnectionError("reset"), mock_resp],
         )
-        mock_session.post = AsyncMock()
-
-        mock_client = MagicMock()
-        mock_client._get_session = AsyncMock(return_value=mock_session)
-        mock_client.get_ssl_context = AsyncMock(return_value=None)
 
         with patch(
             "vastai.serverless.client.connection.asyncio.sleep",
@@ -1222,7 +1180,7 @@ class TestMakeRequest:
 
     async def test_make_request_stream_exception_on_last_attempt_raises(
         self,
-        make_mock_make_request_client,
+        make_request_http_mocks,
         patch_build_kwargs,
     ) -> None:
         """
@@ -1235,13 +1193,9 @@ class TestMakeRequest:
         Assumptions:
         - Exception on final attempt is re-raised
         """
-        mock_session = MagicMock()
-        mock_session.get = AsyncMock(side_effect=ConnectionError("fail"))
-        mock_session.post = AsyncMock()
-
-        mock_client = MagicMock()
-        mock_client._get_session = AsyncMock(return_value=mock_session)
-        mock_client.get_ssl_context = AsyncMock(return_value=None)
+        _, mock_client = make_request_http_mocks(
+            get_side_effect=ConnectionError("fail"),
+        )
 
         with patch(
             "vastai.serverless.client.connection.asyncio.sleep",
@@ -1261,7 +1215,7 @@ class TestMakeRequest:
     async def test_make_request_client_with_logger_logs_on_non_2xx(
         self,
         make_mock_http_response,
-        make_mock_make_request_client,
+        make_request_http_mocks,
         patch_build_kwargs,
     ) -> None:
         """
@@ -1279,7 +1233,7 @@ class TestMakeRequest:
             status=404,
             text="Not Found",
         )
-        _, mock_client = make_mock_make_request_client(mock_resp)
+        _, mock_client = make_request_http_mocks(mock_resp)
         mock_client.logger = MagicMock()
 
         await _make_request(
@@ -1296,7 +1250,7 @@ class TestMakeRequest:
     async def test_make_request_non_stream_retryable_retries_then_returns(
         self,
         make_mock_http_response,
-        make_mock_make_request_client,
+        make_request_http_mocks,
         patch_build_kwargs,
     ) -> None:
         """
@@ -1313,15 +1267,9 @@ class TestMakeRequest:
         mock_resp_429 = make_mock_http_response(status=429, text="Too Many")
         mock_resp_400 = make_mock_http_response(status=400, text="Bad")
 
-        mock_session = MagicMock()
-        mock_session.get = AsyncMock(
-            side_effect=[mock_resp_429, mock_resp_400]
+        mock_session, mock_client = make_request_http_mocks(
+            get_side_effect=[mock_resp_429, mock_resp_400],
         )
-        mock_session.post = AsyncMock()
-
-        mock_client = MagicMock()
-        mock_client._get_session = AsyncMock(return_value=mock_session)
-        mock_client.get_ssl_context = AsyncMock(return_value=None)
 
         with patch(
             "vastai.serverless.client.connection.asyncio.sleep",
@@ -1342,7 +1290,7 @@ class TestMakeRequest:
 
     async def test_make_request_non_stream_exception_retries_then_raises(
         self,
-        make_mock_make_request_client,
+        make_request_http_mocks,
         patch_build_kwargs,
     ) -> None:
         """
@@ -1355,13 +1303,9 @@ class TestMakeRequest:
         Assumptions:
         - Exception triggers sleep and retry; last attempt raises
         """
-        mock_session = MagicMock()
-        mock_session.get = AsyncMock(side_effect=OSError("network"))
-        mock_session.post = AsyncMock()
-
-        mock_client = MagicMock()
-        mock_client._get_session = AsyncMock(return_value=mock_session)
-        mock_client.get_ssl_context = AsyncMock(return_value=None)
+        _, mock_client = make_request_http_mocks(
+            get_side_effect=OSError("network"),
+        )
 
         with patch(
             "vastai.serverless.client.connection.asyncio.sleep",
@@ -1376,3 +1320,168 @@ class TestMakeRequest:
                     method="GET",
                     retries=2,
                 )
+
+    async def test_make_request_stream_zero_retries_returns_initial_result(
+        self,
+        make_request_http_mocks,
+        patch_build_kwargs,
+    ) -> None:
+        """Stream branch with retries=0 never enters the attempt loop (fallthrough)."""
+        mock_resp = MagicMock()
+        mock_session, mock_client = make_request_http_mocks()
+        mock_session.get = AsyncMock(return_value=mock_resp)
+
+        result = await _make_request(
+            client=mock_client,
+            route="/s",
+            api_key="sk-test",
+            url="https://api.example.com",
+            method="GET",
+            retries=0,
+            stream=True,
+        )
+
+        assert result["ok"] is False
+        assert result["attempt"] == 0
+        mock_session.get.assert_not_called()
+
+    async def test_make_request_non_stream_zero_retries_returns_initial_result(
+        self,
+        make_request_http_mocks,
+        patch_build_kwargs,
+    ) -> None:
+        """Non-stream branch with retries=0 skips HTTP attempts."""
+        mock_session, mock_client = make_request_http_mocks()
+
+        result = await _make_request(
+            client=mock_client,
+            route="/x",
+            api_key="sk-test",
+            url="https://api.example.com",
+            method="GET",
+            retries=0,
+        )
+
+        assert result["ok"] is False
+        mock_session.get.assert_not_called()
+
+    async def test_make_request_non_stream_non_2xx_json_parse_error_keeps_json_none(
+        self,
+        make_mock_http_response,
+        make_request_http_mocks,
+        patch_build_kwargs,
+    ) -> None:
+        """Malformed JSON-looking 4xx body: best-effort parse fails silently."""
+        mock_resp = make_mock_http_response(
+            status=400,
+            text='{"not": "closed',  # starts with { but invalid JSON
+        )
+        _, mock_client = make_request_http_mocks(mock_resp)
+
+        result = await _make_request(
+            client=mock_client,
+            route="/bad",
+            api_key="sk-test",
+            url="https://api.example.com",
+            method="GET",
+            retries=1,
+        )
+
+        assert result["ok"] is False
+        assert result["json"] is None
+
+    async def test_make_request_non_stream_timeout_retries_then_succeeds(
+        self,
+        make_mock_http_response,
+        make_request_http_mocks,
+        patch_build_kwargs,
+    ) -> None:
+        """Non-stream TimeoutError on a non-final attempt sleeps and retries."""
+        mock_ok = make_mock_http_response(
+            status=200,
+            text="{}",
+            json_data={},
+        )
+        mock_session, mock_client = make_request_http_mocks()
+        mock_session.get = AsyncMock(
+            side_effect=[asyncio.TimeoutError(), mock_ok]
+        )
+
+        with patch(
+            "vastai.serverless.client.connection.asyncio.sleep",
+            new_callable=AsyncMock,
+        ):
+            result = await _make_request(
+                client=mock_client,
+                route="/t",
+                api_key="sk-test",
+                url="https://api.example.com",
+                method="GET",
+                retries=2,
+            )
+
+        assert result["ok"] is True
+        assert mock_session.get.await_count == 2
+
+    async def test_make_request_non_stream_exception_retries_then_succeeds(
+        self,
+        make_mock_http_response,
+        make_request_http_mocks,
+        patch_build_kwargs,
+    ) -> None:
+        """Non-stream generic exception on a non-final attempt retries."""
+        mock_ok = make_mock_http_response(
+            status=200,
+            text="{}",
+            json_data={},
+        )
+        mock_session, mock_client = make_request_http_mocks()
+        mock_session.get = AsyncMock(
+            side_effect=[ConnectionError("reset"), mock_ok]
+        )
+
+        with patch(
+            "vastai.serverless.client.connection.asyncio.sleep",
+            new_callable=AsyncMock,
+        ):
+            result = await _make_request(
+                client=mock_client,
+                route="/e",
+                api_key="sk-test",
+                url="https://api.example.com",
+                method="GET",
+                retries=2,
+            )
+
+        assert result["ok"] is True
+
+    async def test_make_request_stream_iterator_swallows_release_exception(
+        self,
+        make_sse_response,
+        make_request_http_mocks,
+        patch_build_kwargs,
+    ) -> None:
+        """Closing the SSE response after iteration tolerates release() errors."""
+        mock_resp = make_sse_response([b'{"a": 1}\n'])
+        mock_resp.status = 200
+        mock_resp.headers = {}
+        mock_resp.release = MagicMock(side_effect=RuntimeError("release failed"))
+
+        mock_session, mock_client = make_request_http_mocks()
+        mock_session.get = AsyncMock(return_value=mock_resp)
+
+        result = await _make_request(
+            client=mock_client,
+            route="/stream",
+            api_key="sk-test",
+            url="https://api.example.com",
+            method="GET",
+            retries=1,
+            stream=True,
+        )
+
+        assert result["ok"] is True
+        collected = []
+        async for obj in result["stream"]:
+            collected.append(obj)
+        assert collected == [{"a": 1}]

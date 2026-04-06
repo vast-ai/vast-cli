@@ -3,7 +3,19 @@ import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Union, Tuple, Optional, Set, TypeVar, Generic, Type, Callable, Awaitable
+from typing import (
+    Dict,
+    Any,
+    Union,
+    Tuple,
+    Optional,
+    Set,
+    TypeVar,
+    Generic,
+    Type,
+    Callable,
+    Awaitable,
+)
 from aiohttp import web, ClientResponse
 import inspect
 import random
@@ -30,7 +42,6 @@ ApiPayload_T = TypeVar("ApiPayload_T", bound="ApiPayload")
 
 @dataclass
 class ApiPayload(ABC):
-
     @classmethod
     @abstractmethod
     def for_test(cls: Type[ApiPayload_T]) -> ApiPayload_T:
@@ -139,7 +150,7 @@ class EndpointHandler(ABC, Generic[ApiPayload_T]):
         pass
 
     @abstractmethod
-    async def call_remote_function(self, params: dict):
+    async def call_remote_dispatch_function(self, params: dict):
         """
         define a remote function for this endpoint, return the result
         """
@@ -179,23 +190,25 @@ class EndpointHandler(ABC, Generic[ApiPayload_T]):
         else:
             raise Exception("error deserializing request data")
 
+
 @dataclass
 class Session:
     session_id: str
-    lifetime: float # extends TTL per-request
+    lifetime: float  # extends TTL per-request
     auth_data: dict
     expiration: float  # epoch seconds
     on_close_route: str
     on_close_payload: dict
     requests: list[web.Request] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
-    request_idx: int = 0 # Request idx associated with this session
-    session_reqnum: int = 0 # Internal per-session request count
+    request_idx: int = 0  # Request idx associated with this session
+    session_reqnum: int = 0  # Internal per-session request count
 
 
 @dataclass
 class RequestMetrics:
     """Tracks metrics for an active request."""
+
     request_idx: int
     reqnum: int
     workload: float
@@ -254,6 +267,7 @@ class BenchmarkResult:
     def is_successful(self) -> bool:
         return self.response is not None and self.response.status == 200
 
+
 @dataclass
 class ModelMetrics:
     """Model specific metrics"""
@@ -285,17 +299,23 @@ class ModelMetrics:
             error_msg=None,
             max_throughput=0.0,
         )
-    
+
     @property
     def workload_processing(self) -> float:
         return max(self.workload_received - self.workload_cancelled, 0.0)
 
     @property
     def wait_time(self) -> float:
-        if (len(self.requests_working) == 0):
+        if len(self.requests_working) == 0:
             return 0.0
-        return sum([request.workload for request in self.requests_working.values() if not request.is_session]) / max(self.max_throughput, 0.00001)
-    
+        return sum(
+            [
+                request.workload
+                for request in self.requests_working.values()
+                if not request.is_session
+            ]
+        ) / max(self.max_throughput, 0.00001)
+
     @property
     def cur_load(self) -> float:
         return sum([request.workload for request in self.requests_working.values()])
@@ -358,4 +378,3 @@ class LogAction(Enum):
     ModelLoaded = 1
     ModelError = 2
     Info = 3
-

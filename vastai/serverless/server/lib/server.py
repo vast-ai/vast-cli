@@ -28,7 +28,7 @@ async def start_server_async(backend: Backend, routes: List[web.RouteDef], **kwa
             ssl_context = None
 
         log.debug("Starting Worker Server...")
-        app = web.Application()
+        app = web.Application(client_max_size=0)
         app.add_routes(routes)
 
         # Hardcoded session routes
@@ -36,6 +36,9 @@ async def start_server_async(backend: Backend, routes: List[web.RouteDef], **kwa
         app.router.add_post("/session/end", backend.session_end_handler)
         app.router.add_post("/session/get", backend.session_get_handler)
         app.router.add_post("/session/health", backend.session_health_handler)
+
+        # Pyworker management routes
+        app.router.add_post("/pyworker/update", backend.pyworker_update_handler)
 
         runner = web.AppRunner(app, handler_cancellation=True)
         await runner.setup()
@@ -61,7 +64,10 @@ async def start_server_async(backend: Backend, routes: List[web.RouteDef], **kwa
         )
 
         log.debug(f"Starting HTTP-only server for /session/end on port {http_port}")
-        await gather(site.start(), http_site.start(), backend._start_tracking())
+        await site.start()
+        await http_site.start()
+        log.debug("HTTP servers started, beginning log tracking")
+        await backend._start_tracking()
 
     except Exception as e:
         err_msg = f"Worker Server failed to launch: {e}"

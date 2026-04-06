@@ -2,17 +2,19 @@
 from vastai.api.client import VastClient
 
 
-def create_team(client: VastClient, team_name: str) -> dict:
+def create_team(client: VastClient, team_name: str, transfer_credit: float = 0) -> dict:
     """Create a new team.
 
     Args:
         client: VastClient instance.
         team_name: Name of the team to create.
+        transfer_credit: Amount of personal credit to transfer to the new team.
 
     Returns:
         Response dict with team info.
     """
-    r = client.post("/team/", json_data={"team_name": team_name})
+    json_data = {"team_name": team_name, "transfer_credit": transfer_credit}
+    r = client.post("/team/", json_data=json_data)
     r.raise_for_status()
     return r.json()
 

@@ -58,6 +58,14 @@ class VastAI:
         """Return all instances for the authenticated user."""
         return instances.show_instances(self.client)
 
+    def show_instances_v1(self, params: dict) -> dict:
+        """Return instances using the v1 paginated API."""
+        return instances.show_instances_v1(self.client, params)
+
+    def show_instance_filters(self) -> list:
+        """Return distinct filterable values for instances."""
+        return instances.show_instance_filters(self.client)
+
     def show_instance(self, id: int) -> dict:
         """Return details of a single instance."""
         return instances.show_instance(self.client, id)

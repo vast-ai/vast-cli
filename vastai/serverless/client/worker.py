@@ -22,10 +22,6 @@ class Worker:
     def from_dict(d: Dict[str, Any]) -> "Worker":
         # Be resilient to missing / extra fields
         status = d.get("status") or "UNKNOWN"
-        try:
-            status = status
-        except Exception:
-            status = "UNKNOWN"
 
         return Worker(
             id=int(d.get("id")),

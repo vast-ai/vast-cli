@@ -37,6 +37,28 @@ def show_instances(client: VastClient) -> list:
     return rows
 
 
+def show_instances_v1(client: VastClient, params: dict) -> dict:
+    """Fetch instances using the v1 paginated API.
+
+    Args:
+        client: VastClient instance.
+        params: Dict with select_filters, order_by, limit, after_token, select_cols.
+
+    Returns:
+        Full response dict (instances, next_token, total_instances, label_counts).
+    """
+    r = client.get("/api/v1/instances/", query_args=params)
+    r.raise_for_status()
+    return r.json()
+
+
+def show_instance_filters(client: VastClient) -> list:
+    """Fetch distinct filterable values for instances."""
+    r = client.get("/instances/filters/")
+    r.raise_for_status()
+    return r.json().get("filters", [])
+
+
 def show_instance(client: VastClient, id: int) -> dict:
     r = client.get(f"/instances/{id}/", query_args={"owner": "me"})
     r.raise_for_status()

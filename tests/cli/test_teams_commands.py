@@ -6,7 +6,7 @@ import pytest
 class TestCreateTeam:
     def test_create_team(self, parse_argv, patch_get_client, mock_response, capsys):
         patch_get_client.post.return_value = mock_response(200, {"success": True, "team_id": 1})
-        args = parse_argv(["create", "team", "--team_name", "my-team"])
+        args = parse_argv(["create", "team", "--team-name", "my-team"])
         args.func(args)
         patch_get_client.post.assert_called_once()
         call_args = patch_get_client.post.call_args

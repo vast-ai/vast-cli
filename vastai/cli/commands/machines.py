@@ -585,8 +585,14 @@ def self_test__machine(args):
                 debug_print("Captured offers from search_offers:", offers)
 
                 if not offers:
-                    unmet_reasons.append(f"Machine ID {machine_id} not found or not rentable.")
-                    progress_print(f"Machine ID {machine_id} not found or not rentable.")
+                    msg = f"Machine ID {machine_id} not found or not rentable."
+                    unmet_reasons.append(msg)
+                    progress_print(msg)
+                    progress_print("Possible reasons:")
+                    progress_print("  1. Machine is already rented — try: vastai show machines --filter 'machine_id={machine_id} rented=true'")
+                    progress_print("  2. Machine is offline — try: vastai show machines")
+                    progress_print("  3. No active offer for this machine — try: vastai search offers --filter 'machine_id={machine_id} rentable=any'")
+                    progress_print("  4. Bid price may be too low — compare prices with: vastai search offers --filter 'machine_id={machine_id} rentable=any'")
                     return False, unmet_reasons
 
                 sorted_offers = sorted(offers, key=lambda x: x.get('dlperf', 0), reverse=True)
@@ -690,6 +696,11 @@ def self_test__machine(args):
             )
             if not offers:
                 progress_print(f"Machine ID {machine_id} not found or not rentable.")
+                progress_print("Possible reasons:")
+                progress_print(f"  1. Machine is already rented — try: vastai show machines --filter 'machine_id={machine_id} rented=true'")
+                progress_print("  2. Machine is offline — try: vastai show machines")
+                progress_print(f"  3. No active offer for this machine — try: vastai search offers --filter 'machine_id={machine_id} rentable=any'")
+                progress_print(f"  4. Bid price may be too low — compare prices with: vastai search offers --filter 'machine_id={machine_id} rentable=any'")
                 return None
             sorted_offers = sorted(offers, key=lambda x: x.get("dlperf", 0), reverse=True)
             return sorted_offers[0] if sorted_offers else None
@@ -916,10 +927,23 @@ def self_test__machine(args):
                                 debug_print(f"No message received. Incremented no_response_seconds to {no_response_seconds}.")
 
                             if status == 'running' and no_response_seconds >= 120:
-                                progress_print(f"No response for 120s with running instance. This may indicate a misconfiguration of ports on the machine. Network error or system stall or crashed.")
+                                if not first_connection_established:
+                                    progress_print("No response for 120s — port was never reachable.")
+                                    progress_print("Possible causes:")
+                                    progress_print("  1. Port not accessible from outside — check firewall and direct_port_count")
+                                    progress_print("  2. Container crashed on startup — check docker logs")
+                                    progress_print(f"  3. direct_port_count too low — check with: vastai search offers --filter 'machine_id={machine_id}'")
+                                    return_reason = "Port never reachable within 120 seconds"
+                                else:
+                                    progress_print("Connection lost after initial success — instance may have crashed.")
+                                    progress_print("Possible causes:")
+                                    progress_print("  1. Out of RAM/VRAM — check docker logs")
+                                    progress_print("  2. GPU errors — check dmesg for Xid errors")
+                                    progress_print("  3. Try running individual tests to isolate the failure")
+                                    return_reason = "Connection lost after 120 seconds — possible crash during stress test"
                                 destroy_instance_silent(inst_id)
                                 instance_destroyed = True
-                                return False, "No response for 120 seconds with running instance. The system might have crashed or stalled during stress test. Use the self-test machine function in vast cli"
+                                return False, return_reason
 
                             debug_print("Waiting for 20 seconds before the next check.")
                             time.sleep(20)
@@ -941,9 +965,15 @@ def self_test__machine(args):
                     if not ip_address:
                         result["reason"] = "Failed to retrieve public IP address."
                     else:
-                        port_mappings = instance_info.get("ports", {}).get("5000/tcp", [])
+                        all_ports = instance_info.get("ports", {})
+                        port_mappings = all_ports.get("5000/tcp", [])
                         port = port_mappings[0].get("HostPort") if port_mappings else None
                         if not port:
+                            progress_print(f"Port 5000/tcp not found in mapped ports. Available ports: {list(all_ports.keys())}")
+                            progress_print("Possible causes:")
+                            progress_print("  1. Firewall blocking the port")
+                            progress_print(f"  2. direct_port_count too low — check with: vastai search offers --filter 'machine_id={args.machine_id}'")
+                            progress_print("  3. Container is not exposing port 5000")
                             result["reason"] = "Failed to retrieve mapped port."
                         else:
                             delay = "15"

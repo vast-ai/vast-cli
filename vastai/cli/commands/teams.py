@@ -18,8 +18,9 @@ parser = _get_parser()
 # ---------------------------------------------------------------------------
 
 @parser.command(
-    argument("--team_name", help="name of the team", type=str),
-    usage="vastai create-team --team_name TEAM_NAME",
+    argument("--team-name", help="name of the team", type=str),
+    argument("--transfer-credit", help="amount of personal credit to transfer to the new team", type=float, default=0),
+    usage="vastai create-team --team-name TEAM_NAME [--transfer-credit AMOUNT]",
     help="Create a new team",
     epilog=deindent("""
          Creates a new team under your account.
@@ -35,8 +36,8 @@ parser = _get_parser()
 
         Optional:
           You can transfer a portion of your existing personal credits to the team by using
-          the `--transfer_credit` flag. Example:
-              vastai create-team --team_name myteam --transfer_credit 25
+          the `--transfer-credit` flag. Example:
+              vastai create-team --team-name myteam --transfer-credit 25
 
         Notes:
           - You cannot create a team from within another team account.
@@ -48,7 +49,7 @@ parser = _get_parser()
 def create__team(args):
     """Create a new team."""
     client = get_client(args)
-    result = teams_api.create_team(client, team_name=args.team_name)
+    result = teams_api.create_team(client, team_name=args.team_name, transfer_credit=args.transfer_credit)
     print(result)
 
 

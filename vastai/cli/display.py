@@ -380,7 +380,7 @@ def display_table(rows: list, fields: Tuple, replace_spaces: bool = True, auto_w
             grp_num = 0
             for i in range(len(start_col_idxs)):
                 start = start_col_idxs[i]
-                end = start_col_idxs[i+1]-1 if i+1 < len(start_col_idxs) else len(lengths)
+                end = start_col_idxs[i+1] if i+1 < len(start_col_idxs) else len(lengths)
                 groups.setdefault(grp_num, []).append(row[start:end])
                 grp_num += 1
 

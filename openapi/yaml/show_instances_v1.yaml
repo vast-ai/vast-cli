@@ -2,36 +2,93 @@ openapi: 3.0.0
 info:
   title: Vast.ai API
   version: 1.0.0
-  description: API documentation for Vast.ai's instance retrieval.
+  description: API documentation for Vast.ai's instance retrieval (v1).
 servers:
 - url: https://console.vast.ai
   description: Production server
 paths:
-  /api/v0/instances/:
+  /api/v1/instances/:
     get:
-      summary: show instances
-      deprecated: true
+      summary: show instances (v1)
       description: |
-        > **Deprecated:** This endpoint has been superseded by [`/api/v1/instances/`](#tag/Instances/GET/api/v1/instances/), which adds keyset pagination, filtering, column selection, and sorting.
-        > Please migrate to v1.
-
-        Retrieve a list of instances for the authenticated user.
+        Retrieve a paginated list of instances for the authenticated user.
+        Supports keyset pagination (max 25 per page), filtering, column selection, and sorting.
 
         CLI Usage: `vastai show instances [OPTIONS] [--api-key API_KEY] [--raw]`
       security:
       - BearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Instances per page. Default 25, max 25. Values ≤ 0 are treated as 5.
+          schema:
+            type: integer
+            default: 25
+            maximum: 25
+          example: 25
+        - name: after_token
+          in: query
+          required: false
+          description: Keyset pagination cursor from the previous response's `next_token`. An invalid token returns a 400 error.
+          schema:
+            type: string
+          example: eyJ2YWx1ZXMiOiB7ImlkIjogMTIzfX0=
+        - name: order_by
+          in: query
+          required: false
+          description: "JSON array of sort directives, e.g. `[{\"col\":\"id\",\"dir\":\"asc\"}]`. Valid `dir` values: `asc`, `desc` (anything else treated as `asc`). `id` is always appended as a tiebreaker. Invalid column returns 400."
+          schema:
+            type: string
+          example: '[{"col":"id","dir":"asc"}]'
+        - name: select_cols
+          in: query
+          required: false
+          description: "JSON array of column names to return, e.g. `[\"id\",\"label\",\"actual_status\"]`. Use `[\"*\"]` for all columns (default). Unknown column names are returned as `null`."
+          schema:
+            type: string
+            default: '["*"]'
+          example: '["id","label","actual_status","dph_total"]'
+        - name: select_filters
+          in: query
+          required: false
+          description: |
+            JSON object of column filters. Supported operators: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `notin`.
+            Filterable columns: `actual_status`, `gpu_name`, `verification`, `id`, `label`, and other columns stored directly on the contract record. Computed fields (e.g. `dph_total`, `num_gpus`) are not filterable and return 400.
+          schema:
+            type: string
+            default: '{}'
+          example: '{"actual_status":{"eq":"running"}}'
       responses:
         '200':
-          description: Success response with user instances
+          description: Paginated list of instances
           content:
             application/json:
               schema:
                 type: object
                 properties:
+                  success:
+                    type: boolean
+                    example: true
                   instances_found:
                     type: integer
-                    description: Number of instances found for the user.
-                    example: 11
+                    description: Number of instances returned in this page.
+                    example: 5
+                  total_instances:
+                    type: integer
+                    description: Total number of instances matching the filters.
+                    example: 42
+                  label_counts:
+                    type: object
+                    description: Count of instances grouped by label. Unlabelled instances are keyed by empty string.
+                    example:
+                      "ML Training Job": 3
+                      "": 2
+                  next_token:
+                    type: string
+                    nullable: true
+                    description: Pagination cursor for the next page. `null` when no more pages.
+                    example: eyJ2YWx1ZXMiOiB7ImlkIjogMTIzfX0=
                   instances:
                     type: array
                     description: List of instance objects.
@@ -56,6 +113,7 @@ paths:
                           example: running
                         label:
                           type: string
+                          nullable: true
                           example: ML Training Job 2025
                         template_id:
                           type: integer
@@ -64,11 +122,11 @@ paths:
                         template_hash_id:
                           type: string
                           nullable: true
-                          example: abcde12345 
+                          example: abcde12345
                         template_name:
                           type: string
                           nullable: true
-                          example: Tensorflow GPU Template 
+                          example: Tensorflow GPU Template
                         image_uuid:
                           type: string
                           example: nvidia/cuda:11.0.3-devel-ubuntu18.04
@@ -76,7 +134,7 @@ paths:
                           type: array
                           items:
                             type: string
-                          example: ["bash", "-c", "apt update; apt install -y wget libpci3 xz-utils; wget ..."]
+                          example: ["bash", "-c", "apt update; apt install -y wget"]
                         image_runtype:
                           type: string
                           example: ssh ssh_direc ssh_proxy
@@ -86,15 +144,16 @@ paths:
                             type: array
                             items:
                               type: string
-                          example: [["DOG", "CAT"], ["-p 70001:70001", "1"], ["-p 70002:70002", "1"]]
+                          example: [["DOG", "CAT"], ["-p 70001:70001", "1"]]
                         onstart:
                           type: string
-                          example: echo 'hello'; echo $DOG; echo 'goodbye';
+                          example: echo 'hello'; echo $DOG;
                         jupyter_token:
                           type: string
                           example: df77e27085bd4b3bd5d9024bdefb9e6df614b27adb0689e9d8f066fce5e01f0c
                         status_msg:
                           type: string
+                          nullable: true
                           example: success, running nvidia/cuda_11.0.3-devel-ubuntu18.04/ssh
                         public_ipaddr:
                           type: string
@@ -132,7 +191,7 @@ paths:
                         duration:
                           type: number
                           format: float
-                          example: -25323348.860099316
+                          example: 86400.0
                         cpu_arch:
                           type: string
                           example: amd64
@@ -167,16 +226,16 @@ paths:
                           example: 0.543945
                         gpu_name:
                           type: string
-                          example: GTX 1070
+                          example: RTX 4090
                         gpu_arch:
                           type: string
                           example: nvidia
                         gpu_totalram:
                           type: integer
-                          example: 16222
+                          example: 24576
                         gpu_ram:
                           type: integer
-                          example: 8111
+                          example: 24576
                         gpu_util:
                           type: number
                           nullable: true
@@ -195,14 +254,14 @@ paths:
                         gpu_mem_bw:
                           type: number
                           format: float
-                          example: 187.1
+                          example: 1008.0
                         bw_nvlink:
                           type: number
                           format: float
                           example: 0.0
                         disk_name:
                           type: string
-                          example: Seagate ST4000DM000
+                          example: Samsung SSD 870
                         disk_space:
                           type: number
                           format: float
@@ -210,15 +269,15 @@ paths:
                         disk_bw:
                           type: number
                           format: float
-                          example: 159.98852679060644
+                          example: 500.0
                         disk_util:
                           type: number
                           format: float
-                          example: 0.05400000140070915
+                          example: 0.05
                         disk_usage:
                           type: number
                           format: float
-                          example: 0.05400000140070915
+                          example: 0.05
                         direct_port_count:
                           type: integer
                           example: 1001
@@ -230,6 +289,8 @@ paths:
                           example: 20002
                         ports:
                           type: object
+                          nullable: true
+                          description: Port mappings. Only present on running instances.
                           additionalProperties:
                             type: array
                             items:
@@ -283,11 +344,11 @@ paths:
                         flops_per_dphtotal:
                           type: number
                           format: float
-                          example: 15.41170427627478
+                          example: 15.41
                         total_flops:
                           type: number
                           format: float
-                          example: 12.361728000000001
+                          example: 12.36
                         score:
                           type: number
                           nullable: true
@@ -302,18 +363,18 @@ paths:
                           example: null
                         mobo_name:
                           type: string
-                          example: Z170M Extreme4
+                          example: Z790 Gaming
                         pci_gen:
                           type: number
                           format: float
-                          example: 3.0
+                          example: 4.0
                         pcie_bw:
                           type: number
                           format: float
-                          example: 11.6
+                          example: 28.0
                         num_gpus:
                           type: integer
-                          example: 2
+                          example: 1
                         webpage:
                           type: string
                           nullable: true
@@ -325,15 +386,15 @@ paths:
                             diskHour: 0.0021
                             totalHour: 0.8021
                             discountTotalHour: 0
-                            discountedTotalPerHour: 0.8013181279189862
+                            discountedTotalPerHour: 0.8013
                         instance:
                           type: object
                           example:
                             gpuCostPerHour: 0.8
-                            diskHour: 0.001318127918986086
+                            diskHour: 0.0013
                             totalHour: 0.8021
                             discountTotalHour: 0
-                            discountedTotalPerHour: 0.5034620970565428
+                            discountedTotalPerHour: 0.5034
                         storage_cost:
                           type: number
                           format: float
@@ -345,15 +406,15 @@ paths:
                         vram_costperhour:
                           type: number
                           format: float
-                          example: 4.944519787942301e-05
+                          example: 4.94e-05
                         credit_balance:
                           type: number
                           nullable: true
-                          example: 4792.991450253207
+                          example: 4792.99
                         credit_discount:
                           type: number
                           nullable: true
-                          example: 0.3723200385780543
+                          example: 0.37
                         credit_discount_max:
                           type: number
                           nullable: true
@@ -384,6 +445,20 @@ paths:
                           items:
                             type: object
                           example: []
+        '400':
+          description: Bad request. Returned for invalid filter column/operator, invalid `order_by` column, or invalid `after_token`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    enum: [invalid_request, invalid_token]
+                    example: invalid_request
+                  msg:
+                    type: string
+                    example: "Error in query parameters: dph_total is not a valid search key"
         '401':
           description: Unauthorized
           content:
@@ -399,7 +474,7 @@ paths:
                 properties:
                   detail:
                     type: string
-                    example: API requests too frequent endpoint threshold=2.0
+                    example: API requests too frequent endpoint threshold=1.0
       tags:
       - Instances
 components:
@@ -420,12 +495,12 @@ components:
         msg:
           type: string
 x-rate-limit:
-  threshold: 2.0
+  threshold: 1.0
   per: request
   description: Maximum request frequency per IP address for this endpoint
 x-cli-commands:
 - name: show instances
-  description: Display user's current instances
-  endpoint: /api/v0/instances/
+  description: Display user's current instances (v1, paginated)
+  endpoint: /api/v1/instances/
   method: GET
-  example: vast-ai show instances [OPTIONS] [--api-key API_KEY] [--raw]
+  example: vastai show instances [OPTIONS] [--api-key API_KEY] [--raw]

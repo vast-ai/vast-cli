@@ -7,5 +7,5 @@
 
 while true
 do
-  watch -g ls -l *.py *.sh *.png *.pdf; echo "Something changed. Sleeping 1..."; sleep 1; ./vast.py generate pdf-invoices
+  watch -g ls -l *.py *.sh *.png *.pdf; echo "Something changed. Sleeping 1..."; sleep 1; vastai generate pdf-invoices
 done

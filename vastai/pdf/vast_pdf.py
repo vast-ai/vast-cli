@@ -6,6 +6,7 @@
 # vast_pdf: Library of functions to create PDF reports of various type.
 # Currently only makes invoices.
 import argparse
+import os
 import datetime
 import math
 import time
@@ -390,13 +391,13 @@ def build_logo_and_invoice_num_table(page_number) -> FixedColumnWidthTable:
     if page_number == 1:
         invoice_number_font_size = Decimal(20)
         invoice_word_font_size = Decimal(50)
-        logo_img_filename: str = r'./vast.ai-logo.png'
+        logo_img_filename: str = os.path.join(os.path.dirname(__file__), 'vast.ai-logo.png')
         logo_img_width: int = 72
         logo_img_height: int = 105
     else:
         invoice_number_font_size = Decimal(14)
         invoice_word_font_size = Decimal(20)
-        logo_img_filename: str = r'./vast.ai-logo-50pct.png'
+        logo_img_filename: str = os.path.join(os.path.dirname(__file__), 'vast.ai-logo-50pct.png')
         logo_img_width: int = 36
         logo_img_height: int = 53
 

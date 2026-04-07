@@ -1219,7 +1219,7 @@ def display_table(rows: list, fields: Tuple, replace_spaces: bool = True, auto_w
             grp_num = 0
             for i in range(len(start_col_idxs)):
                 start = start_col_idxs[i]
-                end = start_col_idxs[i+1]-1 if i+1 < len(start_col_idxs) else len(lengths)
+                end = start_col_idxs[i+1] if i+1 < len(start_col_idxs) else len(lengths)
                 groups.setdefault(grp_num, []).append(row[start:end])
                 grp_num += 1
         
@@ -2303,6 +2303,7 @@ def create__workergroup(args):
     argument("--endpoint_name", help="deployment endpoint name (allows multiple autoscale groups to share same deployment endpoint)", type=str),
     argument("--max_queue_time", help="maximum seconds requests may be queued on each worker (default 30.0)", type=float),
     argument("--target_queue_time", help="target seconds for the queue to be cleared (default 10.0)", type=float),
+    argument("--inactivity_timeout", help="seconds of no traffic before the endpoint can scale to zero active workers", type=int),
     argument("--auto_instance", help=argparse.SUPPRESS, type=str, default="prod"),
 
     usage="vastai create endpoint [OPTIONS]",
@@ -2316,7 +2317,7 @@ def create__workergroup(args):
 def create__endpoint(args):
     url = apiurl(args, "/endptjobs/" )
 
-    json_blob = {"client_id": "me", "min_load": args.min_load, "min_cold_load":args.min_cold_load, "target_util": args.target_util, "cold_mult": args.cold_mult, "cold_workers" : args.cold_workers, "max_workers" : args.max_workers, "endpoint_name": args.endpoint_name, "max_queue_time": args.max_queue_time, "target_queue_time": args.target_queue_time, "autoscaler_instance": args.auto_instance}
+    json_blob = {"client_id": "me", "min_load": args.min_load, "min_cold_load":args.min_cold_load, "target_util": args.target_util, "cold_mult": args.cold_mult, "cold_workers" : args.cold_workers, "max_workers" : args.max_workers, "endpoint_name": args.endpoint_name, "max_queue_time": args.max_queue_time, "target_queue_time": args.target_queue_time, "inactivity_timeout": args.inactivity_timeout, "autoscaler_instance": args.auto_instance}
 
     if (args.explain):
         print("request json: ")
@@ -2573,7 +2574,8 @@ def create__subaccount(args):
         print(f"Failed with error {r.status_code}")
 
 @parser.command(
-    argument("--team_name", help="name of the team", type=str),
+    argument("--team-name", help="name of the team", type=str),
+    argument("--transfer-credit", help="amount of personal credit to transfer to the new team", type=float, default=0),
     usage="vastai create-team --team_name TEAM_NAME",
     help="Create a new team",
     epilog=deindent("""
@@ -2603,7 +2605,7 @@ def create__subaccount(args):
 
 def create__team(args):
     url = apiurl(args, "/team/")
-    r = http_post(args, url, headers=headers, json={"team_name": args.team_name})
+    r = http_post(args, url, headers=headers, json={"team_name": args.team_name, "transfer_credit": args.transfer_credit})
     r.raise_for_status()
     print(r.json())
 
@@ -2925,6 +2927,57 @@ def delete__endpoint(args):
             print("The response is not valid JSON.")
             print(r)
             print(r.text)  # Print the raw response to help with debugging.
+    else:
+        print("The response is not JSON. Content-Type:", r.headers.get('Content-Type'))
+        print(r.text)
+
+@parser.command(
+    argument("id", help="id of deployment to delete", type=int, nargs="?", default=None),
+    argument("--name", help="name of deployment to delete (deletes all tags unless --tag is specified)", type=str, default=None),
+    argument("--tag", help="tag to filter by when deleting by name", type=str, default=None),
+    usage="vastai delete deployment [ID | --name NAME [--tag TAG]]",
+    help="Delete a deployment by id, or by name and optional tag",
+    epilog=deindent("""
+        Examples:
+            vastai delete deployment 1234
+            vastai delete deployment --name my-deployment
+            vastai delete deployment --name my-deployment --tag prod
+    """),
+)
+def delete__deployment(args):
+    if args.id is not None and args.name is not None:
+        print("Error: specify either an id or --name, not both")
+        return
+    if args.tag is not None and args.name is None:
+        print("Error: --tag can only be used with --name")
+        return
+
+    if args.id is not None:
+        url = apiurl(args, f"/deployment/{args.id}/")
+        r = http_del(args, url, headers=headers)
+    elif args.name is not None:
+        url = apiurl(args, "/deployments/")
+        json_blob = {"name": args.name}
+        if args.tag is not None:
+            json_blob["tag"] = args.tag
+        if args.explain:
+            print("request json: ")
+            print(json_blob)
+        r = http_del(args, url, headers=headers, json=json_blob)
+    else:
+        print("Error: must specify either an id or --name")
+        return
+
+    r.raise_for_status()
+    if 'application/json' in r.headers.get('Content-Type', ''):
+        rj = r.json()
+        if rj.get("success"):
+            if "count" in rj:
+                print(f"Deleted {rj['count']} deployment(s)")
+            else:
+                print("Deployment deleted successfully")
+        else:
+            print(rj.get("msg", "Unknown error"))
     else:
         print("The response is not JSON. Content-Type:", r.headers.get('Content-Type'))
         print(r.text)
@@ -5015,6 +5068,80 @@ def show__endpoints(args):
 
 
 @parser.command(
+    usage="vastai show deployments [--api-key API_KEY]",
+    help="Display user's current deployments",
+    epilog=deindent("""
+        Example: vastai show deployments
+    """),
+)
+def show__deployments(args):
+    url = apiurl(args, "/deployments/")
+    r = http_get(args, url, headers=headers)
+    r.raise_for_status()
+
+    if r.status_code == 200:
+        rj = r.json()
+        if rj["success"]:
+            rows = rj["deployments"]
+            if args.raw:
+                return rows
+            else:
+                print(json.dumps(rows, indent=1, sort_keys=True))
+        else:
+            print(rj.get("msg", "Unknown error"))
+
+
+@parser.command(
+    argument("id", help="id of deployment to show", type=int),
+    usage="vastai show deployment ID",
+    help="Display details of a single deployment",
+    epilog=deindent("""
+        Example: vastai show deployment 1234
+    """),
+)
+def show__deployment(args):
+    url = apiurl(args, f"/deployment/{args.id}/")
+    r = http_get(args, url, headers=headers)
+    r.raise_for_status()
+
+    if r.status_code == 200:
+        rj = r.json()
+        if rj["success"]:
+            row = rj["deployment"]
+            if args.raw:
+                return row
+            else:
+                print(json.dumps(row, indent=1, sort_keys=True))
+        else:
+            print(rj.get("msg", "Unknown error"))
+
+
+@parser.command(
+    argument("id", help="id of deployment to show versions for", type=int),
+    usage="vastai show deployment-versions ID",
+    help="Display versions for a deployment",
+    epilog=deindent("""
+        Example: vastai show deployment-versions 1234
+    """),
+)
+def show__deployment_versions(args):
+    url = apiurl(args, f"/deployment/{args.id}/versions/")
+    r = http_get(args, url, headers=headers)
+    r.raise_for_status()
+
+    if r.status_code == 200:
+        rj = r.json()
+        if rj["success"]:
+            rows = rj["versions"]
+            if args.raw:
+                return rows
+            else:
+                print(json.dumps(rows, indent=1, sort_keys=True))
+        else:
+            print(rj.get("msg", "Unknown error"))
+
+
+@parser.command(
     usage="vastai show connections [--api-key API_KEY] [--raw]",
     help="Display user's cloud connections"
 )
@@ -5114,7 +5241,7 @@ def show__earnings(args):
     print(json.dumps(rows, indent=1, sort_keys=True))
 
 
-def sum(X, k):
+def inv_sum(X, k):
     y = 0
     for x in X:
         a = float(x.get(k,0))
@@ -5241,7 +5368,7 @@ def show__invoices(args):
     else:
         print(filter_header)
         display_table(rows, invoice_fields)
-        print(f"Total: ${sum(rows, 'amount')}")
+        print(f"Total: ${inv_sum(rows, 'amount')}")
         print("Current: ", current_charges)
 
 # Helper to convert date string or int to timestamp
@@ -5619,6 +5746,571 @@ def show__instances(args = {}, extra = {}):
         display_table(rows, instance_fields)
 
 
+_DEFAULT_INSTANCE_SELECT_COLS = [
+    "id", "actual_status", "label",
+    "num_gpus", "gpu_name", "gpu_util",
+    "disk_space", "disk_usage", "disk_util",
+    "volume_info",
+    "dph_total", "image_uuid",
+    "start_date", "verification",
+]
+
+_VERBOSE_INSTANCE_SELECT_COLS = _DEFAULT_INSTANCE_SELECT_COLS + [
+    "machine_id", "template_id", "template_name",
+    "geolocation", "inet_up", "inet_down",
+    "ssh_host", "ssh_port", "status_msg",
+]
+
+def _fmt_age(start_date):
+    """Format seconds elapsed since start_date as e.g. '2d 3h' or '4h 15m'."""
+    if not start_date:
+        return "—"
+    secs = max(0, time.time() - start_date)
+    d, rem  = divmod(int(secs), 86400)
+    h, rem  = divmod(rem, 3600)
+    m, _    = divmod(rem, 60)
+    if d:   return f"{d}d {h}h"
+    if h:   return f"{h}h {m}m"
+    return f"{m}m"
+
+def _fmt_disk(disk_usage, disk_space, disk_util):
+    """Format disk as 'used/total GB (X%)' or '?/total GB'."""
+    total = f"{disk_space:.0f}" if disk_space is not None else "?"
+    if disk_usage is None or disk_usage < 0:
+        return f"?/{total} GB"
+    used = f"{disk_usage:.1f}"
+    if disk_util is not None and disk_util >= 0:
+        pct = disk_util * 100
+        return f"{used}/{total} GB ({pct:.0f}%)"
+    return f"{used}/{total} GB"
+
+def _fmt_volumes(volume_info):
+    """Format volume_info list as a compact string showing IDs and usage."""
+    if not volume_info:
+        return "—"
+    if len(volume_info) == 1:
+        v = volume_info[0]
+        vid = v.get("id", "?")
+        avail = v.get("avail_space")
+        total = v.get("total_space")
+        if avail is not None and total is not None:
+            used = total - avail
+            return f"#{vid} {used:.0f}/{total:.0f} GB"
+        return f"#{vid}"
+    # Multiple volumes: list all IDs
+    return ", ".join(f"#{v.get('id', '?')}" for v in volume_info)
+
+def _fmt_gpu(num_gpus, gpu_name, gpu_util):
+    """Format as '4x RTX 3090' or '4x RTX 3090 (72%)'."""
+    base = f"{int(num_gpus)}x {gpu_name}" if num_gpus and gpu_name else (gpu_name or "—")
+    if gpu_util is not None and gpu_util >= 0:
+        return f"{base} ({gpu_util:.0f}%)"
+    return base
+
+_STATUS_COLORS = {"running": "bold green", "loading": "bold yellow", "exited": "bright_red", "created": "bright_white"}
+_VERIF_COLORS  = {"verified": "sea_green2", "unverified": "gold1", "deverified": "bright_red"}
+
+def _status_style(status):
+    return _STATUS_COLORS.get(status, "white")
+
+def _verif_style(v):
+    return _VERIF_COLORS.get(v, "white")
+
+
+# max_width caps Rich column expansion; also used by _estimate_table_width so estimate >= actual
+_INSTANCE_COL_MAX_WIDTHS = {
+    "gpu":      20,   # "8x NVIDIA GTX 1080 Ti" = 21 chars; cap at 20 to keep estimate accurate
+    "image":    30,   # matches min_width so estimate == actual rendering width
+    "age":       8,   # "XXXd XXh" = 8 chars
+    "volumes":  17,   # "used/total GB (label)" capped so 10-col table fits at 150 cols
+    "location": 22,   # "California, USA!-55-84-51-63" = 28 chars; cap to keep table in bounds
+    "net":      11,   # "↑1000 ↓1000" = 11 chars
+    "ssh":      22,   # "ssh2281.vast.ai:13912" style
+    "template": 32,
+    "msg":      30,
+}
+
+# min_width: minimum content width (chars) used for fit estimation and as Rich min_width
+# drop_order 0 = never drop; higher = drop sooner when terminal is narrow
+# Priority (drop first → last): ssh > volumes > disk > verified > age > image > $/hr > never
+
+# Column spec: (name, header, style, justify, min_width, drop_order, verbose_only)
+_INSTANCE_COL_SPECS = [
+    ("id",       "ID",       "bright_white", "right",  4,   0,  False),
+    ("status",   "Status",   None,           "center", 7,   0,  False),
+    ("label",    "Label",    "bright_white", "left",   7,   0,  False),
+    ("gpu",      "GPU",      "steel_blue1",  "left",   13,  0,  False),
+    ("disk",     "Disk",     "bright_white", "right",  8,   5,  False),
+    ("volumes",  "Volumes",  "bright_white", "left",   10,  6,  False),  # gated by show_volumes
+    ("dph",      "$/hr",     "sea_green2",   "right",  7,   1,  False),
+    ("image",    "Image",    "orchid",       "left",   30,  2,  False),
+    ("age",      "Age",      "bright_white", "left",   8,   3,  False),
+    ("verified", "Verified", None,           "center", 10,  0,  False),
+    # verbose-only columns (drop order continues from 8+)
+    ("machine",  "Machine",  "gold1",        "center", 5,   8,  True),
+    ("net",      "Net Mbps", "bright_white", "left",   9,   9,  True),
+    ("location", "Location", "bright_white", "center", 10,  10, True),
+    ("template", "Template", "bright_white", "center", 20,  11, True),
+    ("ssh",      "SSH",      "cyan",         "left",   21,  7,  True),
+    ("msg",      "Msg",      "dim white",    "left",   15,  12, True),
+]
+
+_INSTANCE_COL_SPEC_BY_NAME = {s[0]: s for s in _INSTANCE_COL_SPECS}
+try:
+    from rich.text import Text as _RichText
+except ImportError:
+    _RichText = None  # type: ignore
+
+def _render_instance_col(name, inst):
+    """Render a single cell value for the given column name."""
+    if name == "id":
+        return str(inst.get("id", "—"))
+    if name == "status":
+        s = inst.get("actual_status") or "—"
+        return _RichText(s, style=_status_style(s))
+    if name == "label":
+        return inst.get("label") or "—"
+    if name == "gpu":
+        return _fmt_gpu(inst.get("num_gpus"), inst.get("gpu_name"), inst.get("gpu_util"))
+    if name == "disk":
+        return _fmt_disk(inst.get("disk_usage"), inst.get("disk_space"), inst.get("disk_util"))
+    if name == "volumes":
+        return _fmt_volumes(inst.get("volume_info") or [])
+    if name == "dph":
+        dph = inst.get("dph_total")
+        return f"${dph:.4f}" if dph is not None else "—"
+    if name == "image":
+        return (inst.get("image_uuid") or "—")[:50]
+    if name == "age":
+        return _fmt_age(inst.get("start_date"))
+    if name == "verified":
+        v = inst.get("verification") or "—"
+        return _RichText(v, style=_verif_style(v))
+    if name == "ssh":
+        return f"{inst.get('ssh_host')}:{inst.get('ssh_port', '')}" if inst.get("ssh_host") else "—"
+    if name == "machine":
+        return str(inst.get("machine_id", "—"))
+    if name == "net":
+        up, down = inst.get("inet_up"), inst.get("inet_down")
+        return f"↑{up:.0f} ↓{down:.0f}" if (up is not None and down is not None) else "—"
+    if name == "location":
+        return inst.get("geolocation") or "—"
+    if name == "template":
+        tid, tname = inst.get("template_id"), inst.get("template_name") or ""
+        return (f"{tname[:28]} ({tid})" if tid else tname[:30] or "—")
+    if name == "msg":
+        return (inst.get("status_msg") or "—")[:40]
+    return "—"
+
+def _estimate_table_width(specs):
+    """Estimate rendered table width for a list of col specs.
+    Uses _INSTANCE_COL_MAX_WIDTHS when available so estimate >= actual rendered width.
+    Formula: Padding(2) + outer borders(2) + per-col cell padding(2) + separators(n-1) + content
+    """
+    n = len(specs)
+    content = sum(
+        _INSTANCE_COL_MAX_WIDTHS.get(s[0]) or max(len(s[1]), s[4])
+        for s in specs
+    )
+    return 4 + 2 * n + (n - 1) + content
+
+def _build_instances_table(instances, verbose=False, cols=None):
+    """Build the Rich table for instances.
+
+    cols: optional list of column name strings (overrides auto-selection).
+    Returns (Padding, hidden_headers) where hidden_headers lists auto-dropped column headers.
+    """
+    import shutil
+    from rich.table import Table
+    from rich import box
+
+    show_volumes = any(inst.get("volume_info") for inst in instances)
+    term_width = shutil.get_terminal_size((120, 24)).columns
+
+    if cols is not None:
+        # User-specified columns: look up specs by name, preserve requested order
+        active = [_INSTANCE_COL_SPEC_BY_NAME[c] for c in cols if c in _INSTANCE_COL_SPEC_BY_NAME]
+        hidden = []
+    else:
+        # Auto-selection: start with all applicable columns
+        candidate = [
+            s for s in _INSTANCE_COL_SPECS
+            if (not s[6] or verbose) and not (s[0] == "volumes" and not show_volumes)
+        ]
+        # Drop lowest-priority columns (highest drop_order, skip drop_order==0) until it fits
+        droppable = sorted((s for s in candidate if s[5] > 0), key=lambda s: s[5], reverse=True)
+        active = list(candidate)
+        for drop_spec in droppable:
+            if _estimate_table_width(active) <= term_width:
+                break
+            active.remove(drop_spec)
+        hidden = [s[1] for s in candidate if s not in active]  # headers of dropped cols
+
+    tbl = Table(
+        style="white",
+        header_style="bold bright_yellow",
+        box=box.DOUBLE_EDGE,
+        row_styles=["on grey11", "none"],
+    )
+    for name, header, style, justify, min_width, *_ in active:
+        kwargs = dict(justify=justify, no_wrap=True, min_width=min_width)
+        if name in _INSTANCE_COL_MAX_WIDTHS:
+            kwargs["max_width"] = _INSTANCE_COL_MAX_WIDTHS[name]
+        if style:
+            kwargs["style"] = style
+        tbl.add_column(_RichText(header, justify="center"), **kwargs)
+
+    for inst in instances:
+        tbl.add_row(*[_render_instance_col(name, inst) for name, *_ in active])
+
+    return tbl, hidden
+
+def _build_summary_panel(total, label_counts, active_filters=None, order_by=None):
+    """Build a Rich Panel summarising the instance query.
+
+    active_filters: dict of {key: [values]} for display
+    order_by: list of {"col": str, "dir": "asc"|"desc"} dicts
+    """
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+
+    lines = []
+
+    # Total
+    lines.append(Text.assemble(("Total: ", "bold bright_yellow"), (f"{total} instances", "bold bright_white")))
+
+    # Label breakdown from label_counts
+    if label_counts:
+        parts = []
+        for lbl, cnt in sorted(label_counts.items(), key=lambda x: -x[1]):
+            display = lbl if lbl else "(unlabeled)"
+            parts.append(f"{display}: {cnt}")
+        lines.append(Text.assemble(("Labels: ", "bold bright_yellow"), ("  ·  ".join(parts), "bright_white")))
+
+    # Active filter line
+    if active_filters:
+        filter_line = Text.assemble(("Filters: ", "bold bright_yellow"))
+        for i, (k, vals) in enumerate(active_filters.items()):
+            if i: filter_line.append("   ", style="dim")
+            filter_line.append(f"{k}=", style="bold bright_white")
+            filter_line.append_text(_render_filter_values(vals, _FILTER_VALUE_COLORS.get(k), bold=True, line_sep=True))
+        lines.append(filter_line)
+
+    # Active order-by line
+    if order_by:
+        order_line = Text.assemble(("Order by: ", "bold bright_yellow"))
+        for i, key in enumerate(order_by):
+            if i: order_line.append("  >  ", style="bright_white")
+            order_line.append(key["col"], style="bold bright_white")
+            order_line.append(f" ({key['dir']})", style="bright_white")
+        lines.append(order_line)
+
+    grid = Table.grid(padding=(0, 0))
+    grid.add_column()
+    for line in lines:
+        grid.add_row(line)
+
+    return Panel(grid, title="[bold bright_yellow]Results Summary[/bold bright_yellow]", style="on #000000", border_style="bright_yellow", expand=False)
+
+
+def _render_filter_values(values, colors=None, bold=False, line_sep=False):
+    """Render a sequence of filter values as a Rich Text, dot-separated, with optional per-value colors."""
+    t = _RichText()
+    for i, v in enumerate(values):
+        if i: t.append("|" if line_sep else "  ·  ", style="bright_white")
+        style = (colors or {}).get(v, "bright_white")
+        t.append(v, style=("bold " + style) if bold else style)
+    return t
+
+
+# Maps active_display_filters keys to their per-value color dicts (absent = bright_white)
+_FILTER_VALUE_COLORS = {
+    "status":       _STATUS_COLORS,
+    "verification": _VERIF_COLORS,
+}
+
+
+def _build_filters_panel(filters):
+    """Build a Rich Panel showing the distinct filterable values from /instances/filters/."""
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+
+    statuses = sorted({f["actual_status"] for f in filters if f.get("actual_status")})
+    verifs   = sorted({f["verification"]   for f in filters if f.get("verification")})
+    gpus     = sorted({f["gpu_name"]        for f in filters if f.get("gpu_name")})
+
+    lines = [
+        Text.assemble(("--status:       ", "bold bright_yellow"), _render_filter_values(statuses, _STATUS_COLORS)),
+        Text.assemble(("--verification: ", "bold bright_yellow"), _render_filter_values(verifs, _VERIF_COLORS)),
+        Text.assemble(("--gpu-name:     ", "bold bright_yellow"), _render_filter_values(gpus)),
+    ]
+
+    grid = Table.grid(padding=(0, 0))
+    grid.add_column()
+    for line in lines:
+        grid.add_row(line)
+
+    return Panel(grid, title="[bright_white]Filterable Values[/bright_white]", style="on #000000", border_style="bright_white", expand=False)
+
+
+@parser.command(
+    argument("-q", "--quiet",       action="store_true", help="only print instance IDs, one per line"),
+    argument("-v", "--verbose",     action="store_true", help="show additional columns (SSH, location, template, etc.)"),
+    argument("-a", "--all",         action="store_true", help="fetch all pages automatically and send to pager; useful for scripting"),
+    argument("-s", "--status",      metavar="STATUS",    nargs="+", help="filter by container status: running loading exited (space-separated for multiple)"),
+    argument("--label",             metavar="LABEL",     nargs="+", help="filter by instance label; pass empty string '' to match unlabeled instances"),
+    argument("--gpu-name",          metavar="GPU",       nargs="+", dest="gpu_name", help="filter by GPU model name, e.g. 'RTX A5000' 'GTX 1070' (space-separated for multiple)"),
+    argument("--verification",      metavar="VERIF",     nargs="+", choices=["verified", "unverified", "deverified"], help="filter by machine verification status: verified unverified deverified"),
+    argument("-l", "--limit",       type=int, default=25, help="max instances per page (1–25, default 25)"),
+    argument("-t", "--next-token",  dest="next_token",   help="resume from a pagination token printed at the end of a previous page"),
+    argument("--order-by",          dest="order_by",     metavar="COL [asc|desc]", action="append", help="sort by column with optional direction (default asc); repeat for multiple keys, e.g. --order-by start_date desc --order-by id"),
+    argument("--cols",              metavar="COLS",       help=f"override displayed columns with a comma-separated list (available: {','.join(s[0] for s in _INSTANCE_COL_SPECS)})"),
+    usage="vastai show instances-v1 [OPTIONS] [--api-key API_KEY] [--raw]",
+    help="List your running instances with filtering, sorting, and pagination",
+    epilog=deindent("""
+        Displays your instances in a table with auto-sizing columns. Narrow terminals
+        drop lower-priority columns automatically; use --cols to override. Sorted by
+        id asc by default. Paginated at 25 results; follow the next-page prompt or
+        pass --next-token to continue.
+
+        A 'Filterable Values' panel is always shown on the first page, listing the exact values
+        accepted by --status, --verification, and --gpu-name for your instances.
+
+        Examples:
+            vastai show instances-v1
+            vastai show instances-v1 -v
+            vastai show instances-v1 --status running loading
+            vastai show instances-v1 --gpu-name 'RTX A5000' 'GTX 1070'
+            vastai show instances-v1 --label training --order-by start_date desc
+            vastai show instances-v1 --verification verified --status running --limit 10
+            vastai show instances-v1 --order-by start_date desc --order-by label
+            vastai show instances-v1 --next-token eyJ2YWx1ZXMiOiB7ImlkIjogMjUwNzgyMzR9...
+            vastai show instances-v1 --cols id,status,gpu,dph
+    """),
+)
+def show__instances_v1(args):
+    try:
+        from rich.prompt import Confirm
+        from rich.text import Text
+        from rich.padding import Padding
+        has_rich = True
+    except ImportError:
+        has_rich = False
+    
+    # ── build select_filters ──────────────────────────────────────────────
+    select_filters = {}
+    active_display_filters = {}
+    
+    if args.status:
+        invalid_statuses = [s for s in args.status if s not in _STATUS_COLORS]
+        if invalid_statuses:
+            valid = ", ".join(sorted(_STATUS_COLORS))
+            print(f"Warning: unknown status value(s): {', '.join(invalid_statuses)}. Valid: {valid}", file=sys.stderr)
+        select_filters["actual_status"] = {"in": args.status}
+        active_display_filters["status"] = args.status
+    
+    if args.label is not None:
+        vals = [None if l == "" else l for l in args.label]
+        select_filters["label"] = {"in": vals}
+        active_display_filters["label"] = [l or "(unlabeled)" for l in vals]
+    
+    if args.gpu_name:
+        select_filters["gpu_name"] = {"in": args.gpu_name}
+        active_display_filters["gpu_name"] = args.gpu_name
+    
+    if args.verification:
+        select_filters["verification"] = {"in": args.verification}
+        active_display_filters["verification"] = args.verification
+
+    # ── order_by ─────────────────────────────────────────────────────────
+    order_by = [{"col": "id", "dir": "asc"}]
+    if args.order_by:
+        order_by = []
+        seen_cols = set()
+        for entry in args.order_by:
+            parts = entry.split()
+            col  = parts[0]
+            dirn = parts[1].lower() if len(parts) > 1 and parts[1].lower() in ("asc", "desc") else "asc"
+            order_by.append({"col": col, "dir": dirn})
+            seen_cols.add(col)
+        if "id" not in seen_cols:
+            order_by.append({"col": "id", "dir": "asc"})
+
+    limit = max(1, min(args.limit, 25))
+
+    params = {
+        "select_filters": select_filters,
+        "order_by":       order_by,
+        "limit":          limit,
+    }
+    # Only restrict columns when not in raw mode — raw users want the full response
+    if not args.raw:
+        params["select_cols"] = _VERBOSE_INSTANCE_SELECT_COLS if args.verbose else _DEFAULT_INSTANCE_SELECT_COLS
+    if not has_rich:
+        params["select_cols"] = [s[0] for s in instance_fields]  # fall back to old set of fields for non-rich display to avoid missing data
+    if args.next_token:
+        params["after_token"] = args.next_token
+
+    endpoint = "/api/v1/instances/"
+
+    # ── fetch filter breakdown for filter summary ────────────────────────
+    filter_combos = None
+    if not args.quiet and not args.raw:
+        try:
+            fr = http_get(args, apiurl(args, "/instances/filters/"))
+            fr.raise_for_status()
+            filter_combos = fr.json().get("filters", [])
+        except Exception:
+            pass  # non-fatal; summary just won't show breakdown
+
+    # ── pagination loop ───────────────────────────────────────────────────
+    user_cols = [c.strip() for c in args.cols.split(",")] if args.cols and has_rich else None
+
+    page = 0
+    offset = 0
+    looping = True
+    all_instances = []   # accumulates instances across pages in --all mode
+    while looping:
+        if args.all and page > 0:
+            time.sleep(1)
+        url = apiurl(args, endpoint, query_args=params)
+        r = http_get(args, url)
+        r.raise_for_status()
+        data = r.json()
+
+        instances   = data.get("instances", [])
+        next_token  = data.get("next_token")
+        total       = data.get("total_instances", 0)
+        label_cnts  = data.get("label_counts", {})
+        page       += 1
+
+        # ── --raw: return the full response dict ──────────────────────────
+        if args.raw:
+            print_or_page(args, json.dumps(data, indent=1))
+            return
+
+        # ── --quiet: only IDs ─────────────────────────────────────────────
+        if args.quiet:
+            for inst in instances:
+                instance_id = inst.get("id")
+                if instance_id is not None:
+                    print(instance_id)
+            break
+
+        # ── --all: collect instances, build single display at end ─────────
+        if args.all:
+            all_instances.extend(instances)
+            if next_token:
+                sys.stderr.write(f"\rLoading more... (page {page + 1})")
+                sys.stderr.flush()
+                params["after_token"] = next_token
+                continue
+            # All pages fetched — clear indicator and fall through to display
+            sys.stderr.write("\r\033[K")
+            sys.stderr.flush()
+            instances = all_instances  # render everything as one
+
+        # ── rich display ──────────────────────────────────────────────────
+        output_parts = []
+
+        if has_rich:
+            if page == 1 or args.all:
+                if filter_combos:
+                    output_parts.append(rich_object_to_string(_build_filters_panel(filter_combos), no_color=args.no_color))
+                output_parts.append(rich_object_to_string(_build_summary_panel(
+                    total, label_cnts,
+                    active_filters=active_display_filters,
+                    order_by=order_by if args.order_by else None,
+                ), no_color=args.no_color).rstrip("\n"))
+            else:
+                output_parts.append('')  # spacing between pages
+
+            if not instances:
+                empty_msg = "No instances matched your filters." if active_display_filters else "No instances found."
+                output_parts.append(rich_object_to_string(Text(empty_msg, style="bright_white"), no_color=args.no_color).rstrip())
+            else:
+                tbl, hidden = _build_instances_table(instances, verbose=args.verbose, cols=user_cols)
+
+                caption = Text()
+                if not args.all:
+                    if not args.next_token:
+                        caption.append(f"[Page {page}]", style="bright_white")
+                        caption.append("  ·  ", style="bright_white")
+                    caption.append("Fetched Results: ", style="bright_white")
+                    caption.append(f"{offset + 1} – {offset + len(instances)}", style="bright_white")
+                    caption.append(f" of {total}", style="bright_white")
+                if hidden and (page == 1 or args.all):
+                    caption.append(
+                        f"\nColumns hidden to fit terminal width: {', '.join(hidden)}"
+                        f"  ·  use --cols to customize (see --help)",
+                        style="dim",
+                    )
+                if caption:
+                    tbl.caption = caption
+                    tbl.caption_justify = "left"
+
+                padded = Padding(tbl, (0, 1, 0, 1), style="on #000000", expand=False)
+                output_parts.append(rich_object_to_string(padded, no_color=args.no_color))
+                if next_token:
+                    output_parts.append(f"Next page token: {next_token}\n")
+        else:  # Plain Text Reslt Display (no Rich)
+            if page == 1 or args.all:
+                if filter_combos:
+                    statuses = sorted({f["actual_status"] for f in filter_combos if f.get("actual_status")})
+                    verifs   = sorted({f["verification"]   for f in filter_combos if f.get("verification")})
+                    gpus     = sorted({f["gpu_name"]        for f in filter_combos if f.get("gpu_name")})
+                    print("Filterable Values:")
+                    print(f"  --status:       {' | '.join(statuses) if statuses else '(none)'}")
+                    print(f"  --verification: {' | '.join(verifs) if verifs else '(none)'}")
+                    print(f"  --gpu-name:     {' | '.join(gpus) if gpus else '(none)'}")
+                    print()
+                summary_lines = [f"Total: {total} instances"]
+                if label_cnts:
+                    lbl_parts = [f"{(lbl or '(unlabeled)')}: {cnt}" for lbl, cnt in sorted(label_cnts.items(), key=lambda x: -x[1])]
+                    summary_lines.append(f"Labels: {'  ·  '.join(lbl_parts)}")
+                if active_display_filters:
+                    filter_parts = [f"{k}={' | '.join(str(v) for v in vals)}" for k, vals in active_display_filters.items()]
+                    summary_lines.append(f"Filters: {'   '.join(filter_parts)}")
+                if args.order_by:
+                    order_parts = [f"{o['col']} ({o['dir']})" for o in order_by]
+                    summary_lines.append(f"Order by: {'  >  '.join(order_parts)}")
+                print("Results Summary:")
+                for line in summary_lines:
+                    print(f"  {line}")
+                print()
+
+            if not instances:
+                print("No instances matched your filters." if active_display_filters else "No instances found.")
+            else:
+                display_table(instances, instance_fields)
+                if not args.all:
+                    print(f"[Page {page}]  Fetched Results: {offset + 1} – {offset + len(instances)} of {total}")
+                if next_token:
+                    print(f"Next page token: {next_token}")
+            if page == 1:
+                print("\nNOTE: install the 'rich' module for colored output  (pip install rich)")
+
+        if not args.all:
+            offset += len(instances)
+
+        if args.all or not next_token:
+            print_or_page(args, "\n".join(output_parts))
+            looping = False
+        else:
+            print("\n".join(output_parts))
+            try:
+                if has_rich:
+                    ans = Confirm.ask(f"Fetch next page? (page {page + 1})", default=False)
+                else:
+                    ans = input(f"Fetch next page? (page {page + 1}) (y/N): ").strip().lower() == "y"
+            except (EOFError, KeyboardInterrupt):
+                ans = False
+            if ans:
+                params["after_token"] = next_token
+            else:
+                looping = False
 
 
 @parser.command(
@@ -6799,6 +7491,7 @@ def update__workergroup(args):
     argument("--endpoint_name",   help="deployment endpoint name (allows multiple workergroups to share same deployment endpoint)", type=str),
     argument("--max_queue_time", help="maximum seconds requests may be queued on each worker (default 30.0)", type=float),
     argument("--target_queue_time", help="target seconds for the queue to be cleared (default 10.0)", type=float),
+    argument("--inactivity_timeout", help="seconds of no traffic before the endpoint can scale to zero active workers", type=int),
     usage="vastai update endpoint ID [OPTIONS]",
     help="Update an existing endpoint group",
     epilog=deindent("""
@@ -6808,7 +7501,7 @@ def update__workergroup(args):
 def update__endpoint(args):
     id  = args.id
     url = apiurl(args, f"/endptjobs/{id}/" )
-    json_blob = {"client_id": "me", "endptjob_id": args.id, "min_load": args.min_load, "min_cold_load":args.min_cold_load,"target_util": args.target_util, "cold_mult": args.cold_mult, "cold_workers": args.cold_workers, "max_workers" : args.max_workers, "endpoint_name": args.endpoint_name, "max_queue_time": args.max_queue_time, "target_queue_time": args.target_queue_time, "endpoint_state": args.endpoint_state, "autoscaler_instance":args.auto_instance}
+    json_blob = {"client_id": "me", "endptjob_id": args.id, "min_load": args.min_load, "min_cold_load":args.min_cold_load,"target_util": args.target_util, "cold_mult": args.cold_mult, "cold_workers": args.cold_workers, "max_workers" : args.max_workers, "endpoint_name": args.endpoint_name, "max_queue_time": args.max_queue_time, "target_queue_time": args.target_queue_time, "inactivity_timeout": args.inactivity_timeout, "endpoint_state": args.endpoint_state, "autoscaler_instance":args.auto_instance}
     if (args.explain):
         print("request json: ")
         print(json_blob)
@@ -6821,6 +7514,57 @@ def update__endpoint(args):
             print("The response is not valid JSON.")
             print(r)
             print(r.text)  # Print the raw response to help with debugging.
+    else:
+        print("The response is not JSON. Content-Type:", r.headers.get('Content-Type'))
+        print(r.text)
+
+@parser.command(
+    argument("id", help="id of workergroup to update workers for", type=int),
+    argument("--cancel", action="store_true", help="cancel an in-progress update for the workergroup"),
+    usage="vastai update workers WORKERGROUP_ID [--cancel]",
+    help="Trigger a rolling update of all workers in a workergroup, or cancel an in-progress update",
+    epilog=deindent("""
+        Starts a rolling update of all workers in the specified workergroup. The autoscaler
+        will cycle through workers, updating them while maintaining capacity.
+
+        Use --cancel to cancel an update that is currently in progress.
+
+        Examples:
+            vastai update workers 4242
+            vastai update workers 4242 --cancel
+    """),
+)
+def update__workers(args):
+    if args.url == server_url_default:
+        args.url = None
+    url = (args.url or "https://run.vast.ai") + "/update_workers/"
+    json_blob = {"workergroup_id": args.id, "api_key": args.api_key}
+    if args.cancel:
+        json_blob["cancel_update"] = True
+    if args.explain:
+        print(f"{url} with request json: ")
+        print(json_blob)
+    r = http_post(args, url, headers=headers, json=json_blob)
+    if r.status_code != 200:
+        try:
+            result = r.json()
+            print(f"Error ({r.status_code}): {result.get('error_msg') or result.get('msg') or r.text}")
+        except (requests.exceptions.JSONDecodeError, ValueError):
+            print(f"Error ({r.status_code}): {r.text}")
+        return
+    if 'application/json' in r.headers.get('Content-Type', ''):
+        try:
+            result = r.json()
+            if result.get("success"):
+                if result.get("cancelled"):
+                    print(f"Update cancelled for workergroup {args.id}")
+                else:
+                    print(f"Update started for workergroup {args.id} ({result.get('workers_to_update', 0)} workers)")
+            else:
+                print(f"Error: {result.get('error_msg', 'unknown error')}")
+        except requests.exceptions.JSONDecodeError:
+            print("The response is not valid JSON.")
+            print(r.text)
     else:
         print("The response is not JSON. Content-Type:", r.headers.get('Content-Type'))
         print(r.text)
@@ -7730,6 +8474,15 @@ def self_test__machine(args):
             offers = search__offers(search_args)
             if not offers:
                 progress_print(args, f"Machine ID {machine_id} not found or not rentable.")
+                progress_print(args, f"Possible reasons and how to investigate:")
+                progress_print(args, f"  1. Already rented — the machine has no remaining capacity.")
+                progress_print(args, f"     Check: vastai search offers 'machine_id={machine_id} rented=true rentable=any verified=any'")
+                progress_print(args, f"  2. Machine went offline — it may have disconnected since you last checked.")
+                progress_print(args, f"     Check: vastai show machines  (look for machine {machine_id} and its status)")
+                progress_print(args, f"  3. No active offer / not configured as rentable — the host may not have listed this machine.")
+                progress_print(args, f"     Check: vastai search offers 'machine_id={machine_id} rentable=any rented=any verified=any'")
+                progress_print(args, f"  4. Bid price below ask — your bid may be lower than the host's minimum price.")
+                progress_print(args, f"     Check: vastai search offers 'machine_id={machine_id} rentable=any verified=any' and compare prices.")
                 return None
             sorted_offers = sorted(offers, key=lambda x: x.get("dlperf", 0), reverse=True)
             return sorted_offers[0] if sorted_offers else None
@@ -7824,7 +8577,15 @@ def self_test__machine(args):
                         port_mappings = instance_info.get("ports", {}).get("5000/tcp", [])
                         port = port_mappings[0].get("HostPort") if port_mappings else None
                         if not port:
-                            result["reason"] = "Failed to retrieve mapped port."
+                            all_ports = instance_info.get("ports", {})
+                            progress_print(args, f"Port 5000/tcp not found in instance port mappings.")
+                            progress_print(args, f"All mapped ports on instance: {all_ports if all_ports else 'none'}")
+                            progress_print(args, f"Possible causes:")
+                            progress_print(args, f"  - The machine's firewall is blocking port 5000.")
+                            progress_print(args, f"  - direct_port_count is too low on this machine (must be > 3).")
+                            progress_print(args, f"  - The container failed to expose the port correctly.")
+                            progress_print(args, f"Check direct_port_count: vastai search offers 'machine_id={args.machine_id} rentable=any verified=any'")
+                            result["reason"] = f"Port 5000/tcp not mapped. Available ports: {all_ports}"
                         else:
                             delay = "15"
                             success, reason = run_machinetester(
@@ -8462,6 +9223,9 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
             debug_print(args, f"Sleeping for {delay} seconds before starting tests.")
         time.sleep(delay)
 
+    progress_print(args, f"Polling test progress at https://{ip_address}:{port}/progress every 20s (max 600s).")
+    progress_print(args, f"To manually check: curl -k https://{ip_address}:{port}/progress")
+
     start_time = time.time()
     no_response_seconds = 0
     printed_lines = set()
@@ -8532,12 +9296,40 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
                     debug_print(args, f"No message received. Incremented no_response_seconds to {no_response_seconds}.")
 
             if status == 'running' and no_response_seconds >= 120:
+                if not first_connection_established:
+                    reason_msg = (
+                        f"Port {port} was never reachable on {ip_address}. "
+                        f"The container may have crashed before the test server started, "
+                        f"or port 5000 is blocked by the machine's firewall."
+                    )
+                    suggestions = [
+                        f"  - Verify port is accessible: curl -k https://{ip_address}:{port}/progress",
+                        f"  - Check direct_port_count: vastai search offers 'machine_id={machine_id} rentable=any verified=any'",
+                        f"  - The container may have crashed on startup (CUDA/driver error). Ask the host to check: docker logs <container>",
+                        f"  - Check nvidia-smi is working on the host machine.",
+                    ]
+                    return_reason = f"Port {port} unreachable — container startup failure or port misconfiguration."
+                else:
+                    reason_msg = (
+                        f"Connection to port {port} on {ip_address} was established but then lost. "
+                        f"The container likely crashed mid-test (OOM, GPU error, or a failing test)."
+                    )
+                    suggestions = [
+                        f"  - Ask the host to check docker logs for the container.",
+                        f"  - Check available system RAM vs GPU VRAM (OOM risk).",
+                        f"  - Check nvidia-smi for GPU errors on the host.",
+                        f"  - Run tests individually to isolate which test caused the crash.",
+                    ]
+                    return_reason = "Connection lost mid-test — likely OOM, GPU error, or crash during tests."
                 with open("Error_testresults.log", "a") as f:
-                    f.write(f"{machine_id}:{instance_id} No response from port {port} for 120s with running instance\n")
-                progress_print(args, f"No response for 120s with running instance. This may indicate a misconfiguration of ports on the machine. Network error or system stall or crashed. ")
+                    f.write(f"{machine_id}:{instance_id} {return_reason} (first_connection={first_connection_established}, port={port}, ip={ip_address})\n")
+                progress_print(args, f"No response for 120s with running instance. {reason_msg}")
+                progress_print(args, f"Suggestions to investigate:")
+                for s in suggestions:
+                    progress_print(args, s)
                 destroy_instance_silent(instance_id, destroy_args)
                 instance_destroyed = True
-                return False, "No response for 120 seconds with running instance. The system might have crashed or stalled during stress test. Use the self-test machine function in vast cli"
+                return False, return_reason
 
             if args.debugging:
                 debug_print(args, "Waiting for 20 seconds before the next check.")
@@ -8618,6 +9410,15 @@ def check_requirements(machine_id, api_key, args):
         if not offers:
             unmet_reasons.append(f"Machine ID {machine_id} not found or not rentable.")
             progress_print(args, f"Machine ID {machine_id} not found or not rentable.")
+            progress_print(args, f"Possible reasons and how to investigate:")
+            progress_print(args, f"  1. Already rented — the machine has no remaining capacity.")
+            progress_print(args, f"     Check: vastai search offers 'machine_id={machine_id} rented=true rentable=any verified=any'")
+            progress_print(args, f"  2. Machine went offline — it may have disconnected since you last checked.")
+            progress_print(args, f"     Check: vastai show machines  (look for machine {machine_id} and its status)")
+            progress_print(args, f"  3. No active offer / not configured as rentable — the host may not have listed this machine.")
+            progress_print(args, f"     Check: vastai search offers 'machine_id={machine_id} rentable=any rented=any verified=any'")
+            progress_print(args, f"  4. Bid price below ask — your bid may be lower than the host's minimum price.")
+            progress_print(args, f"     Check: vastai search offers 'machine_id={machine_id} rentable=any verified=any' and compare prices.")
             return False, unmet_reasons
 
         # Sort offers based on 'dlperf' in descending order

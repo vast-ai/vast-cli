@@ -65,7 +65,6 @@ version = "0.0.0"
 
 [project.scripts]
 vastai = "vastai.cli.main:main"
-vast = "vastai.serverless.cli:main"
 serve-vast-deployment = "cli.serve_deployment:main"
 
 [project.urls]

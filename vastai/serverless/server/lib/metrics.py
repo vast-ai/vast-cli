@@ -97,6 +97,7 @@ class Metrics:
         this function is called after a response from model API is received and forwarded.
         """
         log.debug(f"{self._request_id(request)} succeeded")
+        request.work_completed_at = time.time()
         self.model_metrics.workload_served += request.workload
         request.status = "Success"
         request.success = True
@@ -107,6 +108,7 @@ class Metrics:
         this function is called if model API returns an error
         """
         log.error(f"{self._request_id(request)} errored: {message}")
+        request.work_completed_at = time.time()
         self.model_metrics.workload_errored += request.workload
         request.status = "Error"
         request.success = False
@@ -169,15 +171,14 @@ class Metrics:
     #######################################Private#######################################
 
     async def __send_delete_requests_and_reset(self):
-        async def post(report_addr: str, idxs: list[int], success_flag: bool) -> bool:
+        async def post(report_addr: str, requests: list[dict]) -> bool:
             data = {
                 "worker_id": self.id,
                 "mtoken": self.mtoken,
-                "request_idxs": idxs,
-                "success": success_flag,
+                "requests": requests,
             }
             log.debug(
-                f"Deleting requests that {'succeeded' if success_flag else 'failed'}: {data['request_idxs']}"
+                f"Deleting requests: {[r['request_idx'] for r in requests]}"
             )
             full_path = report_addr.rstrip("/") + "/delete_requests/"
             for attempt in range(1, 4):
@@ -198,28 +199,33 @@ class Metrics:
         # Take a snapshot of what we plan to send this tick.
         # New arrivals after this snapshot will remain in the queue for the next tick.
         snapshot = list(self.model_metrics.requests_deleting)
-        success_idxs = [r.request_idx for r in snapshot if r.success is True]
-        failed_idxs  = [r.request_idx for r in snapshot if r.success is False]
 
-        if not success_idxs and not failed_idxs:
+        if not snapshot:
             return  # nothing to do
+
+        requests_payload = [
+            {
+                "request_idx": r.request_idx,
+                "success": r.success,
+                "status": r.status,
+                "entered_queue_at": r.entered_queue_at,
+                "work_started_at": r.work_started_at,
+                "work_completed_at": r.work_completed_at,
+            }
+            for r in snapshot
+        ]
 
         for report_addr in self.report_addr:
             # TODO: Add a Redis subscriber queue for delete_requests
             if report_addr == "https://cloud.vast.ai/api/v0":
                 # Patch: ignore the Redis API report_addr
                 continue
-            sent_success = True
-            sent_failed  = True
 
-            if success_idxs:
-                sent_success = await post(report_addr, success_idxs, True)
-            if failed_idxs:
-                sent_failed = await post(report_addr, failed_idxs, False)
+            sent = await post(report_addr, requests_payload)
 
-            if sent_success and sent_failed:
+            if sent:
                 # Remove only the items we actually sent from the live queue.
-                sent_set = set(success_idxs) | set(failed_idxs)
+                sent_set = {r.request_idx for r in snapshot}
                 self.model_metrics.requests_deleting[:] = [
                     r for r in self.model_metrics.requests_deleting
                     if r.request_idx not in sent_set

@@ -217,6 +217,9 @@ class RequestMetrics:
     is_session: bool = False
     session: Session = None
     session_reqnum: Optional[int] = None
+    entered_queue_at: float = 0.0
+    work_started_at: float = 0.0
+    work_completed_at: float = 0.0
 
 
 @dataclass

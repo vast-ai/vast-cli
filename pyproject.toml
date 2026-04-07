@@ -65,7 +65,7 @@ version = "0.0.0"
 
 [project.scripts]
 vastai = "vastai.cli.main:main"
-serve-vast-deployment = "cli.serve_deployment:main"
+serve-vast-deployment = "vastai.serverless.remote.serve_deployment:main"
 
 [project.urls]
 Homepage = "https://vast.ai"

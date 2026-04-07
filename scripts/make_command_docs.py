@@ -3,9 +3,9 @@
 ####################################################################################################
 # Title: make_command_docs.py; Author Greg Propf; Date 2022-02-01
 ####################################################################################################
-# Usage: './make_command_docs' This script runs the 'vast.py' command
-# with the --help option to generate the list of commands and then again
-# for each command shown by help. It does some minimal formatting on
+# Usage: 'python scripts/make_command_docs.py' This script runs the 'vastai'
+# command with the --help option to generate the list of commands and then
+# again for each command shown by help. It does some minimal formatting on
 # the results and produces a Markdown version of the commands and their
 # options.
 ####################################################################################################
@@ -50,24 +50,24 @@ def run_cmd_and_capture_output(verb: str, obj: str = None, direct_obj: str = Non
     os.system(f'stty cols {columns} rows {rows} < /dev/pts/{os.minor(os.fstat(slave).st_rdev)}')
 
     # Execute the command
-    #proc = subprocess.Popen(["./vast.py", "--help"], stdout=slave, stderr=slave)
+    #proc = subprocess.Popen(["vastai", "--help"], stdout=slave, stderr=slave)
 
 
     if verb:
         if direct_obj:
-            cmd_output = subprocess.run(["./vast.py", verb, obj, direct_obj, "--help"], stdout=subprocess.PIPE)
-            #proc = subprocess.Popen(["./vast.py", verb, obj, direct_obj, "--help"], stdout=slave, stderr=slave)
+            cmd_output = subprocess.run(["vastai", verb, obj, direct_obj, "--help"], stdout=subprocess.PIPE)
+            #proc = subprocess.Popen(["vastai", verb, obj, direct_obj, "--help"], stdout=slave, stderr=slave)
         elif obj:
-            cmd_output = subprocess.run(["./vast.py", verb, obj, "--help"], stdout=subprocess.PIPE)
-            #proc = subprocess.Popen(["./vast.py", verb, obj, "--help"], stdout=slave, stderr=slave)
+            cmd_output = subprocess.run(["vastai", verb, obj, "--help"], stdout=subprocess.PIPE)
+            #proc = subprocess.Popen(["vastai", verb, obj, "--help"], stdout=slave, stderr=slave)
         else:
-            cmd_output = subprocess.run(["./vast.py", verb, "--help"], stdout=subprocess.PIPE)
-            #proc = subprocess.Popen(["./vast.py", verb, "--help"], stdout=slave, stderr=slave)
+            cmd_output = subprocess.run(["vastai", verb, "--help"], stdout=subprocess.PIPE)
+            #proc = subprocess.Popen(["vastai", verb, "--help"], stdout=slave, stderr=slave)
     else:
-        cmd_output = subprocess.run(["./vast.py", "--help"], stdout=subprocess.PIPE)
-        #cmd_output = subprocess.Popen(["./vast.py", "--help"], stdout=subprocess.PIPE)
+        cmd_output = subprocess.run(["vastai", "--help"], stdout=subprocess.PIPE)
+        #cmd_output = subprocess.Popen(["vastai", "--help"], stdout=subprocess.PIPE)
 
-        command = "./vast.py --help"
+        command = "vastai --help"
         os.system("resize -s 128 128")
         res = os.popen(command).read() # get all content as text
         #res = list(os.popen(command)) # get lines as array elements

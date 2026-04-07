@@ -45,7 +45,12 @@ class Metrics:
         if self._session is None:
             self._session = ClientSession(
                 timeout=ClientTimeout(total=10),
-                connector=TCPConnector(limit=8, limit_per_host=4, force_close=True, enable_cleanup_closed=True)
+                connector=TCPConnector(
+                    limit=8,
+                    limit_per_host=4,
+                    force_close=True,
+                    enable_cleanup_closed=True,
+                ),
             )
         return self._session
     

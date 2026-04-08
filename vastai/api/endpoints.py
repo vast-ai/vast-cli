@@ -61,6 +61,9 @@ def create_endpoint(client, **kwargs):
         "cold_workers": kwargs.get("cold_workers", 5),
         "max_workers": kwargs.get("max_workers", 20),
         "endpoint_name": kwargs.get("endpoint_name"),
+        "max_queue_time": kwargs.get("max_queue_time"),
+        "target_queue_time": kwargs.get("target_queue_time"),
+        "inactivity_timeout": kwargs.get("inactivity_timeout"),
         "autoscaler_instance": kwargs.get("auto_instance", "prod"),
     }
 
@@ -93,6 +96,9 @@ def update_endpoint(client, id, **kwargs):
         "max_workers": kwargs.get("max_workers"),
         "endpoint_name": kwargs.get("endpoint_name"),
         "endpoint_state": kwargs.get("endpoint_state"),
+        "max_queue_time": kwargs.get("max_queue_time"),
+        "target_queue_time": kwargs.get("target_queue_time"),
+        "inactivity_timeout": kwargs.get("inactivity_timeout"),
         "autoscaler_instance": kwargs.get("auto_instance", "prod"),
     }
     r = client.put(f"/endptjobs/{id}/", json_data=json_blob)

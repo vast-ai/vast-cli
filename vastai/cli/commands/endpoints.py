@@ -28,6 +28,7 @@ parser = _get_parser()
     argument("--endpoint_name", help="deployment endpoint name (allows multiple autoscale groups to share same deployment endpoint)", type=str),
     argument("--max_queue_time", help="maximum seconds requests may be queued on each worker (default 30.0)", type=float),
     argument("--target_queue_time", help="target seconds for the queue to be cleared (default 10.0)", type=float),
+    argument("--inactivity_timeout", help="seconds of no traffic before the endpoint can scale to zero active workers", type=int),
     argument("--auto_instance", help=argparse.SUPPRESS, type=str, default="prod"),
     usage="vastai create endpoint [OPTIONS]",
     help="Create a new endpoint group",
@@ -49,17 +50,17 @@ def create__endpoint(args):
         })
 
     client = get_client(args)
-    try:
-        result = endpoints_api.create_endpoint(
-            client, min_load=args.min_load, min_cold_load=args.min_cold_load,
-            target_util=args.target_util, cold_mult=args.cold_mult,
-            cold_workers=args.cold_workers, max_workers=args.max_workers,
-            endpoint_name=args.endpoint_name, auto_instance=args.auto_instance,
-            max_queue_time=args.max_queue_time, target_queue_time=args.target_queue_time,
-        )
-        print("create endpoint {}".format(result))
-    except Exception:
-        print("The response is not valid JSON or an error occurred.")
+    result = endpoints_api.create_endpoint(
+        client, min_load=args.min_load, min_cold_load=args.min_cold_load,
+        target_util=args.target_util, cold_mult=args.cold_mult,
+        cold_workers=args.cold_workers, max_workers=args.max_workers,
+        endpoint_name=args.endpoint_name, auto_instance=args.auto_instance,
+        max_queue_time=args.max_queue_time, target_queue_time=args.target_queue_time,
+        inactivity_timeout=args.inactivity_timeout,
+    )
+    if args.raw:
+        return result
+    print("create endpoint {}".format(result))
 
 
 @parser.command(

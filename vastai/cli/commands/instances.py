@@ -13,6 +13,7 @@ from vastai.cli.util import (
     parse_day_cron_style, parse_hour_cron_style,
     validate_frequency_values, add_scheduled_job,
     parse_env, split_list, exec_with_threads,
+    _get_gpu_names,
 )
 from vastai.api import instances as instances_api
 from vastai.api import offers as offers_api
@@ -614,7 +615,7 @@ def change__bid(args):
 # ---------------------------------------------------------------------------
 
 @parser.command(
-    argument("-g", "--gpu-name", type=str, required=True, help="Name of the GPU model, replace spaces with underscores"),
+    argument("-g", "--gpu-name", type=str, required=True, choices=_get_gpu_names(), help="Name of the GPU model, replace spaces with underscores"),
     argument("-n", "--num-gpus", type=str, required=True, choices=["1", "2", "4", "8", "12", "14"], help="Number of GPUs required"),
     argument("-r", "--region", type=str, help="Geographical location of the instance"),
     argument("-i", "--image", required=True, help="Name of the image to use for instance"),

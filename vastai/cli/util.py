@@ -211,6 +211,35 @@ for key in DIRS.keys():
 CACHE_FILE = os.path.join(DIRS['temp'], "gpu_names_cache.json")
 CACHE_DURATION = timedelta(hours=24)
 
+
+def _get_gpu_names() -> List[str]:
+    """Returns a set of GPU names available on Vast.ai, with results cached for 24 hours."""
+
+    def is_cache_valid() -> bool:
+        """Checks if the cache file exists and is less than 24 hours old."""
+        if not os.path.exists(CACHE_FILE):
+            return False
+        cache_age = datetime.now() - datetime.fromtimestamp(os.path.getmtime(CACHE_FILE))
+        return cache_age < CACHE_DURATION
+
+    if is_cache_valid():
+        with open(CACHE_FILE, "r") as file:
+            gpu_names = json.load(file)
+    else:
+        endpoint = "/api/v0/gpu_names/unique/"
+        url = f"{server_url_default}{endpoint}"
+        r = requests.get(url, headers={})
+        r.raise_for_status()  # Will raise an exception for HTTP errors
+        gpu_names = r.json()
+        with open(CACHE_FILE, "w") as file:
+            json.dump(gpu_names, file)
+
+    formatted_gpu_names = [
+        name.replace(" ", "_").replace("-", "_") for name in gpu_names['gpu_names']
+    ]
+    return formatted_gpu_names
+
+
 APIKEY_FILE = os.path.join(DIRS['config'], "vast_api_key")
 APIKEY_FILE_HOME = os.path.expanduser("~/.vast_api_key")  # Legacy
 TFAKEY_FILE = os.path.join(DIRS['config'], "vast_tfa_key")

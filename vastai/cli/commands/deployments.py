@@ -75,6 +75,7 @@ def show__deployments(args):
 
 @parser.command(
     argument("id", help="id of deployment to show info for", type=int),
+    argument("-q", "--quiet", action="store_true", help="only display numeric id"),
     usage="vastai show deployment ID [OPTIONS]",
     help="Display a single deployment",
     epilog=deindent("""

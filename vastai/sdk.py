@@ -154,6 +154,10 @@ class VastAI:
         """Return details of a single deployment."""
         return deployments.show_deployment(self.client, id)
 
+    def show_deployment_versions(self, id: int) -> list:
+        """Return version history for a deployment."""
+        return deployments.show_deployment_versions(self.client, id)
+
     def delete_deployment(self, id: int) -> dict:
         """Delete a deployment."""
         return deployments.delete_deployment(self.client, id)
@@ -804,6 +808,10 @@ class VastAI:
     def update_workergroup(self, id: int, **kwargs) -> dict:
         """Update an existing autoscale worker group."""
         return endpoints.update_workergroup(self.client, id=id, **kwargs)
+
+    def update_workers(self, id: int, cancel: bool = False) -> dict:
+        """Trigger a rolling update of all workers in a workergroup, or cancel an in-progress update."""
+        return endpoints.update_workers(self.client, id=id, cancel=cancel)
 
     def update_team_role(self, id: int, **kwargs) -> dict:
         """Update an existing team role."""

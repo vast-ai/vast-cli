@@ -168,6 +168,8 @@ def delete__deployment(args):
     elif rj.get("success"):
         if "count" in rj:
             print(f"Deleted {rj['count']} deployment(s)")
+        elif args.id is not None:
+            print(f"Deleted deployment {args.id}.")
         else:
             print("Deployment deleted successfully")
     else:

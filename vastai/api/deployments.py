@@ -28,3 +28,12 @@ def delete_deployment(client: VastClient, id: int) -> dict:
     r = client.delete(f"/deployment/{id}/")
     r.raise_for_status()
     return r.json()
+
+
+def delete_deployment_by_name(client: VastClient, name: str, tag: str = None) -> dict:
+    json_blob = {"name": name}
+    if tag is not None:
+        json_blob["tag"] = tag
+    r = client.delete("/deployments/", json_data=json_blob)
+    r.raise_for_status()
+    return r.json()

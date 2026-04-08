@@ -126,24 +126,49 @@ def show__deployment_versions(args):
 # ---------------------------------------------------------------------------
 
 @parser.command(
-    argument("id", help="id of deployment to delete", type=int),
-    usage="vastai delete deployment ID [OPTIONS]",
-    help="Delete a deployment",
+    argument("id", help="id of deployment to delete", type=int, nargs="?", default=None),
+    argument("--name", help="name of deployment to delete (deletes all tags unless --tag is specified)", type=str, default=None),
+    argument("--tag", help="tag to filter by when deleting by name", type=str, default=None),
+    usage="vastai delete deployment [ID | --name NAME [--tag TAG]]",
+    help="Delete a deployment by id, or by name and optional tag",
     epilog=deindent("""
-        Deletes a deployment and its associated endpoint and workergroups.
-
         Examples:
-            vastai delete deployment 123
+            vastai delete deployment 1234
+            vastai delete deployment --name my-deployment
+            vastai delete deployment --name my-deployment --tag prod
     """),
 )
 def delete__deployment(args):
     """Delete a deployment."""
+    if args.id is not None and args.name is not None:
+        print("Error: specify either an id or --name, not both")
+        return
+    if args.tag is not None and args.name is None:
+        print("Error: --tag can only be used with --name")
+        return
+
     client = get_client(args)
-    rj = deployments_api.delete_deployment(client, id=args.id)
+
+    if args.id is not None:
+        rj = deployments_api.delete_deployment(client, id=args.id)
+    elif args.name is not None:
+        if args.explain:
+            json_blob = {"name": args.name}
+            if args.tag is not None:
+                json_blob["tag"] = args.tag
+            print("request json: ")
+            print(json_blob)
+        rj = deployments_api.delete_deployment_by_name(client, name=args.name, tag=args.tag)
+    else:
+        print("Error: must specify either an id or --name")
+        return
 
     if args.raw:
         return rj
     elif rj.get("success"):
-        print(f"Deleted deployment {args.id}.")
+        if "count" in rj:
+            print(f"Deleted {rj['count']} deployment(s)")
+        else:
+            print("Deployment deleted successfully")
     else:
         print(rj.get("msg", rj))

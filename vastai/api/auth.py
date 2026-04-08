@@ -240,7 +240,7 @@ def _build_tfa_verification_payload(**kwargs):
 def tfa_activate(client, code, secret, method_type="totp", phone_number=None, label=None, method_id=None):
     """Activate a new 2FA method by verifying the code.
 
-    POST /api/v0/tfa/test-submit/
+    POST /api/v0/tfa/confirm-new/
 
     Args:
         client: VastClient instance.
@@ -263,7 +263,7 @@ def tfa_activate(client, code, secret, method_type="totp", phone_number=None, la
         label=label,
     )
 
-    r = client.post("/api/v0/tfa/test-submit/", json_data=payload)
+    r = client.post("/api/v0/tfa/confirm-new/", json_data=payload)
     r.raise_for_status()
     return r.json()
 
@@ -335,7 +335,7 @@ def tfa_login(client, code=None, backup_code=None, method_type=None, secret=None
 def tfa_resend_sms(client, secret, phone_number=None):
     """Resend SMS 2FA code.
 
-    POST /api/v0/tfa/resend/
+    POST /api/v0/tfa/sms/resend/
 
     Args:
         client: VastClient instance.
@@ -351,7 +351,7 @@ def tfa_resend_sms(client, secret, phone_number=None):
         phone_number=phone_number,
     )
 
-    r = client.post("/api/v0/tfa/resend/", json_data=payload)
+    r = client.post("/api/v0/tfa/sms/resend/", json_data=payload)
     r.raise_for_status()
     return r.json()
 
@@ -390,7 +390,7 @@ def tfa_regen_codes(client, code=None, backup_code=None, method_type=None, secre
 def tfa_send_sms(client, phone_number=None):
     """Request a 2FA SMS verification code.
 
-    POST /api/v0/tfa/test/
+    POST /api/v0/tfa/sms/
 
     Args:
         client: VastClient instance.
@@ -404,7 +404,7 @@ def tfa_send_sms(client, phone_number=None):
     if phone_number:
         payload["phone_number"] = phone_number
 
-    r = client.post("/api/v0/tfa/test/", json_data=payload)
+    r = client.post("/api/v0/tfa/sms/", json_data=payload)
     r.raise_for_status()
     return r.json()
 

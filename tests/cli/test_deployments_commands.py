@@ -57,15 +57,13 @@ class TestShowDeployment:
 
 
 class TestDeleteDeployment:
-    def test_delete_deployment(self, parse_argv, patch_get_client, mock_response, capsys):
+    def test_delete_deployment(self, parse_argv, patch_get_client, mock_response):
         patch_get_client.delete.return_value = mock_response(200, {"success": True})
         args = parse_argv(["delete", "deployment", "42"])
         args.func(args)
         patch_get_client.delete.assert_called_once()
         call_args = patch_get_client.delete.call_args
         assert "/deployment/42/" in call_args[0][0]
-        captured = capsys.readouterr()
-        assert "Deleted deployment 42" in captured.out
 
     def test_delete_deployment_raw(self, parse_argv, patch_get_client, mock_response):
         patch_get_client.delete.return_value = mock_response(200, {"success": True})

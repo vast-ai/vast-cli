@@ -20,7 +20,7 @@ authors = [
   { name = "zuby javed", email = "zuby@vast.ai" },
 ]
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">3.9.1, <4.0"
 license = { text = "MIT" }
 dynamic = ["version"]
 dependencies = [

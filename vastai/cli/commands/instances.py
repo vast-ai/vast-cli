@@ -100,7 +100,7 @@ def get_runtype(args):
     if not args.jupyter and (args.jupyter_dir or args.jupyter_lab):
         args.jupyter = True
     if args.jupyter and runtype == 'args':
-        print("Error: Can't use --jupyter and --args together. Try --onstart or --onstart-cmd instead of --args.", file=__import__('sys').stderr)
+        print("Error: Can't use --jupyter and --args together. Try --onstart or --onstart-cmd instead of --args.", file=sys.stderr)
         return 1
     if args.jupyter:
         runtype = 'jupyter_direc ssh_direc ssh_proxy' if args.direct else 'jupyter_proxy ssh_proxy'

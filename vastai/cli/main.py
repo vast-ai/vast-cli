@@ -97,7 +97,7 @@ def main():
             if args.raw and res is not None:
                 try:
                     print(json.dumps(res, indent=1, sort_keys=True))
-                except:
+                except (TypeError, ValueError):
                     print(json.dumps(res.json(), indent=1, sort_keys=True))
                 sys.exit(0)
             sys.exit(res)

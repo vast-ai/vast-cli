@@ -24,36 +24,22 @@ requires-python = ">=3.9"
 license = { text = "MIT" }
 dynamic = ["version"]
 dependencies = [
-  "jsonschema>=3.2",
   "xdg>=1.0.0",
   "borb~=2.1.25",
   "requests>=2.32.3",
   "python-dateutil>=2.8.2",
-  "pytz>=2023.3",
   "urllib3>=2.0,<3.0",
   "pyparsing>=3.1,<4.0",
-  "fastapi>=0.110,<1.0",
-  "uvicorn[standard]>=0.24,<0.32",
   "aiohttp>=3.9.1",
   "aiodns>=3.6.0",
   "pycares==4.11.0",
-  "aiofiles>=23.0",
   "anyio~=4.4",
-  "nltk~=3.9",
   "psutil~=6.0",
   "pycryptodome~=3.20",
-  "transformers~=4.52",
-  "hf_transfer>=0.1.9",
   "argcomplete>=2.0",
   "curlify>=2.2",
   "rich>=13.0",
   "cryptography<=46.0.4",
-  "pillow>=10.3.0,<12.1.1",
-  "gitpython>=3.1",
-  "toml>=0.10",
-  "qrcode>=7.4",
-  "setuptools",
-  "fonttools>=4.60.2",
 ]
 
 [tool.poetry]

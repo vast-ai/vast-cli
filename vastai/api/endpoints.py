@@ -341,3 +341,34 @@ def get_wrkgrp_logs(client, id, level=1, tail=None):
         rj = r.json()
         return rj
     return {"error": r.text}
+
+
+def update_workers(client, id: int, cancel: bool = False):
+    """Trigger a rolling update of all workers in a workergroup, or cancel an in-progress update.
+
+    POST /update_workers/
+
+    Args:
+        client: VastClient instance.
+        id: Workergroup ID.
+        cancel: If True, cancel an in-progress update.
+
+    Returns:
+        dict: Result from the autoscaler.
+    """
+    from vastai.api.client import server_url_default
+    base_url = client.server_url
+    if base_url == server_url_default:
+        base_url = "https://run.vast.ai"
+    url = base_url + "/update_workers/"
+    json_blob = {"workergroup_id": id, "api_key": client.api_key}
+    if cancel:
+        json_blob["cancel_update"] = True
+
+    headers = {}
+    if client.api_key is not None:
+        headers["Authorization"] = "Bearer " + client.api_key
+
+    r = requests.post(url, headers=headers, json=json_blob)
+    r.raise_for_status()
+    return r.json()

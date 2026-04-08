@@ -98,6 +98,29 @@ def show__deployment(args):
 
 
 # ---------------------------------------------------------------------------
+# show deployment-versions
+# ---------------------------------------------------------------------------
+
+@parser.command(
+    argument("id", help="id of deployment to show versions for", type=int),
+    usage="vastai show deployment-versions ID",
+    help="Display versions for a deployment",
+    epilog=deindent("""
+        Example: vastai show deployment-versions 1234
+    """),
+)
+def show__deployment_versions(args):
+    """Show version history for a deployment."""
+    client = get_client(args)
+    rows = deployments_api.show_deployment_versions(client, id=args.id)
+    if args.raw:
+        return rows
+    else:
+        import json
+        print(json.dumps(rows, indent=1, sort_keys=True))
+
+
+# ---------------------------------------------------------------------------
 # delete deployment
 # ---------------------------------------------------------------------------
 

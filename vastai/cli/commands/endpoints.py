@@ -291,6 +291,37 @@ def update__workergroup(args):
 
 
 @parser.command(
+    argument("id", help="id of workergroup to update workers for", type=int),
+    argument("--cancel", action="store_true", help="cancel an in-progress update for the workergroup"),
+    usage="vastai update workers WORKERGROUP_ID [--cancel]",
+    help="Trigger a rolling update of all workers in a workergroup, or cancel an in-progress update",
+    epilog=deindent("""
+        Starts a rolling update of all workers in the specified workergroup. The autoscaler
+        will cycle through workers, updating them while maintaining capacity.
+
+        Use --cancel to cancel an update that is currently in progress.
+
+        Examples:
+            vastai update workers 4242
+            vastai update workers 4242 --cancel
+    """),
+)
+def update__workers(args):
+    """Trigger a rolling update of workers in a workergroup."""
+    client = get_client(args)
+    result = endpoints_api.update_workers(client, id=args.id, cancel=args.cancel)
+    if args.raw:
+        return result
+    if result.get("success"):
+        if result.get("cancelled"):
+            print(f"Update cancelled for workergroup {args.id}")
+        else:
+            print(f"Update started for workergroup {args.id} ({result.get('workers_to_update', 0)} workers)")
+    else:
+        print(f"Error: {result.get('error_msg', 'unknown error')}")
+
+
+@parser.command(
     argument("id", help="id of group to delete", type=int),
     usage="vastai delete workergroup ID ",
     help="Delete a workergroup group",

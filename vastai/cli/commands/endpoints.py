@@ -102,6 +102,7 @@ def show__endpoints(args):
     argument("--endpoint_name",   help="deployment endpoint name (allows multiple workergroups to share same deployment endpoint)", type=str),
     argument("--max_queue_time", help="maximum seconds requests may be queued on each worker (default 30.0)", type=float),
     argument("--target_queue_time", help="target seconds for the queue to be cleared (default 10.0)", type=float),
+    argument("--inactivity_timeout", help="seconds of no traffic before the endpoint can scale to zero active workers", type=int),
     usage="vastai update endpoint ID [OPTIONS]",
     help="Update an existing endpoint group",
     epilog=deindent("""
@@ -119,6 +120,7 @@ def update__endpoint(args):
         endpoint_name=args.endpoint_name, endpoint_state=args.endpoint_state,
         auto_instance=args.auto_instance,
         max_queue_time=args.max_queue_time, target_queue_time=args.target_queue_time,
+        inactivity_timeout=args.inactivity_timeout,
     )
     if args.raw:
         return result

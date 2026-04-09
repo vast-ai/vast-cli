@@ -27,6 +27,7 @@ worker_config = WorkerConfig(
             ),
             workload_calculator=lambda req: 100,
         ),
+        HandlerConfig(route="/ws_port"),
     ],
     log_action_config=LogActionConfig(
         on_load=["Websocket server ready"],

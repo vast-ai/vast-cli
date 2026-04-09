@@ -7,7 +7,7 @@ BASE_URL="https://raw.githubusercontent.com/vast-ai/vast-cli/refs/heads/${BRANCH
 # Start the aiohttp server (HTTP + WS) in the background on system python
 pip install aiohttp
 curl -s "$BASE_URL/server.py" -o /opt/server.py
-python3 /opt/server.py &
+python3 -u /opt/server.py &
 
 # Set up the pyworker directory with our worker.py and a requirements.txt
 # so start_server.sh finds what it needs

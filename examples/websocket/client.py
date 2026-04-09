@@ -16,8 +16,7 @@ import websockets
 from vastai import Serverless
 
 ENDPOINT_NAME = "my-ws-endpoint"
-WEBSOCKET_PORT = 9001
-NUM_CONNECTIONS = 3
+NUM_CONNECTIONS = 2
 
 
 class WebsocketSession:
@@ -30,11 +29,20 @@ class WebsocketSession:
     @classmethod
     async def connect(cls, endpoint, cost=1000):
         session = await endpoint.session(cost=cost, lifetime=60)
-        # session.url is the worker's direct URL (e.g. http://host:port)
-        # Replace scheme and port to reach the websocket server
-        parsed = urlparse(session.url)
-        ws_url = f"ws://{parsed.hostname}:{WEBSOCKET_PORT}/ws"
-        ws = await websockets.connect(ws_url)
+        try:
+            # Query the server for the external websocket port.
+            # This goes through the worker SDK proxy as a normal HTTP request.
+            port_resp = await session.request("/ws_port", {})
+            ws_port = port_resp["response"]["port"]
+
+            # Build the websocket URL using the worker's IP + external port
+            parsed = urlparse(session.url)
+            ws_url = f"ws://{parsed.hostname}:{ws_port}/ws"
+            print(f"Connecting to {ws_url} (session {session.session_id})")
+            ws = await websockets.connect(ws_url)
+        except Exception:
+            await session.close()
+            raise
         return cls(session, ws)
 
     async def send(self, message):
@@ -42,8 +50,10 @@ class WebsocketSession:
         return await self.ws.recv()
 
     async def close(self):
-        await self.ws.close()
-        await self.session.close()
+        try:
+            await self.ws.close()
+        finally:
+            await self.session.close()
 
 
 async def run_connection(endpoint, conn_id):

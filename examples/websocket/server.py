@@ -13,6 +13,7 @@ over HTTP, while clients connect to the websocket endpoint directly.
 import asyncio
 import json
 import logging
+import os
 from aiohttp import web
 
 LOG_FILE = "/workspace/ws_server.log"
@@ -30,6 +31,14 @@ async def handle_noop(request):
 
 async def handle_health(request):
     return web.json_response({"status": "healthy"})
+
+
+async def handle_ws_port(request):
+    """Return the external port for the websocket server via VAST_TCP_PORT_9001."""
+    ext_port = os.environ.get(f"VAST_TCP_PORT_{PORT}")
+    if ext_port is None:
+        return web.json_response({"error": f"VAST_TCP_PORT_{PORT} not set"}, status=500)
+    return web.json_response({"port": int(ext_port)})
 
 
 async def handle_ws(request):
@@ -55,6 +64,7 @@ def create_app():
     app = web.Application()
     app.router.add_post("/noop", handle_noop)
     app.router.add_get("/health", handle_health)
+    app.router.add_post("/ws_port", handle_ws_port)
     app.router.add_get("/ws", handle_ws)
     return app
 
@@ -68,4 +78,4 @@ if __name__ == "__main__":
         f.flush()
 
     log.info(f"Server starting on port {PORT}")
-    web.run_app(app, host="0.0.0.0", port=PORT, print=None)
+    web.run_app(app, host="0.0.0.0", port=PORT)

@@ -15,7 +15,7 @@ import json
 import logging
 from aiohttp import web
 
-LOG_FILE = "/var/log/ws_server.log"
+LOG_FILE = "/workspace/ws_server.log"
 PORT = 9001
 
 logging.basicConfig(level=logging.INFO)

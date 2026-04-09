@@ -12,7 +12,7 @@ paths:
       summary: show instances
       deprecated: true
       description: |
-        > ⚠️ **Deprecated:** This endpoint has been superseded by [`/api/v1/instances/`](#tag/Instances/GET/api/v1/instances/), which adds keyset pagination, filtering, column selection, and sorting.
+        > **Deprecated:** This endpoint has been superseded by [`/api/v1/instances/`](#tag/Instances/GET/api/v1/instances/), which adds keyset pagination, filtering, column selection, and sorting.
         > Please migrate to v1.
 
         Retrieve a list of instances for the authenticated user.

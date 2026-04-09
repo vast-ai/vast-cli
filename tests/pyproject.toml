@@ -1,0 +1,25 @@
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "vast-sdk-tests"
+version = "0.0.0"
+description = "Test suite and dependencies for Vast SDK"
+package-mode = false
+
+[tool.poetry.dependencies]
+# Matches CI Python 3.12; root ``vastai-sdk`` allows a wider range—use 3.12 locally for this env.
+python = ">=3.12,<3.13"
+pytest = "^8.0.0"
+pytest-asyncio = "^0.24.0"
+pytest-cov = "^6.0.0"
+cryptography = ">=41.0"
+pyOpenSSL = ">=23.0"
+vastai-sdk = { path = "..", develop = true }
+
+[tool.pytest.ini_options]
+testpaths = ["."]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"

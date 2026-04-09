@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+
+# DEPRECATED: This file is kept for backwards compatibility.
+# Please use the vastai package instead.
 # PYTHON_ARGCOMPLETE_OK
 
 from __future__ import unicode_literals, print_function, annotations

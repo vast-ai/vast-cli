@@ -112,16 +112,16 @@ paths:
                   default: table
                   description: |
                     Output format.
-                    - `table`: flat list of per-instance charge rows (default).
-                    - `tree`: hierarchical grouping that collapses serverless workers under their parent endpoint / worker group.
+                    - `table` (default): flat list of per-contract charge rows. Every contract — including serverless instances — is returned as a top-level entry with `type: "instance"` or `"volume"`, and `source: "instance-<id>"` or `"volume-<id>"`.
+                    - `tree`: hierarchical grouping. Regular instances and volumes appear the same as in `table`. Serverless contracts are collapsed under their parent endpoint and worker group: a top-level entry with `type: "serverless"` and `source: "endpoint-<id>"`, whose nested `items` contain worker-group entries (`type: "serverless"`, `source: "workergroup-<id>"`), whose `items` in turn contain the individual instance charges. `amount` is aggregated up the tree.
                 latest_first:
                   type: boolean
                   default: true
                   description: Sort by most recent charges first.
                 limit:
                   type: integer
-                  default: 20
-                  description: Max results per page. Server caps at 500.
+                  default: 100
+                  description: Max results per page. Default `100`, server maximum `500`.
                 after_token:
                   type: string
                   description: Pagination token returned by a previous request's `next_token`.
@@ -252,17 +252,6 @@ components:
         msg:
           type: string
           example: Must provide both 'day' gte and lte filters for instance charges
-        count:
-          type: integer
-          example: 0
-        total:
-          type: integer
-          example: 0
-        results:
-          type: array
-          items: {}
-        next_token:
-          nullable: true
 
 x-rate-limit:
   threshold: 1.0

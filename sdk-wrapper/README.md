@@ -25,9 +25,19 @@ vast = VastAI()
 
 ## SDK Usage
 
+Both of these work identically:
 ```python
 from vastai_sdk import VastAI
+from vastai import VastAI
+```
 
+Both of these also work identically:
+```python
+from vastai import Serverless
+from vastai_sdk.serverless.client.client import Serverless
+```
+
+```python
 vast = VastAI()
 
 vast.search_offers(query='gpu_name=RTX_4090 num_gpus>=4')
@@ -42,7 +52,7 @@ Use `help(vast.search_offers)` to view documentation for any method.
 
 1. Create the client
 ```python
-from vastai_sdk.serverless.client.client import Serverless
+from vastai import Serverless
 serverless = Serverless() # or, Serverless("YOUR_API_KEY")
 ```
 2. Get an endpoint

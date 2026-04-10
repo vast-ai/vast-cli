@@ -1,0 +1,278 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Show Charges API
+  description: API endpoint to retrieve per-instance billing charges (GPU, storage, and bandwidth).
+  version: 1.0.0
+
+servers:
+  - url: https://console.vast.ai
+    description: Production server
+
+paths:
+  /api/v0/charges/:
+    get:
+      summary: show charges
+      description: |
+        Returns paginated per-instance billing charges for the authenticated user — the cost of running each
+        instance over a given time range, broken down into GPU, storage, and bandwidth components.
+
+        This is the correct endpoint for questions like *"how much did instance X cost me last month?"* or
+        *"what did I spend on GPU hours across all my instances this week?"*. For the list of invoices/payments
+        (Stripe top-ups, transfers, payouts, etc.), use `GET /api/v1/invoices/` instead.
+
+        **Date range is required** using `select_filters.day.gte` and `select_filters.day.lte`.
+
+        **Date format**: unix epoch seconds (UTC). Example range: 2026-01-01 00:00:00 UTC -> `1767225600`,
+        2026-01-31 23:59:59 UTC -> `1769903999`.
+
+        **Optional type filter**: narrow to particular contract types via `select_filters.type.in`.
+        Supported values: `instance`, `volume`, `serverless`.
+
+        **HTTP request**: This is a GET endpoint that accepts JSON-encoded query parameters.
+        URL-encode JSON values when calling directly.
+        ```
+        GET /api/v0/charges/?select_filters={"day":{"gte":1767225600,"lte":1769903999}}&limit=20
+        ```
+        For pagination, pass the response `next_token` back as `after_token`:
+        ```
+        GET /api/v0/charges/?select_filters={"day":{"gte":1767225600,"lte":1769903999}}&after_token=eyJ2YWx1ZXMiOiB7ImlkIjog...
+        ```
+
+        CLI Usage: `vastai show invoices-v1 --charges`
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - select_filters
+              properties:
+                select_filters:
+                  type: object
+                  description: |
+                    Query filters for charges.
+
+                    **Required**: date range via `day` field using unix timestamps (UTC).
+
+                    **Example**: charges from Nov 1, 2025 to Nov 30, 2025:
+                    ```
+                    "select_filters": {
+                      "day": {
+                        "gte": 1730419200,
+                        "lte": 1733011199
+                      }
+                    }
+                    ```
+                    Supported operators:
+                    - `gte` / `gt`: charges on or after this time
+                    - `lte` / `lt`: charges on or before this time
+
+                    **Optional**: filter by contract type via `type` field.
+
+                    Supported values: `instance`, `volume`, `serverless`.
+
+                    **Example**: only instance and volume charges:
+                    ```
+                    "type": {
+                      "in": ["instance", "volume"]
+                    }
+                    ```
+                  required:
+                    - day
+                  properties:
+                    day:
+                      type: object
+                      description: |
+                        Charge date range filter.
+                      properties:
+                        gte:
+                          type: integer
+                          description: Start time as unix timestamp (UTC).
+                          example: 1730419200
+                        lte:
+                          type: integer
+                          description: End time as unix timestamp (UTC).
+                          example: 1733011199
+                    type:
+                      type: object
+                      description: |
+                        Filter by contract type. Supported values: `instance`, `volume`, `serverless`.
+                      properties:
+                        in:
+                          type: array
+                          items:
+                            type: string
+                            enum: [instance, volume, serverless]
+                format:
+                  type: string
+                  enum: [table, tree]
+                  default: table
+                  description: |
+                    Output format.
+                    - `table`: flat list of per-instance charge rows (default).
+                    - `tree`: hierarchical grouping that collapses serverless workers under their parent endpoint / worker group.
+                latest_first:
+                  type: boolean
+                  default: true
+                  description: Sort by most recent charges first.
+                limit:
+                  type: integer
+                  default: 20
+                  description: Max results per page. Server caps at 500.
+                after_token:
+                  type: string
+                  description: Pagination token returned by a previous request's `next_token`.
+
+      responses:
+        '200':
+          description: Paginated per-instance charge results
+          content:
+            application/json:
+              example:
+                success: true
+                count: 2
+                total: 14
+                results:
+                  - start: 1730419200
+                    end: 1730678400
+                    type: instance
+                    source: instance-12345678
+                    description: Instance 12345678 Charges - 4 days
+                    amount: 38.421
+                    metadata:
+                      template_id: 101
+                      label: my-training-job
+                    items:
+                      - start: 1730419200
+                        end: 1730678400
+                        type: gpu
+                        source: null
+                        description: 96.000 hours at $0.389/hour
+                        amount: 37.344
+                        metadata: {}
+                        items: []
+                      - start: 1730419200
+                        end: 1730678400
+                        type: disk
+                        source: null
+                        description: 96.000 hours at $0.008/hour
+                        amount: 0.768
+                        metadata: {}
+                        items: []
+                      - start: 1730419200
+                        end: 1730678400
+                        type: bwd
+                        source: null
+                        description: 12.500 GB Downloaded at $0.018/GB
+                        amount: 0.225
+                        metadata: {}
+                        items: []
+                      - start: 1730419200
+                        end: 1730678400
+                        type: bwu
+                        source: null
+                        description: 4.700 GB Uploaded at $0.018/GB
+                        amount: 0.084
+                        metadata: {}
+                        items: []
+                  - start: 1730332800
+                    end: 1730592000
+                    type: volume
+                    source: volume-12345679
+                    description: Volume 12345679 Charges - 4 days
+                    amount: 1.152
+                    metadata:
+                      label: shared-dataset-vol
+                    items:
+                      - start: 1730332800
+                        end: 1730592000
+                        type: disk
+                        source: null
+                        description: 96.000 hours at $0.012/hour
+                        amount: 1.152
+                        metadata: {}
+                        items: []
+                next_token: eyJ2YWx1ZXMiOiB7ImlkIjogMTIzNDU2Nzh9fQ==
+
+        '400':
+          description: Invalid request (e.g. missing `day` range)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                success: false
+                msg: Must provide both 'day' gte and lte filters for instance charges
+
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=1.0
+
+      tags:
+        - Billing
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key provided via Authorization header
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        msg:
+          type: string
+          example: Must provide both 'day' gte and lte filters for instance charges
+        count:
+          type: integer
+          example: 0
+        total:
+          type: integer
+          example: 0
+        results:
+          type: array
+          items: {}
+        next_token:
+          nullable: true
+
+x-rate-limit:
+  threshold: 1.0
+  per: request
+  description: Maximum request frequency per IP address
+
+x-cli-commands:
+  - name: show invoices-v1
+    description: Fetch per-instance charges over a date range (use the `--charges` flag).
+    endpoint: /api/v0/charges/
+    method: get
+    example: |
+      vastai show invoices-v1 --charges --start-date 2025-11-01 --end-date 2025-11-30

@@ -275,9 +275,9 @@ x-rate-limit:
   description: Maximum request frequency per IP address
 
 x-cli-commands:
-  - name: search invoices
-    description: Search invoices using a required date range.
+  - name: show invoices-v1
+    description: Show invoices within a required date range.
     endpoint: /api/v1/invoices/
     method: get
     example: |
-      vastai search invoices --from 1734976800 --to 1766512800
+      vastai show invoices-v1 --invoices --start-date 2025-11-01 --end-date 2025-11-30

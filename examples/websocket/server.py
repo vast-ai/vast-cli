@@ -1,19 +1,15 @@
 """
-Websocket session example - Server
+Websocket session example - Server (placeholder)
 
-A simple server that handles:
-- HTTP POST /noop  (for the worker SDK benchmark - sleeps 1s, returns OK)
-- HTTP GET  /health (healthcheck for the worker SDK)
-- Websocket /ws     (actual client traffic - responds "pong" to "ping")
+This is a minimal stand-in for your own websocket backend. Replace the /ws
+handler with your application logic. The only route required by the Vast
+worker SDK is the healthcheck:
 
-Run this before worker.py. The worker SDK will proxy benchmark requests here
-over HTTP, while clients connect to the websocket endpoint directly.
+  GET /health - The worker SDK polls this to confirm the server is up.
+  GET /ws     - Your websocket endpoint. Replace this with your own logic.
 """
 
-import asyncio
-import json
 import logging
-import os
 from aiohttp import web
 
 LOG_FILE = "/workspace/ws_server.log"
@@ -23,26 +19,21 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
 
-async def handle_noop(request):
-    """No-op benchmark handler. Sleeps 1s so workload(100) / time(1s) = perf 100."""
-    await asyncio.sleep(1)
-    return web.json_response({"status": "ok"})
-
+# ---------------------------------------------------------------------------
+# Required route for Vast worker SDK integration
+# ---------------------------------------------------------------------------
 
 async def handle_health(request):
+    """Healthcheck for the worker SDK."""
     return web.json_response({"status": "healthy"})
 
 
-async def handle_ws_port(request):
-    """Return the external port for the websocket server via VAST_TCP_PORT_9001."""
-    ext_port = os.environ.get(f"VAST_TCP_PORT_{PORT}")
-    if ext_port is None:
-        return web.json_response({"error": f"VAST_TCP_PORT_{PORT} not set"}, status=500)
-    return web.json_response({"port": int(ext_port)})
-
+# ---------------------------------------------------------------------------
+# Your websocket handler here
+# ---------------------------------------------------------------------------
 
 async def handle_ws(request):
-    """Websocket handler - responds 'pong' to 'ping', echoes everything else."""
+    """Placeholder websocket handler. Replace with your own logic."""
     ws = web.WebSocketResponse()
     await ws.prepare(request)
     log.info("Websocket client connected")
@@ -60,11 +51,13 @@ async def handle_ws(request):
     return ws
 
 
+# ---------------------------------------------------------------------------
+# App setup
+# ---------------------------------------------------------------------------
+
 def create_app():
     app = web.Application()
-    app.router.add_post("/noop", handle_noop)
     app.router.add_get("/health", handle_health)
-    app.router.add_post("/ws_port", handle_ws_port)
     app.router.add_get("/ws", handle_ws)
     return app
 

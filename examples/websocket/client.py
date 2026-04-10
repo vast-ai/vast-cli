@@ -1,13 +1,13 @@
 """
 Websocket session example - Client
 
-Demonstrates using SDK sessions to keep a worker alive while connecting to it
-via websockets directly. The proxy doesn't support websockets, so we:
+Demonstrates using Vast serverless sessions to maintain websocket connections
+to workers. We use sessions to keep workers alive while connecting to them directly:
 
-1. Create a session (pins & keeps the worker alive via the autoscaler)
-2. Extract the worker URL from the session
-3. Connect to the websocket server on the worker directly
-4. When done, close the websocket and the session
+  1. Create a session on the endpoint (pins a worker, keeps it alive)
+  2. Query /ws_port through the session to discover the external port
+  3. Connect to the websocket server on the worker directly
+  4. When done, close the websocket and then the session
 """
 
 import asyncio
@@ -16,7 +16,7 @@ import websockets
 from vastai import Serverless
 
 ENDPOINT_NAME = "my-ws-endpoint"
-NUM_CONNECTIONS = 2
+NUM_CONNECTIONS = 3
 
 
 class WebsocketSession:
@@ -33,7 +33,7 @@ class WebsocketSession:
             # Query the server for the external websocket port.
             # This goes through the worker SDK proxy as a normal HTTP request.
             port_resp = await session.request("/ws_port", {})
-            ws_port = port_resp["response"]["port"]
+            ws_port = port_resp["response"]["result"]["port"]
 
             # Build the websocket URL using the worker's IP + external port
             parsed = urlparse(session.url)
@@ -73,7 +73,9 @@ async def main():
     async with Serverless() as client:
         endpoint = await client.get_endpoint(name=ENDPOINT_NAME)
 
-        # Launch multiple websocket sessions concurrently
+        # Launch multiple websocket sessions concurrently.
+        # Sessions exceeding max_sessions on a single worker will be
+        # routed to other workers, triggering autoscaling.
         await asyncio.gather(*(
             run_connection(endpoint, i) for i in range(NUM_CONNECTIONS)
         ))

@@ -20,7 +20,7 @@ LOG_FILE = "/workspace/ws_server.log"
 
 
 async def benchmark(**kwargs):
-    """Benchmark handler. Sleeps 1s with workload 1000 -> perf ~1000."""
+    """Benchmark handler. Sleeps 1s with workload 500 -> perf ~500."""
     import asyncio
     await asyncio.sleep(1)
     return {"status": "ok"}
@@ -52,7 +52,7 @@ worker_config = WorkerConfig(
                 dataset=[{"benchmark": True}],
                 runs=1,
             ),
-            workload_calculator=lambda req: 1000,
+            workload_calculator=lambda req: 500,
         ),
         HandlerConfig(
             route="/ws_port",

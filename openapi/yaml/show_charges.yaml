@@ -66,9 +66,9 @@ paths:
                       }
                     }
                     ```
-                    Supported operators:
-                    - `gte` / `gt`: charges on or after this time
-                    - `lte` / `lt`: charges on or before this time
+                    Supported operators: `gte` (inclusive start) and `lte` (inclusive end). Both are required.
+                    Note: strict `gt` / `lt` are not supported for this endpoint and will be treated as missing.
+                    An inverted range (`gte` > `lte`) is not an error but returns an empty result set.
 
                     **Optional**: filter by contract type via `type` field.
 
@@ -120,8 +120,9 @@ paths:
                   description: Sort by most recent charges first.
                 limit:
                   type: integer
+                  minimum: 1
                   default: 100
-                  description: Max results per page. Default `100`, server maximum `500`.
+                  description: Max results per page. Default `100`, server maximum `500`. Must be a positive integer (values `<= 0` will trigger a server error).
                 after_token:
                   type: string
                   description: Pagination token returned by a previous request's `next_token`.
@@ -198,28 +199,54 @@ paths:
                 next_token: eyJ2YWx1ZXMiOiB7ImlkIjogMTIzNDU2Nzh9fQ==
 
         '400':
-          description: Invalid request (e.g. missing `day` range)
+          description: |
+            Invalid request. Returned when the required `day.gte` / `day.lte` filters are missing,
+            or when the supplied `after_token` cannot be decoded.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-              example:
-                success: false
-                msg: Must provide both 'day' gte and lte filters for instance charges
+              examples:
+                missing_date_range:
+                  summary: Missing required `day` range
+                  value:
+                    success: false
+                    msg: Must provide both 'day' gte and lte filters for instance charges
+                invalid_pagination_token:
+                  summary: Bad `after_token`
+                  value:
+                    success: false
+                    error: invalid_token
+                    msg: Invalid pagination token
 
         '401':
-          description: Unauthorized
+          description: Unauthorized. May be returned in framework-level authentication failure cases (expired session, etc.).
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
 
         '403':
-          description: Forbidden
+          description: Forbidden. Returned when no `Authorization` header is provided.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                success: false
+                error: auth_error
+                msg: This action requires login.
+
+        '404':
+          description: Not Found. Returned when the supplied API key is invalid (does not match any user).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                success: false
+                error: auth_error
+                msg: Invalid user key
 
         '429':
           description: Too Many Requests
@@ -249,6 +276,12 @@ components:
         success:
           type: boolean
           example: false
+        error:
+          type: string
+          description: |
+            Short error code identifying the class of failure. Present on most error responses but may be
+            absent (e.g. the missing-date-range 400 omits it). Observed values include `auth_error` and `invalid_token`.
+          example: auth_error
         msg:
           type: string
           example: Must provide both 'day' gte and lte filters for instance charges

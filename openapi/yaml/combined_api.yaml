@@ -5625,90 +5625,6 @@ paths:
                     example: API requests too frequent endpoint threshold=3.0
       tags:
       - Search
-  /api/v0/invoices:
-    get:
-      summary: search invoices
-      description: 'This endpoint allows users to search and retrieve invoices based
-        on specified filters.
-
-
-        CLI Usage: `vastai search invoices`'
-      security:
-      - BearerAuth: []
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                type:
-                  type: string
-                  description: Type of invoices to retrieve
-                  example: charge
-                select_filters:
-                  type: object
-                  description: Filters to apply to the invoice selection.
-      responses:
-        '200':
-          description: Success response
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    type:
-                      type: string
-                      example: charge
-                    description:
-                      type: string
-                      example: 'Instance 123 GPU charge: hours * $/hr'
-                    timestamp:
-                      type: integer
-                      example: 1633036800
-                    quantity:
-                      type: string
-                      example: '10.000'
-                    rate:
-                      type: string
-                      example: '0.1000'
-                    amount:
-                      type: string
-                      example: '1.000'
-                    instance_id:
-                      type: integer
-                      example: 123
-        '400':
-          description: Bad Request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '401':
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '403':
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '429':
-          description: Too Many Requests
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  detail:
-                    type: string
-                    example: API requests too frequent endpoint threshold=3.0
-      tags:
-      - Billing
   /api/v0/network_volumes/search/:
     post:
       summary: search network volumes
@@ -6568,6 +6484,251 @@ paths:
                     example: API requests too frequent endpoint threshold=1.5
       tags:
       - Machines
+  /api/v0/charges/:
+    get:
+      summary: show charges
+      description: "Returns paginated per-instance billing charges for the authenticated\
+        \ user \u2014 the cost of running each\ninstance over a given time range,\
+        \ broken down into GPU, storage, and bandwidth components.\n\nThis is the\
+        \ correct endpoint for questions like *\"how much did instance X cost me last\
+        \ month?\"* or\n*\"what did I spend on GPU hours across all my instances this\
+        \ week?\"*. For the list of invoices/payments\n(Stripe top-ups, transfers,\
+        \ payouts, etc.), use `GET /api/v1/invoices/` instead.\n\n**Date range is\
+        \ required** using `select_filters.day.gte` and `select_filters.day.lte`.\n\
+        \n**Date format**: unix epoch seconds (UTC). Example range: 2026-01-01 00:00:00\
+        \ UTC -> `1767225600`,\n2026-01-31 23:59:59 UTC -> `1769903999`.\n\n**Optional\
+        \ type filter**: narrow to particular contract types via `select_filters.type.in`.\n\
+        Supported values: `instance`, `volume`, `serverless`.\n\n**HTTP request**:\
+        \ This is a GET endpoint that accepts JSON-encoded query parameters.\nURL-encode\
+        \ JSON values when calling directly.\n```\nGET /api/v0/charges/?select_filters={\"\
+        day\":{\"gte\":1767225600,\"lte\":1769903999}}&limit=20\n```\nFor pagination,\
+        \ pass the response `next_token` back as `after_token`:\n```\nGET /api/v0/charges/?select_filters={\"\
+        day\":{\"gte\":1767225600,\"lte\":1769903999}}&after_token=eyJ2YWx1ZXMiOiB7ImlkIjog...\n\
+        ```\n\nCLI Usage: `vastai show invoices-v1 --charges`"
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - select_filters
+              properties:
+                select_filters:
+                  type: object
+                  description: "Query filters for charges.\n\n**Required**: date range\
+                    \ via `day` field using unix timestamps (UTC).\n\n**Example**:\
+                    \ charges from Nov 1, 2025 to Nov 30, 2025:\n```\n\"select_filters\"\
+                    : {\n  \"day\": {\n    \"gte\": 1730419200,\n    \"lte\": 1733011199\n\
+                    \  }\n}\n```\nSupported operators: `gte` (inclusive start) and\
+                    \ `lte` (inclusive end). Both are required.\nNote: strict `gt`\
+                    \ / `lt` are not supported for this endpoint and will be treated\
+                    \ as missing.\nAn inverted range (`gte` > `lte`) is not an error\
+                    \ but returns an empty result set.\n\n**Optional**: filter by\
+                    \ contract type via `type` field.\n\nSupported values: `instance`,\
+                    \ `volume`, `serverless`.\n\n**Example**: only instance and volume\
+                    \ charges:\n```\n\"type\": {\n  \"in\": [\"instance\", \"volume\"\
+                    ]\n}\n```\n"
+                  required:
+                  - day
+                  properties:
+                    day:
+                      type: object
+                      description: 'Charge date range filter.
+
+                        '
+                      properties:
+                        gte:
+                          type: integer
+                          description: Start time as unix timestamp (UTC).
+                          example: 1730419200
+                        lte:
+                          type: integer
+                          description: End time as unix timestamp (UTC).
+                          example: 1733011199
+                    type:
+                      type: object
+                      description: 'Filter by contract type. Supported values: `instance`,
+                        `volume`, `serverless`.
+
+                        '
+                      properties:
+                        in:
+                          type: array
+                          items:
+                            type: string
+                            enum:
+                            - instance
+                            - volume
+                            - serverless
+                format:
+                  type: string
+                  enum:
+                  - table
+                  - tree
+                  default: table
+                  description: "Output format.\n- `table` (default): flat list of\
+                    \ per-contract charge rows. Every contract \u2014 including serverless\
+                    \ instances \u2014 is returned as a top-level entry with `type:\
+                    \ \"instance\"` or `\"volume\"`, and `source: \"instance-<id>\"\
+                    ` or `\"volume-<id>\"`.\n- `tree`: hierarchical grouping. Regular\
+                    \ instances and volumes appear the same as in `table`. Serverless\
+                    \ contracts are collapsed under their parent endpoint and worker\
+                    \ group: a top-level entry with `type: \"serverless\"` and `source:\
+                    \ \"endpoint-<id>\"`, whose nested `items` contain worker-group\
+                    \ entries (`type: \"serverless\"`, `source: \"workergroup-<id>\"\
+                    `), whose `items` in turn contain the individual instance charges.\
+                    \ `amount` is aggregated up the tree.\n"
+                latest_first:
+                  type: boolean
+                  default: true
+                  description: Sort by most recent charges first.
+                limit:
+                  type: integer
+                  minimum: 1
+                  default: 100
+                  description: Max results per page. Default `100`, server maximum
+                    `500`. Must be a positive integer (values `<= 0` will trigger
+                    a server error).
+                after_token:
+                  type: string
+                  description: Pagination token returned by a previous request's `next_token`.
+      responses:
+        '200':
+          description: Paginated per-instance charge results
+          content:
+            application/json:
+              example:
+                success: true
+                count: 2
+                total: 14
+                results:
+                - start: 1730419200
+                  end: 1730678400
+                  type: instance
+                  source: instance-12345678
+                  description: Instance 12345678 Charges - 4 days
+                  amount: 38.421
+                  metadata:
+                    template_id: 101
+                    label: my-training-job
+                  items:
+                  - start: 1730419200
+                    end: 1730678400
+                    type: gpu
+                    source: null
+                    description: 96.000 hours at $0.389/hour
+                    amount: 37.344
+                    metadata: {}
+                    items: []
+                  - start: 1730419200
+                    end: 1730678400
+                    type: disk
+                    source: null
+                    description: 96.000 hours at $0.008/hour
+                    amount: 0.768
+                    metadata: {}
+                    items: []
+                  - start: 1730419200
+                    end: 1730678400
+                    type: bwd
+                    source: null
+                    description: 12.500 GB Downloaded at $0.018/GB
+                    amount: 0.225
+                    metadata: {}
+                    items: []
+                  - start: 1730419200
+                    end: 1730678400
+                    type: bwu
+                    source: null
+                    description: 4.700 GB Uploaded at $0.018/GB
+                    amount: 0.084
+                    metadata: {}
+                    items: []
+                - start: 1730332800
+                  end: 1730592000
+                  type: volume
+                  source: volume-12345679
+                  description: Volume 12345679 Charges - 4 days
+                  amount: 1.152
+                  metadata:
+                    label: shared-dataset-vol
+                  items:
+                  - start: 1730332800
+                    end: 1730592000
+                    type: disk
+                    source: null
+                    description: 96.000 hours at $0.012/hour
+                    amount: 1.152
+                    metadata: {}
+                    items: []
+                next_token: eyJ2YWx1ZXMiOiB7ImlkIjogMTIzNDU2Nzh9fQ==
+        '400':
+          description: 'Invalid request. Returned when the required `day.gte` / `day.lte`
+            filters are missing,
+
+            or when the supplied `after_token` cannot be decoded.
+
+            '
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missing_date_range:
+                  summary: Missing required `day` range
+                  value:
+                    success: false
+                    msg: Must provide both 'day' gte and lte filters for instance
+                      charges
+                invalid_pagination_token:
+                  summary: Bad `after_token`
+                  value:
+                    success: false
+                    error: invalid_token
+                    msg: Invalid pagination token
+        '401':
+          description: Unauthorized. May be returned in framework-level authentication
+            failure cases (expired session, etc.).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden. Returned when no `Authorization` header is provided.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                success: false
+                error: auth_error
+                msg: This action requires login.
+        '404':
+          description: Not Found. Returned when the supplied API key is invalid (does
+            not match any user).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                success: false
+                error: auth_error
+                msg: Invalid user key
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=1.0
+      tags:
+      - Billing
   /api/v0/users/cloud_integrations/:
     get:
       summary: show connections
@@ -6862,11 +7023,16 @@ paths:
     get:
       summary: show instances
       deprecated: true
-      description: "> \u26A0\uFE0F **Deprecated:** This endpoint has been superseded\
-        \ by [`/api/v1/instances/`](#tag/Instances/GET/api/v1/instances/), which adds\
-        \ keyset pagination, filtering, column selection, and sorting.\n> Please migrate\
-        \ to v1.\n\nRetrieve a list of instances for the authenticated user.\n\nCLI\
-        \ Usage: `vastai show instances [OPTIONS] [--api-key API_KEY] [--raw]`"
+      description: '> **Deprecated:** This endpoint has been superseded by [`/api/v1/instances/`](#tag/Instances/GET/api/v1/instances/),
+        which adds keyset pagination, filtering, column selection, and sorting.
+
+        > Please migrate to v1.
+
+
+        Retrieve a list of instances for the authenticated user.
+
+
+        CLI Usage: `vastai show instances [OPTIONS] [--api-key API_KEY] [--raw]`'
       security:
       - BearerAuth: []
       responses:

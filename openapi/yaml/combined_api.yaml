@@ -6488,44 +6488,48 @@ paths:
     get:
       summary: show charges
       description: 'Returns paginated per-instance billing charges broken down by
-        GPU, storage, and bandwidth. For the list of invoice/payment records, use
-        `GET /api/v1/invoices/` instead.
+        GPU, storage, and bandwidth. For the list of invoice/payment records (Stripe
+        top-ups, transfers, payouts), use [`GET /api/v1/invoices/`](#tag/Billing/GET/api/v1/invoices/)
+        instead.
 
 
-        CLI Usage: `vastai show invoices-v1 --charges`'
+        CLI Usage: `vastai show invoices-v1 --charges` (the CLI command `show invoices-v1`
+        wraps both this endpoint and `/api/v1/invoices/`; the `--charges` flag selects
+        this one.)'
       security:
       - BearerAuth: []
       parameters:
       - name: select_filters
         in: query
         required: true
-        description: "JSON-encoded filter object. **Must** include a `day` date range;\
-          \ optionally narrows by contract `type`.\n\n**`day` (required)** \u2014\
-          \ charge date range using unix seconds (UTC).\nSupported operators: `gte`\
-          \ (inclusive start) and `lte` (inclusive end). Both bounds are required.\n\
-          Strict `gt` / `lt` are **not** accepted on this endpoint \u2014 they are\
-          \ treated as missing and return a 400.\nAn inverted range (`gte` > `lte`)\
-          \ is not an error but returns an empty result set.\n\n**`type` (optional)**\
-          \ \u2014 filter by contract type. Supported values:\n`instance`, `volume`,\
-          \ `serverless`.\nSupported operator: `in` (include list). An empty `in`\
-          \ list (`\"type\":{\"in\":[]}`) returns zero results by design; omit the\
-          \ whole `type` field to match all contract types.\n\n**Examples**:\n```json\n\
-          // All charges in January 2026\n{\"day\":{\"gte\":1767225600,\"lte\":1769903999}}\n\
-          \n// Only instance charges in January 2026\n{\"day\":{\"gte\":1767225600,\"\
-          lte\":1769903999},\"type\":{\"in\":[\"instance\"]}}\n\n// Volumes and serverless\
-          \ workers only\n{\"day\":{\"gte\":1767225600,\"lte\":1769903999},\"type\"\
-          :{\"in\":[\"volume\",\"serverless\"]}}\n```\n"
+        description: "Filter object (JSON-stringified and URL-encoded in the query\
+          \ string). **Must** include a `day` date range; optionally narrows by contract\
+          \ `type`.\n\n**`day`** (required) \u2014 charge date range in unix seconds\
+          \ (UTC). Both bounds are required.\n\nSupported operators:\n- `gte` \u2014\
+          \ inclusive start\n- `lte` \u2014 inclusive end\n\nStrict `gt` / `lt` are\
+          \ **not** accepted on this endpoint \u2014 they are treated as missing and\
+          \ return a 400. An inverted range (`gte` > `lte`) is not an error but returns\
+          \ an empty result set.\n\n**`type`** (optional) \u2014 filter by contract\
+          \ type.\n\nSupported values:\n- `instance`\n- `volume`\n- `serverless`\n\
+          \nSupported operators:\n- `in` \u2014 include only these types\n\nAn empty\
+          \ `in` list (`\"type\":{\"in\":[]}`) returns zero results by design; omit\
+          \ the whole `type` field to match all contract types.\n\n**Examples**:\n\
+          ```json\n// All charges in January 2026\n{\"day\":{\"gte\":1767225600,\"\
+          lte\":1769903999}}\n\n// Only instance charges in January 2026\n{\"day\"\
+          :{\"gte\":1767225600,\"lte\":1769903999},\"type\":{\"in\":[\"instance\"\
+          ]}}\n\n// Volumes and serverless workers only\n{\"day\":{\"gte\":1767225600,\"\
+          lte\":1769903999},\"type\":{\"in\":[\"volume\",\"serverless\"]}}\n```\n"
         schema:
           type: string
         example: '{"day":{"gte":1767225600,"lte":1769903999}}'
       - name: format
         in: query
         required: false
-        description: "Output format. `table` (default) returns a flat list of per-contract\
-          \ rows with `type: \"instance\"` or `\"volume\"`. `tree` collapses serverless\
-          \ contracts under endpoint \u2192 workergroup wrappers with `type: \"serverless\"\
-          ` and `source: \"endpoint-<id>\"` / `\"workergroup-<id>\"`; regular instances\
-          \ and volumes are unchanged.\n"
+        description: "- `table` (default) \u2014 flat list of per-contract rows with\
+          \ `type: \"instance\"` or `\"volume\"`.\n- `tree` \u2014 serverless contracts\
+          \ are collapsed under endpoint \u2192 workergroup wrappers with `type: \"\
+          serverless\"` and `source: \"endpoint-<id>\"` / `\"workergroup-<id>\"`.\
+          \ Regular instances and volumes are unchanged.\n"
         schema:
           type: string
           enum:
@@ -7943,27 +7947,31 @@ paths:
     get:
       summary: show invoices
       description: 'Returns paginated invoice/payment records (Stripe top-ups, transfers,
-        payouts, coinbase, etc.). For per-instance cost breakdowns, use `GET /api/v0/charges/`
+        payouts, coinbase, etc.). For per-instance cost breakdowns, use [`GET /api/v0/charges/`](#tag/Billing/GET/api/v0/charges/)
         instead.
 
 
-        CLI Usage: `vastai show invoices-v1 --invoices`'
+        CLI Usage: `vastai show invoices-v1 --invoices` (the CLI command `show invoices-v1`
+        wraps both this endpoint and `/api/v0/charges/`; the `--invoices` flag selects
+        this one.)'
       security:
       - BearerAuth: []
       parameters:
       - name: select_filters
         in: query
         required: true
-        description: "JSON-encoded filter object. **Must** include a `when` date range;\
-          \ optionally narrows by `service`.\n\n**`when` (required)** \u2014 invoice\
-          \ date range using unix seconds (UTC).\nSupported operators: `gte` / `gt`\
-          \ (start), `lte` / `lt` (end). Both a start and end bound are required.\n\
-          \n**`service` (optional)** \u2014 filter by payment service. Supported values:\n\
-          `transfer`, `stripe_payments`, `bitpay`, `coinbase`, `crypto.com`, `instance_prepay`,\
-          \ `paypal_manual`, `wise_manual`.\nSupported operators: `in` (include list),\
-          \ `notin` (exclude list), `eq` (single value).\n\n**Note**: if the `when`\
-          \ range is missing or malformed, the endpoint returns HTTP 200 with `success:\
-          \ false` and `error: \"Invalid date range\"` \u2014 not HTTP 400.\n\n**Examples**:\n\
+        description: "Filter object (JSON-stringified and URL-encoded in the query\
+          \ string). **Must** include a `when` date range; optionally narrows by `service`.\n\
+          \n**`when`** (required) \u2014 invoice date range in unix seconds (UTC).\
+          \ Both a start and end bound are required.\n\nSupported operators:\n- `gte`\
+          \ / `gt` \u2014 start of range\n- `lte` / `lt` \u2014 end of range\n\n**`service`**\
+          \ (optional) \u2014 filter by payment service.\n\nSupported values:\n- `transfer`\n\
+          - `stripe_payments`\n- `bitpay`\n- `coinbase`\n- `crypto.com`\n- `instance_prepay`\n\
+          - `paypal_manual`\n- `wise_manual`\n\nSupported operators:\n- `in` \u2014\
+          \ include only these services\n- `notin` \u2014 exclude these services\n\
+          - `eq` \u2014 match a single service\n\n**Note**: if the `when` range is\
+          \ missing or malformed, the endpoint returns HTTP 200 with `success: false`\
+          \ and `error: \"Invalid date range\"` \u2014 not HTTP 400.\n\n**Examples**:\n\
           ```json\n// January 2026, all services\n{\"when\":{\"gte\":1767225600,\"\
           lte\":1769903999}}\n\n// January 2026, only PayPal and Wise payouts\n{\"\
           when\":{\"gte\":1767225600,\"lte\":1769903999},\"service\":{\"in\":[\"paypal_manual\"\

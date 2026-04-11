@@ -13,9 +13,9 @@ paths:
     get:
       summary: show invoices
       description: |
-        Returns paginated invoice/payment records (Stripe top-ups, transfers, payouts, coinbase, etc.). For per-instance cost breakdowns, use `GET /api/v0/charges/` instead.
+        Returns paginated invoice/payment records (Stripe top-ups, transfers, payouts, coinbase, etc.). For per-instance cost breakdowns, use [`GET /api/v0/charges/`](#tag/Billing/GET/api/v0/charges/) instead.
 
-        CLI Usage: `vastai show invoices-v1 --invoices`
+        CLI Usage: `vastai show invoices-v1 --invoices` (the CLI command `show invoices-v1` wraps both this endpoint and `/api/v0/charges/`; the `--invoices` flag selects this one.)
       security:
         - BearerAuth: []
       parameters:
@@ -23,14 +23,30 @@ paths:
           in: query
           required: true
           description: |
-            JSON-encoded filter object. **Must** include a `when` date range; optionally narrows by `service`.
+            Filter object (JSON-stringified and URL-encoded in the query string). **Must** include a `when` date range; optionally narrows by `service`.
 
-            **`when` (required)** — invoice date range using unix seconds (UTC).
-            Supported operators: `gte` / `gt` (start), `lte` / `lt` (end). Both a start and end bound are required.
+            **`when`** (required) — invoice date range in unix seconds (UTC). Both a start and end bound are required.
 
-            **`service` (optional)** — filter by payment service. Supported values:
-            `transfer`, `stripe_payments`, `bitpay`, `coinbase`, `crypto.com`, `instance_prepay`, `paypal_manual`, `wise_manual`.
-            Supported operators: `in` (include list), `notin` (exclude list), `eq` (single value).
+            Supported operators:
+            - `gte` / `gt` — start of range
+            - `lte` / `lt` — end of range
+
+            **`service`** (optional) — filter by payment service.
+
+            Supported values:
+            - `transfer`
+            - `stripe_payments`
+            - `bitpay`
+            - `coinbase`
+            - `crypto.com`
+            - `instance_prepay`
+            - `paypal_manual`
+            - `wise_manual`
+
+            Supported operators:
+            - `in` — include only these services
+            - `notin` — exclude these services
+            - `eq` — match a single service
 
             **Note**: if the `when` range is missing or malformed, the endpoint returns HTTP 200 with `success: false` and `error: "Invalid date range"` — not HTTP 400.
 

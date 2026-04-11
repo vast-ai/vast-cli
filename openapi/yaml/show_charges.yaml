@@ -23,16 +23,27 @@ paths:
           in: query
           required: true
           description: |
-            JSON-encoded filter object. **Must** include a `day` date range; optionally narrows by contract `type`.
+            Filter object (JSON-stringified and URL-encoded in the query string). **Must** include a `day` date range; optionally narrows by contract `type`.
 
-            **`day` (required)** — charge date range using unix seconds (UTC).
-            Supported operators: `gte` (inclusive start) and `lte` (inclusive end). Both bounds are required.
-            Strict `gt` / `lt` are **not** accepted on this endpoint — they are treated as missing and return a 400.
-            An inverted range (`gte` > `lte`) is not an error but returns an empty result set.
+            **`day`** (required) — charge date range in unix seconds (UTC). Both bounds are required.
 
-            **`type` (optional)** — filter by contract type. Supported values:
-            `instance`, `volume`, `serverless`.
-            Supported operator: `in` (include list). An empty `in` list (`"type":{"in":[]}`) returns zero results by design; omit the whole `type` field to match all contract types.
+            Supported operators:
+            - `gte` — inclusive start
+            - `lte` — inclusive end
+
+            Strict `gt` / `lt` are **not** accepted on this endpoint — they are treated as missing and return a 400. An inverted range (`gte` > `lte`) is not an error but returns an empty result set.
+
+            **`type`** (optional) — filter by contract type.
+
+            Supported values:
+            - `instance`
+            - `volume`
+            - `serverless`
+
+            Supported operators:
+            - `in` — include only these types
+
+            An empty `in` list (`"type":{"in":[]}`) returns zero results by design; omit the whole `type` field to match all contract types.
 
             **Examples**:
             ```json
@@ -52,7 +63,8 @@ paths:
           in: query
           required: false
           description: |
-            Output format. `table` (default) returns a flat list of per-contract rows with `type: "instance"` or `"volume"`. `tree` collapses serverless contracts under endpoint → workergroup wrappers with `type: "serverless"` and `source: "endpoint-<id>"` / `"workergroup-<id>"`; regular instances and volumes are unchanged.
+            - `table` (default) — flat list of per-contract rows with `type: "instance"` or `"volume"`.
+            - `tree` — serverless contracts are collapsed under endpoint → workergroup wrappers with `type: "serverless"` and `source: "endpoint-<id>"` / `"workergroup-<id>"`. Regular instances and volumes are unchanged.
           schema:
             type: string
             enum: [table, tree]

@@ -1,0 +1,291 @@
+openapi: 3.0.0
+info:
+  title: Vast.ai Show Charges API
+  description: API endpoint to retrieve per-instance billing charges (GPU, storage, and bandwidth).
+  version: 1.0.0
+
+servers:
+  - url: https://console.vast.ai
+    description: Production server
+
+paths:
+  /api/v0/charges/:
+    get:
+      summary: show charges
+      description: |
+        Returns paginated per-instance billing charges broken down by GPU, storage, and bandwidth. For the list of invoice/payment records (Stripe top-ups, transfers, payouts), use [`GET /api/v1/invoices/`](#tag/Billing/GET/api/v1/invoices/) instead.
+
+        CLI Usage: `vastai show invoices-v1 --charges` (the CLI command `show invoices-v1` wraps both this endpoint and `/api/v1/invoices/`; the `--charges` flag selects this one.)
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: select_filters
+          in: query
+          required: true
+          description: |
+            Filter object (JSON-stringified and URL-encoded in the query string). **Must** include a `day` date range; optionally narrows by contract `type`.
+
+            **`day`** (required) — charge date range in unix seconds (UTC). Both bounds are required.
+
+            Supported operators:
+            - `gte` — inclusive start
+            - `lte` — inclusive end
+
+            Strict `gt` / `lt` are **not** accepted on this endpoint — they are treated as missing and return a 400. An inverted range (`gte` > `lte`) is not an error but returns an empty result set.
+
+            **`type`** (optional) — filter by contract type.
+
+            Supported values:
+            - `instance`
+            - `volume`
+            - `serverless`
+
+            Supported operators:
+            - `in` — include only these types
+
+            An empty `in` list (`"type":{"in":[]}`) returns zero results by design; omit the whole `type` field to match all contract types.
+
+            **Examples**:
+            ```json
+            // All charges in January 2026
+            {"day":{"gte":1767225600,"lte":1769903999}}
+
+            // Only instance charges in January 2026
+            {"day":{"gte":1767225600,"lte":1769903999},"type":{"in":["instance"]}}
+
+            // Volumes and serverless workers only
+            {"day":{"gte":1767225600,"lte":1769903999},"type":{"in":["volume","serverless"]}}
+            ```
+          schema:
+            type: string
+          example: '{"day":{"gte":1767225600,"lte":1769903999}}'
+        - name: format
+          in: query
+          required: false
+          description: |
+            - `table` (default) — flat list of per-contract rows with `type: "instance"` or `"volume"`.
+            - `tree` — serverless contracts are collapsed under endpoint → workergroup wrappers with `type: "serverless"` and `source: "endpoint-<id>"` / `"workergroup-<id>"`. Regular instances and volumes are unchanged.
+          schema:
+            type: string
+            enum: [table, tree]
+            default: table
+          example: table
+        - name: latest_first
+          in: query
+          required: false
+          description: Sort by most recent charges first.
+          schema:
+            type: boolean
+            default: true
+          example: true
+        - name: limit
+          in: query
+          required: false
+          description: Max results per page. Default 100, server maximum 500. Must be a positive integer — values ≤ 0 currently trigger a server error.
+          schema:
+            type: integer
+            minimum: 1
+            default: 100
+          example: 100
+        - name: after_token
+          in: query
+          required: false
+          description: Keyset pagination cursor from the previous response's `next_token`. Invalid tokens return a 400 error.
+          schema:
+            type: string
+          example: eyJ2YWx1ZXMiOiB7ImlkIjogMTIzNDU2Nzh9fQ==
+      responses:
+        '200':
+          description: Paginated per-instance charge results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  count:
+                    type: integer
+                    description: Number of contracts returned in this page.
+                    example: 2
+                  total:
+                    type: integer
+                    description: Total number of contracts matching the filters.
+                    example: 14
+                  next_token:
+                    type: string
+                    nullable: true
+                    description: Pagination cursor for the next page. `null` when no more pages.
+                    example: eyJ2YWx1ZXMiOiB7ImlkIjogMTIzNDU2Nzh9fQ==
+                  results:
+                    type: array
+                    description: List of per-contract charge entries.
+                    items:
+                      type: object
+                      properties:
+                        start:
+                          type: integer
+                          description: Contract start time (unix seconds UTC).
+                          example: 1730419200
+                        end:
+                          type: integer
+                          description: Contract end time (unix seconds UTC).
+                          example: 1730678400
+                        type:
+                          type: string
+                          description: Contract type. `instance` or `volume` in table format, or `serverless` (wrapper) in tree format.
+                          example: instance
+                        source:
+                          type: string
+                          description: Identifier in the form `{type}-{id}`. For tree-format serverless wrappers, uses `endpoint-<id>` or `workergroup-<id>`.
+                          example: instance-12345678
+                        description:
+                          type: string
+                          example: Instance 12345678 Charges - 4 days
+                        amount:
+                          type: number
+                          format: float
+                          description: Total charge for this contract (rounded to 3 decimals).
+                          example: 38.421
+                        metadata:
+                          type: object
+                          description: Optional instance metadata. Keys present only when non-null on the contract.
+                          properties:
+                            template_id:
+                              type: integer
+                              example: 101
+                            label:
+                              type: string
+                              example: my-training-job
+                            endpoint_id:
+                              type: integer
+                              example: 19392
+                            workergroup_id:
+                              type: integer
+                              example: 25355
+                        items:
+                          type: array
+                          description: Per-charge-type breakdown (`gpu`, `disk`, `bwd`, `bwu`). Empty for tree-format wrappers above the contract level.
+                          items:
+                            type: object
+                            properties:
+                              start:
+                                type: integer
+                                example: 1730419200
+                              end:
+                                type: integer
+                                example: 1730678400
+                              type:
+                                type: string
+                                enum: [gpu, disk, bwd, bwu]
+                                example: gpu
+                              source:
+                                type: string
+                                nullable: true
+                                example: null
+                              description:
+                                type: string
+                                example: 96.000 hours at $0.389/hour
+                              amount:
+                                type: number
+                                format: float
+                                example: 37.344
+                              metadata:
+                                type: object
+                                example: {}
+                              items:
+                                type: array
+                                example: []
+        '400':
+          description: |
+            Invalid request. Returned when the required `day.gte` / `day.lte` filters are missing, or when the supplied `after_token` cannot be decoded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missing_date_range:
+                  summary: Missing required `day` range
+                  value:
+                    success: false
+                    msg: Must provide both 'day' gte and lte filters for instance charges
+                invalid_pagination_token:
+                  summary: Bad `after_token`
+                  value:
+                    success: false
+                    error: invalid_token
+                    msg: Invalid pagination token
+        '401':
+          description: Unauthorized. May be returned in framework-level authentication failure cases.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden. Returned when no `Authorization` header is provided.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                success: false
+                error: auth_error
+                msg: This action requires login.
+        '404':
+          description: Not Found. Returned when the supplied API key does not match any user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                success: false
+                error: auth_error
+                msg: Invalid user key
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: API requests too frequent endpoint threshold=1.0
+      tags:
+        - Billing
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key provided via Authorization header
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          description: Short error code. Observed values include `auth_error` and `invalid_token`.
+          example: auth_error
+        msg:
+          type: string
+          example: Must provide both 'day' gte and lte filters for instance charges
+
+x-rate-limit:
+  threshold: 1.0
+  per: request
+  description: Maximum request frequency per IP address
+
+x-cli-commands:
+  - name: show invoices-v1
+    description: Fetch per-instance charges over a date range (use the `--charges` flag).
+    endpoint: /api/v0/charges/
+    method: get
+    example: |
+      vastai show invoices-v1 --charges --start-date 2025-11-01 --end-date 2025-11-30

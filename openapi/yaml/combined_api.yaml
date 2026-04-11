@@ -6487,189 +6487,196 @@ paths:
   /api/v0/charges/:
     get:
       summary: show charges
-      description: "Returns paginated per-instance billing charges for the authenticated\
-        \ user \u2014 the cost of running each\ninstance over a given time range,\
-        \ broken down into GPU, storage, and bandwidth components.\n\nThis is the\
-        \ correct endpoint for questions like *\"how much did instance X cost me last\
-        \ month?\"* or\n*\"what did I spend on GPU hours across all my instances this\
-        \ week?\"*. For the list of invoices/payments\n(Stripe top-ups, transfers,\
-        \ payouts, etc.), use `GET /api/v1/invoices/` instead.\n\n**Date range is\
-        \ required** using `select_filters.day.gte` and `select_filters.day.lte`.\n\
-        \n**Date format**: unix epoch seconds (UTC). Example range: 2026-01-01 00:00:00\
-        \ UTC -> `1767225600`,\n2026-01-31 23:59:59 UTC -> `1769903999`.\n\n**Optional\
-        \ type filter**: narrow to particular contract types via `select_filters.type.in`.\n\
-        Supported values: `instance`, `volume`, `serverless`.\n\n**HTTP request**:\
-        \ This is a GET endpoint that accepts JSON-encoded query parameters.\nURL-encode\
-        \ JSON values when calling directly.\n```\nGET /api/v0/charges/?select_filters={\"\
-        day\":{\"gte\":1767225600,\"lte\":1769903999}}&limit=20\n```\nFor pagination,\
-        \ pass the response `next_token` back as `after_token`:\n```\nGET /api/v0/charges/?select_filters={\"\
-        day\":{\"gte\":1767225600,\"lte\":1769903999}}&after_token=eyJ2YWx1ZXMiOiB7ImlkIjog...\n\
-        ```\n\nCLI Usage: `vastai show invoices-v1 --charges`"
+      description: 'Returns paginated per-instance billing charges broken down by
+        GPU, storage, and bandwidth. For the list of invoice/payment records, use
+        `GET /api/v1/invoices/` instead.
+
+
+        CLI Usage: `vastai show invoices-v1 --charges`'
       security:
       - BearerAuth: []
-      requestBody:
+      parameters:
+      - name: select_filters
+        in: query
         required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-              - select_filters
-              properties:
-                select_filters:
-                  type: object
-                  description: "Query filters for charges.\n\n**Required**: date range\
-                    \ via `day` field using unix timestamps (UTC).\n\n**Example**:\
-                    \ charges from Nov 1, 2025 to Nov 30, 2025:\n```\n\"select_filters\"\
-                    : {\n  \"day\": {\n    \"gte\": 1730419200,\n    \"lte\": 1733011199\n\
-                    \  }\n}\n```\nSupported operators: `gte` (inclusive start) and\
-                    \ `lte` (inclusive end). Both are required.\nNote: strict `gt`\
-                    \ / `lt` are not supported for this endpoint and will be treated\
-                    \ as missing.\nAn inverted range (`gte` > `lte`) is not an error\
-                    \ but returns an empty result set.\n\n**Optional**: filter by\
-                    \ contract type via `type` field.\n\nSupported values: `instance`,\
-                    \ `volume`, `serverless`.\n\n**Example**: only instance and volume\
-                    \ charges:\n```\n\"type\": {\n  \"in\": [\"instance\", \"volume\"\
-                    ]\n}\n```\n"
-                  required:
-                  - day
-                  properties:
-                    day:
-                      type: object
-                      description: 'Charge date range filter.
-
-                        '
-                      properties:
-                        gte:
-                          type: integer
-                          description: Start time as unix timestamp (UTC).
-                          example: 1730419200
-                        lte:
-                          type: integer
-                          description: End time as unix timestamp (UTC).
-                          example: 1733011199
-                    type:
-                      type: object
-                      description: 'Filter by contract type. Supported values: `instance`,
-                        `volume`, `serverless`.
-
-                        '
-                      properties:
-                        in:
-                          type: array
-                          items:
-                            type: string
-                            enum:
-                            - instance
-                            - volume
-                            - serverless
-                format:
-                  type: string
-                  enum:
-                  - table
-                  - tree
-                  default: table
-                  description: "Output format.\n- `table` (default): flat list of\
-                    \ per-contract charge rows. Every contract \u2014 including serverless\
-                    \ instances \u2014 is returned as a top-level entry with `type:\
-                    \ \"instance\"` or `\"volume\"`, and `source: \"instance-<id>\"\
-                    ` or `\"volume-<id>\"`.\n- `tree`: hierarchical grouping. Regular\
-                    \ instances and volumes appear the same as in `table`. Serverless\
-                    \ contracts are collapsed under their parent endpoint and worker\
-                    \ group: a top-level entry with `type: \"serverless\"` and `source:\
-                    \ \"endpoint-<id>\"`, whose nested `items` contain worker-group\
-                    \ entries (`type: \"serverless\"`, `source: \"workergroup-<id>\"\
-                    `), whose `items` in turn contain the individual instance charges.\
-                    \ `amount` is aggregated up the tree.\n"
-                latest_first:
-                  type: boolean
-                  default: true
-                  description: Sort by most recent charges first.
-                limit:
-                  type: integer
-                  minimum: 1
-                  default: 100
-                  description: Max results per page. Default `100`, server maximum
-                    `500`. Must be a positive integer (values `<= 0` will trigger
-                    a server error).
-                after_token:
-                  type: string
-                  description: Pagination token returned by a previous request's `next_token`.
+        description: "JSON-encoded filter object. **Must** include a `day` date range;\
+          \ optionally narrows by contract `type`.\n\n**`day` (required)** \u2014\
+          \ charge date range using unix seconds (UTC).\nSupported operators: `gte`\
+          \ (inclusive start) and `lte` (inclusive end). Both bounds are required.\n\
+          Strict `gt` / `lt` are **not** accepted on this endpoint \u2014 they are\
+          \ treated as missing and return a 400.\nAn inverted range (`gte` > `lte`)\
+          \ is not an error but returns an empty result set.\n\n**`type` (optional)**\
+          \ \u2014 filter by contract type. Supported values:\n`instance`, `volume`,\
+          \ `serverless`.\nSupported operator: `in` (include list). An empty `in`\
+          \ list (`\"type\":{\"in\":[]}`) returns zero results by design; omit the\
+          \ whole `type` field to match all contract types.\n\n**Examples**:\n```json\n\
+          // All charges in January 2026\n{\"day\":{\"gte\":1767225600,\"lte\":1769903999}}\n\
+          \n// Only instance charges in January 2026\n{\"day\":{\"gte\":1767225600,\"\
+          lte\":1769903999},\"type\":{\"in\":[\"instance\"]}}\n\n// Volumes and serverless\
+          \ workers only\n{\"day\":{\"gte\":1767225600,\"lte\":1769903999},\"type\"\
+          :{\"in\":[\"volume\",\"serverless\"]}}\n```\n"
+        schema:
+          type: string
+        example: '{"day":{"gte":1767225600,"lte":1769903999}}'
+      - name: format
+        in: query
+        required: false
+        description: "Output format. `table` (default) returns a flat list of per-contract\
+          \ rows with `type: \"instance\"` or `\"volume\"`. `tree` collapses serverless\
+          \ contracts under endpoint \u2192 workergroup wrappers with `type: \"serverless\"\
+          ` and `source: \"endpoint-<id>\"` / `\"workergroup-<id>\"`; regular instances\
+          \ and volumes are unchanged.\n"
+        schema:
+          type: string
+          enum:
+          - table
+          - tree
+          default: table
+        example: table
+      - name: latest_first
+        in: query
+        required: false
+        description: Sort by most recent charges first.
+        schema:
+          type: boolean
+          default: true
+        example: true
+      - name: limit
+        in: query
+        required: false
+        description: "Max results per page. Default 100, server maximum 500. Must\
+          \ be a positive integer \u2014 values \u2264 0 currently trigger a server\
+          \ error."
+        schema:
+          type: integer
+          minimum: 1
+          default: 100
+        example: 100
+      - name: after_token
+        in: query
+        required: false
+        description: Keyset pagination cursor from the previous response's `next_token`.
+          Invalid tokens return a 400 error.
+        schema:
+          type: string
+        example: eyJ2YWx1ZXMiOiB7ImlkIjogMTIzNDU2Nzh9fQ==
       responses:
         '200':
           description: Paginated per-instance charge results
           content:
             application/json:
-              example:
-                success: true
-                count: 2
-                total: 14
-                results:
-                - start: 1730419200
-                  end: 1730678400
-                  type: instance
-                  source: instance-12345678
-                  description: Instance 12345678 Charges - 4 days
-                  amount: 38.421
-                  metadata:
-                    template_id: 101
-                    label: my-training-job
-                  items:
-                  - start: 1730419200
-                    end: 1730678400
-                    type: gpu
-                    source: null
-                    description: 96.000 hours at $0.389/hour
-                    amount: 37.344
-                    metadata: {}
-                    items: []
-                  - start: 1730419200
-                    end: 1730678400
-                    type: disk
-                    source: null
-                    description: 96.000 hours at $0.008/hour
-                    amount: 0.768
-                    metadata: {}
-                    items: []
-                  - start: 1730419200
-                    end: 1730678400
-                    type: bwd
-                    source: null
-                    description: 12.500 GB Downloaded at $0.018/GB
-                    amount: 0.225
-                    metadata: {}
-                    items: []
-                  - start: 1730419200
-                    end: 1730678400
-                    type: bwu
-                    source: null
-                    description: 4.700 GB Uploaded at $0.018/GB
-                    amount: 0.084
-                    metadata: {}
-                    items: []
-                - start: 1730332800
-                  end: 1730592000
-                  type: volume
-                  source: volume-12345679
-                  description: Volume 12345679 Charges - 4 days
-                  amount: 1.152
-                  metadata:
-                    label: shared-dataset-vol
-                  items:
-                  - start: 1730332800
-                    end: 1730592000
-                    type: disk
-                    source: null
-                    description: 96.000 hours at $0.012/hour
-                    amount: 1.152
-                    metadata: {}
-                    items: []
-                next_token: eyJ2YWx1ZXMiOiB7ImlkIjogMTIzNDU2Nzh9fQ==
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  count:
+                    type: integer
+                    description: Number of contracts returned in this page.
+                    example: 2
+                  total:
+                    type: integer
+                    description: Total number of contracts matching the filters.
+                    example: 14
+                  next_token:
+                    type: string
+                    nullable: true
+                    description: Pagination cursor for the next page. `null` when
+                      no more pages.
+                    example: eyJ2YWx1ZXMiOiB7ImlkIjogMTIzNDU2Nzh9fQ==
+                  results:
+                    type: array
+                    description: List of per-contract charge entries.
+                    items:
+                      type: object
+                      properties:
+                        start:
+                          type: integer
+                          description: Contract start time (unix seconds UTC).
+                          example: 1730419200
+                        end:
+                          type: integer
+                          description: Contract end time (unix seconds UTC).
+                          example: 1730678400
+                        type:
+                          type: string
+                          description: Contract type. `instance` or `volume` in table
+                            format, or `serverless` (wrapper) in tree format.
+                          example: instance
+                        source:
+                          type: string
+                          description: Identifier in the form `{type}-{id}`. For tree-format
+                            serverless wrappers, uses `endpoint-<id>` or `workergroup-<id>`.
+                          example: instance-12345678
+                        description:
+                          type: string
+                          example: Instance 12345678 Charges - 4 days
+                        amount:
+                          type: number
+                          format: float
+                          description: Total charge for this contract (rounded to
+                            3 decimals).
+                          example: 38.421
+                        metadata:
+                          type: object
+                          description: Optional instance metadata. Keys present only
+                            when non-null on the contract.
+                          properties:
+                            template_id:
+                              type: integer
+                              example: 101
+                            label:
+                              type: string
+                              example: my-training-job
+                            endpoint_id:
+                              type: integer
+                              example: 19392
+                            workergroup_id:
+                              type: integer
+                              example: 25355
+                        items:
+                          type: array
+                          description: Per-charge-type breakdown (`gpu`, `disk`, `bwd`,
+                            `bwu`). Empty for tree-format wrappers above the contract
+                            level.
+                          items:
+                            type: object
+                            properties:
+                              start:
+                                type: integer
+                                example: 1730419200
+                              end:
+                                type: integer
+                                example: 1730678400
+                              type:
+                                type: string
+                                enum:
+                                - gpu
+                                - disk
+                                - bwd
+                                - bwu
+                                example: gpu
+                              source:
+                                type: string
+                                nullable: true
+                                example: null
+                              description:
+                                type: string
+                                example: 96.000 hours at $0.389/hour
+                              amount:
+                                type: number
+                                format: float
+                                example: 37.344
+                              metadata:
+                                type: object
+                                example: {}
+                              items:
+                                type: array
+                                example: []
         '400':
           description: 'Invalid request. Returned when the required `day.gte` / `day.lte`
-            filters are missing,
-
-            or when the supplied `after_token` cannot be decoded.
+            filters are missing, or when the supplied `after_token` cannot be decoded.
 
             '
           content:
@@ -6691,7 +6698,7 @@ paths:
                     msg: Invalid pagination token
         '401':
           description: Unauthorized. May be returned in framework-level authentication
-            failure cases (expired session, etc.).
+            failure cases.
           content:
             application/json:
               schema:
@@ -6707,8 +6714,8 @@ paths:
                 error: auth_error
                 msg: This action requires login.
         '404':
-          description: Not Found. Returned when the supplied API key is invalid (does
-            not match any user).
+          description: Not Found. Returned when the supplied API key does not match
+            any user.
           content:
             application/json:
               schema:
@@ -7935,202 +7942,165 @@ paths:
   /api/v1/invoices/:
     get:
       summary: show invoices
-      description: 'Gets your invoices within given timerange.
+      description: 'Returns paginated invoice/payment records (Stripe top-ups, transfers,
+        payouts, coinbase, etc.). For per-instance cost breakdowns, use `GET /api/v0/charges/`
+        instead.
 
 
-        Timerange is **required** using the `select_filters.when` field.
-
-
-        Optionally filter by invoice service using `select_filters.service`.
-
-
-        **Common services** : transfer, stripe_payments, bitpay, coinbase, crypto.com,
-        instance_prepay, paypal_manual, wise_manual
-
-
-        **Date format**: `select_filters.when.gte` and `select_filters.when.lte` must
-        be UTC epoch seconds (integers).
-
-        Example range: 2026-01-01 00:00:00 UTC -> `1767225600`, 2026-01-31 23:59:59
-        UTC -> `1769903999`.
-
-
-        **HTTP request**: This is a GET endpoint that accepts JSON-encoded query parameters.
-
-        URL-encode JSON values when calling directly.
-
-        ```
-
-        GET /api/v1/invoices/?select_filters={"when":{"gte":1767225600,"lte":1769903999}}&limit=60
-
-        ```
-
-        For pagination, pass the response `next_token` as `after_token`:
-
-        ```
-
-        GET /api/v1/invoices/?select_filters={"when":{"gte":1767225600,"lte":1769903999}}&after_token=eyJ2YWx1ZXMiOiB7ImlkIjog...
-
-        ```
-
-
-        CLI Usage: `vastai show invoices-v1`'
-      requestBody:
+        CLI Usage: `vastai show invoices-v1 --invoices`'
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: select_filters
+        in: query
         required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-              - select_filters
-              properties:
-                select_filters:
-                  type: object
-                  description: "Shows invoices using given filters.\n\n**Required**\
-                    \ : Filter by timerange using `when` field. \n\nUse unix timestamps\
-                    \ (UTC) comparison operators.\n\n**Example** : To filter invoices\
-                    \ from June 1, 2025 to Dec 1, 2025:\n```\n\"select_filters\":\
-                    \ {\n  \"when\": {\n      \"gte\": 1748736000,\n      \"lte\"\
-                    : 1764547200 \n    }\n  }\n```\nSupported operators:\n- `gt` or\
-                    \ `gte`: invoices created after this time\n- `lt` or `lte`: invoices\
-                    \ created before this time\n\n**Optional** : Filter invoices by\
-                    \ service using `service` field.\n\nSupported services:\ntransfer,\
-                    \ stripe_payments, bitpay, coinbase, crypto.com, instance_prepay,\
-                    \ paypal_manual, wise_manual \n\nSupported operators:\n- `in`\
-                    \ : include only these services\n- `notin` : exclude these services\n\
-                    - `eq` : matches a single service\n\n**Example**: Get paypal and\
-                    \ wise invoices only\n```\n\"service\": {\n  \"in\": [\"paypal_manual\"\
-                    , \"wise_manual\"]\n}\n```\n"
-                  required:
-                  - when
-                  properties:
-                    when:
-                      type: object
-                      description: "Invoice date range filter. \n\n**Example** : To\
-                        \ filter invoices between June 1, 2025 and Dec 1, 2025, set\
-                        \ gte to `1748736000` and lte to `1764547200`.\n"
-                      default:
-                        gte: 1748736000
-                        lte: 1764547200
-                      properties:
-                        gte:
-                          type: integer
-                          description: 'Start time using unix timestamp (UTC).
+        description: "JSON-encoded filter object. **Must** include a `when` date range;\
+          \ optionally narrows by `service`.\n\n**`when` (required)** \u2014 invoice\
+          \ date range using unix seconds (UTC).\nSupported operators: `gte` / `gt`\
+          \ (start), `lte` / `lt` (end). Both a start and end bound are required.\n\
+          \n**`service` (optional)** \u2014 filter by payment service. Supported values:\n\
+          `transfer`, `stripe_payments`, `bitpay`, `coinbase`, `crypto.com`, `instance_prepay`,\
+          \ `paypal_manual`, `wise_manual`.\nSupported operators: `in` (include list),\
+          \ `notin` (exclude list), `eq` (single value).\n\n**Note**: if the `when`\
+          \ range is missing or malformed, the endpoint returns HTTP 200 with `success:\
+          \ false` and `error: \"Invalid date range\"` \u2014 not HTTP 400.\n\n**Examples**:\n\
+          ```json\n// January 2026, all services\n{\"when\":{\"gte\":1767225600,\"\
+          lte\":1769903999}}\n\n// January 2026, only PayPal and Wise payouts\n{\"\
+          when\":{\"gte\":1767225600,\"lte\":1769903999},\"service\":{\"in\":[\"paypal_manual\"\
+          ,\"wise_manual\"]}}\n\n// January 2026, everything except crypto\n{\"when\"\
+          :{\"gte\":1767225600,\"lte\":1769903999},\"service\":{\"notin\":[\"bitpay\"\
+          ,\"coinbase\",\"crypto.com\"]}}\n```\n"
+        schema:
+          type: string
+        example: '{"when":{"gte":1767225600,"lte":1769903999}}'
+      - name: order_by
+        in: query
+        required: false
+        description: 'JSON array of sort directives. Supported columns: `paid_on`,
+          `amount_cents`, `when`. `dir` may be `asc` or `desc` (default `desc`).
 
-                            '
-                          default: 1748736000
-                        lte:
-                          type: integer
-                          description: 'End time using unix timestamp (UTC).
+          Example: `[{"col":"when","dir":"asc"}]` sorts by oldest invoice first.
 
-                            '
-                          default: 1764547200
-                    service:
-                      type: object
-                      description: "Filter by invoice `service`.\n\nSupported services:\n\
-                        transfer, stripe_payments, bitpay, coinbase, crypto.com, instance_prepay,\
-                        \ paypal_manual, wise_manual \n"
-                      properties:
-                        eq:
-                          type: string
-                        in:
-                          type: array
-                          items:
-                            type: string
-                        notin:
-                          type: array
-                          items:
-                            type: string
-                latest_first:
-                  type: boolean
-                  default: true
-                  description: Sort by newest invoices first.
-                order_by:
-                  type: array
-                  description: "Sort invoices by given columns. \n\nSupported columns:\
-                    \ `paid_on`, `amount_cents`, `when`\n\n**Example** : To sort by\
-                    \ oldest invoices first\n```\n\"order_by\": [\n  {\n    \"col\"\
-                    : \"when\",\n    \"dir\": \"asc\"\n  }\n]\n```\n"
-                  default:
-                    col: paid_on
-                    dir: desc
-                  items:
-                    type: object
-                    properties:
-                      col:
-                        type: string
-                        default: paid_on
-                      dir:
-                        type: string
-                        enum:
-                        - asc
-                        - desc
-                        default: desc
-                limit:
-                  type: integer
-                  default: 60
-                  description: Maximum number of invoices to return.
+          '
+        schema:
+          type: string
+        example: '[{"col":"paid_on","dir":"desc"}]'
+      - name: latest_first
+        in: query
+        required: false
+        description: Sort newest invoices first. Equivalent to `order_by=[{"col":"paid_on","dir":"desc"}]`.
+        schema:
+          type: boolean
+          default: true
+        example: true
+      - name: limit
+        in: query
+        required: false
+        description: Max results per page. Default 60.
+        schema:
+          type: integer
+          minimum: 1
+          default: 60
+        example: 60
+      - name: after_token
+        in: query
+        required: false
+        description: Keyset pagination cursor from the previous response's `next_token`.
+          Invalid tokens return a 400 error.
+        schema:
+          type: string
+        example: eyJ2YWx1ZXMiOiB7ImlkIjogMjY3MjU5N30sICJvc19wYWdlIjogMH0=
       responses:
         '200':
-          description: Paginated invoice results
+          description: 'Paginated invoice results. Note: a missing or invalid `when`
+            range is also returned as HTTP 200 with `success: false` and an `error`
+            field (see example below).
+
+            '
           content:
             application/json:
-              example:
-                success: true
-                count: 2
-                total: 42
-                results:
-                - start: 1762149123
-                  end: null
-                  type: transfer
-                  source: sender@vast.ai
-                  description: Received credit from sender@vast.ai
-                  amount: 35.5
-                  metadata:
-                    invoice_id: 4829137
-                    service: transfer
-                    sender: 123456
-                    recipient: 789012
-                  items: []
-                - start: 1761980044
-                  end: 1761980301
-                  type: credit
-                  source: stripe
-                  description: Manual billing from VISA ending in 4412
-                  amount: -19.99
-                  metadata:
-                    invoice_id: 4828771
-                    service: stripe_payments
-                    last4: '4412'
-                    network: visa
-                    transfer_group: pi_3TAbCdEfgHiJkLmN
-                  items: []
-                next_token: null
+              examples:
+                success:
+                  summary: Paginated results
+                  value:
+                    success: true
+                    count: 2
+                    total: 42
+                    results:
+                    - start: 1762149123.0
+                      end: null
+                      type: transfer
+                      source: sender@vast.ai
+                      description: Received Credit from sender@vast.ai
+                      amount: 35.5
+                      metadata:
+                        invoice_id: 4829137
+                        service: transfer
+                        sender: 123456
+                        recipient: 789012
+                      items: []
+                    - start: 1761980044.0
+                      end: 1761980301.0
+                      type: credit
+                      source: stripe
+                      description: Manual billing from VISA ending in 4412
+                      amount: -19.99
+                      metadata:
+                        invoice_id: 4828771
+                        service: stripe_payments
+                        last4: '4412'
+                        network: visa
+                        transfer_group: pi_3TAbCdEfgHiJkLmN
+                      items: []
+                    next_token: eyJ2YWx1ZXMiOiB7ImlkIjogMjE4OTM4N30sICJvc19wYWdlIjogMH0=
+                invalid_date_range:
+                  summary: Missing or malformed `when` range (still HTTP 200)
+                  value:
+                    success: false
+                    error: Invalid date range
+                    count: 0
+                    total: 0
+                    results: []
+                    next_token: null
         '400':
-          description: Invalid request (e.g. missing or malformed date range)
+          description: "Invalid request \u2014 e.g. malformed `after_token` pagination\
+            \ cursor."
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
               example:
                 success: false
-                error: Invalid date range
-                count: 0
-                total: 0
-                results: []
-                next_token: null
+                error: invalid_token
+                msg: Invalid pagination token
         '401':
-          description: Unauthorized
+          description: Unauthorized. May be returned in framework-level authentication
+            failure cases.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '403':
-          description: Forbidden
+          description: Forbidden. Returned when no `Authorization` header is provided.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                success: false
+                error: auth_error
+                msg: This action requires login.
+        '404':
+          description: Not Found. Returned when the supplied API key does not match
+            any user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                success: false
+                error: auth_error
+                msg: Invalid user key
         '429':
           description: Too Many Requests
           content:

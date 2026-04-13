@@ -1,2 +1,12 @@
 # All files, default reviewers:
-*       @stackanthony @kristopolous 
+
+# Serverless and related code requires review from the serverless team:
+/vastai/serverless/                 @vast-ai/serverless
+/vastai/api/deployments.py          @vast-ai/serverless
+/vastai/api/endpoints.py            @vast-ai/serverless
+/vastai/data/deployment.py          @vast-ai/serverless
+/vastai/data/endpoint.py            @vast-ai/serverless
+/vastai/data/workergroup.py         @vast-ai/serverless
+/vastai/cli/commands/endpoints.py   @vast-ai/serverless
+/vastai/cli/commands/deployments.py @vast-ai/serverless
+/tests/serverless/                  @vast-ai/serverless

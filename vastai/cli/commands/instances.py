@@ -321,25 +321,47 @@ def destroy_instance_impl(id, args):
 
 @parser.command(
     argument("id", help="id of instance to delete", type=int),
-    usage="vastai destroy instance id [-h] [--api-key API_KEY] [--raw]",
+    argument("-y", "--yes", help="Skip confirmation prompt", action="store_true"),
+    usage="vastai destroy instance id [-h] [-y] [--api-key API_KEY] [--raw]",
     help="Destroy an instance (irreversible, deletes data)",
     epilog=deindent("""
         Perfoms the same action as pressing the "DESTROY" button on the website at https://console.vast.ai/instances/
         Example: vastai destroy instance 4242
+        Use -y or --yes to skip the confirmation prompt.
     """),
 )
 def destroy__instance(args):
     """Destroy a single instance."""
+    if not args.yes:
+        try:
+            confirm = input(f"Are you sure you want to destroy instance {args.id}? This is irreversible and will delete all data. [y/N] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\nAborted.")
+            return
+        if confirm != "y":
+            print("Aborted.")
+            return
     destroy_instance_impl(args.id, args)
 
 
 @parser.command(
     argument("ids", help="ids of instance to destroy", type=int, nargs='+'),
-    usage="vastai destroy instances [--raw] <id>",
+    argument("-y", "--yes", help="Skip confirmation prompt", action="store_true"),
+    usage="vastai destroy instances [--raw] [-y] <id> [<id> ...]",
     help="Destroy a list of instances (irreversible, deletes data)",
 )
 def destroy__instances(args):
     """Bulk destroy instances."""
+    if not args.yes:
+        id_list_str = ", ".join(str(i) for i in args.ids)
+        try:
+            confirm = input(f"Are you sure you want to destroy instances {id_list_str}? This is irreversible and will delete all data. [y/N] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\nAborted.")
+            return
+        if confirm != "y":
+            print("Aborted.")
+            return
     idlist = split_list(args.ids, 64)
     exec_with_threads(lambda ids: destroy_instance_impl(ids, args), idlist, nt=8)
 

@@ -48,11 +48,29 @@ class TestShowInstance:
 class TestDestroyInstance:
     def test_destroy_instance(self, parse_argv, patch_get_client, mock_response, capsys):
         patch_get_client.delete.return_value = mock_response(200, {"success": True})
-        args = parse_argv(["destroy", "instance", "123", "--raw"])
+        args = parse_argv(["destroy", "instance", "123", "--raw", "--yes"])
         result = args.func(args)
         patch_get_client.delete.assert_called_once()
         call_args = patch_get_client.delete.call_args
         assert "/instances/123/" in call_args[0][0]
+
+    def test_destroy_instance_confirm_yes(self, parse_argv, patch_get_client, mock_response, capsys, monkeypatch):
+        patch_get_client.delete.return_value = mock_response(200, {"success": True})
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        args = parse_argv(["destroy", "instance", "123"])
+        args.func(args)
+        patch_get_client.delete.assert_called_once()
+        captured = capsys.readouterr()
+        assert "destroying instance 123" in captured.out
+
+    def test_destroy_instance_confirm_no(self, parse_argv, patch_get_client, mock_response, capsys, monkeypatch):
+        patch_get_client.delete.return_value = mock_response(200, {"success": True})
+        monkeypatch.setattr("builtins.input", lambda _: "n")
+        args = parse_argv(["destroy", "instance", "123"])
+        args.func(args)
+        patch_get_client.delete.assert_not_called()
+        captured = capsys.readouterr()
+        assert "Aborted" in captured.out
 
 
 class TestStartInstance:

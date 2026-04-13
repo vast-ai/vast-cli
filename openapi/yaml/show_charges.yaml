@@ -13,9 +13,9 @@ paths:
     get:
       summary: show charges
       description: |
-        Returns paginated per-instance billing charges broken down by GPU, storage, and bandwidth. For the list of invoice/payment records (Stripe top-ups, transfers, payouts), use [`GET /api/v1/invoices/`](#tag/Billing/GET/api/v1/invoices/) instead.
+        Shows charges per instance, including GPU, storage, and bandwidth. For invoice/payment records (Stripe top-ups, transfers, payouts), use [show invoices](/api-reference/endpoint/show-invoices) instead.
 
-        CLI Usage: `vastai show invoices-v1 --charges` (the CLI command `show invoices-v1` wraps both this endpoint and `/api/v1/invoices/`; the `--charges` flag selects this one.)
+        CLI: `vastai show invoices-v1 --charges`
       security:
         - BearerAuth: []
       parameters:
@@ -23,53 +23,35 @@ paths:
           in: query
           required: true
           description: |
-            Filter object (JSON-stringified and URL-encoded in the query string). **Must** include a `day` date range; optionally narrows by contract `type`.
+            **`day`** (required). Date range in unix seconds (UTC). Operators: `gte`, `lte`.
 
-            **`day`** (required) — charge date range in unix seconds (UTC). Both bounds are required.
-
-            Supported operators:
-            - `gte` — inclusive start
-            - `lte` — inclusive end
-
-            Strict `gt` / `lt` are **not** accepted on this endpoint — they are treated as missing and return a 400. An inverted range (`gte` > `lte`) is not an error but returns an empty result set.
-
-            **`type`** (optional) — filter by contract type.
-
-            Supported values:
-            - `instance`
-            - `volume`
-            - `serverless`
-
-            Supported operators:
-            - `in` — include only these types
-
-            An empty `in` list (`"type":{"in":[]}`) returns zero results by design; omit the whole `type` field to match all contract types.
+            **`type`** (optional). Filter by contract type: `instance`, `volume`, `serverless`. Operator: `in`.
 
             **Examples**:
             ```json
             // All charges in January 2026
             {"day":{"gte":1767225600,"lte":1769903999}}
 
-            // Only instance charges in January 2026
+            // Only instance charges
             {"day":{"gte":1767225600,"lte":1769903999},"type":{"in":["instance"]}}
 
-            // Volumes and serverless workers only
+            // Volumes and serverless only
             {"day":{"gte":1767225600,"lte":1769903999},"type":{"in":["volume","serverless"]}}
             ```
           schema:
             type: string
-          example: '{"day":{"gte":1767225600,"lte":1769903999}}'
+            example: '{"day":{"gte":1767225600,"lte":1769903999}}'
         - name: format
           in: query
           required: false
           description: |
-            - `table` (default) — flat list of per-contract rows with `type: "instance"` or `"volume"`.
-            - `tree` — serverless contracts are collapsed under endpoint → workergroup wrappers with `type: "serverless"` and `source: "endpoint-<id>"` / `"workergroup-<id>"`. Regular instances and volumes are unchanged.
+            - `table` (default) flat list of per-contract rows with `type: "instance"` or `"volume"`.
+            - `tree` serverless contracts are collapsed under endpoint/workergroup wrappers with `type: "serverless"` and `source: "endpoint-<id>"` / `"workergroup-<id>"`. Regular instances and volumes are unchanged.
           schema:
             type: string
             enum: [table, tree]
             default: table
-          example: table
+            example: table
         - name: latest_first
           in: query
           required: false
@@ -77,23 +59,34 @@ paths:
           schema:
             type: boolean
             default: true
-          example: true
+            example: true
         - name: limit
           in: query
           required: false
-          description: Max results per page. Default 100, server maximum 500. Must be a positive integer — values ≤ 0 currently trigger a server error.
+          description: Max results per page. Server maximum 500.
           schema:
             type: integer
             minimum: 1
             default: 100
-          example: 100
+            example: 20
         - name: after_token
           in: query
           required: false
-          description: Keyset pagination cursor from the previous response's `next_token`. Invalid tokens return a 400 error.
+          description: |
+            Pagination cursor for fetching the next page of results. Copy the `next_token` value from the previous response and pass it here. If the previous response had no `next_token`, there are no more pages.
+
+            ```
+            # First request
+            GET /api/v0/charges/?select_filters={"day":{"gte":1767225600,"lte":1769903999}}&limit=20
+
+            # Response includes: "next_token": "eyJ2YWx1ZXMiOiB7ImlkIjogMTIzNDU2Nzh9fQ=="
+
+            # Next page:pass the token back as after_token
+            GET /api/v0/charges/?select_filters={"day":{"gte":1767225600,"lte":1769903999}}&limit=20&after_token=eyJ2YWx1ZXMiOiB7ImlkIjogMTIzNDU2Nzh9fQ==
+            ```
           schema:
             type: string
-          example: eyJ2YWx1ZXMiOiB7ImlkIjogMTIzNDU2Nzh9fQ==
+            example: eyJ2YWx1ZXMiOiB7ImlkIjogMTIzNDU2Nzh9fQ==
       responses:
         '200':
           description: Paginated per-instance charge results

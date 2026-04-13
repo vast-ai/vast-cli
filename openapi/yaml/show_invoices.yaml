@@ -13,9 +13,9 @@ paths:
     get:
       summary: show invoices
       description: |
-        Returns paginated invoice/payment records (Stripe top-ups, transfers, payouts, coinbase, etc.). For per-instance cost breakdowns, use [`GET /api/v0/charges/`](#tag/Billing/GET/api/v0/charges/) instead.
+        Shows invoice/payment records (Stripe top-ups, transfers, payouts, coinbase, etc.). For per-instance cost breakdowns, use [show charges](/api-reference/endpoint/show-charges) instead.
 
-        CLI Usage: `vastai show invoices-v1 --invoices` (the CLI command `show invoices-v1` wraps both this endpoint and `/api/v0/charges/`; the `--invoices` flag selects this one.)
+        CLI: `vastai show invoices-v1 --invoices`
       security:
         - BearerAuth: []
       parameters:
@@ -23,47 +23,24 @@ paths:
           in: query
           required: true
           description: |
-            Filter object (JSON-stringified and URL-encoded in the query string). **Must** include a `when` date range; optionally narrows by `service`.
+            **`when`** (required). Invoice date range in unix seconds (UTC). Operators: `gte`, `gt`, `lte`, `lt`.
 
-            **`when`** (required) — invoice date range in unix seconds (UTC). Both a start and end bound are required.
-
-            Supported operators:
-            - `gte` / `gt` — start of range
-            - `lte` / `lt` — end of range
-
-            **`service`** (optional) — filter by payment service.
-
-            Supported values:
-            - `transfer`
-            - `stripe_payments`
-            - `bitpay`
-            - `coinbase`
-            - `crypto.com`
-            - `instance_prepay`
-            - `paypal_manual`
-            - `wise_manual`
-
-            Supported operators:
-            - `in` — include only these services
-            - `notin` — exclude these services
-            - `eq` — match a single service
-
-            **Note**: if the `when` range is missing or malformed, the endpoint returns HTTP 200 with `success: false` and `error: "Invalid date range"` — not HTTP 400.
+            **`service`** (optional). Filter by payment service: `transfer`, `stripe_payments`, `bitpay`, `coinbase`, `crypto.com`, `instance_prepay`, `paypal_manual`, `wise_manual`. Operators: `eq`, `neq`, `in`, `notin`.
 
             **Examples**:
             ```json
             // January 2026, all services
             {"when":{"gte":1767225600,"lte":1769903999}}
 
-            // January 2026, only PayPal and Wise payouts
+            // Only PayPal and Wise payouts
             {"when":{"gte":1767225600,"lte":1769903999},"service":{"in":["paypal_manual","wise_manual"]}}
 
-            // January 2026, everything except crypto
+            // Everything except crypto
             {"when":{"gte":1767225600,"lte":1769903999},"service":{"notin":["bitpay","coinbase","crypto.com"]}}
             ```
           schema:
             type: string
-          example: '{"when":{"gte":1767225600,"lte":1769903999}}'
+            example: '{"when":{"gte":1767225600,"lte":1769903999}}'
         - name: order_by
           in: query
           required: false
@@ -72,7 +49,7 @@ paths:
             Example: `[{"col":"when","dir":"asc"}]` sorts by oldest invoice first.
           schema:
             type: string
-          example: '[{"col":"paid_on","dir":"desc"}]'
+            example: '[{"col":"paid_on","dir":"desc"}]'
         - name: latest_first
           in: query
           required: false
@@ -80,23 +57,34 @@ paths:
           schema:
             type: boolean
             default: true
-          example: true
+            example: true
         - name: limit
           in: query
           required: false
-          description: Max results per page. Default 60.
+          description: Max results per page.
           schema:
             type: integer
             minimum: 1
             default: 60
-          example: 60
+            example: 20
         - name: after_token
           in: query
           required: false
-          description: Keyset pagination cursor from the previous response's `next_token`. Invalid tokens return a 400 error.
+          description: |
+            Pagination cursor for fetching the next page of results. Copy the `next_token` value from the previous response and pass it here. If the previous response had no `next_token`, there are no more pages.
+
+            ```
+            # First request
+            GET /api/v1/invoices/?select_filters={"when":{"gte":1767225600,"lte":1769903999}}&limit=20
+
+            # Response includes: "next_token": "eyJ2YWx1ZXMiOiB7ImlkIjogMjY3MjU5N30sICJvc19wYWdlIjogMH0="
+
+            # Next page:pass the token back as after_token
+            GET /api/v1/invoices/?select_filters={"when":{"gte":1767225600,"lte":1769903999}}&limit=20&after_token=eyJ2YWx1ZXMiOiB7ImlkIjogMjY3MjU5N30sICJvc19wYWdlIjogMH0=
+            ```
           schema:
             type: string
-          example: eyJ2YWx1ZXMiOiB7ImlkIjogMjY3MjU5N30sICJvc19wYWdlIjogMH0=
+            example: eyJ2YWx1ZXMiOiB7ImlkIjogMjY3MjU5N30sICJvc19wYWdlIjogMH0=
       responses:
         '200':
           description: |
@@ -147,7 +135,7 @@ paths:
                     results: []
                     next_token: null
         '400':
-          description: Invalid request — e.g. malformed `after_token` pagination cursor.
+          description: Invalid request:e.g. malformed `after_token` pagination cursor.
           content:
             application/json:
               schema:
@@ -218,7 +206,7 @@ components:
           example: This action requires login.
 
 x-rate-limit:
-  threshold: 2.0
+  threshold: 3.0
   per: request
   description: Maximum request frequency per IP address
 

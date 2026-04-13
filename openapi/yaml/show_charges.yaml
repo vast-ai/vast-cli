@@ -72,18 +72,7 @@ paths:
         - name: after_token
           in: query
           required: false
-          description: |
-            Pagination cursor for fetching the next page of results. Copy the `next_token` value from the previous response and pass it here. If the previous response had no `next_token`, there are no more pages.
-
-            ```
-            # First request
-            GET /api/v0/charges/?select_filters={"day":{"gte":1767225600,"lte":1769903999}}&limit=20
-
-            # Response includes: "next_token": "eyJ2YWx1ZXMiOiB7ImlkIjogMTIzNDU2Nzh9fQ=="
-
-            # Next page:pass the token back as after_token
-            GET /api/v0/charges/?select_filters={"day":{"gte":1767225600,"lte":1769903999}}&limit=20&after_token=eyJ2YWx1ZXMiOiB7ImlkIjogMTIzNDU2Nzh9fQ==
-            ```
+          description: "Pass the `next_token` value from the previous response to fetch the next page of results. When the response returns `next_token: null`, there are no more pages."
           schema:
             type: string
             example: eyJ2YWx1ZXMiOiB7ImlkIjogMTIzNDU2Nzh9fQ==

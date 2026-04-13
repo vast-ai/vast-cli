@@ -6569,28 +6569,9 @@ paths:
       - name: after_token
         in: query
         required: false
-        description: 'Pagination cursor for fetching the next page of results. Copy
-          the `next_token` value from the previous response and pass it here. If the
-          previous response had no `next_token`, there are no more pages.
-
-
-          ```
-
-          # First request
-
-          GET /api/v0/charges/?select_filters={"day":{"gte":1767225600,"lte":1769903999}}&limit=20
-
-
-          # Response includes: "next_token": "eyJ2YWx1ZXMiOiB7ImlkIjogMTIzNDU2Nzh9fQ=="
-
-
-          # Next page:pass the token back as after_token
-
-          GET /api/v0/charges/?select_filters={"day":{"gte":1767225600,"lte":1769903999}}&limit=20&after_token=eyJ2YWx1ZXMiOiB7ImlkIjogMTIzNDU2Nzh9fQ==
-
-          ```
-
-          '
+        description: 'Pass the `next_token` value from the previous response to fetch
+          the next page of results. When the response returns `next_token: null`,
+          there are no more pages.'
         schema:
           type: string
           example: eyJ2YWx1ZXMiOiB7ImlkIjogMTIzNDU2Nzh9fQ==
@@ -7976,9 +7957,9 @@ paths:
   /api/v1/invoices/:
     get:
       summary: show invoices
-      description: 'Shows invoice/payment records (Stripe top-ups, transfers, payouts,
-        coinbase, etc.). For per-instance cost breakdowns, use [show charges](/api-reference/endpoint/show-charges)
-        instead.
+      description: 'Returns Stripe top-ups, transfers, payouts, coinbase payments,
+        and other billing transactions. For per-instance cost breakdowns, use [show
+        charges](/api-reference/endpoint/show-charges) instead.
 
 
         CLI: `vastai show invoices-v1 --invoices`'
@@ -7988,8 +7969,8 @@ paths:
       - name: select_filters
         in: query
         required: true
-        description: '**`when`** (required). Invoice date range in unix seconds (UTC).
-          Operators: `gte`, `gt`, `lte`, `lt`.
+        description: '**`when`** (required). Date range in unix seconds (UTC). Operators:
+          `gte`, `gt`, `lte`, `lt`.
 
 
           **`service`** (optional). Filter by payment service: `transfer`, `stripe_payments`,
@@ -8024,10 +8005,8 @@ paths:
       - name: order_by
         in: query
         required: false
-        description: 'JSON array of sort directives. Supported columns: `paid_on`,
-          `amount_cents`, `when`. `dir` may be `asc` or `desc` (default `desc`).
-
-          Example: `[{"col":"when","dir":"asc"}]` sorts by oldest invoice first.
+        description: 'Sort results by column. Columns: `paid_on`, `amount_cents`,
+          `when`. Direction: `asc` or `desc` (default `desc`).
 
           '
         schema:
@@ -8036,7 +8015,8 @@ paths:
       - name: latest_first
         in: query
         required: false
-        description: Sort newest invoices first. Equivalent to `order_by=[{"col":"paid_on","dir":"desc"}]`.
+        description: Sort newest invoices first. If `order_by` is also set, `order_by`
+          takes precedence.
         schema:
           type: boolean
           default: true
@@ -8053,85 +8033,87 @@ paths:
       - name: after_token
         in: query
         required: false
-        description: 'Pagination cursor for fetching the next page of results. Copy
-          the `next_token` value from the previous response and pass it here. If the
-          previous response had no `next_token`, there are no more pages.
-
-
-          ```
-
-          # First request
-
-          GET /api/v1/invoices/?select_filters={"when":{"gte":1767225600,"lte":1769903999}}&limit=20
-
-
-          # Response includes: "next_token": "eyJ2YWx1ZXMiOiB7ImlkIjogMjY3MjU5N30sICJvc19wYWdlIjogMH0="
-
-
-          # Next page:pass the token back as after_token
-
-          GET /api/v1/invoices/?select_filters={"when":{"gte":1767225600,"lte":1769903999}}&limit=20&after_token=eyJ2YWx1ZXMiOiB7ImlkIjogMjY3MjU5N30sICJvc19wYWdlIjogMH0=
-
-          ```
-
-          '
+        description: 'Pass the `next_token` value from the previous response to fetch
+          the next page of results. When the response returns `next_token: null`,
+          there are no more pages.'
         schema:
           type: string
           example: eyJ2YWx1ZXMiOiB7ImlkIjogMjY3MjU5N30sICJvc19wYWdlIjogMH0=
       responses:
         '200':
-          description: 'Paginated invoice results. Note: a missing or invalid `when`
-            range is also returned as HTTP 200 with `success: false` and an `error`
-            field (see example below).
-
-            '
+          description: 'Invoice results. A missing or invalid `when` range also returns
+            HTTP 200 with `success: false`.'
           content:
             application/json:
-              examples:
-                success:
-                  summary: Paginated results
-                  value:
-                    success: true
-                    count: 2
-                    total: 42
-                    results:
-                    - start: 1762149123.0
-                      end: null
-                      type: transfer
-                      source: sender@vast.ai
-                      description: Received Credit from sender@vast.ai
-                      amount: 35.5
-                      metadata:
-                        invoice_id: 4829137
-                        service: transfer
-                        sender: 123456
-                        recipient: 789012
-                      items: []
-                    - start: 1761980044.0
-                      end: 1761980301.0
-                      type: credit
-                      source: stripe
-                      description: Manual billing from VISA ending in 4412
-                      amount: -19.99
-                      metadata:
-                        invoice_id: 4828771
-                        service: stripe_payments
-                        last4: '4412'
-                        network: visa
-                        transfer_group: pi_3TAbCdEfgHiJkLmN
-                      items: []
-                    next_token: eyJ2YWx1ZXMiOiB7ImlkIjogMjE4OTM4N30sICJvc19wYWdlIjogMH0=
-                invalid_date_range:
-                  summary: Missing or malformed `when` range (still HTTP 200)
-                  value:
-                    success: false
-                    error: Invalid date range
-                    count: 0
-                    total: 0
-                    results: []
-                    next_token: null
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  count:
+                    type: integer
+                    description: Number of invoices returned in this page.
+                    example: 2
+                  total:
+                    type: integer
+                    description: Total number of invoices matching the filters.
+                    example: 42
+                  next_token:
+                    type: string
+                    nullable: true
+                    description: Token for the next page. `null` when no more pages.
+                    example: eyJ2YWx1ZXMiOiB7ImlkIjogMjE4OTM4N30sICJvc19wYWdlIjogMH0=
+                  results:
+                    type: array
+                    description: List of invoice entries.
+                    items:
+                      type: object
+                      properties:
+                        start:
+                          type: number
+                          description: Invoice creation time (unix seconds UTC).
+                          example: 1761980044.0
+                        end:
+                          type: number
+                          nullable: true
+                          description: Payment time (unix seconds UTC). `null` if
+                            unpaid.
+                          example: 1761980301.0
+                        type:
+                          type: string
+                          description: Invoice type. `credit`, `transfer`, `payout`,
+                            `refund`, `reserved`.
+                          example: credit
+                        source:
+                          type: string
+                          description: Payment source, e.g. `stripe`, `coinbase`,
+                            or sender email for transfers.
+                          example: stripe
+                        description:
+                          type: string
+                          example: Manual Billing from MASTERCARD ...7376
+                        amount:
+                          type: number
+                          description: Amount in dollars. Negative for charges, positive
+                            for transfers/payouts.
+                          example: -25.0
+                        metadata:
+                          type: object
+                          description: Additional details depending on service type.
+                          properties:
+                            invoice_id:
+                              type: integer
+                              example: 2185418
+                            service:
+                              type: string
+                              example: stripe_payments
+                        items:
+                          type: array
+                          description: Always empty for invoices.
+                          example: []
         '400':
-          description: Invalid request:e.g. malformed `after_token` pagination cursor.
+          description: Invalid request, e.g. malformed `after_token`.
           content:
             application/json:
               schema:

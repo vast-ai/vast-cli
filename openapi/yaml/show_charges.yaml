@@ -40,7 +40,6 @@ paths:
             ```
           schema:
             type: string
-            example: '{"day":{"gte":1767225600,"lte":1769903999}}'
         - name: format
           in: query
           required: false

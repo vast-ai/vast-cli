@@ -6530,7 +6530,6 @@ paths:
           '
         schema:
           type: string
-          example: '{"day":{"gte":1767225600,"lte":1769903999}}'
       - name: format
         in: query
         required: false
@@ -8001,17 +8000,18 @@ paths:
           '
         schema:
           type: string
-          example: '{"when":{"gte":1767225600,"lte":1769903999}}'
       - name: order_by
         in: query
         required: false
         description: 'Sort results by column. Columns: `paid_on`, `amount_cents`,
           `when`. Direction: `asc` or `desc` (default `desc`).
 
+
+          Example: `[{"col":"paid_on","dir":"desc"}]`
+
           '
         schema:
           type: string
-          example: '[{"col":"paid_on","dir":"desc"}]'
       - name: latest_first
         in: query
         required: false

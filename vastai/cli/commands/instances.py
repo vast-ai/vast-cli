@@ -288,7 +288,9 @@ _create_instance_args = [
 )
 def create__instance(args):
     """Create an instance from an offer ID."""
-    create_instance_impl(args.id, args)
+    rj = create_instance_impl(args.id, args)
+    if args.raw:
+        return rj
 
 
 @parser.command(

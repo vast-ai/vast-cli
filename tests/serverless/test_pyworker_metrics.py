@@ -681,8 +681,9 @@ class TestSendDeleteRequestsAndReset:
         assert mock_session.post.call_count == 1
         assert mock_session.post.call_args[0][0] == "http://internal.report/delete_requests/"
         sent = mock_session.post.call_args[1]["json"]
-        assert sent["request_idxs"] == [1]
-        assert sent["success"] is True
+        assert len(sent["requests"]) == 1
+        assert sent["requests"][0]["request_idx"] == 1
+        assert sent["requests"][0]["success"] is True
         assert m.model_metrics.requests_deleting == []
 
     async def test_delete_requests_noop_when_queue_empty(self, make_pyworker_metrics) -> None:
@@ -708,15 +709,15 @@ class TestSendDeleteRequestsAndReset:
         self, make_pyworker_metrics, make_metrics_aiohttp_post, metrics_delete_send_context, make_pyworker_request_metrics
     ) -> None:
         """
-        Verifies failed-only snapshot triggers POST with success=false payload.
+        Verifies failed-only snapshot triggers POST with per-request success=false.
 
         This test verifies by:
         1. Queuing only RequestMetrics with success False
         2. Mocking HTTP success
-        3. Asserting a single POST with success False and request_idxs
+        3. Asserting a single POST with the request's success flag set to False
 
         Assumptions:
-        - sent_success stays True when success_idxs is empty; sent_failed runs post
+        - A single POST is made containing all requests with their individual success flags
         """
         m = make_pyworker_metrics()
         req_bad = make_pyworker_request_metrics(
@@ -734,22 +735,23 @@ class TestSendDeleteRequestsAndReset:
 
         assert mock_session.post.call_count == 1
         sent = mock_session.post.call_args[1]["json"]
-        assert sent["request_idxs"] == [9]
-        assert sent["success"] is False
+        assert len(sent["requests"]) == 1
+        assert sent["requests"][0]["request_idx"] == 9
+        assert sent["requests"][0]["success"] is False
         assert m.model_metrics.requests_deleting == []
 
-    async def test_delete_requests_posts_success_and_failure_batches_separately(
+    async def test_delete_requests_posts_success_and_failure_in_single_batch(
         self, make_pyworker_metrics, make_metrics_aiohttp_post, metrics_delete_send_context, make_pyworker_request_metrics
     ) -> None:
         """
-        Verifies mixed success/failure snapshot results in two POST calls per report host.
+        Verifies mixed success/failure snapshot results in a single POST with per-request success flags.
 
         This test verifies by:
         1. Queuing one succeeded and one failed request
-        2. Asserting two post calls with distinct success flags and idx lists
+        2. Asserting a single POST with both requests and their individual success flags
 
         Assumptions:
-        - Line 210 and 213 both execute when both idx lists are non-empty
+        - All requests are sent in one batch with per-request success/status fields
         """
         m = make_pyworker_metrics()
         req_ok = make_pyworker_request_metrics(
@@ -772,11 +774,12 @@ class TestSendDeleteRequestsAndReset:
         with metrics_delete_send_context(m, mock_session):
             await m._Metrics__send_delete_requests_and_reset()
 
-        assert mock_session.post.call_count == 2
-        first = mock_session.post.call_args_list[0][1]["json"]
-        second = mock_session.post.call_args_list[1][1]["json"]
-        assert first["success"] is True and first["request_idxs"] == [1]
-        assert second["success"] is False and second["request_idxs"] == [2]
+        assert mock_session.post.call_count == 1
+        sent = mock_session.post.call_args[1]["json"]
+        assert len(sent["requests"]) == 2
+        by_idx = {r["request_idx"]: r for r in sent["requests"]}
+        assert by_idx[1]["success"] is True
+        assert by_idx[2]["success"] is False
         assert m.model_metrics.requests_deleting == []
 
     async def test_delete_requests_retries_after_timeout_then_succeeds(

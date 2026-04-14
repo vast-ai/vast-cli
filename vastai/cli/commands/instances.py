@@ -1176,8 +1176,7 @@ def show__instances_v1(args):
         page       += 1
 
         if args.raw:
-            print(json.dumps(data, indent=1))
-            return
+            return data
 
         if args.quiet:
             for inst in instances:

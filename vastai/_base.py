@@ -23,7 +23,8 @@ def _resolve_api_key(api_key: object) -> str:
         import xdg
         config_dir = xdg.xdg_config_home()
     except ImportError:
-        config_dir = os.path.join(os.getenv("HOME"), ".config")
+        from pathlib import Path
+        config_dir = os.path.join(str(Path.home()), ".config")
     xdg_path = os.path.join(config_dir, "vastai", "vast_api_key")
     if os.path.exists(xdg_path):
         return open(xdg_path).read().strip()

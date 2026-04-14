@@ -198,9 +198,11 @@ try:
 
 except Exception:
     # Reasonable defaults.
+    from pathlib import Path
+    _home = str(Path.home())
     DIRS = {
-        'config': os.path.join(os.getenv('HOME'), '.config'),
-        'temp': os.path.join(os.getenv('HOME'), '.cache'),
+        'config': os.path.join(_home, '.config'),
+        'temp': os.path.join(_home, '.cache'),
     }
 
 for key in DIRS.keys():

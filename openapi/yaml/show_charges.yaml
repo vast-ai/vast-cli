@@ -13,7 +13,7 @@ paths:
     get:
       summary: show charges
       description: |
-        Shows charges per instance, including GPU, storage, and bandwidth. For invoice/payment records (Stripe top-ups, transfers, payouts), use [show invoices](/api-reference/endpoint/show-invoices) instead.
+        Shows charges per instance, including GPU, storage, and bandwidth. For invoice/payment records (Stripe top-ups, transfers, payouts), use [show invoices](/api-reference/billing/show-invoices) instead.
 
         CLI: `vastai show invoices-v1 --charges`
       security:

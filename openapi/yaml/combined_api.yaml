@@ -6489,7 +6489,7 @@ paths:
       summary: show charges
       description: 'Shows charges per instance, including GPU, storage, and bandwidth.
         For invoice/payment records (Stripe top-ups, transfers, payouts), use [show
-        invoices](/api-reference/endpoint/show-invoices) instead.
+        invoices](/api-reference/billing/show-invoices) instead.
 
 
         CLI: `vastai show invoices-v1 --charges`'
@@ -7959,7 +7959,7 @@ paths:
       summary: show invoices
       description: 'Returns Stripe top-ups, transfers, payouts, coinbase payments,
         and other billing transactions. For per-instance cost breakdowns, use [show
-        charges](/api-reference/endpoint/show-charges) instead.
+        charges](/api-reference/billing/show-charges) instead.
 
 
         CLI: `vastai show invoices-v1 --invoices`'
@@ -8112,6 +8112,34 @@ paths:
                           type: array
                           description: Always empty for invoices.
                           example: []
+              examples:
+                success:
+                  summary: Successful invoice listing
+                  value:
+                    success: true
+                    count: 2
+                    total: 42
+                    next_token: eyJ2YWx1ZXMiOiB7ImlkIjogMjE4OTM4N30sICJvc19wYWdlIjogMH0=
+                    results:
+                    - start: 1761980044
+                      end: 1761980301
+                      type: credit
+                      source: stripe
+                      description: Manual Billing from MASTERCARD ...7376
+                      amount: -25.0
+                      metadata:
+                        invoice_id: 2185418
+                        service: stripe_payments
+                      items: []
+                invalid_date_range:
+                  summary: Missing or invalid `when` range
+                  value:
+                    success: false
+                    error: Invalid date range
+                    count: 0
+                    total: 0
+                    results: []
+                    next_token: null
         '400':
           description: Invalid request, e.g. malformed `after_token`.
           content:
@@ -8159,7 +8187,7 @@ paths:
                 properties:
                   detail:
                     type: string
-                    example: API requests too frequent endpoint threshold=2.0
+                    example: API requests too frequent endpoint threshold=3.0
       tags:
       - Billing
   /api/v0/users/{user_id}/ipaddrs/:

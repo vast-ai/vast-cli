@@ -105,6 +105,16 @@ Or for a single session:
 eval "$(register-python-argcomplete vastai)"
 ```
 
+## AI Agents
+
+Vast.ai has a skill for AI coding agents (Claude Code, Cursor, Windsurf, Codex, etc.):
+
+```bash
+npx skills add vast-ai/vast-cli
+```
+
+This installs the Vast.ai skill so your agent can search offers, create instances, and manage GPU workflows directly. See [CLI SKILL.md](vastai/SKILL.md) or [SDK SKILL.md](vastai_sdk/SKILL.md) for the full reference.
+
 ## Contributing
 
 This [repository](https://github.com/vast-ai/vast-cli) is open source. If you find a bug, please [open an issue](https://github.com/vast-ai/vast-cli/issues). PRs are welcome.

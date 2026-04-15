@@ -552,7 +552,7 @@ class MyWideHelpFormatter(argparse.RawTextHelpFormatter):
 
 
 parser = apwrap(
-    epilog="Use 'vast COMMAND --help' for more info about a command. AI agent? See https://github.com/vast-ai/vast-cli/blob/master/vastai/SKILL.md",
+    epilog="Use 'vast COMMAND --help' for more info about a command. AI agent? See https://raw.githubusercontent.com/vast-ai/vast-cli/master/vastai/SKILL.md",
     formatter_class=MyWideHelpFormatter
 )
 

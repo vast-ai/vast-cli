@@ -8,12 +8,12 @@ info:
     SDK reference: https://raw.githubusercontent.com/vast-ai/vast-cli/master/vastai_sdk/SKILL.md\n\
     \n## Auth\nAll endpoints require `Authorization: Bearer $VAST_API_KEY`.\nGet your\
     \ key at: https://cloud.vast.ai/manage-keys/\n\n## Key Quirks\n- `gpu_ram` in\
-    \ CLI = GB; in REST API = MB (CLI auto-converts)\n- `GET /api/v0/instances/` returns\
-    \ an object keyed by instance ID, not an array\n- `PUT /users/me/` is unsupported\
-    \ -- use `GET /users/current/` to get numeric ID, then `PUT /users/{id}/`\n- SSH\
-    \ keys must be registered BEFORE creating an instance (VM: no recovery; Docker:\
-    \ can add post-create)\n- `onstart` field is limited to 4048 characters -- gzip+base64\
-    \ for longer scripts"
+    \ CLI = GB; in REST API = MB (CLI auto-converts)\n- SSH keys must be registered\
+    \ BEFORE creating an instance (VM: no recovery; Docker: can add post-create)\n\
+    - `onstart` field is limited to 4048 characters -- gzip+base64 for longer scripts\n\
+    - `POST /api/v0/asks/{id}/` (create instance) returns `new_contract` as the instance\
+    \ ID, not `id`\n- Poll trap: if `actual_status` becomes `exited`, `unknown`, or\
+    \ `offline` it will never reach `running` -- destroy and retry"
   version: 1.0.0
   contact:
     name: Vast.ai Support

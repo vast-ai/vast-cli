@@ -172,6 +172,34 @@ def change_bid(client: VastClient, id: int, price: float = None) -> dict:
     return r.json()
 
 
+def accept_price_increase(client: VastClient, id: int = None,
+                          instance_ids=None, host_id: int = None) -> dict:
+    """Accept a pending price-increase challenge for one or more instances.
+
+    The backend pairs with three routes:
+      - PUT /api/v0/instances/{id}/accept-price-increase/   (single)
+      - PUT /api/v0/instances/accept-price-increase/        (batch by instance_ids or host_id)
+
+    Exactly one selector must be used:
+      * ``id``           — single instance (path param)
+      * ``instance_ids`` — list/tuple of instance IDs (max 64)
+      * ``host_id``      — accept every pending challenge from this host
+
+    Returns the server response dict (``accepted_contract_ids``, ``batch_keys``, …).
+    """
+    if id is not None:
+        r = client.put(f"/instances/{id}/accept-price-increase/", json_data={})
+    else:
+        payload = {}
+        if instance_ids:
+            payload["instance_ids"] = [int(i) for i in instance_ids]
+        if host_id is not None:
+            payload["host_id"] = int(host_id)
+        r = client.put("/instances/accept-price-increase/", json_data=payload)
+    r.raise_for_status()
+    return r.json()
+
+
 def execute(client: VastClient, id: int, command: str):
     """Execute a command on an instance and return the output."""
     r = client.put(f"/instances/command/{id}/", json_data={"command": command})

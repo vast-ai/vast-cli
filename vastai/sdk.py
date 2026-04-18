@@ -106,6 +106,25 @@ class VastAI:
         """Change the bid price for an instance."""
         return instances.change_bid(self.client, id, price=price)
 
+    def accept_price_increase(
+        self,
+        id: Optional[int] = None,
+        instance_ids: Optional[List[int]] = None,
+        host_id: Optional[int] = None,
+    ) -> dict:
+        """Accept a host price increase on one or more rented instances.
+
+        Pass exactly one of ``id`` (single instance), ``instance_ids``
+        (batch of up to 64 IDs), or ``host_id`` (every pending challenge
+        for that host).
+        """
+        return instances.accept_price_increase(
+            self.client,
+            id=id,
+            instance_ids=instance_ids,
+            host_id=host_id,
+        )
+
     def execute(self, id: int, command: str) -> dict:
         """Execute a command on an instance."""
         return instances.execute(self.client, id, command)

@@ -42,3 +42,32 @@ class TestShowMachine:
         patch_get_client.get.assert_called_once()
         call_args = patch_get_client.get.call_args
         assert "/machines/" in call_args[0][0]
+
+
+class TestListMachineMinChunkDefault:
+    # Backend web/views/machines.py:53 does `int(params.get("min_chunk", 1))` — if the
+    # key is present but null, int(None) raises and is caught as HTTPBadRequest
+    # ("Invalid machine id or min_chunk"). The CLI must send 1 when --min_chunk is
+    # omitted, matching the backend's implicit default.
+    def test_list_machine_defaults_min_chunk_to_one(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.put.return_value = mock_response(200, {"success": True})
+        args = parse_argv(["list", "machine", "42", "-g", "0.5"])
+        args.func(args)
+        patch_get_client.put.assert_called_once()
+        body = patch_get_client.put.call_args[1]["json_data"]
+        assert body["min_chunk"] == 1, f"min_chunk={body['min_chunk']!r} would trigger backend 400"
+
+    def test_list_machines_defaults_min_chunk_to_one(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.put.return_value = mock_response(200, {"success": True})
+        args = parse_argv(["list", "machines", "11", "22", "-g", "0.5"])
+        args.func(args)
+        assert patch_get_client.put.call_count == 2
+        for call in patch_get_client.put.call_args_list:
+            assert call[1]["json_data"]["min_chunk"] == 1
+
+    def test_list_machine_explicit_min_chunk_wins(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.put.return_value = mock_response(200, {"success": True})
+        args = parse_argv(["list", "machine", "42", "-g", "0.5", "-m", "4"])
+        args.func(args)
+        body = patch_get_client.put.call_args[1]["json_data"]
+        assert body["min_chunk"] == 4

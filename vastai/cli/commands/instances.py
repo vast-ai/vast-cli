@@ -32,42 +32,8 @@ parser = _get_parser()
 
 
 # ---------------------------------------------------------------------------
-# show instances
+# show instance (single)
 # ---------------------------------------------------------------------------
-
-@parser.command(
-    argument("-q", "--quiet", action="store_true", help="only display numeric ids"),
-    usage="vastai show instances [OPTIONS]",
-    help="Display user's current instances",
-    epilog=deindent("""
-        Shows the stats on the instances the user is currently renting. Various options available to
-        limit which instances are shown and jeir data.
-
-        Examples:
-            vastai show instances
-            vastai show instances --raw
-            vastai show instances -q
-    """),
-)
-def show__instances(args, extra_filters=None):
-    """Show the user's current instances."""
-    client = get_client(args)
-    rows = instances_api.show_instances(client)
-
-    if extra_filters and extra_filters.get('internal'):
-        field = extra_filters.get('field', 'id')
-        return [str(r.get(field, '')) for r in rows]
-
-    if args.quiet:
-        for row in rows:
-            id = row.get("id", None)
-            if id is not None:
-                print(id)
-    elif args.raw:
-        return rows
-    else:
-        display_table(rows, instance_fields)
-
 
 @parser.command(
     argument("id", help="id of instance to get", type=int),
@@ -750,7 +716,7 @@ def launch__instance(args):
 
 
 # ---------------------------------------------------------------------------
-# show instances-v1 (paginated, Rich tables)
+# show instances (paginated, Rich tables)
 # ---------------------------------------------------------------------------
 
 _DEFAULT_INSTANCE_SELECT_COLS = [
@@ -1068,23 +1034,23 @@ def _rich_object_to_string(rich_obj, no_color=True):
     argument("-t", "--next-token",  dest="next_token",   help="resume from a pagination token"),
     argument("--order-by",          dest="order_by",     metavar="COL [asc|desc]", action="append", help="sort by column; repeat for multiple keys"),
     argument("--cols",              metavar="COLS",       help=f"override displayed columns (available: {','.join(s[0] for s in _INSTANCE_COL_SPECS)})"),
-    usage="vastai show instances-v1 [OPTIONS]",
+    usage="vastai show instances [OPTIONS]",
     help="List instances with filtering, sorting, and pagination",
     epilog=deindent("""
         Displays your instances in a table with auto-sizing columns. Narrow terminals
         drop lower-priority columns automatically; use --cols to override.
 
         Examples:
-            vastai show instances-v1
-            vastai show instances-v1 -v
-            vastai show instances-v1 --status running loading
-            vastai show instances-v1 --gpu-name 'RTX A5000' 'GTX 1070'
-            vastai show instances-v1 --label training --order-by start_date desc
-            vastai show instances-v1 --cols id,status,gpu,dph
-            vastai show instances-v1 --next-token eyJ2YWx1ZXMi...
+            vastai show instances
+            vastai show instances -v
+            vastai show instances --status running loading
+            vastai show instances --gpu-name 'RTX A5000' 'GTX 1070'
+            vastai show instances --label training --order-by start_date desc
+            vastai show instances --cols id,status,gpu,dph
+            vastai show instances --next-token eyJ2YWx1ZXMi...
     """),
 )
-def show__instances_v1(args):
+def show__instances(args):
     try:
         from rich.prompt import Confirm
         from rich.text import Text
@@ -1167,7 +1133,7 @@ def show__instances_v1(args):
         if args.all and page > 0:
             time.sleep(1)
 
-        data = instances_api.show_instances_v1(client, params)
+        data = instances_api.show_instances(client, params)
 
         instances   = data.get("instances", [])
         next_token  = data.get("next_token")

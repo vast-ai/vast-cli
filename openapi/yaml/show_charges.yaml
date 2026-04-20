@@ -15,7 +15,7 @@ paths:
       description: |
         Shows charges per instance, including GPU, storage, and bandwidth. For invoice/payment records (Stripe top-ups, transfers, payouts), use [show invoices](/api-reference/billing/show-invoices) instead.
 
-        CLI: `vastai show invoices-v1 --charges`
+        CLI: `vastai show invoices --charges`
       security:
         - BearerAuth: []
       parameters:
@@ -264,9 +264,9 @@ x-rate-limit:
   description: Maximum request frequency per IP address
 
 x-cli-commands:
-  - name: show invoices-v1
+  - name: show invoices
     description: Fetch per-instance charges over a date range (use the `--charges` flag).
     endpoint: /api/v0/charges/
     method: get
     example: |
-      vastai show invoices-v1 --charges --start-date 2025-11-01 --end-date 2025-11-30
+      vastai show invoices --charges --start-date 2025-11-01 --end-date 2025-11-30

@@ -3,77 +3,7 @@
 import time
 
 
-def show_invoices(client, start_date=None, end_date=None, only_charges=False, only_credits=False):
-    """Get billing history reports (deprecated endpoint).
-
-    GET /users/me/invoices
-
-    Args:
-        client: VastClient instance.
-        start_date (str, optional): Start date/time for report.
-        end_date (str, optional): End date/time for report.
-        only_charges (bool): Show only charge items. Default False.
-        only_credits (bool): Show only credit items. Default False.
-
-    Returns:
-        dict: Invoice data including 'invoices' and 'current' charges.
-    """
-    Minutes = 60.0
-    Hours = 60.0 * Minutes
-    Days = 24.0 * Hours
-
-    end_timestamp = time.time()
-    start_timestamp = time.time() - (24 * 60 * 60)
-
-    try:
-        import dateutil
-        from dateutil import parser as dateutil_parser
-
-        if end_date:
-            try:
-                parsed_end = dateutil_parser.parse(str(end_date))
-                end_timestamp = parsed_end.timestamp()
-            except ValueError:
-                pass
-
-        if start_date:
-            try:
-                parsed_start = dateutil_parser.parse(str(start_date))
-                start_timestamp = parsed_start.timestamp()
-            except ValueError:
-                pass
-    except ImportError:
-        pass
-
-    sdate = start_timestamp
-    edate = end_timestamp
-
-    query_args = {
-        "owner": "me",
-        "sdate": sdate,
-        "edate": edate,
-        "inc_charges": not only_credits,
-    }
-
-    r = client.get("/users/me/invoices", query_args=query_args)
-    r.raise_for_status()
-    rj = r.json()
-
-    rows = rj["invoices"]
-    current_charges = rj["current"]
-
-    if only_charges:
-        rows = [row for row in rows if row.get("type") == "charge"]
-    elif only_credits:
-        rows = [row for row in rows if row.get("type") == "payment"]
-
-    return {
-        "invoices": rows,
-        "current": current_charges,
-    }
-
-
-def show_invoices_v1(client, params):
+def show_invoices(client, params):
     """Get billing (invoices/charges) history reports with advanced filtering.
 
     GET /api/v0/charges/ (for charges) or /api/v1/invoices/ (for invoices)

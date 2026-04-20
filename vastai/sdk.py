@@ -54,13 +54,17 @@ class VastAI:
     # Instance methods
     # ------------------------------------------------------------------
 
-    def show_instances(self) -> list[dict]:
-        """Return all instances for the authenticated user."""
-        return instances.show_instances(self.client)
+    def show_instances(self, params: Optional[dict] = None) -> dict:
+        """Return instances using the paginated /api/v1/instances/ endpoint.
 
-    def show_instances_v1(self, params: dict) -> dict:
-        """Return instances using the v1 paginated API."""
-        return instances.show_instances_v1(self.client, params)
+        Args:
+            params: Optional dict with select_filters, order_by, limit, after_token, select_cols.
+                    If omitted, defaults to fetching the first page with no filters.
+
+        Returns:
+            Full response dict (instances, next_token, total_instances, label_counts).
+        """
+        return instances.show_instances(self.client, params or {})
 
     def show_instance_filters(self) -> list:
         """Return distinct filterable values for instances."""
@@ -505,9 +509,17 @@ class VastAI:
     # Billing methods
     # ------------------------------------------------------------------
 
-    def show_invoices(self, **kwargs) -> list[dict]:
-        """Show invoice details."""
-        return billing.show_invoices(self.client, **kwargs)
+    def show_invoices(self, **kwargs) -> dict:
+        """Get billing history reports with advanced filtering and pagination.
+
+        Args:
+            **kwargs: charges, start_date, end_date, limit, next_token,
+                      latest_first, charge_type, invoice_type, format.
+
+        Returns:
+            API response dict with results, count, total, and next_token.
+        """
+        return billing.show_invoices(self.client, kwargs)
 
     def show_earnings(self, **kwargs) -> list[dict]:
         """Show earnings information."""
@@ -864,10 +876,6 @@ class VastAI:
     def generate_pdf_invoices(self, **kwargs):
         """Generate PDF invoices based on filters."""
         raise NotImplementedError("generate_pdf_invoices is not yet implemented")
-
-    def show_invoices_v1(self, **kwargs) -> dict:
-        """Get billing history reports with advanced filtering and pagination."""
-        return billing.show_invoices_v1(self.client, kwargs)
 
     def transfer_credit(self, recipient: str, amount: float) -> dict:
         """Transfer credit to another account."""

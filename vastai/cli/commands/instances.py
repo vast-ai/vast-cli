@@ -684,16 +684,17 @@ def accept__price_increase(args):
         sys.exit(1)
 
     if args.explain:
-        print("request json: ")
         if len(ids) == 1:
-            print({"id": ids[0]})
+            print(f"PUT /instances/{ids[0]}/accept-price-increase/")
+            print("request json: {}")
         else:
             payload = {}
             if ids:
                 payload["instance_ids"] = ids
             if host_id is not None:
                 payload["host_id"] = host_id
-            print(payload)
+            print("PUT /instances/accept-price-increase/")
+            print(f"request json: {payload}")
 
     client = get_client(args)
 

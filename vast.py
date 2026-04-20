@@ -3679,81 +3679,6 @@ def logs(args):
 
 
 @parser.command(
-    argument("ids", help="instance IDs to accept (one or more). Omit when --host is used.",
-             type=int, nargs='*'),
-    argument("--host", dest="host_id",
-             help="accept every pending price-increase from this host (mutually exclusive with IDs)",
-             type=int),
-    usage="vastai accept price-increase ID [ID ...] | --host HOST_ID",
-    help="Accept a pending host price increase on one or more instances",
-    epilog=deindent("""
-        When a host raises the rental price, the auto-extend mechanism stops
-        renewing your affected contracts and an email notification is sent.
-        This command accepts the new price and lets the affected instances
-        keep auto-extending at the updated rate.
-
-        Batch accepts are capped at 64 instance IDs per call (server-side limit).
-
-        Examples:
-            vastai accept price-increase 123
-            vastai accept price-increase 123 456 789
-            vastai accept price-increase --host 12345
-    """),
-)
-def accept__price_increase(args):
-    """
-    :param argparse.Namespace args: should supply all the command-line options
-    :rtype:
-    """
-    ids = list(getattr(args, "ids", None) or [])
-    host_id = getattr(args, "host_id", None)
-
-    if bool(ids) == (host_id is not None):
-        msg = ("Provide either instance IDs or --host, not both."
-               if ids else
-               "Provide either one or more instance IDs or --host.")
-        print(msg, file=sys.stderr)
-        sys.exit(1)
-
-    if len(ids) > 64:
-        print(f"Too many instance IDs: {len(ids)} > 64 (server limit).", file=sys.stderr)
-        sys.exit(1)
-
-    if len(ids) == 1 and host_id is None:
-        url = apiurl(args, "/instances/{id}/accept-price-increase/".format(id=ids[0]))
-        json_blob = {}
-    else:
-        url = apiurl(args, "/instances/accept-price-increase/")
-        json_blob = {}
-        if ids:
-            json_blob["instance_ids"] = ids
-        if host_id is not None:
-            json_blob["host_id"] = host_id
-
-    if args.explain:
-        print("request json: ")
-        print(json_blob)
-
-    r = http_put(args, url, headers=headers, json=json_blob)
-    r.raise_for_status()
-
-    rj = r.json()
-    if args.raw:
-        print(json.dumps(rj))
-        return
-
-    if rj.get("success"):
-        accepted = rj.get("accepted_contract_ids") or []
-        if accepted:
-            ids_str = ", ".join(str(cid) for cid in accepted)
-            print(f"Accepted price increase for {len(accepted)} instance(s): {ids_str}")
-        else:
-            print("No pending price increases matched your request.")
-    else:
-        print(rj.get("msg", rj))
-
-
-@parser.command(
     argument("id", help="id of instance to prepay for", type=int),
     argument("amount", help="amount of instance credit prepayment (default discount func of 0.2 for 1 month, 0.3 for 3 months)", type=float),
     usage="vastai prepay instance ID AMOUNT",
@@ -8231,7 +8156,7 @@ def list_machine(args, id):
     argument("-d", "--price_inetd", help="price for internet download bandwidth in $/GB", type=float),
     argument("-b", "--price_min_bid", help="per gpu minimum bid price floor in $/hour", type=float),
     argument("-r", "--discount_rate", help="Max long term prepay discount rate fraction, default: 0.4 ", type=float),
-    argument("-m", "--min_chunk", help="minimum amount of gpus (default: 1)", type=int, default=1),
+    argument("-m", "--min_chunk", help="minimum amount of gpus", type=int),
     argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format)", type=str),
     argument("-l", "--duration", help="Updates end_date daily to be duration from current date. Cannot be combined with end_date. Format is: `n days`, `n weeks`, `n months`, `n years`, or total intended duration in seconds."),
     argument("-v", "--vol_size", help="Size for volume contract offer. Defaults to half of available disk. Set 0 to not create a volume contract offer.", type=int),
@@ -8241,14 +8166,9 @@ def list_machine(args, id):
     epilog=deindent("""
         Performs the same action as pressing the "LIST" button on the site https://cloud.vast.ai/host/machines.
         On the end date the listing will expire and your machine will unlist. However any existing client jobs will still remain until ended by their owners.
-        Once you list your machine and it is rented, it is extremely important that you don't interfere with the machine in any way.
-        If your machine has an active client job and then goes offline, crashes, or has performance problems, this could permanently lower your reliability rating.
+        Once you list your machine and it is rented, it is extremely important that you don't interfere with the machine in any way. 
+        If your machine has an active client job and then goes offline, crashes, or has performance problems, this could permanently lower your reliability rating. 
         We strongly recommend you test the machine first and only list when ready.
-
-        Raising --price_gpu above the current contract price is the supported way to
-        trigger a price-increase challenge: affected clients will receive an email
-        and can run `vastai accept price-increase <id>` (or --host <id>) to opt in
-        at the new rate. Until they accept, their auto-extend stops at the old price.
     """)
 )
 def list__machine(args):
@@ -8268,7 +8188,7 @@ def list__machine(args):
     argument("-d", "--price_inetd", help="price for internet download bandwidth in $/GB", type=float),
     argument("-b", "--price_min_bid", help="per gpu minimum bid price floor in $/hour", type=float),
     argument("-r", "--discount_rate", help="Max long term prepay discount rate fraction, default: 0.4 ", type=float),
-    argument("-m", "--min_chunk", help="minimum amount of gpus (default: 1)", type=int, default=1),
+    argument("-m", "--min_chunk", help="minimum amount of gpus", type=int),
     argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format)", type=str),
     argument("-l", "--duration", help="Updates end_date daily to be duration from current date. Cannot be combined with end_date. Format is: `n days`, `n weeks`, `n months`, `n years`, or total intended duration in seconds."),
     argument("-v", "--vol_size", help="Size for volume contract offer. Defaults to half of available disk. Set 0 to not create a volume contract offer.", type=int),

@@ -9,7 +9,7 @@ servers:
 paths:
   /api/v1/instances/:
     get:
-      summary: show instances (v1)
+      summary: show instances
       description: |
         Retrieve a paginated list of instances for the authenticated user.
         Supports keyset pagination (max 25 per page), filtering, column selection, and sorting.

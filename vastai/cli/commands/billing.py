@@ -307,10 +307,10 @@ def create_rich_table_for_invoices(results):
 # ---------------------------------------------------------------------------
 
 @parser.command(
-    argument('-i', '--invoices', mutex_group='grp', action='store_true', required=True, help='Show invoices instead of charges'),
+    argument('-i', '--invoices', mutex_group='grp', action='store_true', help='Show invoices (default if neither --invoices nor --charges is given)'),
     argument('-it', '--invoice-type', choices=invoice_types.keys(), nargs='+', metavar='type',
              help=f'Filter which types of invoices to show: {{{", ".join(invoice_types.keys())}}}'),
-    argument('-c', '--charges', mutex_group='grp', action='store_true', required=True, help='Show charges instead of invoices'),
+    argument('-c', '--charges', mutex_group='grp', action='store_true', help='Show charges instead of invoices'),
     argument('-ct', '--charge-type', choices=charge_types, nargs='+', metavar='type',
              help='Filter which types of charges to show: {i|instance, v|volume, s|serverless}'),
     argument('-s', '--start-date', help='Start date (YYYY-MM-DD or timestamp)'),

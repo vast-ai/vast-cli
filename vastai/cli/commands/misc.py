@@ -192,7 +192,7 @@ def _ssh_url(args, protocol):
 
     if ipaddr is None or ipaddr.endswith('.vast.ai'):
         client = get_client(args)
-        rows = instances_api.show_instances(client)
+        rows = instances_api.show_instances(client).get("instances", [])
 
         if args.id:
             matches = [row for row in rows if row['id'] == args.id]

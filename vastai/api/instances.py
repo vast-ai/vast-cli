@@ -25,17 +25,18 @@ def _strip_strings(value):
     return value
 
 
-def show_instances(client: VastClient, params: dict) -> dict:
+def show_instances(client: VastClient, params: dict = None) -> dict:
     """Fetch instances using the paginated /api/v1/instances/ endpoint.
 
     Args:
         client: VastClient instance.
         params: Dict with select_filters, order_by, limit, after_token, select_cols.
+                If omitted, fetches the first page with no filters.
 
     Returns:
         Full response dict (instances, next_token, total_instances, label_counts).
     """
-    r = client.get("/api/v1/instances/", query_args=params)
+    r = client.get("/api/v1/instances/", query_args=params or {})
     r.raise_for_status()
     return r.json()
 

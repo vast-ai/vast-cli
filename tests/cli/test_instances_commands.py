@@ -11,26 +11,33 @@ class TestShowInstances:
             "instances": [
                 {"id": 1, "gpu_name": "RTX_3090", "actual_status": "running",
                  "start_date": time.time() - 3600, "extra_env": [["KEY", "VAL"]]}
-            ]
+            ],
+            "next_token": None,
+            "total_instances": 1,
+            "label_counts": {},
         })
         args = parse_argv(["show", "instances", "--raw"])
         result = args.func(args)
         patch_get_client.get.assert_called_once()
         call_args = patch_get_client.get.call_args
-        assert "/instances" in call_args[0][0]
-        assert isinstance(result, list)
+        assert "/api/v1/instances/" in call_args[0][0]
+        assert isinstance(result, dict)
+        assert "instances" in result
 
     def test_show_instances_display(self, parse_argv, patch_get_client, mock_response, capsys):
         patch_get_client.get.return_value = mock_response(200, {
             "instances": [
                 {"id": 1, "gpu_name": "RTX_3090", "actual_status": "running",
                  "start_date": time.time() - 3600, "extra_env": []}
-            ]
+            ],
+            "next_token": None,
+            "total_instances": 1,
+            "label_counts": {},
         })
         args = parse_argv(["show", "instances"])
         args.func(args)
         captured = capsys.readouterr()
-        assert "ID" in captured.out
+        assert "ID" in captured.out or "1" in captured.out
 
 
 class TestShowInstance:

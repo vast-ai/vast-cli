@@ -27,7 +27,7 @@ def main():
     # registrations on the global parser via _get_parser().
     from vastai.cli.commands import (  # noqa: F401
         instances, offers, machines, teams, keys, endpoints,
-        billing, storage, auth, misc, deployments,
+        billing, storage, auth, misc, deployments, metrics,
         # clusters,  # cluster/overlay commands disabled for now
     )
 

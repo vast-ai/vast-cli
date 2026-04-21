@@ -208,15 +208,26 @@ def metrics__gpu_trends(args):
 
 
 @parser.command(
-    usage="vastai metrics gpu-locations",
+    argument("--verified", type=str, choices=["true", "false", "all"], default="all",
+             help="Filter by verification status"),
+    argument("--datacenter", type=str, choices=["true", "false", "all"], default="all",
+             help="Filter by datacenter hosting type"),
+    argument("--rented", type=str, choices=["true", "false", "all"], default="all",
+             help="Filter by rented status"),
+    argument("--gpu", type=str, default=None,
+             help="Filter by GPU name (comma-separated list). Underscores are accepted in place of spaces."),
+    usage="vastai metrics gpu-locations [OPTIONS]",
     help="[Host] Get GPU location metrics",
     epilog=deindent("""
-        Show geographic locations of all GPUs on the platform.
-        Requires host or admin access.
+        Show geographic locations of GPUs on the platform. Filtering is applied
+        client-side — the endpoint returns one shared dataset and the CLI narrows
+        the rows locally. Requires host or admin access.
 
         Examples:
             vastai metrics gpu-locations
-            vastai metrics gpu-locations --raw
+            vastai metrics gpu-locations --verified true --datacenter true
+            vastai metrics gpu-locations --gpu "RTX 4090,H100_SXM"
+            vastai metrics gpu-locations --rented false --raw
     """),
 )
 def metrics__gpu_locations(args):
@@ -226,7 +237,19 @@ def metrics__gpu_locations(args):
     if resp.get("needs_machine"):
         print(_NEEDS_MACHINE_MSG)
         return
+
+    locations = resp.get("locations", [])
+
+    for field in ("verified", "datacenter", "rented"):
+        choice = getattr(args, field)
+        if choice != "all":
+            want = choice == "true"
+            locations = [loc for loc in locations if bool(loc.get(field)) == want]
+    if args.gpu:
+        wanted_gpus = {g.strip().replace("_", " ") for g in args.gpu.split(",") if g.strip()}
+        locations = [loc for loc in locations if loc.get("gpu_name") in wanted_gpus]
+
     if args.raw:
-        print(json.dumps(resp, indent=1))
+        print(json.dumps({"success": True, "locations": locations}, indent=1))
         return
-    display_table(resp.get("locations", []), _GPU_LOCATION_FIELDS)
+    display_table(locations, _GPU_LOCATION_FIELDS)

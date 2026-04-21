@@ -199,7 +199,7 @@ def list_machine_impl(args, id):
     argument("-d", "--price_inetd", help="price for internet download bandwidth in $/GB", type=float),
     argument("-b", "--price_min_bid", help="per gpu minimum bid price floor in $/hour", type=float),
     argument("-r", "--discount_rate", help="Max long term prepay discount rate fraction, default: 0.4 ", type=float),
-    argument("-m", "--min_chunk", help="minimum amount of gpus", type=int),
+    argument("-m", "--min_chunk", help="minimum amount of gpus (default: 1)", type=int, default=1),
     argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format)", type=str),
     argument("-l", "--duration", help="Updates end_date daily to be duration from current date. Cannot be combined with end_date. Format is: `n days`, `n weeks`, `n months`, `n years`, or total intended duration in seconds."),
     argument("-v", "--vol_size", help="Size for volume contract offer. Defaults to half of available disk. Set 0 to not create a volume contract offer.", type=int),
@@ -212,6 +212,11 @@ def list_machine_impl(args, id):
         Once you list your machine and it is rented, it is extremely important that you don't interfere with the machine in any way.
         If your machine has an active client job and then goes offline, crashes, or has performance problems, this could permanently lower your reliability rating.
         We strongly recommend you test the machine first and only list when ready.
+
+        Raising --price_gpu above the current contract price is the supported way to
+        trigger a price-increase challenge: affected clients will receive an email
+        and can run `vastai accept price-increase <id>` (or --host <id>) to opt in
+        at the new rate. Until they accept, their auto-extend stops at the old price.
     """)
 )
 def list__machine(args):
@@ -228,7 +233,7 @@ def list__machine(args):
     argument("-d", "--price_inetd", help="price for internet download bandwidth in $/GB", type=float),
     argument("-b", "--price_min_bid", help="per gpu minimum bid price floor in $/hour", type=float),
     argument("-r", "--discount_rate", help="Max long term prepay discount rate fraction, default: 0.4 ", type=float),
-    argument("-m", "--min_chunk", help="minimum amount of gpus", type=int),
+    argument("-m", "--min_chunk", help="minimum amount of gpus (default: 1)", type=int, default=1),
     argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format)", type=str),
     argument("-l", "--duration", help="Updates end_date daily to be duration from current date. Cannot be combined with end_date. Format is: `n days`, `n weeks`, `n months`, `n years`, or total intended duration in seconds."),
     argument("-v", "--vol_size", help="Size for volume contract offer. Defaults to half of available disk. Set 0 to not create a volume contract offer.", type=int),

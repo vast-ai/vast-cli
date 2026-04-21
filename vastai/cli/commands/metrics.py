@@ -15,7 +15,7 @@ parser = _get_parser()
 _VERIFIED_MAP = {"true": "yes", "false": "no", "all": "all"}
 _HOSTING_MAP = {"true": "secure_cloud", "false": "community", "all": "all"}
 
-_NEEDS_MACHINE_MSG = "No metrics available — this endpoint is available to admins and hosts with active machines."
+_NEEDS_MACHINE_MSG = "No metrics available. This endpoint is for hosts with active machines."
 
 
 _GPU_CURRENT_FIELDS = (

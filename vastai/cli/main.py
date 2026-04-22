@@ -65,7 +65,7 @@ def main():
 
     # Add global arguments
     parser.add_argument("--url", help="Server REST API URL", default=server_url_default)
-    parser.add_argument("--retry", help="Retry limit", default=3)
+    parser.add_argument("--retry", help="Retry limit", type=int, default=3)
     parser.add_argument("--explain", action="store_true", help="Output verbose explanation of mapping of CLI calls to HTTPS API endpoints")
     parser.add_argument("--raw", action="store_true", help="Output machine-readable json")
     parser.add_argument("--full", action="store_true", help="Print full results instead of paging with `less` for commands that support it")

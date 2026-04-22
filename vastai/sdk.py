@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import os
 import warnings
 from typing import Dict, List, Optional
 
+from vastai._base import _resolve_api_key, _APIKEY_SENTINEL
 from vastai.api.client import VastClient
 from vastai.api import instances, offers, machines, teams, keys, endpoints, billing, storage, clusters, auth, deployments
-
-
-# Default API key file location (matches legacy CLI behavior)
-APIKEY_FILE = os.path.join(os.path.expanduser("~"), ".vast_api_key")
 
 
 class VastAI:
@@ -23,8 +19,10 @@ class VastAI:
     caller-supplied arguments.
 
     Args:
-        api_key: Vast.ai API key.  When *None*, the key is read from
-            ``~/.vast_api_key`` if the file exists.
+        api_key: Vast.ai API key.  When omitted, the key is resolved from
+            ``VAST_API_KEY``, then ``$XDG_CONFIG_HOME/vastai/vast_api_key``
+            (falling back to ``~/.config/vastai/vast_api_key``), then the
+            legacy ``~/.vast_api_key``.
         server_url: Base URL of the Vast.ai API server.
         retry: Number of retries on transient HTTP errors.
         raw: If *True*, return raw JSON dicts instead of formatted output.
@@ -35,7 +33,7 @@ class VastAI:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: object = _APIKEY_SENTINEL,
         server_url: Optional[str] = None,
         retry: int = 3,
         raw: bool = False,
@@ -43,11 +41,8 @@ class VastAI:
         quiet: bool = False,
         curl: bool = False,
     ):
-        if api_key is None and os.path.exists(APIKEY_FILE):
-            with open(APIKEY_FILE, "r") as f:
-                api_key = f.read().strip()
-
-        self.client = VastClient(api_key, server_url, retry, explain, curl)
+        resolved_key = _resolve_api_key(api_key)
+        self.client = VastClient(resolved_key, server_url, retry, explain, curl)
         self.raw = raw
         self.quiet = quiet
 

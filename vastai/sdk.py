@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import warnings
 from typing import Dict, List, Optional
 
 from vastai.api.client import VastClient
@@ -54,17 +55,17 @@ class VastAI:
     # Instance methods
     # ------------------------------------------------------------------
 
-    def show_instances(self, params: Optional[dict] = None) -> dict:
-        """Return instances using the paginated /api/v1/instances/ endpoint.
+    def show_instances(self) -> list[dict]:
+        """Return all instances for the authenticated user (deprecated; use show_instances_v1)."""
+        warnings.warn(
+            "VastAI.show_instances() is deprecated; use VastAI.show_instances_v1(params) for the paginated v1 API.",
+            DeprecationWarning, stacklevel=2,
+        )
+        return instances.show_instances(self.client)
 
-        Args:
-            params: Optional dict with select_filters, order_by, limit, after_token, select_cols.
-                    If omitted, defaults to fetching the first page with no filters.
-
-        Returns:
-            Full response dict (instances, next_token, total_instances, label_counts).
-        """
-        return instances.show_instances(self.client, params or {})
+    def show_instances_v1(self, params: dict) -> dict:
+        """Return instances using the v1 paginated API."""
+        return instances.show_instances_v1(self.client, params)
 
     def show_instance_filters(self) -> list:
         """Return distinct filterable values for instances."""
@@ -529,16 +530,19 @@ class VastAI:
     # ------------------------------------------------------------------
 
     def show_invoices(self, **kwargs) -> dict:
-        """Get billing history reports with advanced filtering and pagination.
+        """Show invoice details (deprecated; use show_invoices_v1).
 
-        Args:
-            **kwargs: charges, start_date, end_date, limit, next_token,
-                      latest_first, charge_type, invoice_type, format.
-
-        Returns:
-            API response dict with results, count, total, and next_token.
+        Returns dict with 'invoices' list and 'current' charges.
         """
-        return billing.show_invoices(self.client, kwargs)
+        warnings.warn(
+            "VastAI.show_invoices() is deprecated; use VastAI.show_invoices_v1(**params) for the paginated v1 API.",
+            DeprecationWarning, stacklevel=2,
+        )
+        return billing.show_invoices(self.client, **kwargs)
+
+    def show_invoices_v1(self, **kwargs) -> dict:
+        """Get billing history reports with advanced filtering and pagination."""
+        return billing.show_invoices_v1(self.client, kwargs)
 
     def show_earnings(self, **kwargs) -> list[dict]:
         """Show earnings information."""

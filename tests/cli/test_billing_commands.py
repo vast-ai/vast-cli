@@ -28,16 +28,14 @@ class TestShowUser:
 class TestShowInvoices:
     def test_show_invoices_raw(self, parse_argv, patch_get_client, mock_response):
         patch_get_client.get.return_value = mock_response(200, {
-            "results": [{"id": 1, "amount": 5.0, "timestamp": 1700000000}],
-            "count": 1,
-            "total": 1,
-            "next_token": None,
+            "invoices": [{"id": 1, "amount": 5.0, "type": "charge", "timestamp": 1700000000}],
+            "current": {"total": 5.0},
         })
-        args = parse_argv(["show", "invoices", "-i", "--raw"])
+        args = parse_argv(["show", "invoices", "--raw"])
         result = args.func(args)
         patch_get_client.get.assert_called_once()
         call_args = patch_get_client.get.call_args
-        assert "/api/v1/invoices/" in call_args[0][0]
+        assert "/users/me/invoices" in call_args[0][0]
 
 
 class TestShowEarnings:

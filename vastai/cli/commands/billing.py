@@ -1,6 +1,7 @@
 """CLI commands for billing, invoices, earnings, and user account management."""
 
 import json
+import sys
 import time
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -303,14 +304,73 @@ def create_rich_table_for_invoices(results):
 
 
 # ---------------------------------------------------------------------------
-# show invoices (advanced with pagination and rich formatting)
+# show invoices (deprecated)
 # ---------------------------------------------------------------------------
 
 @parser.command(
-    argument('-i', '--invoices', mutex_group='grp', action='store_true', help='Show invoices (default if neither --invoices nor --charges is given)'),
+    argument("-q", "--quiet", action="store_true", help="only display numeric ids"),
+    argument("-s", "--start_date", help="start date and time for report. Many formats accepted (optional)", type=str),
+    argument("-e", "--end_date", help="end date and time for report. Many formats accepted (optional)", type=str),
+    argument("-c", "--only_charges", action="store_true", help="Show only charge items"),
+    argument("-p", "--only_credits", action="store_true", help="Show only credit items"),
+    argument("--instance_label", help="Filter charges on a particular instance label (useful for autoscaler groups)"),
+    usage="(DEPRECATED) vastai show invoices [OPTIONS]",
+    help="(DEPRECATED) Get billing history reports. Use `vastai show invoices-v1` instead.",
+)
+def show__invoices(args):
+    """Show current payments and charges (deprecated)."""
+    if not args.quiet:
+        print("DEPRECATED: `vastai show invoices` will be removed in a future release. "
+              "Use `vastai show invoices-v1` for the new paginated command.", file=sys.stderr)
+    client = get_client(args)
+
+    result = billing_api.show_invoices(client, start_date=args.start_date, end_date=args.end_date,
+                                       only_charges=args.only_charges, only_credits=args.only_credits)
+    rows = result["invoices"]
+    current_charges = result["current"]
+
+    invoice_filter_data = filter_invoice_items(args, rows)
+    rows = invoice_filter_data["rows"]
+    filter_header = invoice_filter_data["header_text"]
+
+    if args.instance_label:
+        contract_ids = _select(rows, 'instance_id')
+        req_json = {
+            "label": args.instance_label,
+            "contract_ids": list(contract_ids)
+        }
+        if args.explain:
+            print("request json: ")
+            print(req_json)
+        result2 = client.post("/contracts/fetch/", json_data=req_json)
+        result2.raise_for_status()
+        filtered_rows = result2.json()["contracts"]
+        contract_ids = _select(filtered_rows, 'id')
+        rows = [row for row in rows if row.get("instance_id") in contract_ids]
+
+    if args.quiet:
+        for row in rows:
+            id = row.get("id", None)
+            if id is not None:
+                print(id)
+    elif args.raw:
+        return rows
+    else:
+        print(filter_header)
+        display_table(rows, invoice_fields)
+        print(f"Total: ${_sum(rows, 'amount')}")
+        print("Current: ", current_charges)
+
+
+# ---------------------------------------------------------------------------
+# show invoices-v1 (advanced with pagination and rich formatting)
+# ---------------------------------------------------------------------------
+
+@parser.command(
+    argument('-i', '--invoices', mutex_group='grp', action='store_true', required=True, help='Show invoices instead of charges'),
     argument('-it', '--invoice-type', choices=invoice_types.keys(), nargs='+', metavar='type',
              help=f'Filter which types of invoices to show: {{{", ".join(invoice_types.keys())}}}'),
-    argument('-c', '--charges', mutex_group='grp', action='store_true', help='Show charges instead of invoices'),
+    argument('-c', '--charges', mutex_group='grp', action='store_true', required=True, help='Show charges instead of invoices'),
     argument('-ct', '--charge-type', choices=charge_types, nargs='+', metavar='type',
              help='Filter which types of charges to show: {i|instance, v|volume, s|serverless}'),
     argument('-s', '--start-date', help='Start date (YYYY-MM-DD or timestamp)'),
@@ -320,32 +380,32 @@ def create_rich_table_for_invoices(results):
     argument('-f', '--format', choices=['table', 'tree'], default='table', help='Output format for charges (default: table)'),
     argument('-v', '--verbose', action='store_true', help='Include full Instance Charge details and Invoice Metadata (tree view only)'),
     argument('--latest-first', action='store_true', help='Sort by latest first'),
-    usage="vastai show invoices [OPTIONS]",
+    usage="vastai show invoices-v1 [OPTIONS]",
     help="Get billing (invoices/charges) history reports with advanced filtering and pagination",
     epilog=deindent("""
         This command supports colored output and rich formatting if the 'rich' python module is installed!
 
         Examples:
             # Show the first 20 invoices in the last week  (note: default window is a 7 day period ending today)
-            vastai show invoices --invoices
+            vastai show invoices-v1 --invoices
 
             # Show the first 50 charges over a 7 day period starting from 2025-11-30 in tree format
-            vastai show invoices --charges -s 2025-11-30 -f tree -l 50
+            vastai show invoices-v1 --charges -s 2025-11-30 -f tree -l 50
 
             # Show the first 20 invoices of specific types for the month of November 2025
-            vastai show invoices -i -it stripe bitpay transfers --start-date 2025-11-01 --end-date 2025-11-30
+            vastai show invoices-v1 -i -it stripe bitpay transfers --start-date 2025-11-01 --end-date 2025-11-30
 
             # Show the first 20 charges for only volumes and serverless instances between two dates, including all details and metadata
-            vastai show invoices -c --charge-type v s -s 2025-11-01 -e 2025-11-05 --format tree --verbose
+            vastai show invoices-v1 -c --charge-type v s -s 2025-11-01 -e 2025-11-05 --format tree --verbose
 
             # Get the next page of paginated invoices, limit to 50 per page  (note: type/date filters MUST match previous request for pagination to work)
-            vastai show invoices --invoices --limit 50 --next-token eyJ2YWx1ZXMiOiB7ImlkIjogMjUwNzgyMzR9LCAib3NfcGFnZSI6IDB9
+            vastai show invoices-v1 --invoices --limit 50 --next-token eyJ2YWx1ZXMiOiB7ImlkIjogMjUwNzgyMzR9LCAib3NfcGFnZSI6IDB9
 
             # Show the last 10 instance (only) charges over a 7 day period ending in 2025-12-25, sorted by latest charges first
-            vastai show invoices --charges -ct instance --end-date 2025-12-25 -l 10 --latest-first
+            vastai show invoices-v1 --charges -ct instance --end-date 2025-12-25 -l 10 --latest-first
     """),
 )
-def show__invoices(args):
+def show__invoices_v1(args):
     """Get billing (invoices/charges) history with advanced filtering and pagination."""
     output_lines = []
     try:
@@ -396,7 +456,7 @@ def show__invoices(args):
     found_results, found_count = [], 0
     looping = True
     while looping:
-        response = billing_api.show_invoices(client, params)
+        response = billing_api.show_invoices_v1(client, params)
 
         found_results += response.get('results', [])
         found_count += response.get('count', 0)

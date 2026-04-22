@@ -9,13 +9,62 @@
 
 set -uo pipefail
 
-DEV_WHL="${1:-}"
-API_KEY="${3:-${VAST_API_KEY:-}}"
+usage() {
+    echo "Usage: bash tests/compat_test.sh /path/to/vastai-dev.whl [--api-key KEY]"
+    echo "       (API key may also be provided via VAST_API_KEY env var)"
+}
+
+DEV_WHL=""
+API_KEY="${VAST_API_KEY:-}"
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --api-key)
+            if [ $# -lt 2 ]; then
+                echo "error: --api-key requires a value" >&2
+                usage
+                exit 1
+            fi
+            API_KEY="$2"
+            shift 2
+            ;;
+        --api-key=*)
+            API_KEY="${1#--api-key=}"
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -*)
+            echo "error: unknown flag: $1" >&2
+            usage
+            exit 1
+            ;;
+        *)
+            if [ -z "$DEV_WHL" ]; then
+                DEV_WHL="$1"
+            else
+                echo "error: unexpected positional arg: $1" >&2
+                usage
+                exit 1
+            fi
+            shift
+            ;;
+    esac
+done
 
 if [ -z "$DEV_WHL" ] || [ ! -f "$DEV_WHL" ]; then
-    echo "Usage: bash tests/compat_test.sh /path/to/vastai-dev.whl [--api-key KEY]"
+    usage
     exit 1
 fi
+
+# Halt on failures during environment setup; individual CLI comparisons later
+# capture exit codes explicitly, so we deliberately do not use a global set -e.
+fail_setup() {
+    echo "error: $1" >&2
+    exit 1
+}
 
 PROD_VENV="/tmp/vastai-compat-prod"
 DEV_VENV="/tmp/vastai-compat-dev"
@@ -31,17 +80,19 @@ echo "Setting up environments"
 echo "========================================"
 
 echo "  Creating prod venv..."
-python3 -m venv "$PROD_VENV"
+python3 -m venv "$PROD_VENV" || fail_setup "failed to create prod venv at $PROD_VENV"
 source "$PROD_VENV/bin/activate"
 pip install --quiet vastai 2>&1 | tail -1
+[ "${PIPESTATUS[0]}" -eq 0 ] || fail_setup "pip install vastai (prod) failed"
 PROD_VERSION=$(vastai --version 2>&1 || echo "unknown")
 deactivate
 echo "  Prod version: $PROD_VERSION"
 
 echo "  Creating dev venv..."
-python3 -m venv "$DEV_VENV"
+python3 -m venv "$DEV_VENV" || fail_setup "failed to create dev venv at $DEV_VENV"
 source "$DEV_VENV/bin/activate"
 pip install --quiet "$DEV_WHL" 2>&1 | tail -1
+[ "${PIPESTATUS[0]}" -eq 0 ] || fail_setup "pip install $DEV_WHL (dev) failed"
 DEV_VERSION=$(vastai --version 2>&1 || echo "unknown")
 deactivate
 echo "  Dev version: $DEV_VERSION"

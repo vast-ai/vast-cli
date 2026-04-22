@@ -25,18 +25,29 @@ def _strip_strings(value):
     return value
 
 
-def show_instances(client: VastClient, params: dict = None) -> dict:
-    """Fetch instances using the paginated /api/v1/instances/ endpoint.
+def show_instances(client: VastClient) -> list:
+    r = client.get("/instances", query_args={"owner": "me"})
+    r.raise_for_status()
+    rows = r.json()["instances"]
+    for i, row in enumerate(rows):
+        row = {k: _strip_strings(v) for k, v in row.items()}
+        row['duration'] = time.time() - row['start_date']
+        row['extra_env'] = {env_var[0]: env_var[1] for env_var in row['extra_env']}
+        rows[i] = row
+    return rows
+
+
+def show_instances_v1(client: VastClient, params: dict) -> dict:
+    """Fetch instances using the v1 paginated API.
 
     Args:
         client: VastClient instance.
         params: Dict with select_filters, order_by, limit, after_token, select_cols.
-                If omitted, fetches the first page with no filters.
 
     Returns:
         Full response dict (instances, next_token, total_instances, label_counts).
     """
-    r = client.get("/api/v1/instances/", query_args=params or {})
+    r = client.get("/api/v1/instances/", query_args=params)
     r.raise_for_status()
     return r.json()
 

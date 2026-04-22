@@ -60,37 +60,11 @@ def _select(X, k):
     return Y
 
 
-def convert_dates_to_timestamps(args):
-    """Convert start_date/end_date from args into UNIX timestamps."""
-    end_timestamp = time.time()
-    start_timestamp = time.time() - (24 * 60 * 60)
-
-    import dateutil
-    from dateutil import parser as dateutil_parser
-
-    if args.end_date:
-        try:
-            end_date = dateutil_parser.parse(str(args.end_date))
-            end_timestamp = time.mktime(end_date.timetuple())
-        except ValueError as e:
-            print(f"Warning: Invalid end date format! Ignoring end date! \n {str(e)}")
-
-    if args.start_date:
-        try:
-            start_date = dateutil_parser.parse(str(args.start_date))
-            start_timestamp = time.mktime(start_date.timetuple())
-        except ValueError as e:
-            print(f"Warning: Invalid start date format! Ignoring start date! \n {str(e)}")
-
-    return start_timestamp, end_timestamp
-
-
 def filter_invoice_items(args, rows):
     """Filter invoice items by date range and charge/credit type."""
     from datetime import date
 
     try:
-        import dateutil
         from dateutil import parser as dateutil_parser
     except ImportError:
         print("\nWARNING: Missing dateutil, can't parse time format")
@@ -104,14 +78,18 @@ def filter_invoice_items(args, rows):
         try:
             end_date = dateutil_parser.parse(str(args.end_date))
             end_date_txt = end_date.isoformat()
-            end_timestamp = time.mktime(end_date.timetuple())
+            if end_date.tzinfo is None:
+                end_date = end_date.replace(tzinfo=timezone.utc)
+            end_timestamp = end_date.timestamp()
         except ValueError:
             print("Warning: Invalid end date format! Ignoring end date!")
     if args.start_date:
         try:
             start_date = dateutil_parser.parse(str(args.start_date))
             start_date_txt = start_date.isoformat()
-            start_timestamp = time.mktime(start_date.timetuple())
+            if start_date.tzinfo is None:
+                start_date = start_date.replace(tzinfo=timezone.utc)
+            start_timestamp = start_date.timestamp()
         except ValueError:
             print("Warning: Invalid start date format! Ignoring start date!")
 

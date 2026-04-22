@@ -1,7 +1,7 @@
 """CLI commands for platform-wide GPU market metrics (host/admin access)."""
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from vastai.cli.parser import argument
 from vastai.cli.display import display_table, deindent
@@ -166,7 +166,7 @@ def metrics__gpu_trends(args):
             timestamps = sd.get("timestamps", [])
             rows = []
             for i, ts in enumerate(timestamps):
-                row = {"date": datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S"), "timestamp": ts}
+                row = {"date": datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S"), "timestamp": ts}
                 for key in sd_keys:
                     arr = sd.get(key, [])
                     row[key] = arr[i] if i < len(arr) else None
@@ -193,7 +193,7 @@ def metrics__gpu_trends(args):
         sample_step = 1 if args.full else max(1, n // 20)
         rows = []
         for i in range(0, n, sample_step):
-            row = {"date": datetime.fromtimestamp(timestamps[i]).strftime("%Y-%m-%d %H:%M")}
+            row = {"date": datetime.fromtimestamp(timestamps[i], tz=timezone.utc).strftime("%Y-%m-%d %H:%M")}
             for key in sd_keys:
                 arr = sd.get(key, [])
                 row[key] = arr[i] if i < len(arr) else None

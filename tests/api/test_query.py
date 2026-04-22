@@ -1,11 +1,25 @@
 """Tests for vastai/api/query.py — parse_query, field definitions, numeric_version."""
 
+import os
+import time
+
 import pytest
 from vastai.api.query import (
     parse_query, numeric_version, string_to_unix_epoch, fix_date_fields,
     offers_fields, offers_alias, offers_mult,
     benchmarks_fields, templates_fields, invoices_fields,
 )
+
+
+@pytest.fixture
+def tz_los_angeles(monkeypatch):
+    """Force the process timezone to UTC-7/-8 so local/UTC drift shows up."""
+    if not hasattr(time, "tzset"):
+        pytest.skip("tzset unavailable on this platform")
+    monkeypatch.setenv("TZ", "America/Los_Angeles")
+    time.tzset()
+    yield
+    time.tzset()
 
 
 class TestNumericVersion:
@@ -34,6 +48,15 @@ class TestStringToUnixEpoch:
         result = string_to_unix_epoch("01/15/2024")
         assert isinstance(result, float)
         assert result > 0
+
+    def test_date_string_is_utc_midnight(self):
+        # 2024-01-15 00:00:00 UTC = 1705276800
+        assert string_to_unix_epoch("01/15/2024") == 1705276800.0
+
+    def test_date_string_unaffected_by_local_timezone(self, tz_los_angeles):
+        # Under PST the old time.mktime(dt.timetuple()) implementation produced
+        # 1705305600 (2024-01-15 00:00 PST = 08:00 UTC). Must now match UTC.
+        assert string_to_unix_epoch("01/15/2024") == 1705276800.0
 
 
 class TestFixDateFields:

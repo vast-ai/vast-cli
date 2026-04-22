@@ -236,35 +236,6 @@ def parse_hour_cron_style(value):
         pass
     raise argparse.ArgumentTypeError("Hour must be 0-23 or '*' for every hour.")
 
-def convert_dates_to_timestamps(args):
-    selector_flag = ""
-    end_timestamp = time.time()
-    start_timestamp = time.time() - (24*60*60)
-    start_date_txt = ""
-    end_date_txt = ""
-
-    import dateutil
-    from dateutil import parser
-
-    if args.end_date:
-        try:
-            end_date = dateutil.parser.parse(str(args.end_date))
-            end_date_txt = end_date.isoformat()
-            end_timestamp = time.mktime(end_date.timetuple())
-        except ValueError as e:
-            print(f"Warning: Invalid end date format! Ignoring end date! \n {str(e)}")
-
-    if args.start_date:
-        try:
-            start_date = dateutil.parser.parse(str(args.start_date))
-            start_date_txt = start_date.isoformat()
-            start_timestamp = time.mktime(start_date.timetuple())
-        except ValueError as e:
-            print(f"Warning: Invalid start date format! Ignoring start date! \n {str(e)}")
-
-    return start_timestamp, end_timestamp
-
-
 # ---------------------------------------------------------------------------
 # Georegion mapping and query/result hooks
 # ---------------------------------------------------------------------------

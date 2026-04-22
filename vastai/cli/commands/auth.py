@@ -3,7 +3,7 @@
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 from vastai.cli.parser import argument
 from vastai.cli.display import deindent, display_table
@@ -22,10 +22,10 @@ TFA_METHOD_FIELDS = (
     ("method", "Method", "{}", None, True),
     ("label", "Label", "{}", None, True),
     ("phone_number", "Phone Number", "{}", None, False),
-    ("created_at", "Created", "{}", lambda x: datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if x else "N/A", True),
-    ("last_used", "Last Used", "{}", lambda x: datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if x else "Never", True),
+    ("created_at", "Created (UTC)", "{}", lambda x: datetime.fromtimestamp(x, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S') if x else "N/A", True),
+    ("last_used", "Last Used (UTC)", "{}", lambda x: datetime.fromtimestamp(x, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S') if x else "Never", True),
     ("fail_count", "Failures", "{}", None, True),
-    ("locked_until", "Locked Until", "{}", lambda x: datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S') if x else "N/A", True),
+    ("locked_until", "Locked Until (UTC)", "{}", lambda x: datetime.fromtimestamp(x, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S') if x else "N/A", True),
 )
 
 

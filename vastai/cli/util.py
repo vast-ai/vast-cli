@@ -632,32 +632,37 @@ def parse_hour_cron_style(value):
     raise argparse.ArgumentTypeError("Hour must be 0-23 or '*' for every hour.")
 
 def convert_dates_to_timestamps(args):
-    selector_flag = ""
     end_timestamp = time.time()
-    start_timestamp = time.time() - (24*60*60)
-    start_date_txt = ""
-    end_date_txt = ""
+    start_timestamp = time.time() - (24 * 60 * 60)
 
-    import dateutil
-    from dateutil import parser
+    from dateutil import parser as dateutil_parser
 
     if args.end_date:
         try:
-            end_date = dateutil.parser.parse(str(args.end_date))
-            end_date_txt = end_date.isoformat()
-            end_timestamp = time.mktime(end_date.timetuple())
+            end_timestamp = _parse_date_to_utc_timestamp(args.end_date, dateutil_parser)
         except ValueError as e:
             print(f"Warning: Invalid end date format! Ignoring end date! \n {str(e)}")
 
     if args.start_date:
         try:
-            start_date = dateutil.parser.parse(str(args.start_date))
-            start_date_txt = start_date.isoformat()
-            start_timestamp = time.mktime(start_date.timetuple())
+            start_timestamp = _parse_date_to_utc_timestamp(args.start_date, dateutil_parser)
         except ValueError as e:
             print(f"Warning: Invalid start date format! Ignoring start date! \n {str(e)}")
 
     return start_timestamp, end_timestamp
+
+
+def _parse_date_to_utc_timestamp(value, dateutil_parser):
+    """Parse a user-supplied date string into a UNIX timestamp.
+
+    Naive inputs (e.g. 'YYYY-MM-DD') are interpreted as UTC so that filter
+    windows don't shift with the caller's local timezone. Aware inputs keep
+    their declared offset.
+    """
+    dt = dateutil_parser.parse(str(value))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
 
 def validate_frequency_values(day_of_the_week, hour_of_the_day, frequency):
 

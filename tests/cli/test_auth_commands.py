@@ -92,3 +92,25 @@ class TestTfaStatus:
         patch_get_client.get.assert_called_once()
         call_args = patch_get_client.get.call_args
         assert "/tfa/status/" in call_args[0][0]
+
+
+class TestTfaMethodFieldsFormatUtc:
+    def test_created_at_formats_in_utc(self, monkeypatch):
+        import time as _time
+        if not hasattr(_time, "tzset"):
+            pytest.skip("tzset unavailable on this platform")
+        monkeypatch.setenv("TZ", "America/Los_Angeles")
+        _time.tzset()
+        try:
+            from vastai.cli.commands.auth import TFA_METHOD_FIELDS
+            created_formatter = dict((f[0], f[3]) for f in TFA_METHOD_FIELDS)["created_at"]
+            # 1705276800 = 2024-01-15 00:00:00 UTC; in LA would be 2024-01-14 16:00
+            assert created_formatter(1705276800) == "2024-01-15 00:00:00"
+        finally:
+            _time.tzset()
+
+    def test_falsy_value_renders_na(self):
+        from vastai.cli.commands.auth import TFA_METHOD_FIELDS
+        created_formatter = dict((f[0], f[3]) for f in TFA_METHOD_FIELDS)["created_at"]
+        assert created_formatter(None) == "N/A"
+        assert created_formatter(0) == "N/A"

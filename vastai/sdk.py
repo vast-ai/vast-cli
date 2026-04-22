@@ -33,7 +33,7 @@ class VastAI:
 
     def __init__(
         self,
-        api_key: object = _APIKEY_SENTINEL,
+        api_key: Optional[str] = None,
         server_url: Optional[str] = None,
         retry: int = 3,
         raw: bool = False,
@@ -41,7 +41,7 @@ class VastAI:
         quiet: bool = False,
         curl: bool = False,
     ):
-        resolved_key = _resolve_api_key(api_key)
+        resolved_key = _resolve_api_key(_APIKEY_SENTINEL if api_key is None else api_key)
         self.client = VastClient(resolved_key, server_url, retry, explain, curl)
         self.raw = raw
         self.quiet = quiet

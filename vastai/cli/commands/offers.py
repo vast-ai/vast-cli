@@ -278,10 +278,9 @@ def search__benchmarks(args):
 
     client = get_client(args)
     rows = offers_api.search_benchmarks(client, query=query)
-    if True:
+    if args.raw:
         return rows
-    else:
-        display_table(rows, displayable_fields)
+    display_table(rows, displayable_fields)
 
 
 # ---------------------------------------------------------------------------
@@ -428,10 +427,9 @@ def search__invoices(args):
 
     client = get_client(args)
     rows = offers_api.search_invoices(client, query=query)
-    if True:
+    if args.raw:
         return rows
-    else:
-        print(json.dumps(rows, indent=1, sort_keys=True))
+    print(json.dumps(rows, indent=1, sort_keys=True))
 
 
 # ---------------------------------------------------------------------------

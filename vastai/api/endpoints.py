@@ -1,7 +1,5 @@
 """Endpoint and workergroup API functions for the Vast.ai SDK."""
 
-import requests
-
 
 def show_endpoints(client):
     """Display user's current endpoint groups.
@@ -161,7 +159,7 @@ def get_endpt_logs(client, id, level=1, tail=None):
     if client.api_key is not None:
         headers["Authorization"] = "Bearer " + client.api_key
 
-    r = requests.post(url, headers=headers, json=json_blob)
+    r = client._request('POST', url, headers, json_blob)
     r.raise_for_status()
 
     if r.status_code == 200:
@@ -340,7 +338,7 @@ def get_wrkgrp_logs(client, id, level=1, tail=None):
     if client.api_key is not None:
         headers["Authorization"] = "Bearer " + client.api_key
 
-    r = requests.post(url, headers=headers, json=json_blob)
+    r = client._request('POST', url, headers, json_blob)
     r.raise_for_status()
 
     if r.status_code == 200:
@@ -375,6 +373,6 @@ def update_workers(client, id: int, cancel: bool = False):
     if client.api_key is not None:
         headers["Authorization"] = "Bearer " + client.api_key
 
-    r = requests.post(url, headers=headers, json=json_blob)
+    r = client._request('POST', url, headers, json_blob)
     r.raise_for_status()
     return r.json()

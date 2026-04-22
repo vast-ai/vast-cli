@@ -659,32 +659,48 @@ def show__ipaddrs(args):
 # ---------------------------------------------------------------------------
 
 @parser.command(
-    argument("recipient", help="email (or id) of recipient account", type=str),
-    argument("amount",    help="$dollars of credit to transfer ", type=float),
+    argument("recipient_pos", nargs="?", default=None, metavar="RECIPIENT",
+             help="email (or id) of recipient account (positional; use --recipient to name)"),
+    argument("amount_pos",    nargs="?", default=None, type=float, metavar="AMOUNT",
+             help="dollars of credit to transfer (positional; use --amount to name)"),
+    argument("-r", "--recipient", help="email (or id) of recipient account", type=str, default=None),
+    argument("-a", "--amount",    help="dollars of credit to transfer", type=float, default=None),
     argument("--skip", help="skip confirmation", action="store_true", default=False),
-    usage="vastai transfer credit RECIPIENT AMOUNT",
+    usage="vastai transfer credit [--recipient EMAIL] [--amount DOLLARS] [RECIPIENT AMOUNT]",
     help="Transfer credits to another account",
     epilog=deindent("""
-        Transfer (amount) credits to account with email (recipient).
+        Transfer credits to another account. This action is irreversible.
+
+        Supports both named flags (recommended) and legacy positional arguments:
+          vastai transfer credit --recipient user@example.com --amount 25.50
+          vastai transfer credit -r user@example.com -a 25.50
+          vastai transfer credit user@example.com 25.50
     """),
 )
 def transfer__credit(args):
     """Transfer credits to another account."""
+    recipient = args.recipient if args.recipient is not None else args.recipient_pos
+    amount = args.amount if args.amount is not None else args.amount_pos
+
+    if recipient is None or amount is None:
+        print("Error: both recipient and amount are required (as flags or positional args).")
+        return
+
     if not args.skip:
-        print(f"Transfer ${args.amount} credit to account {args.recipient}?  This is irreversible.")
+        print(f"Transfer ${amount} credit to account {recipient}?  This is irreversible.")
         ok = input("Continue? [y/n] ")
         if ok.strip().lower() != "y":
             return
 
     if args.explain:
         print("request json: ")
-        print({"sender": "me", "recipient": args.recipient, "amount": args.amount})
+        print({"sender": "me", "recipient": recipient, "amount": amount})
 
     client = get_client(args)
     try:
-        rj = teams_api.transfer_credit(client, recipient=args.recipient, amount=args.amount)
+        rj = teams_api.transfer_credit(client, recipient=recipient, amount=amount)
         if rj["success"]:
-            print(f"Sent {args.amount} to {args.recipient}")
+            print(f"Sent {amount} to {recipient}")
         else:
             print(rj["msg"])
     except Exception as e:

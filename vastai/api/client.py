@@ -21,16 +21,34 @@ INFO = "\u2139\ufe0f" if _HAS_EMOJI else "[i]"
 
 server_url_default = os.getenv("VAST_URL") or "https://console.vast.ai"
 
+# Status codes that indicate a transient server-side issue worth retrying.
+# 429 = rate limited; 502/503/504 = gateway/upstream errors that usually clear.
+_RETRYABLE_STATUS = {429, 502, 503, 504}
+
+# Transport-level exceptions worth retrying (network hiccups, slow peers).
+# Other requests.RequestException subclasses (e.g. InvalidURL, TooManyRedirects)
+# propagate immediately — retrying them would just burn time.
+_RETRYABLE_EXC = (
+    requests.exceptions.ConnectionError,
+    requests.exceptions.Timeout,
+)
+
+# Default per-request timeout. Conservative enough for slow operations like
+# log retrieval and instance creation; callers can override per-call.
+_DEFAULT_TIMEOUT_SECONDS = 120
+
 
 class VastClient:
     """HTTP client for Vast.ai API requests."""
 
-    def __init__(self, api_key=None, server_url=None, retry=3, explain=False, curl=False):
+    def __init__(self, api_key=None, server_url=None, retry=3, explain=False, curl=False,
+                 timeout=_DEFAULT_TIMEOUT_SECONDS):
         self.api_key = api_key
         self.server_url = server_url or server_url_default
         self.retry = retry
         self.explain = explain
         self.curl = curl
+        self.timeout = timeout
 
     def _build_url(self, subpath: str, query_args: Optional[Dict] = None) -> str:
         """Build full API URL from subpath and optional query args."""
@@ -66,8 +84,19 @@ class VastClient:
             result["Authorization"] = "Bearer " + self.api_key
         return result
 
-    def _request(self, method: str, url: str, headers: Dict, json_data=None) -> requests.Response:
-        """Execute HTTP request with retry logic for 429s."""
+    def _request(self, method: str, url: str, headers: Dict, json_data=None,
+                 timeout: Optional[float] = None) -> requests.Response:
+        """Execute HTTP request with retry/timeout/exception handling.
+
+        Retries are attempted on:
+          - ``_RETRYABLE_STATUS`` codes (429, 502, 503, 504)
+          - ``_RETRYABLE_EXC`` transport exceptions (ConnectionError, Timeout)
+
+        After exhausting retries, the last response is returned (for status-code
+        retries) or the last exception is re-raised (for transport exceptions).
+        Non-retryable ``requests`` exceptions propagate immediately.
+        """
+        effective_timeout = timeout if timeout is not None else self.timeout
         t = 0.15
         r = None
         for i in range(0, self.retry):
@@ -92,32 +121,43 @@ class VastClient:
                 parts = [*parts[:-1], *[x.rstrip() for x in "'".join(pp).split("\n")]]
                 print("\n" + ' \\\n  '.join(parts).strip() + "\n")
                 sys.exit(0)
-            else:
-                r = session.send(prep)
 
-            if r.status_code == 429:
+            try:
+                r = session.send(prep, timeout=effective_timeout)
+            except _RETRYABLE_EXC:
+                if i == self.retry - 1:
+                    raise
                 time.sleep(t)
                 t *= 1.5
-            else:
-                break
+                continue
+
+            if r.status_code in _RETRYABLE_STATUS and i < self.retry - 1:
+                time.sleep(t)
+                t *= 1.5
+                continue
+            break
         return r
 
-    def get(self, subpath: str, query_args: Optional[Dict] = None, json_data=None) -> requests.Response:
+    def get(self, subpath: str, query_args: Optional[Dict] = None, json_data=None,
+            timeout: Optional[float] = None) -> requests.Response:
         url = self._build_url(subpath, query_args)
         headers = self._build_headers()
-        return self._request('GET', url, headers, json_data)
+        return self._request('GET', url, headers, json_data, timeout=timeout)
 
-    def post(self, subpath: str, query_args: Optional[Dict] = None, json_data=None) -> requests.Response:
+    def post(self, subpath: str, query_args: Optional[Dict] = None, json_data=None,
+             timeout: Optional[float] = None) -> requests.Response:
         url = self._build_url(subpath, query_args)
         headers = self._build_headers()
-        return self._request('POST', url, headers, json_data if json_data is not None else {})
+        return self._request('POST', url, headers, json_data if json_data is not None else {}, timeout=timeout)
 
-    def put(self, subpath: str, query_args: Optional[Dict] = None, json_data=None) -> requests.Response:
+    def put(self, subpath: str, query_args: Optional[Dict] = None, json_data=None,
+            timeout: Optional[float] = None) -> requests.Response:
         url = self._build_url(subpath, query_args)
         headers = self._build_headers()
-        return self._request('PUT', url, headers, json_data if json_data is not None else {})
+        return self._request('PUT', url, headers, json_data if json_data is not None else {}, timeout=timeout)
 
-    def delete(self, subpath: str, query_args: Optional[Dict] = None, json_data=None) -> requests.Response:
+    def delete(self, subpath: str, query_args: Optional[Dict] = None, json_data=None,
+               timeout: Optional[float] = None) -> requests.Response:
         url = self._build_url(subpath, query_args)
         headers = self._build_headers()
-        return self._request('DELETE', url, headers, json_data if json_data is not None else {})
+        return self._request('DELETE', url, headers, json_data if json_data is not None else {}, timeout=timeout)

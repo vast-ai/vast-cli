@@ -2,7 +2,7 @@ openapi: 3.0.0
 info:
   title: Vast.ai API
   version: 1.0.0
-  description: API documentation for Vast.ai's instance retrieval (v1).
+  description: API documentation for Vast.ai's instance retrieval.
 servers:
 - url: https://console.vast.ai
   description: Production server
@@ -499,8 +499,8 @@ x-rate-limit:
   per: request
   description: Maximum request frequency per IP address for this endpoint
 x-cli-commands:
-- name: show instances
-  description: Display user's current instances (v1, paginated)
+- name: show instances-v1
+  description: Display user's current instances (paginated).
   endpoint: /api/v1/instances/
   method: GET
-  example: vastai show instances [OPTIONS] [--api-key API_KEY] [--raw]
+  example: vastai show instances-v1 [OPTIONS] [--api-key API_KEY] [--raw]

@@ -84,14 +84,18 @@ def is_pip_package():
     except Exception:
         return False
 
-def get_update_command(stable_version: str) -> str:
+def get_update_command(stable_version: str) -> list:
+    """Return a list of argv-lists to run sequentially to update the CLI."""
     if is_pip_package():
+        base = [sys.executable, "-m", "pip", "install", "--force-reinstall", "--no-cache-dir"]
         if "test.pypi.org" in PYPI_BASE_PATH:
-            return f"{sys.executable} -m pip install --force-reinstall --no-cache-dir -i {PYPI_BASE_PATH} vastai=={stable_version}"
-        else:
-            return f"{sys.executable} -m pip install --force-reinstall --no-cache-dir vastai=={stable_version}"
-    else:
-        return f"git fetch --all --tags --prune && git checkout tags/v{stable_version}"
+            base += ["-i", PYPI_BASE_PATH]
+        base.append(f"vastai=={stable_version}")
+        return [base]
+    return [
+        ["git", "fetch", "--all", "--tags", "--prune"],
+        ["git", "checkout", f"tags/v{stable_version}"],
+    ]
 
 
 def get_local_version():
@@ -147,17 +151,17 @@ def check_for_update():
         print("You selected no. If you don't want to check for updates each time, update should_check_for_update in vast.py")
         return
 
-    update_command = get_update_command(pypi_version)
+    update_commands = get_update_command(pypi_version)
 
     print("Updating...")
-    _ = subprocess.run(
-        update_command,
-        shell=True,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    for cmd in update_commands:
+        subprocess.run(
+            cmd,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
 
     print("Update completed successfully!\nAttempt to run your command again!")
     sys.exit(0)

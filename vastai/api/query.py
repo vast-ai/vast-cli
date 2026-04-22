@@ -302,13 +302,16 @@ def parse_query(query_str: str, res: Dict = None, fields = {}, field_alias = {},
 
     for field, op, _, value, _ in opts:
         value = value.strip(",[]")
-        v = res.setdefault(field, {})
         op = op.strip()
         op_name = op_names.get(op)
 
         if field in field_alias:
-            res.pop(field)
+            old_field = field
             field = field_alias[field]
+            if old_field in res:
+                res[field] = res.pop(old_field)
+
+        v = res.setdefault(field, {})
 
         if (field == "driver_version") and ('.' in value):
             value = numeric_version(value)

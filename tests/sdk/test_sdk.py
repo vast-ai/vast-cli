@@ -296,6 +296,45 @@ class TestCreateSubaccount:
 # ---------------------------------------------------------------------------
 
 
+class TestShowApiKeysUnwraps:
+    def test_unwraps_envelope(self, sdk):
+        with patch("vastai.api.keys.show_api_keys", return_value={"apikeys": [{"id": 1}, {"id": 2}]}):
+            result = sdk.show_api_keys()
+            assert result == [{"id": 1}, {"id": 2}]
+
+    def test_empty_envelope(self, sdk):
+        with patch("vastai.api.keys.show_api_keys", return_value={"apikeys": []}):
+            assert sdk.show_api_keys() == []
+
+    def test_passes_through_non_envelope(self, sdk):
+        """If the backend ever switches to a bare list, don't choke."""
+        with patch("vastai.api.keys.show_api_keys", return_value=[{"id": 1}]):
+            assert sdk.show_api_keys() == [{"id": 1}]
+
+
+class TestShowMachineUnwraps:
+    def test_unwraps_single_element_list(self, sdk):
+        with patch("vastai.api.machines.show_machine", return_value=[{"id": 42, "gpu_name": "RTX_4090"}]):
+            result = sdk.show_machine(id=42)
+            assert result == {"id": 42, "gpu_name": "RTX_4090"}
+
+    def test_empty_list_raises(self, sdk):
+        with patch("vastai.api.machines.show_machine", return_value=[]):
+            with pytest.raises(ValueError, match="not found"):
+                sdk.show_machine(id=42)
+
+    def test_multiple_rows_raises(self, sdk):
+        with patch("vastai.api.machines.show_machine", return_value=[{"id": 42}, {"id": 43}]):
+            with pytest.raises(ValueError, match="got 2"):
+                sdk.show_machine(id=42)
+
+    def test_passes_through_non_list_response(self, sdk):
+        """Defensive: if the backend ever starts returning a dict directly, don't choke."""
+        with patch("vastai.api.machines.show_machine", return_value={"id": 42, "gpu_name": "RTX_4090"}):
+            result = sdk.show_machine(id=42)
+            assert result == {"id": 42, "gpu_name": "RTX_4090"}
+
+
 class TestListMachines:
     def test_calls_per_id(self, sdk):
         with patch("vastai.api.machines.list_machine", return_value={"success": True}) as mock:

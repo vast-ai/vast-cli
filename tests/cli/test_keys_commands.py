@@ -17,8 +17,9 @@ class TestShowSshKeys:
 
 class TestShowApiKeys:
     def test_show_api_keys_raw(self, parse_argv, patch_get_client, mock_response):
+        # Backend returns {"apikeys": [...]} (no underscore), not "api_keys".
         patch_get_client.get.return_value = mock_response(200, {
-            "api_keys": [{"id": 1, "name": "test-key"}]
+            "apikeys": [{"id": 1, "name": "test-key"}]
         })
         args = parse_argv(["show", "api-keys", "--raw"])
         result = args.func(args)

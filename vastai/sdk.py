@@ -338,8 +338,20 @@ class VastAI:
         return machines.show_machines(self.client)
 
     def show_machine(self, id: int) -> dict:
-        """Return details of a single machine."""
-        return machines.show_machine(self.client, id)
+        """Return details of a single machine.
+
+        The underlying ``GET /machines/{id}`` endpoint returns a one-element
+        list; this wrapper unwraps it so callers get a single machine dict.
+        Raises ``ValueError`` if the backend returns zero or multiple rows.
+        """
+        result = machines.show_machine(self.client, id)
+        if not isinstance(result, list):
+            return result
+        if not result:
+            raise ValueError(f"Machine {id} not found")
+        if len(result) > 1:
+            raise ValueError(f"Expected 1 machine for id={id}, got {len(result)}")
+        return result[0]
 
     def show_maints(self, ids) -> list[dict]:
         """Show maintenance information for machines."""
@@ -461,8 +473,16 @@ class VastAI:
         return keys.detach_ssh(self.client, instance_id, ssh_key_id)
 
     def show_api_keys(self) -> list[dict]:
-        """Show all API keys."""
-        return keys.show_api_keys(self.client)
+        """Return all API keys associated with the account.
+
+        The underlying ``GET /auth/apikeys/`` endpoint returns an envelope dict
+        ``{"apikeys": [...]}``; this wrapper unwraps it so callers get a plain
+        list of API key dicts.
+        """
+        result = keys.show_api_keys(self.client)
+        if isinstance(result, dict) and "apikeys" in result:
+            return result["apikeys"]
+        return result
 
     def show_api_key(self, id: int) -> dict:
         """Show details of an API key."""

@@ -15,7 +15,7 @@ paths:
       description: |
         Returns Stripe top-ups, transfers, payouts, coinbase payments, and other billing transactions. For per-instance cost breakdowns, use [show charges](/api-reference/billing/show-charges) instead.
 
-        CLI: `vastai show invoices --invoices`
+        CLI: `vastai show invoices-v1 --invoices`
       security:
         - BearerAuth: []
       parameters:
@@ -246,9 +246,9 @@ x-rate-limit:
   description: Maximum request frequency per IP address
 
 x-cli-commands:
-  - name: show invoices
+  - name: show invoices-v1
     description: Show invoices within a required date range.
     endpoint: /api/v1/invoices/
     method: get
     example: |
-      vastai show invoices --invoices --start-date 2025-11-01 --end-date 2025-11-30
+      vastai show invoices-v1 --invoices --start-date 2025-11-01 --end-date 2025-11-30

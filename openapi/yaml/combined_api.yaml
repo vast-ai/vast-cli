@@ -6487,7 +6487,7 @@ paths:
         invoices](/api-reference/billing/show-invoices) instead.
 
 
-        CLI: `vastai show invoices --charges`'
+        CLI: `vastai show invoices-v1 --charges`'
       security:
       - BearerAuth: []
       parameters:
@@ -7544,7 +7544,7 @@ paths:
         charges](/api-reference/billing/show-charges) instead.
 
 
-        CLI: `vastai show invoices --invoices`'
+        CLI: `vastai show invoices-v1 --invoices`'
       security:
       - BearerAuth: []
       parameters:

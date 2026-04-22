@@ -36,12 +36,14 @@ class TestShowMachines:
 
 class TestShowMachine:
     def test_show_machine_raw(self, parse_argv, patch_get_client, mock_response):
-        patch_get_client.get.return_value = mock_response(200, {"id": 1, "gpu_name": "RTX_3090"})
+        # Backend returns a bare one-element list for GET /machines/{id}
+        patch_get_client.get.return_value = mock_response(200, [{"id": 1, "gpu_name": "RTX_3090"}])
         args = parse_argv(["show", "machine", "1", "--raw"])
         result = args.func(args)
         patch_get_client.get.assert_called_once()
         call_args = patch_get_client.get.call_args
         assert "/machines/" in call_args[0][0]
+        assert result == [{"id": 1, "gpu_name": "RTX_3090"}]
 
 
 class TestListMachineMinChunkDefault:

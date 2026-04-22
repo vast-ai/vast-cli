@@ -125,6 +125,18 @@ class TestParseQuery:
         result = parse_query("cuda_vers>=12.0", fields=offers_fields, field_alias=offers_alias)
         assert "cuda_max_good" in result
 
+    def test_field_alias_preserves_prior_constraint(self):
+        """Aliased fields used alongside a prior constraint on the canonical name
+        (or on a prior use of the same alias) must not drop the existing op."""
+        # Pre-seed a constraint on the alias; parsing another op on the same alias
+        # must merge, not clobber.
+        result = parse_query(
+            "cuda_vers>=12.0 cuda_vers<14.0",
+            fields=offers_fields, field_alias=offers_alias,
+        )
+        assert result["cuda_max_good"]["gte"] == "12.0"
+        assert result["cuda_max_good"]["lt"] == "14.0"
+
     def test_field_multiplier(self):
         result = parse_query("cpu_ram>=16", fields=offers_fields, field_multiplier=offers_mult)
         assert result["cpu_ram"]["gte"] == 16000.0

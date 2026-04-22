@@ -409,7 +409,7 @@ def show__invoices_v1(args):
         print("Use format YYYY-MM-DD or UNIX timestamp")
         return
 
-    if has_rich and not args.no_color:
+    if has_rich and not args.no_color and not args.raw:
         print("(use --no-color to disable colored output)\n")
 
     start_date = convert_timestamp_to_date(start_timestamp)
@@ -431,6 +431,12 @@ def show__invoices_v1(args):
     }
 
     client = get_client(args)
+
+    if args.raw:
+        # Single-page raw response; dispatcher JSON-prints. Callers paginate
+        # by re-running with --next-token.
+        return billing_api.show_invoices_v1(client, params)
+
     found_results, found_count = [], 0
     looping = True
     while looping:
@@ -441,7 +447,7 @@ def show__invoices_v1(args):
         total = response.get('total', 0)
         next_token = response.get('next_token')
 
-        if args.raw or has_rich is False:
+        if has_rich is False:
             output_lines.append("Raw response:\n" + json.dumps(response, indent=2))
             if next_token:
                 print(f"Next page token: {next_token}\n")

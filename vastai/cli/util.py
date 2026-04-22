@@ -28,14 +28,6 @@ from typing import Dict, List, Optional
 from vastai.api.query import string_to_unix_epoch  # noqa: F401
 
 
-# ---------------------------------------------------------------------------
-# PyPI / version constants
-# ---------------------------------------------------------------------------
-
-PYPI_BASE_PATH = "https://pypi.org"
-# INFO - Change to False if you don't want to check for update each run.
-should_check_for_update = False
-
 # Server URL default — canonical definition lives in api/client.py
 from vastai.api.client import server_url_default  # noqa: E402, F401
 
@@ -44,7 +36,7 @@ api_key_guard = object()
 
 
 # ---------------------------------------------------------------------------
-# Version helpers
+# Version helpers (for --version output only)
 # ---------------------------------------------------------------------------
 
 def parse_version(version: str) -> tuple:
@@ -56,7 +48,7 @@ def parse_version(version: str) -> tuple:
     return tuple(int(part) for part in parts)
 
 
-def get_git_version():
+def _get_git_version():
     try:
         result = subprocess.run(
             ["git", "describe", "--tags", "--abbrev=0"],
@@ -65,106 +57,16 @@ def get_git_version():
             check=True,
         )
         tag = result.stdout.strip()
-
         return tag[1:] if tag.startswith("v") else tag
     except Exception:
         return "0.0.0"
 
 
-def get_pip_version():
+def _get_local_version():
     try:
         return importlib.metadata.version("vastai")
     except Exception:
-        return "0.0.0"
-
-
-def is_pip_package():
-    try:
-        return importlib.metadata.metadata("vastai") is not None
-    except Exception:
-        return False
-
-def get_update_command(stable_version: str) -> list:
-    """Return a list of argv-lists to run sequentially to update the CLI."""
-    if is_pip_package():
-        base = [sys.executable, "-m", "pip", "install", "--force-reinstall", "--no-cache-dir"]
-        if "test.pypi.org" in PYPI_BASE_PATH:
-            base += ["-i", PYPI_BASE_PATH]
-        base.append(f"vastai=={stable_version}")
-        return [base]
-    return [
-        ["git", "fetch", "--all", "--tags", "--prune"],
-        ["git", "checkout", f"tags/v{stable_version}"],
-    ]
-
-
-def get_local_version():
-    if is_pip_package():
-        return get_pip_version()
-    return get_git_version()
-
-
-def get_project_data(project_name: str) -> dict:
-    url = PYPI_BASE_PATH + f"/pypi/{project_name}/json"
-    response = requests.get(url, headers={"Accept": "application/json"})
-
-    # this will raise for HTTP status 4xx and 5xx
-    response.raise_for_status()
-
-    # this will raise for HTTP status >200,<=399
-    if response.status_code != 200:
-        raise Exception(
-            f"Could not get PyPi Project: {project_name}. Response: {response.status_code}"
-        )
-
-    response_data: dict = response.json()
-    return response_data
-
-
-def get_pypi_version(project_data: dict) -> str:
-    info_data = project_data.get("info")
-
-    if not info_data:
-        raise Exception("Could not get PyPi Project")
-
-    version_data: str = str(info_data.get("version"))
-
-    return str(version_data)
-
-def check_for_update():
-    pypi_data = get_project_data("vastai")
-    pypi_version = get_pypi_version(pypi_data)
-
-    local_version = get_local_version()
-
-    local_tuple = parse_version(local_version)
-    pypi_tuple = parse_version(pypi_version)
-
-    if local_tuple >= pypi_tuple:
-        return
-
-    user_wants_update = input(
-        f"Update available from {local_version} to {pypi_version}. Would you like to update [Y/n]: "
-    ).lower()
-
-    if user_wants_update not in ["y", ""]:
-        print("You selected no. If you don't want to check for updates each time, update should_check_for_update in vast.py")
-        return
-
-    update_commands = get_update_command(pypi_version)
-
-    print("Updating...")
-    for cmd in update_commands:
-        subprocess.run(
-            cmd,
-            check=True,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-
-    print("Update completed successfully!\nAttempt to run your command again!")
-    sys.exit(0)
+        return _get_git_version()
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +74,7 @@ def check_for_update():
 # ---------------------------------------------------------------------------
 
 APP_NAME = "vastai"
-VERSION = get_local_version()
+VERSION = _get_local_version()
 
 # Define emoji support and fallbacks
 _HAS_EMOJI = sys.stdout.encoding and 'utf' in sys.stdout.encoding.lower()

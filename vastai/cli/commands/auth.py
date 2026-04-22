@@ -781,8 +781,7 @@ def tfa__status(args):
     response_data = auth_api.tfa_status(client)
 
     if args.raw:
-        print(json.dumps(response_data, indent=2))
-        return
+        return response_data
 
     tfa_enabled = response_data.get("tfa_enabled", False)
     methods = response_data.get("methods", [])
@@ -834,8 +833,7 @@ def tfa__totp_setup(args):
     response_data = auth_api.tfa_totp_setup(client)
 
     if args.raw:
-        print(json.dumps(response_data, indent=2))
-        return
+        return response_data
 
     secret = response_data.get("secret", "")
     provisioning_uri = response_data.get("provisioning_uri", "")

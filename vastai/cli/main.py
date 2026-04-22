@@ -15,6 +15,24 @@ try:
 except AttributeError:
     JSONDecodeError = ValueError
 
+
+def _emit_error(args, status_code, message):
+    """Emit a command error in the appropriate format.
+
+    In ``--raw`` mode, prints a JSON error object to stderr so scripts can
+    parse it; otherwise prints a human-readable line. Always goes to stderr
+    so stdout stays clean for scripting consumers.
+    """
+    if getattr(args, "raw", False):
+        payload = {"error": True, "status_code": status_code, "msg": message}
+        print(json.dumps(payload), file=sys.stderr)
+    else:
+        if status_code:
+            print(f"Failed with error {status_code}: {message}", file=sys.stderr)
+        else:
+            print(message, file=sys.stderr)
+
+
 # Create the global parser instance
 parser = apwrap(
     epilog="Use 'vast COMMAND --help' for more info about a command",
@@ -125,11 +143,11 @@ def main():
                         print("Please log in using the `tfa login` command and try again.")
                         break
 
-            print(f"Failed with error {e.response.status_code}: {errmsg}")
+            _emit_error(args, e.response.status_code, errmsg)
             break
 
         except ValueError as e:
-            print(e)
+            _emit_error(args, 0, str(e))
             break
 
 

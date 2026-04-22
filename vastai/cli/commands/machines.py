@@ -309,13 +309,12 @@ def cleanup__machine(args):
     client = get_client(args)
     rj = machines_api.cleanup_machine(client, id=args.id)
 
+    if args.raw:
+        return rj
     if rj.get("success"):
         print(json.dumps(rj, indent=1))
     else:
-        if args.raw:
-            return rj
-        else:
-            print(rj.get("msg", rj))
+        print(rj.get("msg", rj))
 
 
 # ---------------------------------------------------------------------------

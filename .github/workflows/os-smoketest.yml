@@ -28,26 +28,37 @@ jobs:
       - name: Smoke test — CLI loads and --help runs
         run: python vast.py --help
 
-      - name: set api-key round-trip — write and verify byte-exact
+      - name: set api-key round-trip — write, verify byte-exact, read back via SDK
         shell: python
         run: |
-          import subprocess, sys
+          import os, subprocess, sys
           from pathlib import Path
           test_key = "test-key-abc-123"
+          # Unset VAST_API_KEY so we're testing the file path, not env precedence.
+          env = {k: v for k, v in os.environ.items() if k != "VAST_API_KEY"}
           subprocess.run(
               [sys.executable, "vast.py", "set", "api-key", test_key],
-              capture_output=True, text=True, check=True,
+              capture_output=True, text=True, check=True, env=env,
           )
           from vastai.cli.util import APIKEY_FILE
           p = Path(APIKEY_FILE)
           assert p.exists(), f"key file not created at {APIKEY_FILE}"
-          # read as bytes — Windows text-mode write would turn a trailing \n into \r\n.
-          # The key is the whole file content; any extra bytes are a bug.
+          # Read as bytes — Windows text-mode write would turn a trailing \n into \r\n.
+          # The file should contain the key and nothing else; any extra bytes are a bug.
           written = p.read_bytes()
           assert written == test_key.encode(), (
               f"key file corrupted: expected {test_key.encode()!r}, got {written!r}"
           )
-          print(f"OK: {APIKEY_FILE} contains byte-exact key")
+          # Read it back via the SDK — verifies the read side end-to-end.
+          # Unset VAST_API_KEY in this process too so we're testing the file read, not env.
+          os.environ.pop("VAST_API_KEY", None)
+          from unittest.mock import patch
+          from vastai import VastAI
+          with patch("vastai.sdk.VastClient") as MockClient:
+              VastAI()
+              loaded = MockClient.call_args[0][0]
+          assert loaded == test_key, f"SDK read {loaded!r}, expected {test_key!r}"
+          print(f"OK: {APIKEY_FILE} written and SDK reads back byte-exact")
 
       - name: Fallback test — simulate xdg ImportError, verify Path.home() resolves
         shell: python

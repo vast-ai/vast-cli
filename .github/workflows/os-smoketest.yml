@@ -2,7 +2,8 @@ name: OS smoke test
 
 on:
   push:
-    branches: [fix-windows-home-env]
+    branches: [master]
+  pull_request:
   workflow_dispatch:
 
 jobs:
@@ -26,6 +27,27 @@ jobs:
 
       - name: Smoke test — CLI loads and --help runs
         run: python vast.py --help
+
+      - name: set api-key round-trip — write and verify byte-exact
+        shell: python
+        run: |
+          import subprocess, sys
+          from pathlib import Path
+          test_key = "test-key-abc-123"
+          subprocess.run(
+              [sys.executable, "vast.py", "set", "api-key", test_key],
+              capture_output=True, text=True, check=True,
+          )
+          from vastai.cli.util import APIKEY_FILE
+          p = Path(APIKEY_FILE)
+          assert p.exists(), f"key file not created at {APIKEY_FILE}"
+          # read as bytes — Windows text-mode write would turn a trailing \n into \r\n.
+          # The key is the whole file content; any extra bytes are a bug.
+          written = p.read_bytes()
+          assert written == test_key.encode(), (
+              f"key file corrupted: expected {test_key.encode()!r}, got {written!r}"
+          )
+          print(f"OK: {APIKEY_FILE} contains byte-exact key")
 
       - name: Fallback test — simulate xdg ImportError, verify Path.home() resolves
         shell: python

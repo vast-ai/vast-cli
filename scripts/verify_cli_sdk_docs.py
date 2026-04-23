@@ -131,14 +131,18 @@ class DriftReport:
 
 def get_cli_commands() -> dict[str, list[str]]:
     """
-    Run `vastai --help` to get top-level subcommands, then `vastai <cmd> --help`
-    for each to extract flags.
+    Run `vastai --help` to get commands, then `vastai <cmd> --help` for each
+    to extract flags.
+
+    Handles both flat commands (e.g., `vastai copy`) and two-level commands
+    (e.g., `vastai show instances`). Two-level commands are flattened to
+    kebab-case (e.g., "show-instances") for matching against doc filenames.
 
     Returns: {command_name: [list of --flags]}
     """
     commands = {}
 
-    # Get top-level subcommands
+    # Get help output
     result = subprocess.run(
         ["vastai", "--help"],
         capture_output=True, text=True, timeout=30,
@@ -148,49 +152,86 @@ def get_cli_commands() -> dict[str, list[str]]:
 
     subcommands = _parse_subcommands(result.stdout)
 
-    for cmd in subcommands:
+    for cmd_parts in subcommands:
+        # cmd_parts is a list like ["show", "instances"] or ["copy"]
+        doc_name = "-".join(cmd_parts)  # flatten to kebab-case for doc matching
         try:
             sub_result = subprocess.run(
-                ["vastai", cmd, "--help"],
+                ["vastai"] + cmd_parts + ["--help"],
                 capture_output=True, text=True, timeout=30,
             )
             flags = _parse_flags(sub_result.stdout + sub_result.stderr)
-            commands[cmd] = flags
-        except (subprocess.TimeoutExpired, Exception) as e:
-            commands[cmd] = []
+            commands[doc_name] = flags
+        except (subprocess.TimeoutExpired, Exception):
+            commands[doc_name] = []
 
     return commands
 
 
-def _parse_subcommands(help_text: str) -> list[str]:
-    """Extract subcommand names from argparse help output."""
-    subcommands = []
-    # Match lines like "  command-name       description text"
-    # argparse typically shows subcommands in a {cmd1,cmd2,...} block or indented list
+def _parse_subcommands(help_text: str) -> list[list[str]]:
+    """
+    Extract command names from vastai --help output.
+
+    Handles two-level commands like:
+        show instances           Display user's current instances
+        create instance          Create a new instance
+        copy                     Copy directories between instances
+
+    Returns: list of command parts, e.g., [["show", "instances"], ["copy"]]
+    """
+    commands = []
     in_commands_section = False
+
     for line in help_text.splitlines():
         stripped = line.strip()
-        # Look for the {cmd1,cmd2,...} pattern
-        brace_match = re.search(r'\{([^}]+)\}', line)
-        if brace_match:
-            candidates = [c.strip() for c in brace_match.group(1).split(",")]
-            subcommands.extend(c for c in candidates if c and not c.startswith("-"))
-            continue
-        # Also look for indented command listings
-        if re.match(r'^positional arguments|^commands|^subcommands', stripped, re.IGNORECASE):
+
+        # Detect start of commands section
+        if re.match(r"^(positional arguments|command)", stripped, re.IGNORECASE):
             in_commands_section = True
             continue
-        if in_commands_section:
-            if stripped == "" or re.match(r'^(optional arguments|options)', stripped, re.IGNORECASE):
-                in_commands_section = False
-                continue
-            match = re.match(r'^(\S+)\s', stripped)
-            if match:
-                cmd = match.group(1)
-                if not cmd.startswith("-"):
-                    subcommands.append(cmd)
 
-    return list(dict.fromkeys(subcommands))  # dedupe, preserve order
+        # Detect end of commands section
+        if in_commands_section:
+            if stripped == "" and commands:
+                # Empty line after we've found commands — might be end of section
+                continue
+            if re.match(r"^(optional arguments|options|$)", stripped, re.IGNORECASE) and commands:
+                if stripped.startswith(("options", "optional")):
+                    in_commands_section = False
+                    continue
+
+        if not in_commands_section:
+            continue
+
+        # Skip non-command lines
+        if stripped.startswith("-") or stripped.startswith("command"):
+            continue
+
+        # Parse command line: "  verb noun       description text"
+        # Use 2+ spaces as separator between command and description
+        parts = re.split(r"\s{2,}", stripped, maxsplit=1)
+        if not parts or not parts[0]:
+            continue
+
+        cmd_text = parts[0].strip()
+        if not cmd_text or cmd_text.startswith("-"):
+            continue
+
+        # Split the command into parts (handles "show instances", "tfa activate", "copy")
+        cmd_parts = cmd_text.split()
+        if cmd_parts and cmd_parts[0] != "help":
+            commands.append(cmd_parts)
+
+    # Deduplicate while preserving order
+    seen = set()
+    unique = []
+    for parts in commands:
+        key = tuple(parts)
+        if key not in seen:
+            seen.add(key)
+            unique.append(parts)
+
+    return unique
 
 
 def _parse_flags(help_text: str) -> list[str]:

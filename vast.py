@@ -4022,6 +4022,115 @@ def stop__instances(args):
     exec_with_threads(lambda ids : stop_instance(ids, args), idlist, nt=8)
 
 
+@parser.command(
+    argument("id", help="instance ID to wait on", type=int),
+    argument("--status",
+             default="running",
+             choices=["running", "stopped", "exited", "created", "frozen"],
+             help="target status to wait for (default: running)"),
+    argument("--timeout", type=int, default=1800,
+             help="seconds before giving up with exit 255 (default: 1800)"),
+    argument("--interval", type=int, default=10,
+             help="seconds between polls, minimum 5 (default: 10)"),
+    usage="vastai wait instance ID [--status STATUS] [--timeout SECONDS] [--interval SECONDS]",
+    help="Block until an instance reaches a target status",
+    epilog=deindent("""
+        Polls instance status every INTERVAL seconds until STATUS is reached or
+        TIMEOUT expires. Progress is printed to stderr; stdout is clean for piping.
+
+        Exit codes:
+            0    target status reached
+            1    instance not found, auth failure, or error state
+            255  timeout
+
+        Examples:
+            vastai wait instance 33402620
+            vastai wait instance 33402620 --status exited --timeout 3600
+            vastai wait instance 33402620 --raw | jq .ssh_host
+            vastai create instance 34069587 --disk 100 --ssh --direct && vastai wait instance $ID && vastai ssh-url $ID
+    """),
+)
+def wait__instance(args):
+    if args.interval < 5:
+        print("error: --interval must be >= 5 seconds", file=sys.stderr)
+        sys.exit(1)
+
+    req_url = apiurl(args, f"/instances/{args.id}/", {"owner": "me"})
+
+    start_time = time.time()
+    last_status = "unknown"
+
+    try:
+        while time.time() - start_time < args.timeout:
+            try:
+                r = http_get(args, req_url)
+                r.raise_for_status()
+                rj = r.json()
+                instance_info = rj.get("instances")
+            except requests.exceptions.HTTPError as e:
+                code = e.response.status_code
+                try:
+                    body = e.response.json()
+                    if body.get("error") == "auth_error":
+                        print(f"error: authentication failed — check your API key", file=sys.stderr)
+                        sys.exit(1)
+                except Exception:
+                    pass
+                if code in (401, 403):
+                    print(f"error: authentication failed (HTTP {code}) — check your API key", file=sys.stderr)
+                    sys.exit(1)
+                if code == 404:
+                    print(f"error: instance {args.id} not found", file=sys.stderr)
+                    sys.exit(1)
+                print(f"warning: HTTP {code} polling instance {args.id}, retrying...", file=sys.stderr)
+                time.sleep(args.interval)
+                continue
+            except Exception as e:
+                print(f"warning: error polling instance {args.id}: {e}, retrying...", file=sys.stderr)
+                time.sleep(args.interval)
+                continue
+
+            if instance_info is None:
+                print(f"error: instance {args.id} not found", file=sys.stderr)
+                sys.exit(1)
+
+            actual_status   = instance_info.get("actual_status",  "unknown")
+            intended_status = instance_info.get("intended_status", "unknown")
+            status_msg      = (instance_info.get("status_msg") or "").strip()
+            last_status     = actual_status
+
+            if "Error" in status_msg:
+                print(f"error: instance {args.id} entered error state: {status_msg}", file=sys.stderr)
+                sys.exit(1)
+
+            if actual_status == "offline":
+                print(f"error: instance {args.id} went offline", file=sys.stderr)
+                sys.exit(1)
+
+            if actual_status == args.status and intended_status == args.status:
+                if args.raw:
+                    return instance_info
+                return None
+
+            detail = f" ({status_msg})" if status_msg and actual_status == "loading" else ""
+            print(
+                f"instance {args.id}: {actual_status}{detail} — waiting for '{args.status}'",
+                file=sys.stderr
+            )
+            time.sleep(args.interval)
+
+    except KeyboardInterrupt:
+        print(f"\nwait cancelled for instance {args.id}", file=sys.stderr)
+        sys.exit(1)
+
+    elapsed = int(time.time() - start_time)
+    print(
+        f"error: instance {args.id} did not reach '{args.status}' within {elapsed}s "
+        f"(last status: {last_status}). Check: vastai show instance {args.id}",
+        file=sys.stderr
+    )
+    sys.exit(255)
+
 
 def numeric_version(version_str):
     try:

@@ -27,7 +27,7 @@ chmod +x vast
 ## Quick start
 
 ```bash
-vastai set api-key <YOUR_API_KEY>                   # Authenticate (one-time); Create API Key in account at https://console.vast.ai/cli
+vastai set api-key <YOUR_API_KEY>                   # Authenticate (one-time); Create API Key in account at https://console.vast.ai/manage-keys/
 vastai show user                                    # Verify auth + check balance
 vastai create ssh-key ~/.ssh/id_ed25519.pub         # Register SSH key (do BEFORE create)
 vastai search offers 'gpu_name=RTX_4090 num_gpus=1 verified=true direct_port_count>=1 rentable=true' -o 'dlperf_usd-'
@@ -40,7 +40,7 @@ vastai copy local:./data/ <INSTANCE_ID>:/workspace/ # Upload files
 vastai destroy instance <INSTANCE_ID> -y             # Clean up (stops all billing; -y skips confirmation)
 ```
 
-API key: https://console.vast.ai/cli
+API key: https://console.vast.ai/manage-keys/
 
 ## Global flags
 
@@ -340,7 +340,7 @@ vastai unlist machine <id>                               # Remove from marketpla
 ```
 https://console.vast.ai/instances/   # Your instances
 https://console.vast.ai/create/      # Search GPU offers
-https://console.vast.ai/cli          # Create and manage API keys
+https://console.vast.ai/manage-keys/ # Create and manage API keys
 https://cloud.vast.ai/billing/       # Billing
 ```
 

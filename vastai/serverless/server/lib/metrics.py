@@ -208,7 +208,6 @@ class Metrics:
                 "request_idx": r.request_idx,
                 "success": r.success,
                 "status": r.status,
-                "entered_queue_at": r.entered_queue_at,
                 "work_started_at": r.work_started_at,
                 "work_completed_at": r.work_completed_at,
             }

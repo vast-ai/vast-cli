@@ -21,6 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 import getpass
 import subprocess
+import shutil
 from time import sleep
 from subprocess import PIPE
 import urllib3
@@ -4817,6 +4818,54 @@ def ssh_url(args):
     :rtype:
     """
     return _ssh_url(args, "ssh://")
+
+
+@parser.command(
+    argument("id", help="id of instance", type=int),
+    argument("ssh_args", nargs=argparse.REMAINDER, help="extra flags passed through to ssh"),
+    usage="vastai ssh ID [-- SSH_FLAGS...]",
+    help="open an interactive SSH session to an instance",
+)
+def ssh(args):
+    if shutil.which("ssh") is None:
+        print("error: ssh not found in PATH")
+        return 1
+
+    req_url = apiurl(args, "/instances", {"owner": "me"})
+    r = http_get(args, req_url)
+    r.raise_for_status()
+    rows = r.json()["instances"]
+
+    matches = [row for row in rows if row["id"] == args.id]
+    if not matches:
+        print(f"error: no instance found with id {args.id}")
+        return 1
+    instance = matches[0]
+
+    if instance.get("actual_status") != "running":
+        print(f"error: instance {args.id} is not running (status: {instance.get('actual_status', 'unknown')})")
+        return 1
+
+    port = -1
+    ipaddr = None
+    try:
+        ports = instance.get("ports") or {}
+        port_22d = ports.get("22/tcp", None)
+        if port_22d is not None:
+            ipaddr = instance["public_ipaddr"]
+            port = int(port_22d[0]["HostPort"])
+        else:
+            ipaddr = instance["ssh_host"]
+            port = int(instance["ssh_port"]) + 1 if "jupyter" in instance["image_runtype"] else int(instance["ssh_port"])
+    except Exception:
+        port = -1
+
+    if port <= 0:
+        print(f"error: instance {args.id} has no SSH port available (may be stopped or still starting)")
+        return 1
+
+    cmd = ["ssh", "-p", str(port), f"root@{ipaddr}"] + list(args.ssh_args)
+    os.execvp("ssh", cmd)
 
 
 @parser.command(

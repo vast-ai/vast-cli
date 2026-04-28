@@ -347,6 +347,36 @@ def get_wrkgrp_logs(client, id, level=1, tail=None):
     return {"error": r.text}
 
 
+def get_endpoint_workers(client, endpoint_id: int):
+    """List workers on an endpoint (including `measured_perf`).
+
+    POST <autoscaler>/get_endpoint_workers/  body {"id": <endpoint_id>}
+
+    Autoscaler exposes `measured_perf = x->perf_` unconditionally at this
+    URL (autoscaler.cpp:341). The sibling `/get_workergroup_workers/`
+    gates `measured_perf` behind `ready_ever_`, which never flips for a
+    benchmark-only worker that never serves real traffic — so always use
+    this URL when we want the benchmark score.
+
+    Prod observed return shapes: bare list, `{"workers": [...], ...}`,
+    or `{"error_msg": "..."}`.
+    """
+    from vastai.api.client import server_url_default
+    base_url = client.server_url
+    if base_url == server_url_default:
+        base_url = "https://run.vast.ai"
+    url = base_url + "/get_endpoint_workers/"
+    json_blob = {"id": endpoint_id, "api_key": client.api_key}
+
+    headers = {}
+    if client.api_key is not None:
+        headers["Authorization"] = "Bearer " + client.api_key
+
+    r = client._request('POST', url, headers, json_blob)
+    r.raise_for_status()
+    return r.json()
+
+
 def update_workers(client, id: int, cancel: bool = False):
     """Trigger a rolling update of all workers in a workergroup, or cancel an in-progress update.
 

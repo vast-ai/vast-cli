@@ -15,5 +15,6 @@ def register_all_commands(parser):
     from vastai.cli.commands import (  # noqa: F401
         instances, offers, machines, teams, keys, endpoints,
         billing, storage, auth, misc, deployments, metrics,
+        benchmark,
         # clusters,  # cluster/overlay commands disabled for now
     )

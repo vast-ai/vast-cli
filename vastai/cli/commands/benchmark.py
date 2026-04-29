@@ -487,6 +487,7 @@ def _render_class_table(class_states):
     table.add_column("Elapsed", justify="right", no_wrap=True)
     table.add_column("Perf", justify="right", no_wrap=True)
     table.add_column("$/hr", justify="right", no_wrap=True)
+    table.add_column("Perf/$/hr", justify="right", no_wrap=True)
     now = time.monotonic()
     for gpu in sorted(class_states):
         s = class_states[gpu]
@@ -505,6 +506,7 @@ def _render_class_table(class_states):
             elapsed_str = _format_elapsed(now - run_started)
         perf = s.get("perf")
         dph = s.get("dph")
+        pps = (perf / dph) if (perf and dph) else None
         table.add_row(
             gpu,
             status,
@@ -513,6 +515,7 @@ def _render_class_table(class_states):
             elapsed_str,
             f"{perf:.1f}" if perf else "-",
             f"${dph:.3f}" if dph else "-",
+            f"{pps:.1f}" if pps else "-",
         )
     return table
 
@@ -882,9 +885,11 @@ def run__benchmark(args):
         results = skipped_results
         return _print_results(args, results)
 
-    print(f"Will rent {n} GPU{'s' if n != 1 else ''} in parallel for up to "
-          f"{timeout_minutes:.0f} min each. Actual $/hr per GPU is shown in "
-          f"the result table after the rental is live.")
+    if n == 1:
+        print(f"Will rent 1 GPU for up to {timeout_minutes:.0f} min.")
+    else:
+        print(f"Will rent {n} GPUs in parallel for up to "
+              f"{timeout_minutes:.0f} min each.")
     if not args.yes:
         if input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
             print("Aborted.", file=sys.stderr)

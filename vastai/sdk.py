@@ -208,11 +208,20 @@ class VastAI:
         from vastai.api.query import parse_query, offers_fields, offers_alias, offers_mult
         from vastai.utils import preprocess_search_query, postprocess_search_results
 
-        # Expand georegion/chunked directives before parsing
+        # Expand georegion/chunked directives before parsing.
+        # Seed defaults before parsing so `field=any` correctly removes them,
+        # matching CLI behavior. Pass no_default=True to the helper afterward
+        # so it does not reapply the same defaults.
         georegion_active, chunked = False, False
+        defaults_applied = False
         if isinstance(query, str):
             georegion_active, chunked, query = preprocess_search_query(query)
-            query = parse_query(query, {}, offers_fields, offers_alias, offers_mult)
+            base = {} if no_default else {
+                "verified": {"eq": True}, "external": {"eq": False},
+                "rentable": {"eq": True}, "rented": {"eq": False},
+            }
+            query = parse_query(query, base, offers_fields, offers_alias, offers_mult)
+            defaults_applied = True
 
         # Parse order string into list
         order_list = None
@@ -238,7 +247,8 @@ class VastAI:
 
         results = offers.search_offers(
             self.client, query=query, offer_type=type, order=order_list,
-            limit=limit, storage=storage, no_default=no_default, **kwargs,
+            limit=limit, storage=storage,
+            no_default=(no_default or defaults_applied), **kwargs,
         )
 
         if isinstance(results, list):
@@ -290,9 +300,15 @@ class VastAI:
         from vastai.utils import preprocess_search_query, postprocess_search_results
 
         georegion_active, chunked = False, False
+        defaults_applied = False
         if isinstance(query, str):
             georegion_active, chunked, query = preprocess_search_query(query)
-            query = parse_query(query, {}, offers_fields, offers_alias, offers_mult)
+            base = {} if no_default else {
+                "verified": {"eq": True}, "external": {"eq": False},
+                "rentable": {"eq": True}, "rented": {"eq": False},
+            }
+            query = parse_query(query, base, offers_fields, offers_alias, offers_mult)
+            defaults_applied = True
 
         order_list = None
         if isinstance(order, str):
@@ -317,7 +333,8 @@ class VastAI:
 
         results = offers.search_offers_new(
             self.client, query=query, offer_type=type, order=order_list,
-            limit=limit, storage=storage, no_default=no_default, **kwargs,
+            limit=limit, storage=storage,
+            no_default=(no_default or defaults_applied), **kwargs,
         )
 
         if isinstance(results, list):

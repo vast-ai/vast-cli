@@ -552,7 +552,7 @@ class MyWideHelpFormatter(argparse.RawTextHelpFormatter):
 
 
 parser = apwrap(
-    epilog="Use 'vast COMMAND --help' for more info about a command",
+    epilog="Use 'vast COMMAND --help' for more info about a command. AI agent? See https://raw.githubusercontent.com/vast-ai/vast-cli/master/vastai/SKILL.md",
     formatter_class=MyWideHelpFormatter
 )
 
@@ -9682,7 +9682,16 @@ def main():
                     errmsg = "(no detail message supplied)"
 
             # 2FA Session Key Expired
-            if e.response.status_code == 401 and errmsg == "Invalid user key":
+            # 401 "Invalid user key" is sent when a deleted API key is used
+            # expired TFA sessions return 404 "Session expired. Please log in again."
+            session_expired = (
+                (e.response.status_code == 401 and errmsg == "Invalid user key")
+                or (
+                    e.response.status_code == 404
+                    and errmsg == "Session expired. Please log in again."
+                )
+            )
+            if session_expired:
                 if os.path.exists(TFAKEY_FILE):
                     print(f"Failed with error {e.response.status_code}: Your 2FA session has expired.")
                     os.remove(TFAKEY_FILE)

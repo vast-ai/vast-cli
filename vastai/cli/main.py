@@ -34,7 +34,7 @@ def _emit_error(args, status_code, message):
 
 # Create the global parser instance
 parser = apwrap(
-    epilog="Use 'vast COMMAND --help' for more info about a command",
+    epilog="Use 'vast COMMAND --help' for more info about a command. AI agent? See https://raw.githubusercontent.com/vast-ai/vast-cli/master/vastai/SKILL.md",
     formatter_class=MyWideHelpFormatter
 )
 

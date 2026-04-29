@@ -250,7 +250,7 @@ def show_user(client):
     Returns:
         dict: User data (with api_key removed).
     """
-    r = client.get("/users/current", query_args={"owner": "me"})
+    r = client.get("/users/current")
     r.raise_for_status()
     user_blob = r.json()
     user_blob.pop("api_key", None)

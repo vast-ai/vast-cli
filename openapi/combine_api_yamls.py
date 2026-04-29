@@ -53,7 +53,23 @@ def combine_yaml_files(directory):
         'openapi': '3.1.0',
         'info': {
             'title': 'Vast.ai API',
-            'description': 'Welcome to Vast.ai \'s API documentation. Our API allows you to programmatically manage GPU instances, handle machine operations, and automate your AI/ML workflow. Whether you\'re running individual GPU instances or managing a fleet of machines, our API provides comprehensive control over all Vast.ai  platform features.',
+            'description': (
+                "Vast.ai REST API for managing GPU cloud instances, machine operations, and AI/ML workflows.\n\n"
+                "## AI Agent Quick-Start\n\n"
+                "Install the CLI skill for your agent (Claude Code, Cursor, Windsurf, etc.):\n"
+                "  npx skills add vast-ai/vast-cli\n\n"
+                "CLI reference: https://raw.githubusercontent.com/vast-ai/vast-cli/master/vastai/SKILL.md\n"
+                "SDK reference: https://raw.githubusercontent.com/vast-ai/vast-cli/master/vastai_sdk/SKILL.md\n\n"
+                "## Auth\n"
+                "All endpoints require `Authorization: Bearer $VAST_API_KEY`.\n"
+                "Get your key at: https://cloud.vast.ai/manage-keys/\n\n"
+                "## Key Quirks\n"
+                "- `gpu_ram` in CLI = GB; in REST API = MB (CLI auto-converts)\n"
+                "- SSH keys must be registered BEFORE creating an instance (VM: no recovery; Docker: can add post-create)\n"
+                "- `onstart` field is limited to 4048 characters -- gzip+base64 for longer scripts\n"
+                "- `POST /api/v0/asks/{id}/` (create instance) returns `new_contract` as the instance ID, not `id`\n"
+                "- Poll trap: if `actual_status` becomes `exited`, `unknown`, or `offline` it will never reach `running` -- destroy and retry"
+            ),
             'version': '1.0.0',
             'contact': {
                 'name': 'Vast.ai Support',

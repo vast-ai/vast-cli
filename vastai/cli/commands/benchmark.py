@@ -85,34 +85,6 @@ def _parse_gpu_spec(token, default_num_gpus):
     return (token.replace("_", " "), default_num_gpus)
 
 
-def _fetch_template(client, *, template_id=None, template_hash=None):
-    """Look up a template by id (preferred) or hash. Returns dict or None."""
-    if template_id is not None:
-        templates = _api_with_retry(offers_api.search_templates,
-                                    client, query={"id": {"eq": template_id}})
-    elif template_hash is not None:
-        templates = _api_with_retry(
-            offers_api.search_templates,
-            client, query={"hash_id": {"eq": template_hash}})
-    else:
-        return None
-    return templates[0] if templates else None
-
-
-def _parse_extra_filters(extra_filters_json):
-    """Parse the JSON-string extra_filters field from a template.
-
-    Returns an empty dict on missing/invalid input. Pre-flight just degrades
-    to "GPU-name + num_gpus only" rather than failing loudly.
-    """
-    if not extra_filters_json:
-        return {}
-    try:
-        return json.loads(extra_filters_json)
-    except (ValueError, TypeError):
-        return {}
-
-
 def _format_filter_query(filters):
     """Render an extra_filters dict back into comparison strings.
 
@@ -252,8 +224,6 @@ def _filter_satisfied(actual, op, threshold):
     try:
         a, t = float(actual), float(threshold)
     except (TypeError, ValueError):
-        if op in ("eq",):  return actual == threshold
-        if op in ("neq",): return actual != threshold
         return None
     if op == "gt":  return a > t
     if op == "gte": return a >= t
@@ -412,18 +382,6 @@ def _render_class_table(class_states):
     return table
 
 
-def _instance_dph_total(client, instance_id):
-    """Look up the rented instance's actual ``$/hr``. None on lookup
-    failure so a missing price doesn't kill the result.
-    """
-    try:
-        inst = _api_with_retry(instances_api.show_instance,
-                               client, id=instance_id)
-        return inst.get("dph_total")
-    except Exception:
-        return None
-
-
 def _api_with_retry(func, *args, max_retries=4, **kwargs):
     """Retry on 429 / 503 with jittered exponential backoff (0.6, 1.2, 2.4s).
     Other errors propagate immediately (403 usually means real auth/credit
@@ -443,16 +401,6 @@ def _api_with_retry(func, *args, max_retries=4, **kwargs):
             raise
 
 
-def _autoscaler_status_client(client, autoscaler_url):
-    """Optionally route status polls to a local autoscaler shard
-    (``--autoscaler-url``) while keeping CRUD on prod.
-    """
-    if not autoscaler_url:
-        return client
-    from vastai.api.client import VastClient
-    return VastClient(api_key=client.api_key, server_url=autoscaler_url)
-
-
 def _benchmark_one(client, *, gpu_name, num_gpus, timeout,
                    active_workergroups, active_endpoints,
                    template_hash=None, template_id=None,
@@ -468,9 +416,12 @@ def _benchmark_one(client, *, gpu_name, num_gpus, timeout,
     start = time.monotonic()
     _set_class_state(class_states, gpu_name, status="provisioning")
     search = f"gpu_name={gpu_name.replace(' ', '_')} num_gpus={num_gpus}"
-    # status_client routes get_endpoint_workers through --autoscaler-url
-    # for local-shard debugging, while CRUD stays on prod.
-    status_client = _autoscaler_status_client(client, autoscaler_url)
+    # status_client routes get_endpoint_workers through --autoscaler-url for local-shard debugging; CRUD stays on prod.
+    if autoscaler_url:
+        from vastai.api.client import VastClient
+        status_client = VastClient(api_key=client.api_key, server_url=autoscaler_url)
+    else:
+        status_client = client
 
     try:
         ep_kwargs = dict(_ENDPOINT_CONFIG, endpoint_name=endpoint_name)
@@ -534,10 +485,15 @@ def _benchmark_one(client, *, gpu_name, num_gpus, timeout,
                      if str(w.get("status", "")).lower() == "idle"
                      and (w.get("measured_perf") or 0) > 0]
             if ready:
-                # show_instance is the only place dph_total surfaces.
+                # show_instance is the only place dph_total surfaces; tolerate failure so a missing price doesn't drop the result.
                 worker_id = ready[0].get("id")
-                dph = (_instance_dph_total(client, worker_id)
-                       if worker_id else None)
+                dph = None
+                if worker_id:
+                    try:
+                        inst = _api_with_retry(instances_api.show_instance, client, id=worker_id)
+                        dph = inst.get("dph_total")
+                    except Exception:
+                        pass
                 _set_class_state(class_states, gpu_name, status="done",
                                  perf=ready[0]["measured_perf"], dph=dph)
                 return (gpu_name, "ok", ready[0]["measured_perf"], None, dph)
@@ -622,15 +578,21 @@ def run__benchmark(args):
         return 2
     client = get_client(args)
 
-    # Fail fast if the template can't be resolved at all.
-    template = _fetch_template(client, template_id=args.template_id,
-                               template_hash=args.template_hash)
-    if template is None:
-        ident = (f"id={args.template_id}" if args.template_id is not None
-                 else f"hash={args.template_hash}")
+    if args.template_id is not None:
+        query = {"id": {"eq": args.template_id}}
+        ident = f"id={args.template_id}"
+    else:
+        query = {"hash_id": {"eq": args.template_hash}}
+        ident = f"hash={args.template_hash}"
+    templates = _api_with_retry(offers_api.search_templates, client, query=query)
+    if not templates:
         print(f"error: template not found ({ident})", file=sys.stderr)
         return 1
-    extra_filters = _parse_extra_filters(template.get("extra_filters"))
+    template = templates[0]
+    try:
+        extra_filters = json.loads(template.get("extra_filters") or "{}")
+    except (ValueError, TypeError):
+        extra_filters = {}
 
     # Resolve gpu_specs: explicit --gpus parses inline Nx; otherwise auto-size from gpu_total_ram unless --num-gpus is given.
     if args.gpus:

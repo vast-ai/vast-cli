@@ -593,57 +593,26 @@ def _benchmark_one(client, *, gpu_name, num_gpus, timeout,
 
 @parser.command(
     argument("--gpus", type=str,
-             help="Comma-separated GPU names with optional Nx count prefix. "
-                  "Same format as `vastai search offers`: encode spaces as "
-                  "underscores, or quote the whole arg with real spaces. "
-                  "Examples: --gpus RTX_4080,RTX_3060   "
-                  "--gpus \"RTX 4080, 4x RTX 5090, 8x H100 SXM\". "
-                  "Tokens without a Nx prefix use --num-gpus as their count. "
-                  "If --gpus is omitted entirely, auto-discovers GPUs "
-                  "with the most offers matching this template's "
-                  "extra_filters at --num-gpus."),
+             help="comma-separated GPU names, same format as `vastai search offers` (e.g. RTX_4090,H100_SXM); optional Nx prefix per token (e.g. \"4x RTX_5090\")"),
     argument("--num-gpus", type=int, default=None,
-             help="Default number of GPUs per instance for tokens without an "
-                  "Nx prefix. Also overrides the default-list auto-sizing "
-                  "when --gpus is omitted. If not set, falls back to 1 "
-                  "(or the per-GPU auto-size when --gpus is omitted and "
-                  "the template has a gpu_total_ram filter)."),
+             help="GPUs per instance for tokens without an Nx prefix (default 1)"),
     argument("--timeout", type=int, default=_DEFAULT_TIMEOUT,
-             help=f"Per-GPU safety ceiling in seconds (default "
-                  f"{_DEFAULT_TIMEOUT}). Most runs finish well before this; "
-                  f"the autoscaler's own adaptive loading timeout fires first "
-                  f"for known templates (~13 min for TGI 1.0.3). This bound "
-                  f"matters for fresh / uncommon templates where the "
-                  f"autoscaler defaults to a 3-hour ceiling."),
+             help=f"per-GPU safety ceiling in seconds (default {_DEFAULT_TIMEOUT})"),
     argument("--yes", "-y", action="store_true",
-             help="Skip cost-disclosure prompt"),
+             help="skip cost-disclosure prompt"),
     argument("--template-hash", type=str, default=None,
-             help="Template hash to benchmark. One of --template-hash or "
-                  "--template-id is required. Note: --template-hash can resolve "
-                  "to the wrong template_id silently (serverless-bugs.md #6); "
-                  "prefer --template-id when you have it."),
+             help="template hash to benchmark (one of --template-hash or --template-id required)"),
     argument("--template-id", type=int, default=None,
-             help="Template id to benchmark. One of --template-hash or "
-                  "--template-id is required. Wins over --template-hash if both "
-                  "are passed."),
-    # Hidden dev flags for local autoscaler-shard testing.
+             help="template id to benchmark; wins over --template-hash if both are passed"),
     argument("--auto-instance", type=str, default=None, help=argparse.SUPPRESS),
     argument("--autoscaler-url", type=str, default=None, help=argparse.SUPPRESS),
     usage="vastai run benchmark (--template-id ID | --template-hash HASH) [OPTIONS]",
-    help="Rent fresh instances, run pyworker benchmark, record measured perf/$",
+    help="Rent fresh instances per GPU, run the template's pyworker benchmark, record measured perf/$",
     epilog=deindent("""
-        Rents one instance per GPU in parallel, measures perf, tears
-        down. Each GPU gets its own ephemeral endpoint
-        (``benchmark-<uuid8>``) and workergroup, capped at one rental.
+        Rents one instance per GPU in parallel, measures perf, tears down.
+        Each rental runs for up to --timeout seconds and costs real money.
 
-        REAL MONEY: each rental runs for up to --timeout seconds.
-        Cleanup runs on Ctrl-C, exceptions, timeouts, and sys.exit.
-
-        Examples:
-            vastai run benchmark --template-id 79663
-            vastai run benchmark --template-hash 3f19d605a70f4896e8a717dfe6b517a2
-            vastai run benchmark --template-id 79663 --gpus RTX_4080,RTX_3060
-            vastai run benchmark --template-id 79663 --timeout 600 -y
+        Example: vastai run benchmark --template-id 79663 --gpus RTX_4080,RTX_3060
     """),
 )
 def run__benchmark(args):

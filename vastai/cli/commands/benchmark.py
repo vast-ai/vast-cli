@@ -31,9 +31,7 @@ from vastai.api import offers as offers_api
 parser = _get_parser()
 
 
-# Default GPUs when --gpus is omitted, mapped to per-card VRAM (MB).
-# Single-SKU GPUs only; do NOT add cards with VRAM variants under the
-# same gpu_name (RTX 4060 Ti 8/16 GB, A100 40/80 GB, etc.).
+# Default GPUs (per-card VRAM in MB). Single-SKU only; VRAM variants under one gpu_name break the auto-sizer.
 _DEFAULT_GPUS = {
     "RTX 5090":  32607,
     "RTX 4090":  24564,
@@ -49,14 +47,27 @@ _DEFAULT_TIMEOUT = 30 * 60
 _NO_WORKER_TIMEOUT = 120  # bail if autoscaler hasn't rented anything by here
 _SUBMIT_STAGGER = 1.5  # spacing between parallel submits to avoid rate limits
 
+_GPU_COUNT_RE = re.compile(r"^(\d+)\s*x\s*(.+)$", re.IGNORECASE)  # "Nx GPU NAME" prefix on a --gpus token
+
+_FILTER_OP_SYMBOL = {
+    "gt": ">", "gte": ">=", "lt": "<", "lte": "<=",
+    "eq": "==", "neq": "!=", "in": "in", "notin": "notin",
+}
+
+# Workers stuck in these for >_TERMINAL_DEBOUNCE seconds trigger fail-fast.
+# `error` excluded since the autoscaler recovers (error, rebooting, model_loading).
+_TERMINAL_STATES = {"stopped", "destroying", "unavail"}
+_TERMINAL_DEBOUNCE = 30
+
+# Freezes the elapsed column in the live table; excludes `error` (autoscaler recovers).
+_TERMINAL_STATUSES = {"done", "skipped", "timeout", "failed", "no_worker"}
+
+_WAITING_KEY = "__waiting__"  # sentinel in worker_states; cannot collide with int worker ids
+
 
 def _format_elapsed(seconds):
     m, s = divmod(int(seconds), 60)
     return f"{m}:{s:02d}"
-
-
-# Matches a "Nx GPU NAME" prefix on a --gpus token (whitespace around x ok).
-_GPU_COUNT_RE = re.compile(r"^(\d+)\s*x\s*(.+)$", re.IGNORECASE)
 
 
 def _parse_gpu_spec(token, default_num_gpus):
@@ -91,7 +102,7 @@ def _fetch_template(client, *, template_id=None, template_hash=None):
 def _parse_extra_filters(extra_filters_json):
     """Parse the JSON-string extra_filters field from a template.
 
-    Returns an empty dict on missing/invalid input — pre-flight just degrades
+    Returns an empty dict on missing/invalid input. Pre-flight just degrades
     to "GPU-name + num_gpus only" rather than failing loudly.
     """
     if not extra_filters_json:
@@ -100,12 +111,6 @@ def _parse_extra_filters(extra_filters_json):
         return json.loads(extra_filters_json)
     except (ValueError, TypeError):
         return {}
-
-
-_FILTER_OP_SYMBOL = {
-    "gt": ">", "gte": ">=", "lt": "<", "lte": "<=",
-    "eq": "==", "neq": "!=", "in": "in", "notin": "notin",
-}
 
 
 def _format_filter_query(filters):
@@ -157,8 +162,8 @@ def _skip_message_for_zero_offers(client, *, gpu_name, num_gpus, extra_filters):
         extra_filters=extra_filters,
     )
     if diag["base_count"] == 0:
-        return (f"no offers for {gpu_name} (num_gpus={num_gpus}) "
-                f"— independent of template filters")
+        return (f"no offers for {gpu_name} (num_gpus={num_gpus}), "
+                f"independent of template filters")
 
     blockers = diag["single_blockers"]
     if blockers:
@@ -215,8 +220,8 @@ def _skip_message_for_zero_offers(client, *, gpu_name, num_gpus, extra_filters):
         # If every "blocker" turned out to be a search-engine quirk, fall
         # through to the combined-exclusion message below.
 
-    # No single filter is sufficient — combination of filters is the culprit.
-    return ("0 offers match — no single filter is the culprit, the combination "
+    # No single filter is sufficient; combination of filters is the culprit.
+    return ("0 offers match. No single filter is the culprit; the combination "
             f"of template filters excludes {gpu_name} "
             f"({_format_filter_query(extra_filters)})")
 
@@ -333,16 +338,6 @@ def _auto_num_gpus_for_default(client, gpu_name, extra_filters):
     return viable or raw_min
 
 
-# Workers in these states won't recover; if all current workers are here for
-# >_TERMINAL_DEBOUNCE seconds without measured_perf, fail-fast. Excludes
-# `error` (autoscaler retries via error -> rebooting -> model_loading).
-_TERMINAL_STATES = {"stopped", "destroying", "unavail"}
-_TERMINAL_DEBOUNCE = 30
-
-# String-keyed sentinel in worker_states (can't collide with int worker ids).
-_WAITING_KEY = "__waiting__"
-
-
 def _emit_progress(worker_states, current_workers, gpu_name):
     """Update worker_states with current poll, and print only on worker
     rotation (the live rich table already shows current status / elapsed).
@@ -383,11 +378,6 @@ def _emit_progress(worker_states, current_workers, gpu_name):
                   f"(last state={prev['status']} for {elapsed})",
                   file=sys.stderr)
             del worker_states[wid]
-
-
-# Used to freeze a GPU's elapsed column in the live table once it's done.
-# Excludes ``error`` because the autoscaler recovers from it.
-_TERMINAL_STATUSES = {"done", "skipped", "timeout", "failed", "no_worker"}
 
 
 def _set_class_state(class_states, gpu_name, **fields):
@@ -559,10 +549,10 @@ def _benchmark_one(client, *, gpu_name, num_gpus, timeout,
         worker_states = {}
 
         while time.monotonic() - start < timeout:
-            # Poll at endpoint level — get_workergroup_workers gates
+            # Poll at endpoint level; get_workergroup_workers gates
             # measured_perf behind ready_ever_ which never flips for
-            # benchmark-only workers. Response is a bare list or
-            # {"workers": [...]} or {"error_msg": "..."}.
+            # benchmark-only workers. Response is a bare list, or
+            # {"workers": [...]}, or {"error_msg": "..."}.
             resp = _api_with_retry(endpoints_api.get_endpoint_workers,
                                    status_client, endpoint_id)
             if isinstance(resp, list):
@@ -867,7 +857,7 @@ def run__benchmark(args):
                     live.update(_render_class_table(class_states))
         except KeyboardInterrupt:
             # Run cleanup synchronously instead of waiting for threads to
-            # drain — otherwise an aborting user has to second-Ctrl+C and
+            # drain. Otherwise an aborting user has to second-Ctrl+C and
             # we leak. Threads see workergroups vanish on their next poll.
             console.print("\n[yellow]Aborted, cleaning up...[/yellow]",
                           highlight=False)

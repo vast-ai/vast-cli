@@ -205,17 +205,11 @@ def _skip_message_for_zero_offers(client, *, gpu_name, num_gpus, extra_filters):
                     op, value = next(iter(ops.items()))
                     raw = _min_num_gpus_for_total_ram(
                         value, op, diag.get("per_card_gpu_ram"))
-                    # Round our suggestion up to a count the marketplace
-                    # actually has. Vast lists 1, 2, 4, 6, 8, 9, 10 commonly
-                    # but rarely 3, 5, 7. Verifying via search_offers means
-                    # we never suggest a count that pre-flight would skip.
                     if raw and raw > num_gpus:
-                        viable = _suggest_viable_num_gpus(
-                            client, gpu_name, raw, extra_filters)
-                        if viable:
-                            lines.append(
-                                f"  hint: try {viable}x {gpu_name} "
-                                f"(host total then satisfies {value})")
+                        viable = _round_up_to_chassis(raw)
+                        lines.append(
+                            f"  hint: try {viable}x {gpu_name} "
+                            f"(host total then satisfies {value})")
             return "\n".join(lines)
         # If every "blocker" turned out to be a search-engine quirk, fall
         # through to the combined-exclusion message below.
@@ -284,11 +278,6 @@ def _min_num_gpus_for_total_ram(threshold, op, per_card_gpu_ram):
     """Smallest ``num_gpus`` such that ``num_gpus * per_card_gpu_ram``
     satisfies the template's ``gpu_total_ram`` filter. Returns None if any
     input is missing or the operator isn't a comparison we can solve.
-
-    Note: Vast hosts list common chassis configurations (1, 2, 4, 6, 8, 9,
-    10) but rarely 3, 5, or 7. If this returns 3 you should verify with
-    a follow-up offer search before suggesting it to the user, otherwise
-    the hint may point at a configuration the market doesn't have.
     """
     if not per_card_gpu_ram or not threshold:
         return None
@@ -299,30 +288,21 @@ def _min_num_gpus_for_total_ram(threshold, op, per_card_gpu_ram):
     return None
 
 
-def _suggest_viable_num_gpus(client, gpu_name, raw_min, extra_filters,
-                             max_search=12):
-    """Return the smallest ``num_gpus >= raw_min`` that has at least one
-    offer for ``gpu_name`` matching ``extra_filters``, or None if nothing
-    up to ``max_search`` works. Used to round our num_gpus suggestion up
-    to a configuration the marketplace actually rents.
+def _round_up_to_chassis(n):
+    """Round n up to the next common chassis size (1, 2, 4, 8). Returns n
+    unchanged for >8 since that's rare enough we'd rather be honest than guess.
     """
-    if raw_min is None:
-        return None
-    for n in range(raw_min, max_search + 1):
-        count = _count_matching_offers(
-            client, gpu_name=gpu_name, num_gpus=n,
-            extra_filters=extra_filters,
-        )
-        if count > 0:
-            return n
-    return None
+    for c in (1, 2, 4, 8):
+        if n <= c:
+            return c
+    return n
 
 
-def _auto_num_gpus_for_default(client, gpu_name, extra_filters):
+def _auto_num_gpus_for_default(gpu_name, extra_filters):
     """Smallest num_gpus where ``num_gpus * per_card_ram`` satisfies the
-    template's ``gpu_total_ram`` filter, rounded up to a count the catalog
-    actually has. Falls back to 1 when the template has no such filter or
-    one card already satisfies it.
+    template's ``gpu_total_ram`` filter, rounded up to a chassis size.
+    Falls back to 1 when the template has no such filter or one card
+    already satisfies it.
     """
     per_card = _DEFAULT_GPUS.get(gpu_name)
     if per_card is None:
@@ -334,8 +314,7 @@ def _auto_num_gpus_for_default(client, gpu_name, extra_filters):
     raw_min = _min_num_gpus_for_total_ram(threshold, op, per_card)
     if raw_min is None or raw_min <= 1:
         return 1
-    viable = _suggest_viable_num_gpus(client, gpu_name, raw_min, extra_filters)
-    return viable or raw_min
+    return _round_up_to_chassis(raw_min)
 
 
 def _emit_progress(worker_states, current_workers, gpu_name):
@@ -515,7 +494,8 @@ def _benchmark_one(client, *, gpu_name, num_gpus, timeout,
             ep_kwargs["auto_instance"] = auto_instance
         ep_resp = _api_with_retry(endpoints_api.create_endpoint,
                                   client, **ep_kwargs)
-        endpoint_id = ep_resp.get("result") if isinstance(ep_resp, dict) else None
+        # Autoscaler returns the new id under either "result" or "id" depending on resource.
+        endpoint_id = ep_resp.get("result", ep_resp.get("id")) if isinstance(ep_resp, dict) else None
         if not isinstance(endpoint_id, int):
             return (gpu_name, "error", None,
                     f"create_endpoint returned no id: {ep_resp!r}", None)
@@ -540,7 +520,7 @@ def _benchmark_one(client, *, gpu_name, num_gpus, timeout,
             wg_kwargs["auto_instance"] = auto_instance
         resp = _api_with_retry(endpoints_api.create_workergroup,
                                client, **wg_kwargs)
-        wg_id = resp.get("result") if isinstance(resp, dict) else None
+        wg_id = resp.get("result", resp.get("id")) if isinstance(resp, dict) else None
         if not isinstance(wg_id, int):
             return (gpu_name, "error", None,
                     f"create_workergroup returned no id: {resp!r}", None)
@@ -719,7 +699,7 @@ def run__benchmark(args):
         gpu_specs = [(g, args.num_gpus) for g in _DEFAULT_GPUS]
     else:
         gpu_specs = [
-            (g, _auto_num_gpus_for_default(client, g, extra_filters))
+            (g, _auto_num_gpus_for_default(g, extra_filters))
             for g in _DEFAULT_GPUS
         ]
 

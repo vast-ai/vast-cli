@@ -17,6 +17,7 @@ pytest-cov = "^6.0.0"
 cryptography = ">=41.0"
 pyOpenSSL = ">=23.0"
 vastai-sdk = { path = "..", develop = true }
+rich = ">=13.0"
 
 [tool.pytest.ini_options]
 testpaths = ["."]

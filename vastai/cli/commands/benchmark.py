@@ -21,6 +21,7 @@ import json
 import math
 import random
 import re
+import signal
 import sys
 import time
 import uuid
@@ -42,17 +43,40 @@ from vastai.api import offers as offers_api
 parser = _get_parser()
 
 
-# Default class list — most popular serverless GPUs. Placeholder picks until
-# we have real popularity data; the consumer flagships (4090, 5090) plus the
-# two datacenter staples (H100, A100). Caller's template extra_filters may
-# silently exclude classes that don't fit its VRAM/CUDA gates, so this list
-# only matters when the template is permissive enough to accept all of them.
+# Default class list when --gpus is omitted. Five popular serverless GPUs
+# spanning the price tiers: consumer (5090/4090/3090), workstation (A6000),
+# and datacenter (H100 SXM). Each entry must also appear in
+# _DEFAULT_GPU_RAM_MB so we can auto-size num_gpus from the template's
+# gpu_total_ram filter without hitting the catalog. Caller's template
+# extra_filters may still exclude individual classes (cuda version,
+# compute_cap, inet, etc.) — those land in pre-flight as `skipped`.
 _DEFAULT_GPUS = [
-    "RTX 4090",
     "RTX 5090",
+    "RTX 4090",
+    "RTX 3090",
     "H100 SXM",
-    "A100 SXM4",
+    "RTX A6000",
 ]
+
+# Per-card VRAM (MB) for the default classes. Used by the auto-num_gpus path
+# to compute the smallest count whose host-total satisfies a template's
+# `gpu_total_ram` filter, e.g. a template requiring >48000 picks 2x for
+# RTX 5090 (32 GB), 4x for RTX 4090 (24 GB), 1x for H100 SXM, etc. Values
+# are the standard SKU per class verified against the live catalog
+# (2026-04-30): RTX 4090 has rare 48 GB modded variants (~18% of US
+# offers) but 80% are 24 GB; we size for the standard SKU and accept that
+# customers who happen to land on a modded host will be over-provisioned.
+#
+# Do NOT add multi-VRAM-SKU classes here without switching to runtime
+# catalog query (RTX 4060 Ti has 8/16 GB variants, A100 has 40/80 GB,
+# both reported under the same gpu_name).
+_DEFAULT_GPU_RAM_MB = {
+    "RTX 5090":  32607,
+    "RTX 4090":  24564,
+    "RTX 3090":  24576,
+    "H100 SXM":  81559,
+    "RTX A6000": 49140,
+}
 
 # Per-class endpoint config:
 # - cold_workers=1 drives min_to_create=1 in the autoscaler
@@ -421,6 +445,34 @@ def _suggest_viable_num_gpus(client, gpu_class, raw_min, extra_filters,
     return None
 
 
+def _auto_num_gpus_for_default(client, gpu_class, extra_filters):
+    """Compute the per-class num_gpus for a default-list class based on the
+    template's ``gpu_total_ram`` filter (if any) and the class's hardcoded
+    per-card VRAM in ``_DEFAULT_GPU_RAM_MB``.
+
+    Returns ``num_gpus`` (int >= 1). Falls back to 1 when:
+    - The template has no ``gpu_total_ram`` filter (single card is enough).
+    - The operator isn't a comparison we can solve (gt/gte).
+    - One card already satisfies the threshold.
+
+    Rounds up to a marketplace-viable count via ``_suggest_viable_num_gpus``
+    so we never recommend e.g. ``3x RTX_4090`` when only 1/2/4-card hosts
+    exist for that class.
+    """
+    per_card = _DEFAULT_GPU_RAM_MB.get(gpu_class)
+    if per_card is None:
+        return 1
+    ops = (extra_filters or {}).get("gpu_total_ram") or {}
+    if not ops:
+        return 1
+    op, threshold = next(iter(ops.items()))
+    raw_min = _min_num_gpus_for_total_ram(threshold, op, per_card)
+    if raw_min is None or raw_min <= 1:
+        return 1
+    viable = _suggest_viable_num_gpus(client, gpu_class, raw_min, extra_filters)
+    return viable or raw_min
+
+
 # Worker states surfaced by the autoscaler (vast/autoscaler/types.h ObservedState):
 # happy path:   pending -> creating -> created -> loading -> model_loading -> idle
 # failure:      error, unavail, destroying, stopping, stopped
@@ -563,6 +615,11 @@ def _render_class_table(class_states):
     for gpu in sorted(class_states):
         s = class_states[gpu]
         status = s.get("status") or "-"
+        # Hide skipped rows from the live table; they're noise during the
+        # active run (the skip reason was printed at pre-flight, and the
+        # final result table at the end still includes them for the record).
+        if status == "skipped":
+            continue
         run_started = s.get("run_started")
         run_ended = s.get("run_ended")
         # Skipped classes never really ran; queued ones haven't started.
@@ -865,10 +922,12 @@ def _benchmark_one(client, *, gpu_class, num_gpus, timeout,
                   "If --gpus is omitted entirely, auto-discovers GPU classes "
                   "with the most offers matching this template's "
                   "extra_filters at --num-gpus."),
-    argument("--num-gpus", type=int, default=1,
+    argument("--num-gpus", type=int, default=None,
              help="Default number of GPUs per instance for tokens without an "
-                  "Nx prefix (default 1). Also used as the discovery hint "
-                  "when --gpus is omitted."),
+                  "Nx prefix. Also overrides the default-list auto-sizing "
+                  "when --gpus is omitted. If not set, falls back to 1 "
+                  "(or the per-class auto-size when --gpus is omitted and "
+                  "the template has a gpu_total_ram filter)."),
     argument("--timeout", type=int, default=_DEFAULT_TIMEOUT,
              help=f"Per-GPU safety ceiling in seconds (default "
                   f"{_DEFAULT_TIMEOUT}). Most runs finish well before this; "
@@ -932,29 +991,25 @@ def run__benchmark(args):
         return 1
     extra_filters = _parse_extra_filters(template.get("extra_filters"))
 
-    # Auto-discover GPU classes when --gpus isn't specified. Picks the classes
-    # with the most offers matching the template's extra_filters, so the user
-    # gets a sensible default without having to know the template's VRAM/CUDA
-    # gates. Hardcoded _DEFAULT_GPUS is the last-resort fallback if discovery
-    # comes up empty (rare; usually means no US offers right now).
-    # Each "class" carries its own num_gpus now: explicit mode uses the Nx
-    # prefix per token (defaulting to --num-gpus when absent); auto-discovery
-    # mode picks classes that have offers at --num-gpus.
+    # Resolve gpu_specs (the (gpu_class, num_gpus) pairs we'll benchmark).
+    # Three modes:
+    #   - Explicit --gpus: parse the comma list, honoring inline Nx prefix
+    #     per token; tokens without prefix fall back to --num-gpus or 1.
+    #   - Default list, no --num-gpus: use _DEFAULT_GPUS and auto-size each
+    #     class's count from the template's gpu_total_ram filter (e.g. a
+    #     template requiring >48 GB picks 2x for RTX 5090, 4x for RTX 4090,
+    #     1x for H100 SXM, etc.).
+    #   - Default list, --num-gpus given: use _DEFAULT_GPUS, all at the
+    #     specified count (user override).
     if args.gpus:
-        gpu_specs = _parse_gpus_arg(args.gpus, args.num_gpus)
+        gpu_specs = _parse_gpus_arg(args.gpus, args.num_gpus or 1)
+    elif args.num_gpus is not None:
+        gpu_specs = [(g, args.num_gpus) for g in _DEFAULT_GPUS]
     else:
-        discovered = _suggest_compatible_gpus(
-            client, num_gpus=args.num_gpus, extra_filters=extra_filters, top_k=5,
-        )
-        if discovered:
-            gpu_specs = [(g, args.num_gpus) for g in discovered]
-            print(f"Auto-detected GPU classes from template: "
-                  f"{', '.join(discovered)}", file=sys.stderr)
-        else:
-            gpu_specs = [(g, args.num_gpus) for g in _DEFAULT_GPUS]
-            print(f"warning: no GPU classes match this template's filters at "
-                  f"num_gpus={args.num_gpus}; falling back to default list "
-                  f"(all classes likely to skip)", file=sys.stderr)
+        gpu_specs = [
+            (g, _auto_num_gpus_for_default(client, g, extra_filters))
+            for g in _DEFAULT_GPUS
+        ]
     # gpu_classes used for downstream display & "did the user pass --gpus"
     # checks. The (gpu, n) pairs in gpu_specs are the source of truth for
     # what we actually rent.
@@ -991,14 +1046,17 @@ def run__benchmark(args):
     # discovered: discovery already picked the best classes for this
     # template, so any extras would be redundant noise.)
     if args.gpus and skipped_results:
+        # The alternatives suggestion is for the explicit-gpus case only,
+        # where args.num_gpus serves as the assumed count; default to 1.
+        suggestion_n = args.num_gpus or 1
         suggestions = _suggest_compatible_gpus(
-            client, num_gpus=args.num_gpus, extra_filters=extra_filters,
+            client, num_gpus=suggestion_n, extra_filters=extra_filters,
         )
         new_suggestions = [s for s in suggestions if s not in gpu_classes]
         if new_suggestions:
             console.print(
                 f"\nGPU classes compatible with this template "
-                f"(num_gpus={args.num_gpus}): "
+                f"(num_gpus={suggestion_n}): "
                 f"{', '.join(new_suggestions[:8])}", highlight=False)
 
     timeout_minutes = args.timeout / 60.0
@@ -1037,18 +1095,40 @@ def run__benchmark(args):
     active_endpoints = set()
 
     def _cleanup():
-        for wg_id in list(active_workergroups):
-            try:
-                _api_with_retry(endpoints_api.delete_workergroup, client, id=wg_id)
-                active_workergroups.discard(wg_id)
-            except Exception:
-                pass
-        for ep_id in list(active_endpoints):
-            try:
-                _api_with_retry(endpoints_api.delete_endpoint, client, id=ep_id)
-                active_endpoints.discard(ep_id)
-            except Exception:
-                pass
+        # Critical: this can run during Ctrl+C handling. We mask SIGINT for
+        # the duration so a second Ctrl+C from an impatient user doesn't
+        # interrupt mid-deletion and leave records leaked. We also catch
+        # BaseException (not just Exception) on each delete because
+        # KeyboardInterrupt is a BaseException and would otherwise bypass
+        # `except Exception` and abort the loop. Each delete is independent;
+        # one failure shouldn't abort the rest.
+        prev_handler = None
+        try:
+            prev_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
+        except (ValueError, OSError):
+            # Not in main thread, or signals unavailable; carry on.
+            pass
+        try:
+            for wg_id in list(active_workergroups):
+                try:
+                    _api_with_retry(endpoints_api.delete_workergroup,
+                                    client, id=wg_id)
+                    active_workergroups.discard(wg_id)
+                except BaseException:
+                    pass
+            for ep_id in list(active_endpoints):
+                try:
+                    _api_with_retry(endpoints_api.delete_endpoint,
+                                    client, id=ep_id)
+                    active_endpoints.discard(ep_id)
+                except BaseException:
+                    pass
+        finally:
+            if prev_handler is not None:
+                try:
+                    signal.signal(signal.SIGINT, prev_handler)
+                except (ValueError, OSError):
+                    pass
     atexit.register(_cleanup)
 
     # Live progress table state. Pre-populate with all classes (skipped ones
@@ -1116,11 +1196,19 @@ def run__benchmark(args):
                                 highlight=False)
                     live.update(_render_class_table(class_states))
         except KeyboardInterrupt:
-            # Cancel anything pending; running futures still finish (their own
-            # finally blocks tear down their endpoint/workergroup). atexit
-            # sweeps anything that managed to leak past that.
+            # User aborted. Run cleanup IMMEDIATELY (don't wait for threads
+            # via executor.shutdown(wait=True), which would block up to
+            # --timeout). Deleting the workergroups makes the autoscaler
+            # destroy the workers; the polling threads will then see zero
+            # workers, exit their loops, and the executor will drain.
+            # Without this, users hit Ctrl+C, stare at a stuck process for
+            # 30 min, hit Ctrl+C again, kill the cleanup mid-flight, and
+            # leak workergroups + endpoints.
+            console.print("\n[yellow]Aborted, cleaning up...[/yellow]",
+                          highlight=False)
             executor.shutdown(wait=False, cancel_futures=True)
-            raise
+            _cleanup()
+            return 130
     finally:
         executor.shutdown(wait=True)
         _cleanup()
@@ -1156,18 +1244,8 @@ def _print_results(args, results):
     if args.raw:
         return rows
 
-    template_display = (
-        f"id:{args.template_id}" if args.template_id is not None
-        else f"hash:{args.template_hash[:8]}"
-    )
-    print()
-    print(f"Template: {template_display}  num_gpus={args.num_gpus}  "
-          f"gpus={len(results)}")
-    print()
-    display_table(rows, [
-        ("gpu_name",        "GPU",             "{}",      None, True),
-        ("rental_dph",      "Rental $/hr",     "${:.3f}", None, False),
-        ("measured_perf",   "Perf (measured)", "{:.1f}",  None, False),
-        ("status",          "Status",          "{}",      None, True),
-        ("perf_per_dollar", "Perf / $/hr",     "{:.1f}",  None, False),
-    ], replace_spaces=False)
+    # The live rich table already shows everything; no need to re-render a
+    # second static table here. Just print a one-line completion summary.
+    n_ok = sum(1 for r in rows if r["status"] == "ok")
+    n_total = len(rows)
+    print(f"\nBenchmark complete: {n_ok}/{n_total} GPUs measured.")

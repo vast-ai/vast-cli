@@ -31,7 +31,7 @@ def _patch_api(create_resp=None, workers_responses=None, delete_raises=None,
     """Return patches for everything ``_benchmark_one`` calls.
 
     The function now creates AND tears down its own endpoint per call (one
-    endpoint per GPU class, for parallel-safe allocation). Both create and
+    endpoint per GPU, for parallel-safe allocation). Both create and
     delete are mocked.
 
     On the success path it also calls ``show_instance(worker_id)`` for
@@ -77,7 +77,7 @@ class TestBenchmarkOne:
             active_eps = set()
             gpu, status, perf, err, price = bench._benchmark_one(
                 _mk_client(),
-                gpu_class="RTX 4080", num_gpus=1, timeout=60,
+                gpu_name="RTX 4080", num_gpus=1, timeout=60,
                 active_workergroups=active_wgs, active_endpoints=active_eps,
                 template_id=99999,
             )
@@ -105,7 +105,7 @@ class TestBenchmarkOne:
         with patches[0] as mc, patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
             bench._benchmark_one(
                 _mk_client(),
-                gpu_class="RTX 3060", num_gpus=1, timeout=60,
+                gpu_name="RTX 3060", num_gpus=1, timeout=60,
                 active_workergroups=set(), active_endpoints=set(),
                 template_id=12345, template_hash="abc",
             )
@@ -124,7 +124,7 @@ class TestBenchmarkOne:
         with patches[0] as mc, patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
             bench._benchmark_one(
                 _mk_client(),
-                gpu_class="RTX 3060", num_gpus=1, timeout=60,
+                gpu_name="RTX 3060", num_gpus=1, timeout=60,
                 active_workergroups=set(), active_endpoints=set(),
                 template_hash="abc123",
             )
@@ -151,7 +151,7 @@ class TestBenchmarkOne:
             active_eps = set()
             gpu, status, perf, err, price = bench._benchmark_one(
                 _mk_client(),
-                gpu_class="RTX 3060", num_gpus=1, timeout=1,
+                gpu_name="RTX 3060", num_gpus=1, timeout=1,
                 active_workergroups=active_wgs,
                 active_endpoints=active_eps,
             )
@@ -179,7 +179,7 @@ class TestBenchmarkOne:
             with pytest.raises(RuntimeError):
                 bench._benchmark_one(
                     _mk_client(),
-                    gpu_class="RTX 3060", num_gpus=1, timeout=10,
+                    gpu_name="RTX 3060", num_gpus=1, timeout=10,
                     active_workergroups=active_wgs,
                     active_endpoints=active_eps,
                 )
@@ -199,7 +199,7 @@ class TestBenchmarkOne:
              patch.object(bench.time, "monotonic", return_value=0):
             gpu, status, perf, err, price = bench._benchmark_one(
                 _mk_client(),
-                gpu_class="RTX 3060", num_gpus=1, timeout=10,
+                gpu_name="RTX 3060", num_gpus=1, timeout=10,
                 active_workergroups=set(), active_endpoints=set(),
             )
             assert status == "error"
@@ -235,7 +235,7 @@ class TestBenchmarkOne:
             # (50 > 30s, fires).
             gpu, status, perf, err, price = bench._benchmark_one(
                 _mk_client(),
-                gpu_class="RTX 3060", num_gpus=1, timeout=600,
+                gpu_name="RTX 3060", num_gpus=1, timeout=600,
                 active_workergroups=set(), active_endpoints=set(),
             )
             assert status == "failed"
@@ -263,7 +263,7 @@ class TestBenchmarkOne:
                           side_effect=[0, 0, 1]):
             gpu, status, perf, err, price = bench._benchmark_one(
                 _mk_client(),
-                gpu_class="RTX 3060", num_gpus=1, timeout=60,
+                gpu_name="RTX 3060", num_gpus=1, timeout=60,
                 active_workergroups=set(), active_endpoints=set(),
             )
             assert status == "ok"

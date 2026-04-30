@@ -1,6 +1,6 @@
-"""vastai run benchmark: benchmark a template against one or more GPU
-classes. Each class is rented in parallel; per-class measured perf comes
-from the template's pyworker benchmark.
+"""vastai run benchmark: benchmark a template against one or more GPUs.
+Each GPU is rented in parallel; the per-GPU measured perf comes from the
+template's pyworker benchmark.
 """
 
 import argparse
@@ -31,8 +31,8 @@ from vastai.api import offers as offers_api
 parser = _get_parser()
 
 
-# Default GPU classes when --gpus is omitted, mapped to per-card VRAM (MB).
-# Single-SKU classes only; do NOT add cards with VRAM variants under the
+# Default GPUs when --gpus is omitted, mapped to per-card VRAM (MB).
+# Single-SKU GPUs only; do NOT add cards with VRAM variants under the
 # same gpu_name (RTX 4060 Ti 8/16 GB, A100 40/80 GB, etc.).
 _DEFAULT_GPUS = {
     "RTX 5090":  32607,
@@ -42,21 +42,12 @@ _DEFAULT_GPUS = {
     "RTX A6000": 49140,
 }
 
-# cold_workers=1 + min_load=1 keeps the autoscaler from stopping the worker
-# when it reaches idle; max_workers=1 caps rentals (max_workers is
-# endpoint-scoped, no per-workergroup cap exists). Per Lucas.
 _ENDPOINT_CONFIG = {"cold_workers": 1, "max_workers": 1, "min_load": 1.0}
 
 _POLL_INTERVAL = 10.0
-# Hard ceiling per class. Most runs end well under this; the autoscaler's
-# own ~13 min loading timeout fires first for known templates.
 _DEFAULT_TIMEOUT = 30 * 60
-# Bail this fast if the autoscaler doesn't rent anything (vs waiting out
-# the full --timeout when there's clearly nothing to find).
-_NO_WORKER_TIMEOUT = 120
-# Stagger between submitting parallel threads so the burst of
-# create_endpoint + create_workergroup doesn't trip rate limits.
-_SUBMIT_STAGGER = 1.5
+_NO_WORKER_TIMEOUT = 120  # bail if autoscaler hasn't rented anything by here
+_SUBMIT_STAGGER = 1.5  # spacing between parallel submits to avoid rate limits
 
 
 def _format_elapsed(seconds):
@@ -71,7 +62,7 @@ _GPU_COUNT_RE = re.compile(r"^(\d+)\s*x\s*(.+)$", re.IGNORECASE)
 def _parse_gpu_spec(token, default_num_gpus):
     """Parse one --gpus token like ``RTX_4090`` or ``4x RTX_5090``.
 
-    Returns ``(gpu_class, num_gpus)``. The ``Nx`` prefix wins; if absent,
+    Returns ``(gpu_name, num_gpus)``. The ``Nx`` prefix wins; if absent,
     ``default_num_gpus`` (typically the value of ``--num-gpus``) is used.
     Underscores in the name are converted to spaces to match the rest of
     the codebase.
@@ -137,36 +128,36 @@ def _format_filter_query(filters):
     return ", ".join(parts)
 
 
-def _count_matching_offers(client, *, gpu_class, num_gpus, extra_filters):
+def _count_matching_offers(client, *, gpu_name, num_gpus, extra_filters):
     """Return how many verified+rentable offers match the template's filters
     plus ``gpu_name`` and ``num_gpus``. ``limit=1`` because we only care
     whether any exist.
     """
     query = dict(extra_filters or {})
-    query["gpu_name"] = {"eq": gpu_class}
+    query["gpu_name"] = {"eq": gpu_name}
     query["num_gpus"] = {"eq": num_gpus}
     offers = _api_with_retry(offers_api.search_offers,
                              client, query=query, limit=1)
     return len(offers)
 
 
-def _skip_message_for_zero_offers(client, *, gpu_class, num_gpus, extra_filters):
-    """Build a human-readable explanation for why a class has 0 matching offers.
+def _skip_message_for_zero_offers(client, *, gpu_name, num_gpus, extra_filters):
+    """Build a human-readable explanation for why a GPU has 0 matching offers.
 
     Skips the diagnostic API calls when there are no template filters (nothing
     to attribute the zero to). When there are filters, runs the diagnosis and
     surfaces the actual blocker (single filter, multi-filter, or no offers at
-    all for the GPU class).
+    all for the GPU).
     """
     if not extra_filters:
-        return (f"no offers for {gpu_class} (num_gpus={num_gpus})")
+        return (f"no offers for {gpu_name} (num_gpus={num_gpus})")
 
     diag = _diagnose_offer_zero(
-        client, gpu_class=gpu_class, num_gpus=num_gpus,
+        client, gpu_name=gpu_name, num_gpus=num_gpus,
         extra_filters=extra_filters,
     )
     if diag["base_count"] == 0:
-        return (f"no offers for {gpu_class} (num_gpus={num_gpus}) "
+        return (f"no offers for {gpu_name} (num_gpus={num_gpus}) "
                 f"— independent of template filters")
 
     blockers = diag["single_blockers"]
@@ -193,7 +184,7 @@ def _skip_message_for_zero_offers(client, *, gpu_class, num_gpus, extra_filters)
                 if actual is None:
                     detail = "no sample available to check"
                 else:
-                    detail = f"{gpu_class} has {actual}"
+                    detail = f"{gpu_name} has {actual}"
                 blocker_lines.append(f"  {key}{sym}{threshold}: {detail}")
 
         if blocker_lines:
@@ -215,10 +206,10 @@ def _skip_message_for_zero_offers(client, *, gpu_class, num_gpus, extra_filters)
                     # we never suggest a count that pre-flight would skip.
                     if raw and raw > num_gpus:
                         viable = _suggest_viable_num_gpus(
-                            client, gpu_class, raw, extra_filters)
+                            client, gpu_name, raw, extra_filters)
                         if viable:
                             lines.append(
-                                f"  hint: try {viable}x {gpu_class} "
+                                f"  hint: try {viable}x {gpu_name} "
                                 f"(host total then satisfies {value})")
             return "\n".join(lines)
         # If every "blocker" turned out to be a search-engine quirk, fall
@@ -226,24 +217,24 @@ def _skip_message_for_zero_offers(client, *, gpu_class, num_gpus, extra_filters)
 
     # No single filter is sufficient — combination of filters is the culprit.
     return ("0 offers match — no single filter is the culprit, the combination "
-            f"of template filters excludes {gpu_class} "
+            f"of template filters excludes {gpu_name} "
             f"({_format_filter_query(extra_filters)})")
 
 
-def _diagnose_offer_zero(client, *, gpu_class, num_gpus, extra_filters):
+def _diagnose_offer_zero(client, *, gpu_name, num_gpus, extra_filters):
     """Identify why ``_count_matching_offers`` returned 0.
 
     Performs N+1 small offer searches (N = number of template filters) to find
     out:
-      - whether the GPU class has any offers at all (independent of template)
-      - which individual filters alone exclude every offer for this class
-      - the per-card ``gpu_ram`` for this class (read from the same base
+      - whether the GPU has any offers at all (independent of template)
+      - which individual filters alone exclude every offer for this GPU
+      - the per-card ``gpu_ram`` for this GPU (read from the same base
         query, so callers can suggest a higher --num-gpus when
         ``gpu_total_ram`` is the blocker)
 
     Returns a dict {base_count, single_blockers, per_card_gpu_ram}.
     """
-    base_query = {"gpu_name": {"eq": gpu_class},
+    base_query = {"gpu_name": {"eq": gpu_name},
                   "num_gpus": {"eq": num_gpus}}
     base_offers = _api_with_retry(offers_api.search_offers,
                                   client, query=base_query, limit=1)
@@ -254,7 +245,7 @@ def _diagnose_offer_zero(client, *, gpu_class, num_gpus, extra_filters):
     if base > 0:
         for key, op in (extra_filters or {}).items():
             single = _count_matching_offers(
-                client, gpu_class=gpu_class, num_gpus=num_gpus,
+                client, gpu_name=gpu_name, num_gpus=num_gpus,
                 extra_filters={key: op},
             )
             if single == 0:
@@ -303,10 +294,10 @@ def _min_num_gpus_for_total_ram(threshold, op, per_card_gpu_ram):
     return None
 
 
-def _suggest_viable_num_gpus(client, gpu_class, raw_min, extra_filters,
+def _suggest_viable_num_gpus(client, gpu_name, raw_min, extra_filters,
                              max_search=12):
     """Return the smallest ``num_gpus >= raw_min`` that has at least one
-    offer for ``gpu_class`` matching ``extra_filters``, or None if nothing
+    offer for ``gpu_name`` matching ``extra_filters``, or None if nothing
     up to ``max_search`` works. Used to round our num_gpus suggestion up
     to a configuration the marketplace actually rents.
     """
@@ -314,7 +305,7 @@ def _suggest_viable_num_gpus(client, gpu_class, raw_min, extra_filters,
         return None
     for n in range(raw_min, max_search + 1):
         count = _count_matching_offers(
-            client, gpu_class=gpu_class, num_gpus=n,
+            client, gpu_name=gpu_name, num_gpus=n,
             extra_filters=extra_filters,
         )
         if count > 0:
@@ -322,13 +313,13 @@ def _suggest_viable_num_gpus(client, gpu_class, raw_min, extra_filters,
     return None
 
 
-def _auto_num_gpus_for_default(client, gpu_class, extra_filters):
+def _auto_num_gpus_for_default(client, gpu_name, extra_filters):
     """Smallest num_gpus where ``num_gpus * per_card_ram`` satisfies the
     template's ``gpu_total_ram`` filter, rounded up to a count the catalog
     actually has. Falls back to 1 when the template has no such filter or
     one card already satisfies it.
     """
-    per_card = _DEFAULT_GPUS.get(gpu_class)
+    per_card = _DEFAULT_GPUS.get(gpu_name)
     if per_card is None:
         return 1
     ops = (extra_filters or {}).get("gpu_total_ram") or {}
@@ -338,7 +329,7 @@ def _auto_num_gpus_for_default(client, gpu_class, extra_filters):
     raw_min = _min_num_gpus_for_total_ram(threshold, op, per_card)
     if raw_min is None or raw_min <= 1:
         return 1
-    viable = _suggest_viable_num_gpus(client, gpu_class, raw_min, extra_filters)
+    viable = _suggest_viable_num_gpus(client, gpu_name, raw_min, extra_filters)
     return viable or raw_min
 
 
@@ -352,7 +343,7 @@ _TERMINAL_DEBOUNCE = 30
 _WAITING_KEY = "__waiting__"
 
 
-def _emit_progress(worker_states, current_workers, gpu_class):
+def _emit_progress(worker_states, current_workers, gpu_name):
     """Update worker_states with current poll, and print only on worker
     rotation (the live rich table already shows current status / elapsed).
     Tracks state_started per worker for the terminal-debounce gate.
@@ -388,26 +379,26 @@ def _emit_progress(worker_states, current_workers, gpu_class):
             # the current worker, so a rotation would otherwise be invisible.
             prev = worker_states[wid]
             elapsed = _format_elapsed(now - prev["state_started"])
-            print(f"[{gpu_class}] worker {wid} abandoned "
+            print(f"[{gpu_name}] worker {wid} abandoned "
                   f"(last state={prev['status']} for {elapsed})",
                   file=sys.stderr)
             del worker_states[wid]
 
 
-# Used to freeze a class's elapsed column in the live table once it's done.
+# Used to freeze a GPU's elapsed column in the live table once it's done.
 # Excludes ``error`` because the autoscaler recovers from it.
 _TERMINAL_STATUSES = {"done", "skipped", "timeout", "failed", "no_worker"}
 
 
-def _set_class_state(class_states, gpu_class, **fields):
-    """Update one class's row in the live-table state dict. Sets
+def _set_class_state(class_states, gpu_name, **fields):
+    """Update one GPU's row in the live-table state dict. Sets
     ``run_started`` on first non-``queued`` status and ``run_ended`` on
     terminal status (so elapsed freezes); each thread only writes its own
     key so no lock needed.
     """
     if class_states is None:
         return
-    cur = class_states.setdefault(gpu_class, {})
+    cur = class_states.setdefault(gpu_name, {})
     new_status = fields.get("status")
     now_ts = time.monotonic()
     if new_status and new_status != cur.get("status"):
@@ -424,7 +415,7 @@ def _set_class_state(class_states, gpu_class, **fields):
 
 
 def _render_class_table(class_states):
-    """Render the per-class progress as a rich.Table for the live display."""
+    """Render the per-GPU progress as a rich.Table for the live display."""
     table = Table(show_header=True, header_style="bold cyan")
     table.add_column("GPU", no_wrap=True)
     table.add_column("Status", no_wrap=True)
@@ -509,21 +500,21 @@ def _autoscaler_status_client(client, autoscaler_url):
     return VastClient(api_key=client.api_key, server_url=autoscaler_url)
 
 
-def _benchmark_one(client, *, gpu_class, num_gpus, timeout,
+def _benchmark_one(client, *, gpu_name, num_gpus, timeout,
                    active_workergroups, active_endpoints,
                    template_hash=None, template_id=None,
                    auto_instance=None, autoscaler_url=None,
                    class_states=None):
-    """Rent one instance for ``gpu_class``, poll until idle + measured_perf,
+    """Rent one instance for ``gpu_name``, poll until idle + measured_perf,
     tear down. Each call owns its own endpoint + workergroup so it can run
-    in parallel safely. Returns ``(gpu_class, status, perf, err, dph_total)``.
+    in parallel safely. Returns ``(gpu_name, status, perf, err, dph_total)``.
     """
     endpoint_id = None
     wg_id = None
     endpoint_name = f"benchmark-{uuid.uuid4().hex[:8]}"
     start = time.monotonic()
-    _set_class_state(class_states, gpu_class, status="provisioning")
-    search = f"gpu_name={gpu_class.replace(' ', '_')} num_gpus={num_gpus}"
+    _set_class_state(class_states, gpu_name, status="provisioning")
+    search = f"gpu_name={gpu_name.replace(' ', '_')} num_gpus={num_gpus}"
     # status_client routes get_endpoint_workers through --autoscaler-url
     # for local-shard debugging, while CRUD stays on prod.
     status_client = _autoscaler_status_client(client, autoscaler_url)
@@ -536,10 +527,10 @@ def _benchmark_one(client, *, gpu_class, num_gpus, timeout,
                                   client, **ep_kwargs)
         endpoint_id = ep_resp.get("result") if isinstance(ep_resp, dict) else None
         if not isinstance(endpoint_id, int):
-            return (gpu_class, "error", None,
+            return (gpu_name, "error", None,
                     f"create_endpoint returned no id: {ep_resp!r}", None)
         active_endpoints.add(endpoint_id)
-        _set_class_state(class_states, gpu_class, endpoint_id=endpoint_id)
+        _set_class_state(class_states, gpu_name, endpoint_id=endpoint_id)
 
         wg_kwargs = dict(
             endpoint_id=endpoint_id,
@@ -561,10 +552,10 @@ def _benchmark_one(client, *, gpu_class, num_gpus, timeout,
                                client, **wg_kwargs)
         wg_id = resp.get("result") if isinstance(resp, dict) else None
         if not isinstance(wg_id, int):
-            return (gpu_class, "error", None,
+            return (gpu_name, "error", None,
                     f"create_workergroup returned no id: {resp!r}", None)
         active_workergroups.add(wg_id)
-        _set_class_state(class_states, gpu_class, status="waiting_for_worker")
+        _set_class_state(class_states, gpu_name, status="waiting_for_worker")
         worker_states = {}
 
         while time.monotonic() - start < timeout:
@@ -580,11 +571,11 @@ def _benchmark_one(client, *, gpu_class, num_gpus, timeout,
                 workers = resp["workers"]
             else:
                 workers = []
-            _emit_progress(worker_states, workers, gpu_class)
+            _emit_progress(worker_states, workers, gpu_name)
             if workers:
                 primary = workers[0]
                 _set_class_state(
-                    class_states, gpu_class,
+                    class_states, gpu_name,
                     status=str(primary.get("status") or "?").lower(),
                     worker_id=primary.get("id"),
                 )
@@ -600,9 +591,9 @@ def _benchmark_one(client, *, gpu_class, num_gpus, timeout,
                 worker_id = ready[0].get("id")
                 dph = (_instance_dph_total(client, worker_id)
                        if worker_id else None)
-                _set_class_state(class_states, gpu_class, status="done",
+                _set_class_state(class_states, gpu_name, status="done",
                                  perf=ready[0]["measured_perf"], dph=dph)
-                return (gpu_class, "ok", ready[0]["measured_perf"], None, dph)
+                return (gpu_name, "ok", ready[0]["measured_perf"], None, dph)
             # Fail fast when every worker has been in a terminal state for
             # >_TERMINAL_DEBOUNCE without ever reaching idle.
             now_ts = time.monotonic()
@@ -617,16 +608,16 @@ def _benchmark_one(client, *, gpu_class, num_gpus, timeout,
             if terminal_workers_long:
                 states = sorted({str(w.get("status", "")).lower()
                                  for w in workers})
-                _set_class_state(class_states, gpu_class, status="failed")
-                return (gpu_class, "failed", None,
+                _set_class_state(class_states, gpu_name, status="failed")
+                return (gpu_name, "failed", None,
                         f"all workers terminal ({', '.join(states)}) for "
                         f">{_TERMINAL_DEBOUNCE}s without reaching idle; "
                         f"autoscaler not rotating", None)
             # Fail fast if no real worker (int id) has ever appeared.
             if (not any(isinstance(k, int) for k in worker_states)
                     and time.monotonic() - start > _NO_WORKER_TIMEOUT):
-                _set_class_state(class_states, gpu_class, status="no_worker")
-                return (gpu_class, "no_worker", None,
+                _set_class_state(class_states, gpu_name, status="no_worker")
+                return (gpu_name, "no_worker", None,
                         f"autoscaler did not rent in {_NO_WORKER_TIMEOUT}s "
                         f"(scoring issue, all candidates failed silently, "
                         f"or template+GPU mismatch missed by pre-flight)", None)
@@ -634,8 +625,8 @@ def _benchmark_one(client, *, gpu_class, num_gpus, timeout,
             # the same instant and trip its rate limiter.
             time.sleep(_POLL_INTERVAL + random.uniform(0, 2.0))
 
-        _set_class_state(class_states, gpu_class, status="timeout")
-        return (gpu_class, "timeout", None,
+        _set_class_state(class_states, gpu_name, status="timeout")
+        return (gpu_name, "timeout", None,
                 f"no measured_perf in {timeout}s", None)
     finally:
         # Workergroup first (stops new workers), then endpoint. Best-effort;
@@ -664,14 +655,14 @@ def _benchmark_one(client, *, gpu_class, num_gpus, timeout,
                   "Examples: --gpus RTX_4080,RTX_3060   "
                   "--gpus \"RTX 4080, 4x RTX 5090, 8x H100 SXM\". "
                   "Tokens without a Nx prefix use --num-gpus as their count. "
-                  "If --gpus is omitted entirely, auto-discovers GPU classes "
+                  "If --gpus is omitted entirely, auto-discovers GPUs "
                   "with the most offers matching this template's "
                   "extra_filters at --num-gpus."),
     argument("--num-gpus", type=int, default=None,
              help="Default number of GPUs per instance for tokens without an "
                   "Nx prefix. Also overrides the default-list auto-sizing "
                   "when --gpus is omitted. If not set, falls back to 1 "
-                  "(or the per-class auto-size when --gpus is omitted and "
+                  "(or the per-GPU auto-size when --gpus is omitted and "
                   "the template has a gpu_total_ram filter)."),
     argument("--timeout", type=int, default=_DEFAULT_TIMEOUT,
              help=f"Per-GPU safety ceiling in seconds (default "
@@ -697,14 +688,12 @@ def _benchmark_one(client, *, gpu_class, num_gpus, timeout,
     usage="vastai run benchmark (--template-id ID | --template-hash HASH) [OPTIONS]",
     help="Rent fresh instances, run pyworker benchmark, record measured perf/$",
     epilog=deindent("""
-        Rents one instance per GPU class in parallel, measures perf, tears
-        down. Each class gets its own ephemeral endpoint (``benchmark-<uuid8>``)
-        and workergroup, capped at one rental each via cold_workers=1 +
-        max_workers=1.
+        Rents one instance per GPU in parallel, measures perf, tears
+        down. Each GPU gets its own ephemeral endpoint
+        (``benchmark-<uuid8>``) and workergroup, capped at one rental.
 
-        REAL MONEY: each class rents a GPU for up to --timeout seconds, all
-        running concurrently. Cleanup runs on Ctrl-C, exceptions, timeouts,
-        and sys.exit.
+        REAL MONEY: each rental runs for up to --timeout seconds.
+        Cleanup runs on Ctrl-C, exceptions, timeouts, and sys.exit.
 
         Examples:
             vastai run benchmark --template-id 79663
@@ -752,12 +741,12 @@ def run__benchmark(args):
     skipped_results = []
     for g, n in gpu_specs:
         offer_count = _count_matching_offers(
-            client, gpu_class=g, num_gpus=n,
+            client, gpu_name=g, num_gpus=n,
             extra_filters=extra_filters,
         )
         if offer_count == 0:
             msg = _skip_message_for_zero_offers(
-                client, gpu_class=g, num_gpus=n,
+                client, gpu_name=g, num_gpus=n,
                 extra_filters=extra_filters,
             )
             console.print(f"[yellow][{g}] skipping:[/yellow] {msg}",
@@ -788,7 +777,7 @@ def run__benchmark(args):
             print("Aborted.", file=sys.stderr)
             return 130
 
-    # Backing sets for the atexit sweep; per-class teardown discards on
+    # Backing sets for the atexit sweep; per-GPU teardown discards on
     # successful delete.
     active_workergroups = set()
     active_endpoints = set()
@@ -824,7 +813,7 @@ def run__benchmark(args):
                     pass
     atexit.register(_cleanup)
 
-    # Live-table state. Pre-populate every class so the table is complete.
+    # Live-table state. Pre-populate every GPU so the table is complete.
     class_states = {}
     for g, _n in compatible_specs:
         _set_class_state(class_states, g, status="queued")
@@ -835,7 +824,7 @@ def run__benchmark(args):
         try:
             return _benchmark_one(
                 client,
-                gpu_class=g,
+                gpu_name=g,
                 num_gpus=n,
                 timeout=args.timeout,
                 active_workergroups=active_workergroups,

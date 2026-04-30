@@ -122,12 +122,11 @@ def delete_endpoint(client, id):
     return r.json()
 
 
-def _get_autoscaler_base_url(client):
-    """Derive the base URL for autoscaler-served endpoints (logs, workers).
+def _get_logs_base_url(client):
+    """Derive the base URL for log endpoints.
 
-    If the client is using the default console.vast.ai URL, the autoscaler
-    routes are served from run.vast.ai. Otherwise the user's custom URL is
-    used (e.g. http://localhost:8080 for a local autoscaler shard).
+    If the client is using the default console.vast.ai URL, logs are served
+    from run.vast.ai.  Otherwise the user's custom URL is used.
     """
     from vastai.api.client import server_url_default
     if client.server_url == server_url_default:
@@ -150,7 +149,7 @@ def get_endpt_logs(client, id, level=1, tail=None):
     Returns:
         dict: Log data from the API response.
     """
-    base = _get_autoscaler_base_url(client)
+    base = _get_logs_base_url(client)
     url = base + "/get_endpoint_logs/"
     json_blob = {"id": id, "api_key": client.api_key}
     if tail is not None:
@@ -329,7 +328,7 @@ def get_wrkgrp_logs(client, id, level=1, tail=None):
     Returns:
         dict: Log data from the API response.
     """
-    base = _get_autoscaler_base_url(client)
+    base = _get_logs_base_url(client)
     url = base + "/get_autogroup_logs/"
     json_blob = {"id": id, "api_key": client.api_key}
     if tail is not None:
@@ -349,21 +348,18 @@ def get_wrkgrp_logs(client, id, level=1, tail=None):
 
 
 def get_endpoint_workers(client, id):
-    """List workers on an endpoint, including ``measured_perf``.
+    """List workers on an endpoint group, including ``measured_perf``.
 
-    POST to <base>/get_endpoint_workers/. Use this rather than
-    /get_workergroup_workers/ which gates measured_perf behind
-    ``ready_ever_``.
+    POST to <base>/get_endpoint_workers/
 
     Args:
         client: VastClient instance.
         id (int): ID of endpoint group whose workers to list.
 
     Returns:
-        list | dict: Worker data; observed shapes include a bare list,
-            ``{"workers": [...]}``, or ``{"error_msg": "..."}``.
+        list | dict: Worker data from the API response.
     """
-    base = _get_autoscaler_base_url(client)
+    base = _get_logs_base_url(client)
     url = base + "/get_endpoint_workers/"
     json_blob = {"id": id, "api_key": client.api_key}
 

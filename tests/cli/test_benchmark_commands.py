@@ -15,37 +15,6 @@ from vastai.cli.commands import benchmark as bench
 
 
 # ---------------------------------------------------------------------------
-# Pure-function helpers (no CLI boot required)
-# ---------------------------------------------------------------------------
-
-
-class TestExtractId:
-    def test_result_key(self):
-        assert bench._extract_id({"success": True, "result": 42}, "result", "id") == 42
-
-    def test_nested_results_dict(self):
-        assert bench._extract_id({"results": {"endpoint_id": 7}},
-                                 "result", "endpoint_id", "id") == 7
-
-    def test_none_on_missing(self):
-        assert bench._extract_id({}, "result") is None
-
-    def test_none_on_non_int(self):
-        assert bench._extract_id({"result": "oops"}, "result") is None
-
-
-class TestNormalizeWorkers:
-    def test_bare_list(self):
-        assert bench._normalize_workers([{"id": 1}]) == [{"id": 1}]
-
-    def test_wrapped_dict(self):
-        assert bench._normalize_workers({"workers": [{"id": 2}]}) == [{"id": 2}]
-
-    def test_error_shape(self):
-        assert bench._normalize_workers({"error_msg": "x"}) == []
-
-
-# ---------------------------------------------------------------------------
 # _benchmark_one — cleanup invariant
 # ---------------------------------------------------------------------------
 
@@ -126,7 +95,6 @@ class TestBenchmarkOne:
             assert "gpu_name=RTX_4080" in call.kwargs["search_params"]
             assert "num_gpus=1" in call.kwargs["search_params"]
             assert "verified" not in call.kwargs["search_params"]
-            assert "geolocation=US" in call.kwargs["search_params"]
 
     def test_template_id_wins_over_hash(self):
         patches = _patch_api(

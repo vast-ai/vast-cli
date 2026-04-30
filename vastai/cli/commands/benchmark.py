@@ -1,18 +1,6 @@
-"""vastai run benchmark: rent instances, measure perf/$, tear down.
-
-Parallel execution. Each GPU class gets its own ephemeral endpoint
-(``benchmark-<uuid8>``) and workergroup, all running concurrently in a
-``ThreadPoolExecutor``. Per-class endpoints cap rentals at exactly one
-GPU per class (cold_workers=1, max_workers=1) since ``max_workers`` is
-endpoint-scoped and there's no per-workergroup cap; sharing an endpoint
-would let the autoscaler over-allocate one class. Each thread tears
-down its own resources in a ``finally`` block; an ``atexit`` hook is the
-fallback if the process exits through ``sys.exit`` before the finally
-runs.
-
-Template is supplied by the caller via --template-id or --template-hash.
-Note: not every template produces a usable perf score across GPU classes;
-some saturate. TGI 1.0.3 (id 79663) has been verified not to saturate.
+"""vastai run benchmark: benchmark a template against one or more GPU
+classes. Each class is rented in parallel; per-class measured perf comes
+from the template's pyworker benchmark.
 """
 
 import argparse
@@ -25,14 +13,14 @@ import signal
 import sys
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 from rich.console import Console
 from rich.live import Live
 from rich.table import Table
 
 from vastai.cli.parser import argument
-from vastai.cli.display import deindent, display_table
+from vastai.cli.display import deindent
 from vastai.cli.utils import get_parser as _get_parser, get_client
 
 from vastai.api import endpoints as endpoints_api
@@ -43,34 +31,10 @@ from vastai.api import offers as offers_api
 parser = _get_parser()
 
 
-# Default class list when --gpus is omitted. Five popular serverless GPUs
-# spanning the price tiers: consumer (5090/4090/3090), workstation (A6000),
-# and datacenter (H100 SXM). Each entry must also appear in
-# _DEFAULT_GPU_RAM_MB so we can auto-size num_gpus from the template's
-# gpu_total_ram filter without hitting the catalog. Caller's template
-# extra_filters may still exclude individual classes (cuda version,
-# compute_cap, inet, etc.) — those land in pre-flight as `skipped`.
-_DEFAULT_GPUS = [
-    "RTX 5090",
-    "RTX 4090",
-    "RTX 3090",
-    "H100 SXM",
-    "RTX A6000",
-]
-
-# Per-card VRAM (MB) for the default classes. Used by the auto-num_gpus path
-# to compute the smallest count whose host-total satisfies a template's
-# `gpu_total_ram` filter, e.g. a template requiring >48000 picks 2x for
-# RTX 5090 (32 GB), 4x for RTX 4090 (24 GB), 1x for H100 SXM, etc. Values
-# are the standard SKU per class verified against the live catalog
-# (2026-04-30): RTX 4090 has rare 48 GB modded variants (~18% of US
-# offers) but 80% are 24 GB; we size for the standard SKU and accept that
-# customers who happen to land on a modded host will be over-provisioned.
-#
-# Do NOT add multi-VRAM-SKU classes here without switching to runtime
-# catalog query (RTX 4060 Ti has 8/16 GB variants, A100 has 40/80 GB,
-# both reported under the same gpu_name).
-_DEFAULT_GPU_RAM_MB = {
+# Default GPU classes when --gpus is omitted, mapped to per-card VRAM (MB).
+# Single-SKU classes only; do NOT add cards with VRAM variants under the
+# same gpu_name (RTX 4060 Ti 8/16 GB, A100 40/80 GB, etc.).
+_DEFAULT_GPUS = {
     "RTX 5090":  32607,
     "RTX 4090":  24564,
     "RTX 3090":  24576,
@@ -78,73 +42,21 @@ _DEFAULT_GPU_RAM_MB = {
     "RTX A6000": 49140,
 }
 
-# Per-class endpoint config:
-# - cold_workers=1 drives min_to_create=1 in the autoscaler
-#   (asm_ratio_manager.cpp:1055-1058) so it actually rents a worker.
-# - max_workers=1 caps the rentals at exactly one. Without it, max_workers is
-#   endpoint-scoped and a single endpoint hosting multiple workergroups would
-#   let the autoscaler over-allocate to one class (e.g. 5x H200, 0x of others).
-#   Per Lucas: per-workergroup max_workers doesn't exist, so per-class endpoint
-#   is the only way to keep allocation balanced when running classes in parallel.
-# - min_load=1.0 (NOT 0.0) tells the autoscaler "there is always at least 1
-#   unit of demand on this endpoint." Without this, with load=0 and
-#   min_load=0, the autoscaler computes "excess capacity" the moment a worker
-#   reaches idle and stops it within ~1 second (verified live in autoscaler
-#   logs). Our 10s poll then misses the idle window and we never capture
-#   measured_perf. Per Lucas.
-_ENDPOINT_CONFIG = {
-    "cold_workers": 1,
-    "max_workers": 1,
-    "min_load": 1.0,
-    "min_cold_load": 0.0,
-}
+# cold_workers=1 + min_load=1 keeps the autoscaler from stopping the worker
+# when it reaches idle; max_workers=1 caps rentals (max_workers is
+# endpoint-scoped, no per-workergroup cap exists). Per Lucas.
+_ENDPOINT_CONFIG = {"cold_workers": 1, "max_workers": 1, "min_load": 1.0}
 
 _POLL_INTERVAL = 10.0
-# 30 min default: the autoscaler's own loading timeout is ~13 min (measured
-# 2026-04-27: 788s on a RTX 3060 run), so one bad host burns 13 min before
-# the autoscaler reboots/rotates; the next attempt needs ~3 min Docker pull
-# + ~3 min model load + ~1 min first benchmark batch. 30 min covers one bad
-# host + one good host with a few minutes of slack.
+# Hard ceiling per class. Most runs end well under this; the autoscaler's
+# own ~13 min loading timeout fires first for known templates.
 _DEFAULT_TIMEOUT = 30 * 60
-
-# If the autoscaler hasn't rented anything in this window, something's wrong
-# (zero matching offers, scoring issue, all candidates failing silently).
-# Bailing here costs at most ~2 min instead of the full --timeout.
+# Bail this fast if the autoscaler doesn't rent anything (vs waiting out
+# the full --timeout when there's clearly nothing to find).
 _NO_WORKER_TIMEOUT = 120
-
-# Seconds to wait between submitting each per-class thread. Prod's webserver
-# rate-limits concurrent POSTs to /autojobs/ (returns 403/429 once a few
-# threads burst), and the local autoscaler rate-limits /get_endpoint_workers/
-# the same way. Spacing the submits out keeps every endpoint under its limit
-# without serializing the actual benchmarks (each thread still runs to
-# completion concurrently after its initial create_endpoint + create_wg).
+# Stagger between submitting parallel threads so the burst of
+# create_endpoint + create_workergroup doesn't trip rate limits.
 _SUBMIT_STAGGER = 1.5
-
-
-def _extract_id(resp, *keys):
-    if not isinstance(resp, dict):
-        return None
-    for k in keys:
-        v = resp.get(k)
-        if isinstance(v, int):
-            return v
-    results = resp.get("results") if "results" in resp else None
-    if isinstance(results, dict):
-        for k in keys:
-            v = results.get(k)
-            if isinstance(v, int):
-                return v
-    return None
-
-
-def _normalize_workers(resp):
-    if isinstance(resp, list):
-        return resp
-    if isinstance(resp, dict):
-        workers = resp.get("workers")
-        if isinstance(workers, list):
-            return workers
-    return []
 
 
 def _format_elapsed(seconds):
@@ -152,9 +64,7 @@ def _format_elapsed(seconds):
     return f"{m}:{s:02d}"
 
 
-# Matches a "Nx GPU NAME" prefix on a --gpus token, with optional whitespace
-# around the x. Only kicks in when the token starts with digits (so a normal
-# name like "RTX_4090" doesn't accidentally match).
+# Matches a "Nx GPU NAME" prefix on a --gpus token (whitespace around x ok).
 _GPU_COUNT_RE = re.compile(r"^(\d+)\s*x\s*(.+)$", re.IGNORECASE)
 
 
@@ -171,12 +81,6 @@ def _parse_gpu_spec(token, default_num_gpus):
     if m:
         return (m.group(2).strip().replace("_", " "), int(m.group(1)))
     return (token.replace("_", " "), default_num_gpus)
-
-
-def _parse_gpus_arg(gpus_arg, default_num_gpus):
-    """Split a ``--gpus`` value into a list of (gpu_class, num_gpus) tuples."""
-    return [_parse_gpu_spec(t, default_num_gpus)
-            for t in gpus_arg.split(",") if t.strip()]
 
 
 def _fetch_template(client, *, template_id=None, template_hash=None):
@@ -234,17 +138,13 @@ def _format_filter_query(filters):
 
 
 def _count_matching_offers(client, *, gpu_class, num_gpus, extra_filters):
-    """Return how many verified+rentable offers match the template's filters.
-
-    Uses ``search_offers`` (default filters add verified=True, rentable=True,
-    rented=False, external=False) plus the template's ``extra_filters`` plus
-    the same ``geolocation=US`` we apply at workergroup creation. ``limit=1``
-    because we only need to know if any exist.
+    """Return how many verified+rentable offers match the template's filters
+    plus ``gpu_name`` and ``num_gpus``. ``limit=1`` because we only care
+    whether any exist.
     """
     query = dict(extra_filters or {})
     query["gpu_name"] = {"eq": gpu_class}
     query["num_gpus"] = {"eq": num_gpus}
-    query["geolocation"] = {"eq": "US"}
     offers = _api_with_retry(offers_api.search_offers,
                              client, query=query, limit=1)
     return len(offers)
@@ -259,14 +159,14 @@ def _skip_message_for_zero_offers(client, *, gpu_class, num_gpus, extra_filters)
     all for the GPU class).
     """
     if not extra_filters:
-        return (f"no offers for {gpu_class} (num_gpus={num_gpus}, geo=US)")
+        return (f"no offers for {gpu_class} (num_gpus={num_gpus})")
 
     diag = _diagnose_offer_zero(
         client, gpu_class=gpu_class, num_gpus=num_gpus,
         extra_filters=extra_filters,
     )
     if diag["base_count"] == 0:
-        return (f"no offers for {gpu_class} (num_gpus={num_gpus}, geo=US) "
+        return (f"no offers for {gpu_class} (num_gpus={num_gpus}) "
                 f"— independent of template filters")
 
     blockers = diag["single_blockers"]
@@ -330,28 +230,6 @@ def _skip_message_for_zero_offers(client, *, gpu_class, num_gpus, extra_filters)
             f"({_format_filter_query(extra_filters)})")
 
 
-def _suggest_compatible_gpus(client, *, num_gpus, extra_filters, top_k=8,
-                             sample_limit=200):
-    """Discover GPU classes that have offers matching the template's filters.
-
-    Queries offers with the template's ``extra_filters`` but no ``gpu_name``
-    constraint, groups results by ``gpu_name``, and returns the top-K classes
-    by offer count (which roughly corresponds to supply / availability).
-    """
-    query = dict(extra_filters or {})
-    query["num_gpus"] = {"eq": num_gpus}
-    query["geolocation"] = {"eq": "US"}
-    offers = _api_with_retry(offers_api.search_offers,
-                             client, query=query, limit=sample_limit)
-    counts = {}
-    for o in offers:
-        name = o.get("gpu_name")
-        if name:
-            counts[name] = counts.get(name, 0) + 1
-    return [name for name, _ in
-            sorted(counts.items(), key=lambda x: -x[1])[:top_k]]
-
-
 def _diagnose_offer_zero(client, *, gpu_class, num_gpus, extra_filters):
     """Identify why ``_count_matching_offers`` returned 0.
 
@@ -366,8 +244,7 @@ def _diagnose_offer_zero(client, *, gpu_class, num_gpus, extra_filters):
     Returns a dict {base_count, single_blockers, per_card_gpu_ram}.
     """
     base_query = {"gpu_name": {"eq": gpu_class},
-                  "num_gpus": {"eq": num_gpus},
-                  "geolocation": {"eq": "US"}}
+                  "num_gpus": {"eq": num_gpus}}
     base_offers = _api_with_retry(offers_api.search_offers,
                                   client, query=base_query, limit=1)
     base = len(base_offers)
@@ -446,20 +323,12 @@ def _suggest_viable_num_gpus(client, gpu_class, raw_min, extra_filters,
 
 
 def _auto_num_gpus_for_default(client, gpu_class, extra_filters):
-    """Compute the per-class num_gpus for a default-list class based on the
-    template's ``gpu_total_ram`` filter (if any) and the class's hardcoded
-    per-card VRAM in ``_DEFAULT_GPU_RAM_MB``.
-
-    Returns ``num_gpus`` (int >= 1). Falls back to 1 when:
-    - The template has no ``gpu_total_ram`` filter (single card is enough).
-    - The operator isn't a comparison we can solve (gt/gte).
-    - One card already satisfies the threshold.
-
-    Rounds up to a marketplace-viable count via ``_suggest_viable_num_gpus``
-    so we never recommend e.g. ``3x RTX_4090`` when only 1/2/4-card hosts
-    exist for that class.
+    """Smallest num_gpus where ``num_gpus * per_card_ram`` satisfies the
+    template's ``gpu_total_ram`` filter, rounded up to a count the catalog
+    actually has. Falls back to 1 when the template has no such filter or
+    one card already satisfies it.
     """
-    per_card = _DEFAULT_GPU_RAM_MB.get(gpu_class)
+    per_card = _DEFAULT_GPUS.get(gpu_class)
     if per_card is None:
         return 1
     ops = (extra_filters or {}).get("gpu_total_ram") or {}
@@ -473,56 +342,25 @@ def _auto_num_gpus_for_default(client, gpu_class, extra_filters):
     return viable or raw_min
 
 
-# Worker states surfaced by the autoscaler (vast/autoscaler/types.h ObservedState):
-# happy path:   pending -> creating -> created -> loading -> model_loading -> idle
-# failure:      error, unavail, destroying, stopping, stopped
-# transient:    starting, rebooting
-_HEARTBEAT_INTERVAL = 120
-
-# Terminal states: a worker that lands here won't return to idle on its own.
-# When all current workers are in one of these and no measured_perf has been
-# produced, the run is dead and we should fail fast rather than wait out the
-# full --timeout. Excludes ``stopping`` (still transitioning), ``rebooting``
-# (recovering), and ``error`` (autoscaler restarts errored workers via
-# ``error -> rebooting -> model_loading`` — observed live 2026-04-27 on a
-# RTX 3060 run that hit the autoscaler's loading timeout).
+# Workers in these states won't recover; if all current workers are here for
+# >_TERMINAL_DEBOUNCE seconds without measured_perf, fail-fast. Excludes
+# `error` (autoscaler retries via error -> rebooting -> model_loading).
 _TERMINAL_STATES = {"stopped", "destroying", "unavail"}
-
-# Seconds a worker must remain in a terminal state before we declare the run
-# dead. Just a margin for brief transient blips during autoscaler rotation
-# (rotations we've observed complete within ~2 seconds, so 30s is generous).
-# We rely on "ALL workers terminal" — if autoscaler rotates by spawning a new
-# worker, that worker is in pending/creating and breaks the all-terminal check
-# regardless of debounce length.
 _TERMINAL_DEBOUNCE = 30
 
-
-# Sentinel key in worker_states for tracking "autoscaler hasn't rented yet"
-# heartbeats. String-keyed so it can never collide with a real worker id (int).
+# String-keyed sentinel in worker_states (can't collide with int worker ids).
 _WAITING_KEY = "__waiting__"
 
 
 def _emit_progress(worker_states, current_workers, gpu_class):
-    """Print worker state-transition events to stderr.
-
-    Tracks each worker by id and only PRINTS on rotation events (a worker
-    id disappears, meaning the autoscaler abandoned that host and is
-    likely about to rent a different one). Per-state-transition lines and
-    "still loading" heartbeats were dropped because the live rich Table
-    already shows the current status, worker id, and elapsed time per
-    class; printing every transition just duplicates table info.
-
-    Mutates worker_states (still tracks state_started so the caller's
-    terminal-debounce gate has timing info).
+    """Update worker_states with current poll, and print only on worker
+    rotation (the live rich table already shows current status / elapsed).
+    Tracks state_started per worker for the terminal-debounce gate.
     """
     now = time.monotonic()
 
     if not current_workers:
-        # Track the waiting window silently so other code paths can read
-        # state_started, but don't print anything (the live table shows
-        # status="waiting_for_worker" with a live elapsed counter).
-        worker_states.setdefault(_WAITING_KEY,
-                                 {"started": now, "last_heartbeat": now})
+        worker_states.setdefault(_WAITING_KEY, {"started": now})
         return
 
     worker_states.pop(_WAITING_KEY, None)
@@ -536,24 +374,18 @@ def _emit_progress(worker_states, current_workers, gpu_class):
         status = str(w.get("status", "")).lower()
         prev = worker_states.get(wid)
         if prev is None:
-            worker_states[wid] = {
-                "status": status,
-                "state_started": now,
-                "last_heartbeat": now,
-            }
+            worker_states[wid] = {"status": status, "state_started": now}
             continue
         if prev["status"] != status:
             prev["status"] = status
             prev["state_started"] = now
-            prev["last_heartbeat"] = now
 
     for wid in list(worker_states):
         if not isinstance(wid, int):
             continue  # sentinel keys (e.g. _WAITING_KEY)
         if wid not in seen:
-            # Worker abandoned by the autoscaler: print this because the
-            # live table only shows the *current* worker, so a rotation
-            # would otherwise be invisible.
+            # Worker abandoned by the autoscaler. The live table only shows
+            # the current worker, so a rotation would otherwise be invisible.
             prev = worker_states[wid]
             elapsed = _format_elapsed(now - prev["state_started"])
             print(f"[{gpu_class}] worker {wid} abandoned "
@@ -562,25 +394,16 @@ def _emit_progress(worker_states, current_workers, gpu_class):
             del worker_states[wid]
 
 
-# Statuses that mean "this class is finished and won't change anymore."
-# Used by _render_class_table to freeze the elapsed column once a class
-# is done (otherwise the displayed elapsed would keep climbing forever
-# even though nothing is happening). Excludes ``error`` because the
-# autoscaler recovers from error via rebooting -> model_loading; freezing
-# elapsed at the first error would leave the table stale during recovery.
+# Used to freeze a class's elapsed column in the live table once it's done.
+# Excludes ``error`` because the autoscaler recovers from it.
 _TERMINAL_STATUSES = {"done", "skipped", "timeout", "failed", "no_worker"}
 
 
 def _set_class_state(class_states, gpu_class, **fields):
-    """Thread-safe (per-class) update of the live-table state dict.
-
-    Each thread only writes to its own ``gpu_class`` key, and CPython makes
-    individual dict assignments atomic, so no lock is needed.
-
-    Tracks ``run_started`` (set on the first non-``queued`` status, used as
-    the basis for the elapsed column) and ``run_ended`` (set when a terminal
-    status is reached, so the elapsed in the table freezes instead of
-    growing).
+    """Update one class's row in the live-table state dict. Sets
+    ``run_started`` on first non-``queued`` status and ``run_ended`` on
+    terminal status (so elapsed freezes); each thread only writes its own
+    key so no lock needed.
     """
     if class_states is None:
         return
@@ -622,11 +445,8 @@ def _render_class_table(class_states):
             continue
         run_started = s.get("run_started")
         run_ended = s.get("run_ended")
-        # Skipped classes never really ran; queued ones haven't started.
-        # Both deserve a blank elapsed so the column doesn't lie.
-        # Terminal-but-meaningful statuses (done/failed/timeout/etc.) freeze
-        # at the moment they finished. Active classes count up live.
-        if status == "skipped" or run_started is None:
+        # Blank for not-yet-running, frozen for terminal, live otherwise.
+        if run_started is None:
             elapsed_str = "-"
         elif run_ended is not None:
             elapsed_str = _format_elapsed(run_ended - run_started)
@@ -649,11 +469,8 @@ def _render_class_table(class_states):
 
 
 def _instance_dph_total(client, instance_id):
-    """Look up the actual ``dph_total`` for a rented instance.
-
-    Returns the instance's billed price-per-hour (host base + storage; Vast's
-    fee is already embedded in the host base). Falls back to None on lookup
-    failure so a missing price doesn't kill the benchmark result.
+    """Look up the rented instance's actual ``$/hr``. None on lookup
+    failure so a missing price doesn't kill the result.
     """
     try:
         inst = _api_with_retry(instances_api.show_instance,
@@ -664,22 +481,9 @@ def _instance_dph_total(client, instance_id):
 
 
 def _api_with_retry(func, *args, max_retries=4, **kwargs):
-    """Call ``func(*args, **kwargs)`` with retry on transient HTTP errors.
-
-    Retries on:
-      - 429 (Too Many Requests) — both prod webserver and local autoscaler
-        rate-limit certain routes. The autoscaler's /get_endpoint_workers/
-        threshold is ~1 call per 0.5s (rate_limiter.cpp:kDefaultThreshold);
-        N parallel benchmark threads can bunch over that.
-      - 503 (Service Unavailable) — transient backend issue.
-
-    Does NOT retry on 403 because that usually means a real permission or
-    credit problem (insufficient_credit, lacks api.X.write, etc.), and
-    retrying just delays the eventual failure. If we ever start seeing
-    rate-limit-induced 403s in practice we can revisit.
-
-    Backoff: 0.6s, 1.2s, 2.4s, then give up. Adds 0.4s of jitter per attempt
-    so multiple retrying threads don't synchronize.
+    """Retry on 429 / 503 with jittered exponential backoff (0.6, 1.2, 2.4s).
+    Other errors propagate immediately (403 usually means real auth/credit
+    failure, not worth delaying with retries).
     """
     delay = 0.6
     for attempt in range(max_retries):
@@ -696,10 +500,8 @@ def _api_with_retry(func, *args, max_retries=4, **kwargs):
 
 
 def _autoscaler_status_client(client, autoscaler_url):
-    """Return a client whose ``server_url`` targets the autoscaler we're
-    debugging. ``get_endpoint_workers`` builds its URL from the client's
-    ``server_url``, so handing it a localhost-pointing client routes status
-    polls to a dev autoscaler shard instead of run.vast.ai.
+    """Optionally route status polls to a local autoscaler shard
+    (``--autoscaler-url``) while keeping CRUD on prod.
     """
     if not autoscaler_url:
         return client
@@ -712,52 +514,28 @@ def _benchmark_one(client, *, gpu_class, num_gpus, timeout,
                    template_hash=None, template_id=None,
                    auto_instance=None, autoscaler_url=None,
                    class_states=None):
-    """Rent one instance for ``gpu_class``, poll for measured_perf, tear down.
-
-    Each call creates and deletes its OWN endpoint and workergroup so it can
-    safely run in parallel with other instances of itself. Lucas (autoscaler):
-    ``max_workers`` is endpoint-scoped and there's no per-workergroup cap, so
-    sharing an endpoint across classes lets the autoscaler over-allocate one
-    class (e.g. 5x H200, 0x of others). One endpoint per class avoids that.
-
-    Teardown runs in the ``finally`` regardless of exit path. The two
-    ``active_*`` sets are the orchestrator's tracking for atexit cleanup;
-    we add on create and remove on confirmed delete so the sweep catches
-    anything we miss.
-
-    Returns a 5-tuple ``(gpu_class, status, perf, err, dph_total)`` where
-    ``dph_total`` is the rented instance's actual ``$/hr`` (None unless
-    status == "ok" and the instance lookup succeeds).
+    """Rent one instance for ``gpu_class``, poll until idle + measured_perf,
+    tear down. Each call owns its own endpoint + workergroup so it can run
+    in parallel safely. Returns ``(gpu_class, status, perf, err, dph_total)``.
     """
     endpoint_id = None
     wg_id = None
     endpoint_name = f"benchmark-{uuid.uuid4().hex[:8]}"
     start = time.monotonic()
     _set_class_state(class_states, gpu_class, status="provisioning")
-    # US-only until we understand why the autoscaler's scoring keeps picking
-    # trans-pacific hosts whose Docker pull stalls or silently fails. See
-    # the 2026-04-24 session log for the failure pattern (2/2 runs killed
-    # by CN hosts even with a 30-min timeout).
-    search = (
-        f"gpu_name={gpu_class.replace(' ', '_')} "
-        f"num_gpus={num_gpus} "
-        f"geolocation=US"
-    )
-    # Use a dedicated client for status polling so --autoscaler-url can route
-    # those calls to a local autoscaler shard while everything else (offer
-    # search, endpoint/workergroup CRUD) stays on prod.
+    search = f"gpu_name={gpu_class.replace(' ', '_')} num_gpus={num_gpus}"
+    # status_client routes get_endpoint_workers through --autoscaler-url
+    # for local-shard debugging, while CRUD stays on prod.
     status_client = _autoscaler_status_client(client, autoscaler_url)
 
     try:
-        # Per-class endpoint with cold_workers=1 + max_workers=1 caps each
-        # workergroup at exactly one rental. See _ENDPOINT_CONFIG comment.
         ep_kwargs = dict(_ENDPOINT_CONFIG, endpoint_name=endpoint_name)
         if auto_instance is not None:
             ep_kwargs["auto_instance"] = auto_instance
         ep_resp = _api_with_retry(endpoints_api.create_endpoint,
                                   client, **ep_kwargs)
-        endpoint_id = _extract_id(ep_resp, "result", "endpoint_id", "id")
-        if endpoint_id is None:
+        endpoint_id = ep_resp.get("result") if isinstance(ep_resp, dict) else None
+        if not isinstance(endpoint_id, int):
             return (gpu_class, "error", None,
                     f"create_endpoint returned no id: {ep_resp!r}", None)
         active_endpoints.add(endpoint_id)
@@ -768,19 +546,11 @@ def _benchmark_one(client, *, gpu_class, num_gpus, timeout,
             endpoint_name=endpoint_name,
             search_params=search,
             test_workers=1,
-            # cold_workers=1 + min_load=1 here (not 0/0) so the autoscaler
-            # keeps the worker alive after it reaches idle. Without min_load>0
-            # the autoscaler's stop_score exceeds threshold the moment load
-            # hits 0 (which is right after idle) and it stops the worker
-            # within ~1 second (verified in autoscaler logs). cold_workers=1
-            # alone protects against destroy but NOT stop; min_load=1 is what
-            # actually keeps the stop decision from firing. Per Lucas.
             cold_workers=1,
             min_load=1.0,
         )
-        # Caller is expected to have validated that at least one is set;
-        # --template-id wins because --template-hash can resolve to a stale
-        # template_id silently (serverless-bugs.md #6).
+        # --template-id wins; --template-hash can resolve to a stale id
+        # silently (serverless-bugs.md #6).
         if template_id is not None:
             wg_kwargs["template_id"] = template_id
         elif template_hash is not None:
@@ -789,8 +559,8 @@ def _benchmark_one(client, *, gpu_class, num_gpus, timeout,
             wg_kwargs["auto_instance"] = auto_instance
         resp = _api_with_retry(endpoints_api.create_workergroup,
                                client, **wg_kwargs)
-        wg_id = _extract_id(resp, "result", "autojob_id", "id")
-        if wg_id is None:
+        wg_id = resp.get("result") if isinstance(resp, dict) else None
+        if not isinstance(wg_id, int):
             return (gpu_class, "error", None,
                     f"create_workergroup returned no id: {resp!r}", None)
         active_workergroups.add(wg_id)
@@ -798,19 +568,19 @@ def _benchmark_one(client, *, gpu_class, num_gpus, timeout,
         worker_states = {}
 
         while time.monotonic() - start < timeout:
-            # Poll at endpoint level: get_workergroup_workers gates measured_perf
-            # behind ready_ever_ which never flips for a benchmark-only worker.
-            # The endpoint-level handler exposes measured_perf unconditionally.
-            # Per-class endpoint means every worker in the response is ours;
-            # no preexisting-id filter needed.
-            workers = _normalize_workers(
-                _api_with_retry(endpoints_api.get_endpoint_workers,
-                                status_client, endpoint_id)
-            )
+            # Poll at endpoint level — get_workergroup_workers gates
+            # measured_perf behind ready_ever_ which never flips for
+            # benchmark-only workers. Response is a bare list or
+            # {"workers": [...]} or {"error_msg": "..."}.
+            resp = _api_with_retry(endpoints_api.get_endpoint_workers,
+                                   status_client, endpoint_id)
+            if isinstance(resp, list):
+                workers = resp
+            elif isinstance(resp, dict) and isinstance(resp.get("workers"), list):
+                workers = resp["workers"]
+            else:
+                workers = []
             _emit_progress(worker_states, workers, gpu_class)
-            # Mirror current worker state into class_states for the live table.
-            # If no worker present we leave the prior state alone (might be
-            # waiting_for_worker, or might be a brief gap during rotation).
             if workers:
                 primary = workers[0]
                 _set_class_state(
@@ -818,33 +588,23 @@ def _benchmark_one(client, *, gpu_class, num_gpus, timeout,
                     status=str(primary.get("status") or "?").lower(),
                     worker_id=primary.get("id"),
                 )
-            # Require status=="idle" before accepting measured_perf. The
-            # autoscaler pre-populates `pw->perf_` from dlperf (~12 for 3060)
-            # as soon as the offer is scored, then replaces it with the real
-            # throughput only after pyworker reports max_perf post-benchmark.
-            # That pyworker report is also what triggers the transition to
-            # idle (autoscaler log: "model_loading -> idle (received loadtime)").
+            # measured_perf is only meaningful once status==idle. Before
+            # that the autoscaler pre-fills it with dlperf (a placeholder
+            # from offer specs).
             ready = [w for w in workers
                      if str(w.get("status", "")).lower() == "idle"
                      and (w.get("measured_perf") or 0) > 0]
             if ready:
-                # Fetch the rented instance's actual dph_total. The
-                # autoscaler's get_endpoint_workers payload doesn't include
-                # price, so this is one extra GET /instances/<id>/ per
-                # successful class. Failure is non-fatal: we still return
-                # the measured_perf, just with price=None.
+                # show_instance is the only place dph_total surfaces;
+                # get_endpoint_workers doesn't include price.
                 worker_id = ready[0].get("id")
                 dph = (_instance_dph_total(client, worker_id)
                        if worker_id else None)
                 _set_class_state(class_states, gpu_class, status="done",
                                  perf=ready[0]["measured_perf"], dph=dph)
                 return (gpu_class, "ok", ready[0]["measured_perf"], None, dph)
-            # Fail fast when every worker has been in a terminal state for at
-            # least _TERMINAL_DEBOUNCE seconds without producing measured_perf.
-            # Per-worker state duration (tracked by _emit_progress in
-            # ``state_started``) reacts much faster than the absolute elapsed
-            # time would: if a worker dies 30s after spawning, we exit ~60s
-            # in instead of waiting out the original 120s gate.
+            # Fail fast when every worker has been in a terminal state for
+            # >_TERMINAL_DEBOUNCE without ever reaching idle.
             now_ts = time.monotonic()
             terminal_workers_long = workers and all(
                 str(w.get("status", "")).lower() in _TERMINAL_STATES
@@ -854,14 +614,6 @@ def _benchmark_one(client, *, gpu_class, num_gpus, timeout,
                     > _TERMINAL_DEBOUNCE
                 for w in workers
             )
-            # We only reach this branch if `ready` above was empty (no
-            # worker was status==idle AND measured_perf>0). So a real
-            # measurement did NOT happen — no need to also check
-            # measured_perf here. The autoscaler pre-fills measured_perf
-            # with `dlperf` (a placeholder from offer specs) before
-            # pyworker reports the real value, so checking for
-            # measured_perf>0 alone misclassifies stuck workers as
-            # "still in progress" and blocks the fail-fast.
             if terminal_workers_long:
                 states = sorted({str(w.get("status", "")).lower()
                                  for w in workers})
@@ -870,10 +622,7 @@ def _benchmark_one(client, *, gpu_class, num_gpus, timeout,
                         f"all workers terminal ({', '.join(states)}) for "
                         f">{_TERMINAL_DEBOUNCE}s without reaching idle; "
                         f"autoscaler not rotating", None)
-            # Fail fast if no worker has appeared after the no-worker window.
-            # `worker_states` keys that are int are real worker ids (the
-            # _WAITING_KEY sentinel is a string); if none ever materialized,
-            # the autoscaler isn't going to find one in the remaining budget.
+            # Fail fast if no real worker (int id) has ever appeared.
             if (not any(isinstance(k, int) for k in worker_states)
                     and time.monotonic() - start > _NO_WORKER_TIMEOUT):
                 _set_class_state(class_states, gpu_class, status="no_worker")
@@ -881,20 +630,16 @@ def _benchmark_one(client, *, gpu_class, num_gpus, timeout,
                         f"autoscaler did not rent in {_NO_WORKER_TIMEOUT}s "
                         f"(scoring issue, all candidates failed silently, "
                         f"or template+GPU mismatch missed by pre-flight)", None)
-            # Jitter the poll wait so N parallel threads don't all hit the
-            # autoscaler's /get_endpoint_workers/ at the same instant every
-            # 10s. Without jitter a 5-class run produces 5 simultaneous polls
-            # per cycle and the autoscaler's rate limiter starts returning
-            # 429s.
+            # Jitter so N parallel threads don't all hit the autoscaler at
+            # the same instant and trip its rate limiter.
             time.sleep(_POLL_INTERVAL + random.uniform(0, 2.0))
 
         _set_class_state(class_states, gpu_class, status="timeout")
         return (gpu_class, "timeout", None,
                 f"no measured_perf in {timeout}s", None)
     finally:
-        # Tear down workergroup first (stops the autoscaler from spawning
-        # new workers), then the endpoint (releases the cap, lets Vast GC
-        # the rental). Both are best-effort; atexit sweeps any leftovers.
+        # Workergroup first (stops new workers), then endpoint. Best-effort;
+        # atexit sweeps anything we miss.
         if wg_id is not None:
             try:
                 _api_with_retry(endpoints_api.delete_workergroup, client, id=wg_id)
@@ -946,14 +691,8 @@ def _benchmark_one(client, *, gpu_class, num_gpus, timeout,
              help="Template id to benchmark. One of --template-hash or "
                   "--template-id is required. Wins over --template-hash if both "
                   "are passed."),
-    # Hidden dev flag — pins the endpoint + workergroup to a local autoscaler
-    # shard (e.g. "zuby") so dev can test against a docker-hosted autoscaler.
-    # Real GPU rentals still happen unless the autoscaler is in sim mode.
+    # Hidden dev flags for local autoscaler-shard testing.
     argument("--auto-instance", type=str, default=None, help=argparse.SUPPRESS),
-    # Hidden dev flag — when working against a local autoscaler shard, the
-    # default get_endpoint_workers URL (run.vast.ai) won't see the locally-
-    # managed workers. Pointing at e.g. http://localhost:8080 routes status
-    # polls to the local autoscaler. Customers should never need this.
     argument("--autoscaler-url", type=str, default=None, help=argparse.SUPPRESS),
     usage="vastai run benchmark (--template-id ID | --template-hash HASH) [OPTIONS]",
     help="Rent fresh instances, run pyworker benchmark, record measured perf/$",
@@ -991,18 +730,12 @@ def run__benchmark(args):
         return 1
     extra_filters = _parse_extra_filters(template.get("extra_filters"))
 
-    # Resolve gpu_specs (the (gpu_class, num_gpus) pairs we'll benchmark).
-    # Three modes:
-    #   - Explicit --gpus: parse the comma list, honoring inline Nx prefix
-    #     per token; tokens without prefix fall back to --num-gpus or 1.
-    #   - Default list, no --num-gpus: use _DEFAULT_GPUS and auto-size each
-    #     class's count from the template's gpu_total_ram filter (e.g. a
-    #     template requiring >48 GB picks 2x for RTX 5090, 4x for RTX 4090,
-    #     1x for H100 SXM, etc.).
-    #   - Default list, --num-gpus given: use _DEFAULT_GPUS, all at the
-    #     specified count (user override).
+    # Resolve gpu_specs: explicit --gpus parses inline Nx, defaults
+    # auto-size to the template's gpu_total_ram filter unless --num-gpus
+    # is given.
     if args.gpus:
-        gpu_specs = _parse_gpus_arg(args.gpus, args.num_gpus or 1)
+        gpu_specs = [_parse_gpu_spec(t, args.num_gpus or 1)
+                     for t in args.gpus.split(",") if t.strip()]
     elif args.num_gpus is not None:
         gpu_specs = [(g, args.num_gpus) for g in _DEFAULT_GPUS]
     else:
@@ -1010,19 +743,11 @@ def run__benchmark(args):
             (g, _auto_num_gpus_for_default(client, g, extra_filters))
             for g in _DEFAULT_GPUS
         ]
-    # gpu_classes used for downstream display & "did the user pass --gpus"
-    # checks. The (gpu, n) pairs in gpu_specs are the source of truth for
-    # what we actually rent.
-    gpu_classes = [g for g, _ in gpu_specs]
 
-    # Console used for live region + skip messages above it.
     console = Console(stderr=True)
 
-    # Pre-flight all classes BEFORE the cost prompt so the disclosure shows
-    # the actual count of GPUs that will be rented (not the optimistic count
-    # of classes the user asked for). Skip messages with diagnoses print
-    # here, and the alternatives-suggestion list also fires here when
-    # --gpus was explicit.
+    # Pre-flight before the prompt so the disclosure reflects what'll
+    # actually rent and the user can read skip diagnoses before approving.
     compatible_specs = []
     skipped_results = []
     for g, n in gpu_specs:
@@ -1041,39 +766,14 @@ def run__benchmark(args):
         else:
             compatible_specs.append((g, n))
 
-    # Suggest compatible alternatives if the user asked for specific classes
-    # and any of them got filtered out. (Skipped when --gpus was auto-
-    # discovered: discovery already picked the best classes for this
-    # template, so any extras would be redundant noise.)
-    if args.gpus and skipped_results:
-        # The alternatives suggestion is for the explicit-gpus case only,
-        # where args.num_gpus serves as the assumed count; default to 1.
-        suggestion_n = args.num_gpus or 1
-        suggestions = _suggest_compatible_gpus(
-            client, num_gpus=suggestion_n, extra_filters=extra_filters,
-        )
-        new_suggestions = [s for s in suggestions if s not in gpu_classes]
-        if new_suggestions:
-            console.print(
-                f"\nGPU classes compatible with this template "
-                f"(num_gpus={suggestion_n}): "
-                f"{', '.join(new_suggestions[:8])}", highlight=False)
-
     timeout_minutes = args.timeout / 60.0
     n = len(compatible_specs)
     if n == 0:
-        # Everything got filtered out. Skip the prompt and the rental loop;
-        # just print the result table with the skipped rows we collected.
         console.print(
             "\nNo compatible GPUs to benchmark for this template.",
             style="bold red")
-        results = skipped_results
-        return _print_results(args, results)
+        return _print_results(args, skipped_results)
 
-    # Disclose the per-class counts so the user sees what they're about to
-    # rent. The leading count avoids the ambiguity of "Will rent 4x RTX
-    # 4060 Ti, 4x RTX 4070S Ti..." reading as "four classes" instead of
-    # "three configurations rented at 4 GPUs each."
     spec_strs = [f"{cnt}x {gpu}" for gpu, cnt in compatible_specs]
     spec_summary = ", ".join(spec_strs)
     if n == 1:
@@ -1088,25 +788,18 @@ def run__benchmark(args):
             print("Aborted.", file=sys.stderr)
             return 130
 
-    # Each class creates and destroys its own endpoint (per Lucas: only way
-    # to cap rentals at one-per-class, since max_workers is endpoint-scoped).
-    # These two sets back the atexit sweep for any leaks.
+    # Backing sets for the atexit sweep; per-class teardown discards on
+    # successful delete.
     active_workergroups = set()
     active_endpoints = set()
 
     def _cleanup():
-        # Critical: this can run during Ctrl+C handling. We mask SIGINT for
-        # the duration so a second Ctrl+C from an impatient user doesn't
-        # interrupt mid-deletion and leave records leaked. We also catch
-        # BaseException (not just Exception) on each delete because
-        # KeyboardInterrupt is a BaseException and would otherwise bypass
-        # `except Exception` and abort the loop. Each delete is independent;
-        # one failure shouldn't abort the rest.
+        # Mask SIGINT and catch BaseException so a second Ctrl+C can't
+        # interrupt mid-iteration and leak records.
         prev_handler = None
         try:
             prev_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
         except (ValueError, OSError):
-            # Not in main thread, or signals unavailable; carry on.
             pass
         try:
             for wg_id in list(active_workergroups):
@@ -1131,8 +824,7 @@ def run__benchmark(args):
                     pass
     atexit.register(_cleanup)
 
-    # Live progress table state. Pre-populate with all classes (skipped ones
-    # too, so the live table shows a complete picture).
+    # Live-table state. Pre-populate every class so the table is complete.
     class_states = {}
     for g, _n in compatible_specs:
         _set_class_state(class_states, g, status="queued")
@@ -1158,37 +850,26 @@ def run__benchmark(args):
             _set_class_state(class_states, g, status="error")
             return (g, "error", None, f"{type(e).__name__}: {e}", None)
 
-    # Parallel: each compatible class runs its own endpoint+workergroup
-    # concurrently. Per-class endpoints (with cold_workers=1, max_workers=1)
-    # cap each at exactly one rental, so the autoscaler can't over-allocate.
     run_results = []
     executor = ThreadPoolExecutor(max_workers=len(compatible_specs))
     try:
-        # Stagger submits by _SUBMIT_STAGGER seconds each. Without this, all N
-        # threads fire create_endpoint+create_workergroup within milliseconds,
-        # which trips prod's per-user rate limit on /autojobs/ (403/429) and
-        # the local autoscaler's rate limit on /get_endpoint_workers/ (429).
-        # The actual benchmarks still overlap heavily; only the cold-start
-        # POSTs are spread out.
-        future_map = {}
+        # Stagger submits to keep cold-start POSTs from tripping rate limits.
+        futures = []
         for i, (g, n_for_class) in enumerate(compatible_specs):
-            future_map[executor.submit(_run_one_class, g, n_for_class)] = g
+            futures.append(executor.submit(_run_one_class, g, n_for_class))
             if i < len(compatible_specs) - 1:
                 time.sleep(_SUBMIT_STAGGER)
         try:
             with Live(_render_class_table(class_states), console=console,
                       refresh_per_second=2, transient=False) as live:
-                from concurrent.futures import wait, FIRST_COMPLETED
-                pending = set(future_map)
+                pending = set(futures)
                 while pending:
                     done, pending = wait(pending, timeout=0.5,
                                          return_when=FIRST_COMPLETED)
                     for fut in done:
                         result = fut.result()
                         run_results.append(result)
-                        # Surface failure reasons immediately so they scroll
-                        # above the live table; the result-table section at
-                        # the bottom doesn't repeat them.
+                        # Surface failures live above the table.
                         g, status, _perf, err, _price = result
                         if status not in ("ok", "skipped") and err:
                             console.print(
@@ -1196,14 +877,9 @@ def run__benchmark(args):
                                 highlight=False)
                     live.update(_render_class_table(class_states))
         except KeyboardInterrupt:
-            # User aborted. Run cleanup IMMEDIATELY (don't wait for threads
-            # via executor.shutdown(wait=True), which would block up to
-            # --timeout). Deleting the workergroups makes the autoscaler
-            # destroy the workers; the polling threads will then see zero
-            # workers, exit their loops, and the executor will drain.
-            # Without this, users hit Ctrl+C, stare at a stuck process for
-            # 30 min, hit Ctrl+C again, kill the cleanup mid-flight, and
-            # leak workergroups + endpoints.
+            # Run cleanup synchronously instead of waiting for threads to
+            # drain — otherwise an aborting user has to second-Ctrl+C and
+            # we leak. Threads see workergroups vanish on their next poll.
             console.print("\n[yellow]Aborted, cleaning up...[/yellow]",
                           highlight=False)
             executor.shutdown(wait=False, cancel_futures=True)
@@ -1218,13 +894,10 @@ def run__benchmark(args):
 
 
 def _print_results(args, results):
-    """Print the final result table. Skip messages and suggestions are
-    already printed during pre-flight, so this only prints per-class error
-    details (for non-skipped failures) and the result rows themselves.
+    """Print the post-run summary. Failure / skip details have already
+    scrolled above the live table; this just outputs the result rows
+    (or raw JSON on --raw).
     """
-    # Build + print table. ``price`` is the actual dph_total from
-    # show_instance(worker_id) of the rented instance; populated only when
-    # status == "ok". Other statuses leave it None and the row shows "-".
     rows = []
     for gpu, status, perf, err, price in results:
         pps = (perf / price) if (perf and price) else None
@@ -1237,15 +910,8 @@ def _print_results(args, results):
         })
     rows.sort(key=lambda r: (r["perf_per_dollar"] or -1), reverse=True)
 
-    # Note: failure messages are printed live as each future completes (above
-    # the rich Live table) and skip messages are printed during pre-flight.
-    # No need to repeat them here.
-
     if args.raw:
         return rows
 
-    # The live rich table already shows everything; no need to re-render a
-    # second static table here. Just print a one-line completion summary.
     n_ok = sum(1 for r in rows if r["status"] == "ok")
-    n_total = len(rows)
-    print(f"\nBenchmark complete: {n_ok}/{n_total} GPUs measured.")
+    print(f"\nBenchmark complete: {n_ok}/{len(rows)} GPUs measured.")

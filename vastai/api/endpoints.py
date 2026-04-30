@@ -122,11 +122,12 @@ def delete_endpoint(client, id):
     return r.json()
 
 
-def _get_logs_base_url(client):
-    """Derive the base URL for log endpoints.
+def _get_autoscaler_base_url(client):
+    """Derive the base URL for autoscaler-served endpoints (logs, workers).
 
-    If the client is using the default console.vast.ai URL, logs are served
-    from run.vast.ai.  Otherwise the user's custom URL is used.
+    If the client is using the default console.vast.ai URL, the autoscaler
+    routes are served from run.vast.ai. Otherwise the user's custom URL is
+    used (e.g. http://localhost:8080 for a local autoscaler shard).
     """
     from vastai.api.client import server_url_default
     if client.server_url == server_url_default:
@@ -149,7 +150,7 @@ def get_endpt_logs(client, id, level=1, tail=None):
     Returns:
         dict: Log data from the API response.
     """
-    base = _get_logs_base_url(client)
+    base = _get_autoscaler_base_url(client)
     url = base + "/get_endpoint_logs/"
     json_blob = {"id": id, "api_key": client.api_key}
     if tail is not None:
@@ -328,7 +329,7 @@ def get_wrkgrp_logs(client, id, level=1, tail=None):
     Returns:
         dict: Log data from the API response.
     """
-    base = _get_logs_base_url(client)
+    base = _get_autoscaler_base_url(client)
     url = base + "/get_autogroup_logs/"
     json_blob = {"id": id, "api_key": client.api_key}
     if tail is not None:
@@ -347,26 +348,24 @@ def get_wrkgrp_logs(client, id, level=1, tail=None):
     return {"error": r.text}
 
 
-def get_endpoint_workers(client, endpoint_id: int):
-    """List workers on an endpoint (including `measured_perf`).
+def get_endpoint_workers(client, id):
+    """List workers on an endpoint, including ``measured_perf``.
 
-    POST <autoscaler>/get_endpoint_workers/  body {"id": <endpoint_id>}
+    POST to <base>/get_endpoint_workers/. Use this rather than
+    /get_workergroup_workers/ which gates measured_perf behind
+    ``ready_ever_``.
 
-    Autoscaler exposes `measured_perf = x->perf_` unconditionally at this
-    URL (autoscaler.cpp:341). The sibling `/get_workergroup_workers/`
-    gates `measured_perf` behind `ready_ever_`, which never flips for a
-    benchmark-only worker that never serves real traffic — so always use
-    this URL when we want the benchmark score.
+    Args:
+        client: VastClient instance.
+        id (int): ID of endpoint group whose workers to list.
 
-    Prod observed return shapes: bare list, `{"workers": [...], ...}`,
-    or `{"error_msg": "..."}`.
+    Returns:
+        list | dict: Worker data; observed shapes include a bare list,
+            ``{"workers": [...]}``, or ``{"error_msg": "..."}``.
     """
-    from vastai.api.client import server_url_default
-    base_url = client.server_url
-    if base_url == server_url_default:
-        base_url = "https://run.vast.ai"
-    url = base_url + "/get_endpoint_workers/"
-    json_blob = {"id": endpoint_id, "api_key": client.api_key}
+    base = _get_autoscaler_base_url(client)
+    url = base + "/get_endpoint_workers/"
+    json_blob = {"id": id, "api_key": client.api_key}
 
     headers = {}
     if client.api_key is not None:

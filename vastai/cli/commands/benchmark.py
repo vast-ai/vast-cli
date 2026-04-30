@@ -168,13 +168,7 @@ def _skip_message_for_zero_offers(client, *, gpu_name, num_gpus, extra_filters):
     blockers = diag["single_blockers"]
     if blockers:
         sample = diag.get("sample_offer") or {}
-        # Build a line per (key, op) where the GPU actually fails the
-        # comparison. Operators where the GPU's value mathematically
-        # satisfies the filter (but the search endpoint still returned 0
-        # offers) are dropped silently; those are Vast search-engine quirks
-        # we've seen on numeric comparisons like cuda_max_good>=12.4. Listing
-        # them as "blockers" confuses users since the math contradicts the
-        # claim.
+        # Skip "blockers" the GPU actually satisfies (Vast search-engine quirk on numeric ops).
         blocker_lines = []
         for key in blockers:
             ops = extra_filters.get(key)
@@ -195,10 +189,7 @@ def _skip_message_for_zero_offers(client, *, gpu_name, num_gpus, extra_filters):
         if blocker_lines:
             plural = "s" if len(blocker_lines) > 1 else ""
             lines = [f"blocked by template filter{plural}:"] + blocker_lines
-            # Suggest a higher --num-gpus when gpu_total_ram is the ONLY
-            # blocker. If there are other single-filter blockers (e.g.,
-            # compute_cap on a too-new GPU), bumping num_gpus alone won't fix
-            # the run, so we stay quiet rather than mislead.
+            # Only hint num_gpus when gpu_total_ram is the sole blocker; otherwise bumping it won't fix the run.
             if blockers == ["gpu_total_ram"]:
                 ops = extra_filters.get("gpu_total_ram") or {}
                 if ops:
@@ -211,8 +202,7 @@ def _skip_message_for_zero_offers(client, *, gpu_name, num_gpus, extra_filters):
                             f"  hint: try {viable}x {gpu_name} "
                             f"(host total then satisfies {value})")
             return "\n".join(lines)
-        # If every "blocker" turned out to be a search-engine quirk, fall
-        # through to the combined-exclusion message below.
+        # All "blockers" turned out to be quirks; fall through to combined-exclusion message.
 
     # No single filter is sufficient; combination of filters is the culprit.
     return ("0 offers match. No single filter is the culprit; the combination "
@@ -349,8 +339,7 @@ def _emit_progress(worker_states, current_workers, gpu_name):
         if not isinstance(wid, int):
             continue  # sentinel keys (e.g. _WAITING_KEY)
         if wid not in seen:
-            # Worker abandoned by the autoscaler. The live table only shows
-            # the current worker, so a rotation would otherwise be invisible.
+            # Worker abandoned; live table only shows current worker, so rotation is otherwise invisible.
             prev = worker_states[wid]
             elapsed = _format_elapsed(now - prev["state_started"])
             print(f"[{gpu_name}] worker {wid} abandoned "
@@ -376,10 +365,7 @@ def _set_class_state(class_states, gpu_name, **fields):
         if new_status in _TERMINAL_STATUSES:
             cur["run_ended"] = now_ts
         else:
-            # Coming back from a (mistakenly) frozen state; let elapsed
-            # tick again. Without this, a worker that bounced through a
-            # terminal status and recovered would show a frozen elapsed.
-            cur.pop("run_ended", None)
+            cur.pop("run_ended", None)  # recovered from a transient terminal status; unfreeze elapsed
     cur.update(fields)
 
 
@@ -398,9 +384,7 @@ def _render_class_table(class_states):
     for gpu in sorted(class_states):
         s = class_states[gpu]
         status = s.get("status") or "-"
-        # Hide skipped rows from the live table; they're noise during the
-        # active run (the skip reason was printed at pre-flight, and the
-        # final result table at the end still includes them for the record).
+        # Skipped rows are noise during the run; reason already printed at pre-flight, final summary still includes them.
         if status == "skipped":
             continue
         run_started = s.get("run_started")
@@ -510,8 +494,7 @@ def _benchmark_one(client, *, gpu_name, num_gpus, timeout,
             cold_workers=1,
             min_load=1.0,
         )
-        # --template-id wins; --template-hash can resolve to a stale id
-        # silently (serverless-bugs.md #6).
+        # --template-id wins; --template-hash can silently resolve to a stale id (serverless-bugs.md #6).
         if template_id is not None:
             wg_kwargs["template_id"] = template_id
         elif template_hash is not None:
@@ -529,10 +512,7 @@ def _benchmark_one(client, *, gpu_name, num_gpus, timeout,
         worker_states = {}
 
         while time.monotonic() - start < timeout:
-            # Poll at endpoint level; get_workergroup_workers gates
-            # measured_perf behind ready_ever_ which never flips for
-            # benchmark-only workers. Response is a bare list, or
-            # {"workers": [...]}, or {"error_msg": "..."}.
+            # Endpoint-level only: get_workergroup_workers gates measured_perf behind ready_ever_, which never flips for benchmark workers.
             resp = _api_with_retry(endpoints_api.get_endpoint_workers,
                                    status_client, endpoint_id)
             if isinstance(resp, list):
@@ -549,23 +529,19 @@ def _benchmark_one(client, *, gpu_name, num_gpus, timeout,
                     status=str(primary.get("status") or "?").lower(),
                     worker_id=primary.get("id"),
                 )
-            # measured_perf is only meaningful once status==idle. Before
-            # that the autoscaler pre-fills it with dlperf (a placeholder
-            # from offer specs).
+            # measured_perf is only real once status==idle; before that it's a dlperf placeholder.
             ready = [w for w in workers
                      if str(w.get("status", "")).lower() == "idle"
                      and (w.get("measured_perf") or 0) > 0]
             if ready:
-                # show_instance is the only place dph_total surfaces;
-                # get_endpoint_workers doesn't include price.
+                # show_instance is the only place dph_total surfaces.
                 worker_id = ready[0].get("id")
                 dph = (_instance_dph_total(client, worker_id)
                        if worker_id else None)
                 _set_class_state(class_states, gpu_name, status="done",
                                  perf=ready[0]["measured_perf"], dph=dph)
                 return (gpu_name, "ok", ready[0]["measured_perf"], None, dph)
-            # Fail fast when every worker has been in a terminal state for
-            # >_TERMINAL_DEBOUNCE without ever reaching idle.
+            # Fail fast: every worker stuck terminal past debounce, none reached idle.
             now_ts = time.monotonic()
             terminal_workers_long = workers and all(
                 str(w.get("status", "")).lower() in _TERMINAL_STATES
@@ -591,16 +567,14 @@ def _benchmark_one(client, *, gpu_name, num_gpus, timeout,
                         f"autoscaler did not rent in {_NO_WORKER_TIMEOUT}s "
                         f"(scoring issue, all candidates failed silently, "
                         f"or template+GPU mismatch missed by pre-flight)", None)
-            # Jitter so N parallel threads don't all hit the autoscaler at
-            # the same instant and trip its rate limiter.
+            # Jitter so N parallel threads don't all hit the autoscaler at the same instant.
             time.sleep(_POLL_INTERVAL + random.uniform(0, 2.0))
 
         _set_class_state(class_states, gpu_name, status="timeout")
         return (gpu_name, "timeout", None,
                 f"no measured_perf in {timeout}s", None)
     finally:
-        # Workergroup first (stops new workers), then endpoint. Best-effort;
-        # atexit sweeps anything we miss.
+        # Workergroup first (stops new workers), then endpoint. atexit sweeps anything we miss.
         if wg_id is not None:
             try:
                 _api_with_retry(endpoints_api.delete_workergroup, client, id=wg_id)
@@ -689,9 +663,7 @@ def run__benchmark(args):
         return 1
     extra_filters = _parse_extra_filters(template.get("extra_filters"))
 
-    # Resolve gpu_specs: explicit --gpus parses inline Nx, defaults
-    # auto-size to the template's gpu_total_ram filter unless --num-gpus
-    # is given.
+    # Resolve gpu_specs: explicit --gpus parses inline Nx; otherwise auto-size from gpu_total_ram unless --num-gpus is given.
     if args.gpus:
         gpu_specs = [_parse_gpu_spec(t, args.num_gpus or 1)
                      for t in args.gpus.split(",") if t.strip()]
@@ -705,8 +677,7 @@ def run__benchmark(args):
 
     console = Console(stderr=True)
 
-    # Pre-flight before the prompt so the disclosure reflects what'll
-    # actually rent and the user can read skip diagnoses before approving.
+    # Pre-flight before the prompt so the user sees skip reasons and accurate cost before approving.
     compatible_specs = []
     skipped_results = []
     for g, n in gpu_specs:
@@ -747,14 +718,12 @@ def run__benchmark(args):
             print("Aborted.", file=sys.stderr)
             return 130
 
-    # Backing sets for the atexit sweep; per-GPU teardown discards on
-    # successful delete.
+    # Backing sets for the atexit sweep; per-GPU teardown discards on success.
     active_workergroups = set()
     active_endpoints = set()
 
     def _cleanup():
-        # Mask SIGINT and catch BaseException so a second Ctrl+C can't
-        # interrupt mid-iteration and leak records.
+        # Mask SIGINT + catch BaseException so a second Ctrl+C can't leak records mid-iteration.
         prev_handler = None
         try:
             prev_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -836,9 +805,7 @@ def run__benchmark(args):
                                 highlight=False)
                     live.update(_render_class_table(class_states))
         except KeyboardInterrupt:
-            # Run cleanup synchronously instead of waiting for threads to
-            # drain. Otherwise an aborting user has to second-Ctrl+C and
-            # we leak. Threads see workergroups vanish on their next poll.
+            # Cleanup synchronously; waiting on threads risks a leak if user hits Ctrl+C again.
             console.print("\n[yellow]Aborted, cleaning up...[/yellow]",
                           highlight=False)
             executor.shutdown(wait=False, cancel_futures=True)

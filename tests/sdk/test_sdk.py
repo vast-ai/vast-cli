@@ -180,6 +180,54 @@ class TestSearchOffers:
             order = mock.call_args.kwargs["order"]
             assert len(order) == 1
 
+    def test_string_query_seeds_defaults(self, sdk):
+        """String queries should arrive at the helper with defaults pre-merged
+        and no_default=True so defaults are not applied a second time."""
+        with patch("vastai.api.offers.search_offers", return_value=[]) as mock:
+            sdk.search_offers("num_gpus>=1")
+            q = mock.call_args.kwargs["query"]
+            assert q["verified"] == {"eq": True}
+            assert q["rentable"] == {"eq": True}
+            assert q["external"] == {"eq": False}
+            assert q["rented"] == {"eq": False}
+            assert mock.call_args.kwargs["no_default"] is True
+
+    def test_field_any_removes_default(self, sdk):
+        """Regression: explicit `field=any` must clear the default filter
+        (matches CLI behavior). Reported in vast-cli#383."""
+        with patch("vastai.api.offers.search_offers", return_value=[]) as mock:
+            sdk.search_offers("num_gpus>=1 verified=any rentable=any")
+            q = mock.call_args.kwargs["query"]
+            assert "verified" not in q
+            assert "rentable" not in q
+            assert q["external"] == {"eq": False}
+            assert q["rented"] == {"eq": False}
+            assert mock.call_args.kwargs["no_default"] is True
+
+    def test_no_default_skips_seeding(self, sdk):
+        """no_default=True should skip default seeding entirely."""
+        with patch("vastai.api.offers.search_offers", return_value=[]) as mock:
+            sdk.search_offers("num_gpus>=1", no_default=True)
+            q = mock.call_args.kwargs["query"]
+            assert "verified" not in q
+            assert "rentable" not in q
+            assert mock.call_args.kwargs["no_default"] is True
+
+    def test_dict_query_lets_helper_apply_defaults(self, sdk):
+        """Dict queries are not pre-seeded; the helper still applies defaults
+        per no_default. Preserves existing behavior for dict callers."""
+        with patch("vastai.api.offers.search_offers", return_value=[]) as mock:
+            sdk.search_offers({"num_gpus": {"gte": 1}})
+            assert mock.call_args.kwargs["no_default"] is False
+
+    def test_field_any_removes_default_search_offers_new(self, sdk):
+        """Same regression coverage for the search_offers_new path."""
+        with patch("vastai.api.offers.search_offers_new", return_value=[]) as mock:
+            sdk.search_offers_new("num_gpus>=1 verified=any")
+            q = mock.call_args.kwargs["query"]
+            assert "verified" not in q
+            assert mock.call_args.kwargs["no_default"] is True
+
 
 # ---------------------------------------------------------------------------
 # show_env_vars — value masking

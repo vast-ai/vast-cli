@@ -6478,7 +6478,7 @@ def show__user(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, "/users/current", {"owner": "me"});
+    req_url = apiurl(args, "/users/current");
     r = http_get(args, req_url);
     r.raise_for_status()
     user_blob = r.json()

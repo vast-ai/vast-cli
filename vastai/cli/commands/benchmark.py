@@ -22,7 +22,8 @@ from rich.table import Table
 from vastai import VastAI
 from vastai.cli.parser import argument
 from vastai.cli.display import deindent
-from vastai.cli.utils import get_parser as _get_parser
+from vastai.cli.utils import get_parser as _get_parser, get_client  # noqa: F401  (used by test conftest)
+from vastai.data.query import OP_TO_STR
 
 
 parser = _get_parser()
@@ -44,11 +45,6 @@ _NO_WORKER_TIMEOUT = 120  # bail if autoscaler hasn't rented anything by here
 _SUBMIT_STAGGER = 1.5  # spacing between parallel submits to avoid rate limits
 
 _GPU_COUNT_RE = re.compile(r"^(\d+)\s*x\s*(.+)$", re.IGNORECASE)  # "Nx GPU NAME" prefix on a --gpus token
-
-_FILTER_OP_SYMBOL = {
-    "gt": ">", "gte": ">=", "lt": "<", "lte": "<=",
-    "eq": "==", "neq": "!=", "in": "in", "notin": "notin",
-}
 
 # Workers stuck in these for >_TERMINAL_DEBOUNCE seconds trigger fail-fast.
 # `error` excluded since the autoscaler recovers (error, rebooting, model_loading).
@@ -93,11 +89,8 @@ def _format_filter_query(filters):
         if not isinstance(ops, dict):
             continue
         for op, value in ops.items():
-            sym = _FILTER_OP_SYMBOL.get(op, op)
-            if op in ("in", "notin"):
-                parts.append(f"{field} {sym} {value}")
-            else:
-                parts.append(f"{field}{sym}{value}")
+            sym = OP_TO_STR.get(op, op)
+            parts.append(f"{field}{sym}{value}")
     return ", ".join(parts)
 
 
@@ -146,7 +139,7 @@ def _skip_reason(vast, *, gpu_name, num_gpus, extra_filters):
             for op, threshold in ops.items():
                 if _filter_passes(actual, op, threshold) is True:
                     continue  # search-engine quirk, skip
-                sym = _FILTER_OP_SYMBOL.get(op, op)
+                sym = OP_TO_STR.get(op, op)
                 if actual is None:
                     detail = "no sample available to check"
                 else:

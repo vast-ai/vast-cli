@@ -361,7 +361,7 @@ def get_endpoint_workers(client, id):
     """
     base = _get_logs_base_url(client)
     url = base + "/get_endpoint_workers/"
-    json_blob = {"id": id, "api_key": client.api_key}
+    json_blob = {"id": id}
 
     headers = {}
     if client.api_key is not None:

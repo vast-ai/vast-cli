@@ -42,7 +42,7 @@ _ENDPOINT_CONFIG = {"cold_workers": 1, "max_workers": 1, "min_load": 1.0}
 _POLL_INTERVAL = 10.0
 _DEFAULT_TIMEOUT = 60 * 60
 _NO_WORKER_TIMEOUT = 120  # bail if autoscaler hasn't rented anything by here
-_SUBMIT_STAGGER = 1.5  # spacing between parallel submits to avoid rate limits
+_SUBMIT_STAGGER = 4.0  # spacing between parallel submits; prod's create_endpoint rate limit returns 400 (not 429) so VastClient can't auto-retry
 
 _GPU_COUNT_RE = re.compile(r"^(\d+)\s*x\s*(.+)$", re.IGNORECASE)  # "Nx GPU NAME" prefix on a --gpus token
 
@@ -381,7 +381,7 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
     search = f"gpu_name={gpu_name.replace(' ', '_')} num_gpus={num_gpus}"
     # status_vast routes get_endpoint_workers through --autoscaler_url if set; CRUD always stays on the default server.
     if autoscaler_url:
-        status_vast = VastAI(api_key=vast.client.api_key, server_url=autoscaler_url)
+        status_vast = VastAI(api_key=vast.client.api_key, server_url=autoscaler_url, retry=vast.client.retry)
     else:
         status_vast = vast
 
@@ -561,7 +561,9 @@ def run__benchmark(args):
               "(run `vastai run benchmark --help` for usage)",
               file=sys.stderr)
         return 2
-    vast = VastAI(api_key=args.api_key, server_url=args.url, retry=args.retry,
+    # Bump retry budget so parallel polls don't exhaust VastClient's tiny default (3 attempts, ~0.7s) under autoscaler rate limits.
+    retry = max(args.retry, 8)
+    vast = VastAI(api_key=args.api_key, server_url=args.url, retry=retry,
                   explain=getattr(args, 'explain', False),
                   curl=getattr(args, 'curl', False))
 

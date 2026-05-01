@@ -523,8 +523,9 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
                 _update_row(class_states, row_id, status="no_worker")
                 return (gpu_name, num_gpus, "no_worker", None,
                         f"autoscaler did not rent in {_NO_WORKER_TIMEOUT}s "
-                        f"(scoring issue, all candidates failed silently, "
-                        f"or template+GPU mismatch missed by pre-flight)", None)
+                        f"(possible causes: insufficient credit, scoring issue, "
+                        f"all candidates failed silently, or template+GPU mismatch "
+                        f"missed by pre-flight)", None)
             # Jitter so N parallel threads don't all hit the autoscaler at the same instant.
             delay = _POLL_INTERVAL + random.uniform(0, 2.0)
             if stop_event is not None:

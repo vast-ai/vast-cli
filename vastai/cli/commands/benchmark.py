@@ -51,6 +51,7 @@ _ENDPOINT_CONFIG = {"cold_workers": 1, "max_workers": 1, "min_load": 1.0}
 _POLL_INTERVAL = 10.0
 _DEFAULT_TIMEOUT = 60 * 60
 _NO_WORKER_TIMEOUT = 120  # bail if autoscaler hasn't rented anything by here
+_MAX_ABANDONS = 3  # bail after this many workers get abandoned without one reaching idle (autoscaler thrashing)
 _SUBMIT_STAGGER = 4.0  # spacing between parallel submits; prod's create_endpoint rate limit returns 400 (not 429) so VastClient can't auto-retry
 
 _GPU_COUNT_RE = re.compile(r"^(\d+)\s*x\s*(.+)$", re.IGNORECASE)  # "Nx GPU NAME" prefix on a --gpus token
@@ -284,12 +285,14 @@ def _update_worker_states(worker_states, current_workers, gpu_name):
     """Update worker_states with current poll, and print only on worker
     rotation (the live rich table already shows current status / elapsed).
     Tracks state_started per worker for the terminal-debounce gate.
+    Returns the count of workers abandoned during this poll.
     """
     now = time.monotonic()
+    abandoned = 0
 
     if not current_workers:
         worker_states.setdefault(_WAITING_KEY, {"started": now})
-        return
+        return abandoned
 
     worker_states.pop(_WAITING_KEY, None)
 
@@ -319,6 +322,8 @@ def _update_worker_states(worker_states, current_workers, gpu_name):
                   f"(last state={prev['status']} for {elapsed})",
                   file=sys.stderr)
             del worker_states[wid]
+            abandoned += 1
+    return abandoned
 
 
 def _update_row(class_states, row_id, **fields):
@@ -445,6 +450,7 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
         _update_row(class_states, row_id, status="waiting_for_worker")
         worker_states = {}
         dph_by_worker = {}  # cache so we don't re-fetch dph on every poll
+        total_abandoned = 0  # cumulative count; >= _MAX_ABANDONS bails out as autoscaler thrashing
 
         while time.monotonic() - start < timeout:
             if stop_event is not None and stop_event.is_set():
@@ -458,7 +464,13 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
                 workers = resp["workers"]
             else:
                 workers = []
-            _update_worker_states(worker_states, workers, gpu_name)
+            total_abandoned += _update_worker_states(worker_states, workers, gpu_name)
+            if total_abandoned >= _MAX_ABANDONS:
+                _update_row(class_states, row_id, status="failed")
+                return (gpu_name, num_gpus, "failed", None,
+                        f"autoscaler abandoned {total_abandoned} workers without "
+                        f"any reaching idle (likely template + GPU config not loadable "
+                        f"on these hosts)", None)
             if workers:
                 primary = workers[0]
                 primary_id = primary.get("id")
@@ -527,20 +539,27 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
                 f"no measured_perf in {timeout}s", None)
     finally:
         # Workergroup first (stops new workers), then endpoint. atexit sweeps anything we miss.
+        # 404s are silently absorbed since "already gone" is the desired end state.
         if wg_id is not None:
             try:
                 vast.delete_workergroup(id=wg_id)
                 active_workergroups.discard(wg_id)
             except Exception as e:
-                print(f"[cleanup] failed to delete workergroup {wg_id}: {e}",
-                      file=sys.stderr)
+                if getattr(getattr(e, "response", None), "status_code", None) != 404:
+                    print(f"[cleanup] failed to delete workergroup {wg_id}: {e}",
+                          file=sys.stderr)
+                else:
+                    active_workergroups.discard(wg_id)
         if endpoint_id is not None:
             try:
                 vast.delete_endpoint(id=endpoint_id)
                 active_endpoints.discard(endpoint_id)
             except Exception as e:
-                print(f"[cleanup] failed to delete endpoint {endpoint_id}: {e}",
-                      file=sys.stderr)
+                if getattr(getattr(e, "response", None), "status_code", None) != 404:
+                    print(f"[cleanup] failed to delete endpoint {endpoint_id}: {e}",
+                          file=sys.stderr)
+                else:
+                    active_endpoints.discard(endpoint_id)
 
 
 @parser.command(
@@ -645,9 +664,8 @@ def run__benchmark(args):
     # Pre-flight before the prompt so the user sees skip reasons and accurate cost before approving.
     compatible_specs = []
     skipped_results = []
-    spec_dphs = {}  # (g, n) -> sample dph_total, used to estimate cost range in the prompt
     for g, n in gpu_specs:
-        offer_count, sample = _count_matching_offers(
+        offer_count, _sample = _count_matching_offers(
             vast, gpu_name=g, num_gpus=n,
             extra_filters=extra_filters,
         )
@@ -661,8 +679,6 @@ def run__benchmark(args):
             skipped_results.append((g, n, "skipped", None, msg, None))
         else:
             compatible_specs.append((g, n))
-            if sample and sample.get("dph_total"):
-                spec_dphs[(g, n)] = sample["dph_total"]
 
     timeout_minutes = args.timeout / 60.0
     n = len(compatible_specs)
@@ -674,22 +690,15 @@ def run__benchmark(args):
 
     spec_strs = [f"{cnt}x {gpu}" for gpu, cnt in compatible_specs]
     spec_summary = ", ".join(spec_strs)
-    # Cost range: low = every benchmark finishes ~2 min (typical fast case), high = every benchmark hits --timeout.
-    # Real cost lands somewhere between; sample dph is from the first matching offer, autoscaler may pick a different host.
-    total_dph = sum(spec_dphs.get(spec, 0) for spec in compatible_specs)
-    cost_str = ""
-    if total_dph > 0:
-        low = total_dph * (2 / 60)
-        high = total_dph * (args.timeout / 3600)
-        cost_str = f" Estimated cost: ${low:.2f} - ${high:.2f}."
     if n == 1:
         print(f"\nWill rent 1 GPU configuration ({spec_summary}). "
-              f"Each runs ~2 to {timeout_minutes:.0f} min.{cost_str}")
+              f"Each runs ~2 to {timeout_minutes:.0f} min.")
     else:
         print(f"\nWill rent {n} GPU configurations in parallel "
-              f"({spec_summary}). Each runs ~2 to {timeout_minutes:.0f} min.{cost_str}")
+              f"({spec_summary}). Each runs ~2 to {timeout_minutes:.0f} min.")
     if not args.yes:
-        if input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
+        prompt = "This rents real GPUs and charges your account for usage. Continue? [y/N] "
+        if input(prompt).strip().lower() not in ("y", "yes"):
             print("Aborted.", file=sys.stderr)
             sys.exit(130)
     print()

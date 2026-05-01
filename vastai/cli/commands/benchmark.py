@@ -106,7 +106,7 @@ def _count_matching_offers(vast, *, gpu_name, num_gpus, extra_filters):
     return len(offers)
 
 
-def _skip_reason(vast, *, gpu_name, num_gpus, extra_filters):
+def _format_skip_message(vast, *, gpu_name, num_gpus, extra_filters):
     """Build a human-readable explanation for why a GPU has 0 matching offers.
 
     Skips the diagnostic API calls when there are no template filters (nothing
@@ -117,7 +117,7 @@ def _skip_reason(vast, *, gpu_name, num_gpus, extra_filters):
     if not extra_filters:
         return (f"no offers for {gpu_name} (num_gpus={num_gpus})")
 
-    diag = _diagnose_no_offers(
+    diag = _find_blockers(
         vast, gpu_name=gpu_name, num_gpus=num_gpus,
         extra_filters=extra_filters,
     )
@@ -137,7 +137,7 @@ def _skip_reason(vast, *, gpu_name, num_gpus, extra_filters):
                 continue
             actual = sample.get(key)
             for op, threshold in ops.items():
-                if _filter_passes(actual, op, threshold) is True:
+                if _check_template_filter(actual, op, threshold) is True:
                     continue  # search-engine quirk, skip
                 sym = OP_TO_STR.get(op, op)
                 if actual is None:
@@ -170,7 +170,7 @@ def _skip_reason(vast, *, gpu_name, num_gpus, extra_filters):
             f"({_format_filter_query(extra_filters)})")
 
 
-def _diagnose_no_offers(vast, *, gpu_name, num_gpus, extra_filters):
+def _find_blockers(vast, *, gpu_name, num_gpus, extra_filters):
     """Identify why ``_count_matching_offers`` returned 0.
 
     Bails on the first filter that excludes the GPU (further blockers aren't
@@ -197,7 +197,7 @@ def _diagnose_no_offers(vast, *, gpu_name, num_gpus, extra_filters):
             "per_card_gpu_ram": per_card, "sample_offer": sample}
 
 
-def _filter_passes(actual, op, threshold):
+def _check_template_filter(actual, op, threshold):
     """Does ``actual`` satisfy the comparison ``op threshold``? Returns True,
     False, or None if either input is missing or the operator is unsupported.
     """
@@ -240,7 +240,7 @@ def _get_gpu_chunk_size(n):
     return n
 
 
-def _auto_num_gpus(gpu_name, extra_filters):
+def _pick_num_gpus(gpu_name, extra_filters):
     """Smallest num_gpus where ``num_gpus * per_card_ram`` satisfies the
     template's ``gpu_total_ram`` filter, rounded up to a chassis size.
     Falls back to 1 when the template has no such filter or one card
@@ -259,7 +259,7 @@ def _auto_num_gpus(gpu_name, extra_filters):
     return _get_gpu_chunk_size(raw_min)
 
 
-def _track_workers(worker_states, current_workers, gpu_name):
+def _update_worker_states(worker_states, current_workers, gpu_name):
     """Update worker_states with current poll, and print only on worker
     rotation (the live rich table already shows current status / elapsed).
     Tracks state_started per worker for the terminal-debounce gate.
@@ -364,7 +364,7 @@ def _render_table(class_states):
     return table
 
 
-def _benchmark_one(vast, *, gpu_name, num_gpus, timeout,
+def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
                    active_workergroups, active_endpoints,
                    template_hash=None, template_id=None,
                    auto_instance=None, autoscaler_url=None,
@@ -402,7 +402,6 @@ def _benchmark_one(vast, *, gpu_name, num_gpus, timeout,
             endpoint_id=endpoint_id,
             endpoint_name=endpoint_name,
             search_params=search,
-            test_workers=1,
             cold_workers=1,
             min_load=1.0,
         )
@@ -434,7 +433,7 @@ def _benchmark_one(vast, *, gpu_name, num_gpus, timeout,
                 workers = resp["workers"]
             else:
                 workers = []
-            _track_workers(worker_states, workers, gpu_name)
+            _update_worker_states(worker_states, workers, gpu_name)
             if workers:
                 primary = workers[0]
                 _update_row(
@@ -531,7 +530,7 @@ def _benchmark_one(vast, *, gpu_name, num_gpus, timeout,
     argument("--auto_instance", type=str, default=None, help=argparse.SUPPRESS),
     argument("--autoscaler_url", type=str, default=None, help=argparse.SUPPRESS),
     usage="vastai run benchmark [OPTIONS]",
-    help="Rent fresh instances per GPU, run the template's pyworker benchmark, record measured perf/$",
+    help="Benchmark a template against one or more GPUs",
     epilog=deindent("""
         Rents one instance per GPU in parallel, measures perf, tears down.
         Each rental runs for up to --timeout seconds and costs real money.
@@ -594,7 +593,7 @@ def run__benchmark(args):
         gpu_specs = [(g, args.num_gpus) for g in _DEFAULT_GPUS]
     else:
         gpu_specs = [
-            (g, _auto_num_gpus(g, extra_filters))
+            (g, _pick_num_gpus(g, extra_filters))
             for g in _DEFAULT_GPUS
         ]
 
@@ -609,7 +608,7 @@ def run__benchmark(args):
             extra_filters=extra_filters,
         )
         if offer_count == 0:
-            msg = _skip_reason(
+            msg = _format_skip_message(
                 vast, gpu_name=g, num_gpus=n,
                 extra_filters=extra_filters,
             )
@@ -681,9 +680,9 @@ def run__benchmark(args):
     for sr in skipped_results:
         _update_row(class_states, sr[0], status="skipped")
 
-    def _run_one_class(g, n):
+    def _run_one_gpu(g, n):
         try:
-            return _benchmark_one(
+            return _benchmark_gpu(
                 vast,
                 gpu_name=g,
                 num_gpus=n,
@@ -707,7 +706,7 @@ def run__benchmark(args):
         # Stagger submits to keep cold-start POSTs from tripping rate limits.
         futures = []
         for i, (g, n_for_class) in enumerate(compatible_specs):
-            futures.append(executor.submit(_run_one_class, g, n_for_class))
+            futures.append(executor.submit(_run_one_gpu, g, n_for_class))
             if i < len(compatible_specs) - 1:
                 time.sleep(_SUBMIT_STAGGER)
         try:

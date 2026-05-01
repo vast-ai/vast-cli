@@ -284,7 +284,8 @@ class TestBenchmarkRunCLI:
             rental_dph=0.5,
         )
         name = vast.create_endpoint.call_args.kwargs["endpoint_name"]
-        assert name == "benchmark 1x RTX 3060"
+        assert name.startswith("benchmark 1x RTX 3060 (")
+        assert name.endswith(")")
 
     def test_endpoint_deleted_even_on_exception(self, parse_argv):
         rows, vast = _run_cli(

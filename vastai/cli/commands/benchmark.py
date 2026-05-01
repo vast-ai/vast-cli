@@ -13,6 +13,7 @@ import signal
 import sys
 import threading
 import time
+import uuid
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 from rich.console import Console
@@ -375,7 +376,8 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
     """
     endpoint_id = None
     wg_id = None
-    endpoint_name = f"benchmark {num_gpus}x {gpu_name}"
+    # uuid suffix: autoscaler enforces unique endpoint_name per account, so reuse-after-leak collides.
+    endpoint_name = f"benchmark {num_gpus}x {gpu_name} ({uuid.uuid4().hex[:8]})"
     start = time.monotonic()
     _update_row(class_states, gpu_name, status="provisioning")
     search = f"gpu_name={gpu_name.replace(' ', '_')} num_gpus={num_gpus}"
@@ -700,7 +702,16 @@ def run__benchmark(args):
             )
         except Exception as e:
             _update_row(class_states, g, status="error")
-            return (g, "error", None, f"{type(e).__name__}: {e}", None)
+            # Surface response body for HTTPError so backend rate-limit / validation
+            # messages aren't swallowed (default __str__ on HTTPError just shows the URL).
+            body = ""
+            resp = getattr(e, "response", None)
+            if resp is not None:
+                try:
+                    body = f" | body: {resp.text[:500]}"
+                except Exception:
+                    pass
+            return (g, "error", None, f"{type(e).__name__}: {e}{body}", None)
 
     run_results = []
     executor = ThreadPoolExecutor(max_workers=len(compatible_specs))

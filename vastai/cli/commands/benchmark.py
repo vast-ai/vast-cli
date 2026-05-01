@@ -106,15 +106,15 @@ def _format_filter_query(filters):
 
 
 def _count_matching_offers(vast, *, gpu_name, num_gpus, extra_filters):
-    """Return how many verified+rentable offers match the template's filters
-    plus ``gpu_name`` and ``num_gpus``. ``limit=1`` because we only care
-    whether any exist.
+    """Return ``(count, sample)`` for offers matching the template's filters
+    plus ``gpu_name`` and ``num_gpus``. ``limit=1`` because callers only need
+    existence + one representative offer (for dph_total etc).
     """
     query = dict(extra_filters or {})
     query["gpu_name"] = {"eq": gpu_name}
     query["num_gpus"] = {"eq": num_gpus}
     offers = vast.search_offers(query=query, limit=1)
-    return len(offers)
+    return len(offers), (offers[0] if offers else None)
 
 
 def _format_skip_message(vast, *, gpu_name, num_gpus, extra_filters):
@@ -207,7 +207,7 @@ def _find_blockers(vast, *, gpu_name, num_gpus, extra_filters):
                     for op, threshold in ops.items()
                 ):
                     continue
-            single = _count_matching_offers(
+            single, _ = _count_matching_offers(
                 vast, gpu_name=gpu_name, num_gpus=num_gpus,
                 extra_filters={key: ops},
             )
@@ -444,6 +444,7 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
         active_workergroups.add(wg_id)
         _update_row(class_states, row_id, status="waiting_for_worker")
         worker_states = {}
+        dph_by_worker = {}  # cache so we don't re-fetch dph on every poll
 
         while time.monotonic() - start < timeout:
             if stop_event is not None and stop_event.is_set():
@@ -460,25 +461,29 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
             _update_worker_states(worker_states, workers, gpu_name)
             if workers:
                 primary = workers[0]
-                _update_row(
-                    class_states, row_id,
-                    status=str(primary.get("status") or "?").lower(),
-                    worker_id=primary.get("id"),
-                )
+                primary_id = primary.get("id")
+                fields = {
+                    "status": str(primary.get("status") or "?").lower(),
+                    "worker_id": primary_id,
+                }
+                # Fetch dph once per new worker_id; surfaces $/hr in the live table as soon as the autoscaler rents (before model loads).
+                if primary_id and primary_id not in dph_by_worker:
+                    try:
+                        inst = vast.show_instance(id=primary_id)
+                        dph_by_worker[primary_id] = inst.get("dph_total")
+                    except Exception:
+                        dph_by_worker[primary_id] = None
+                if primary_id and dph_by_worker.get(primary_id) is not None:
+                    fields["dph"] = dph_by_worker[primary_id]
+                _update_row(class_states, row_id, **fields)
             # measured_perf is only real once status==idle; before that it's a dlperf placeholder.
             ready = [w for w in workers
                      if str(w.get("status", "")).lower() == "idle"
                      and (w.get("measured_perf") or 0) > 0]
             if ready:
-                # show_instance is the only place dph_total surfaces; tolerate failure so a missing price doesn't drop the result.
+                # dph was already fetched and cached when this worker_id first appeared in polling.
                 worker_id = ready[0].get("id")
-                dph = None
-                if worker_id:
-                    try:
-                        inst = vast.show_instance(id=worker_id)
-                        dph = inst.get("dph_total")
-                    except Exception:
-                        pass
+                dph = dph_by_worker.get(worker_id) if worker_id else None
                 _update_row(class_states, row_id, status="done",
                                  perf=ready[0]["measured_perf"], dph=dph)
                 return (gpu_name, num_gpus, "ok", ready[0]["measured_perf"], None, dph)
@@ -640,8 +645,9 @@ def run__benchmark(args):
     # Pre-flight before the prompt so the user sees skip reasons and accurate cost before approving.
     compatible_specs = []
     skipped_results = []
+    spec_dphs = {}  # (g, n) -> sample dph_total, used to estimate cost range in the prompt
     for g, n in gpu_specs:
-        offer_count = _count_matching_offers(
+        offer_count, sample = _count_matching_offers(
             vast, gpu_name=g, num_gpus=n,
             extra_filters=extra_filters,
         )
@@ -655,6 +661,8 @@ def run__benchmark(args):
             skipped_results.append((g, n, "skipped", None, msg, None))
         else:
             compatible_specs.append((g, n))
+            if sample and sample.get("dph_total"):
+                spec_dphs[(g, n)] = sample["dph_total"]
 
     timeout_minutes = args.timeout / 60.0
     n = len(compatible_specs)
@@ -666,13 +674,20 @@ def run__benchmark(args):
 
     spec_strs = [f"{cnt}x {gpu}" for gpu, cnt in compatible_specs]
     spec_summary = ", ".join(spec_strs)
+    # Cost range: low = every benchmark finishes ~2 min (typical fast case), high = every benchmark hits --timeout.
+    # Real cost lands somewhere between; sample dph is from the first matching offer, autoscaler may pick a different host.
+    total_dph = sum(spec_dphs.get(spec, 0) for spec in compatible_specs)
+    cost_str = ""
+    if total_dph > 0:
+        low = total_dph * (2 / 60)
+        high = total_dph * (args.timeout / 3600)
+        cost_str = f" Estimated cost: ${low:.2f} - ${high:.2f}."
     if n == 1:
-        print(f"\nWill rent 1 GPU configuration ({spec_summary}) for up to "
-              f"{timeout_minutes:.0f} min.")
+        print(f"\nWill rent 1 GPU configuration ({spec_summary}). "
+              f"Each runs ~2 to {timeout_minutes:.0f} min.{cost_str}")
     else:
         print(f"\nWill rent {n} GPU configurations in parallel "
-              f"({spec_summary}). Each runs for up to "
-              f"{timeout_minutes:.0f} min.")
+              f"({spec_summary}). Each runs ~2 to {timeout_minutes:.0f} min.{cost_str}")
     if not args.yes:
         if input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
             print("Aborted.", file=sys.stderr)

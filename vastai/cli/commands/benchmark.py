@@ -25,6 +25,14 @@ from vastai.cli.parser import argument
 from vastai.cli.display import deindent
 from vastai.cli.utils import get_parser as _get_parser, get_client  # noqa: F401  (used by test conftest)
 from vastai.data.query import OP_TO_STR
+from vastai.data import query as _query_consts
+
+# Case-insensitive lookup from any-casing of a known gpu_name to its canonical form.
+# Built from the ~140 GPU name string constants in vastai.data.query (e.g., RTX_5090 = "RTX 5090").
+_CANONICAL_GPU_NAMES = {
+    v.lower(): v for k, v in vars(_query_consts).items()
+    if isinstance(v, str) and not k.startswith("_")
+}
 
 
 parser = _get_parser()
@@ -68,14 +76,16 @@ def _parse_gpu_spec(token, default_num_gpus):
 
     Returns ``(gpu_name, num_gpus)``. The ``Nx`` prefix wins; if absent,
     ``default_num_gpus`` (typically the value of ``--num_gpus``) is used.
-    Underscores in the name are converted to spaces to match the rest of
-    the codebase.
+    Underscores in the name are converted to spaces, and casing is normalized
+    against the canonical names in vastai.data.query (so ``rtx_5090`` works).
     """
     token = token.strip()
     m = _GPU_COUNT_RE.match(token)
     if m:
-        return (m.group(2).strip().replace("_", " "), int(m.group(1)))
-    return (token.replace("_", " "), default_num_gpus)
+        raw_name, n = m.group(2).strip().replace("_", " "), int(m.group(1))
+    else:
+        raw_name, n = token.replace("_", " "), default_num_gpus
+    return (_CANONICAL_GPU_NAMES.get(raw_name.lower(), raw_name), n)
 
 
 def _format_filter_query(filters):
@@ -174,8 +184,9 @@ def _format_skip_message(vast, *, gpu_name, num_gpus, extra_filters):
 def _find_blockers(vast, *, gpu_name, num_gpus, extra_filters):
     """Identify why ``_count_matching_offers`` returned 0.
 
-    Bails on the first filter that excludes the GPU (further blockers aren't
-    worth the extra API calls; user fixes one and re-runs). Returns a dict
+    Skips filters the GPU mathematically satisfies (avoids API call + dodges
+    Vast search-engine quirks where a passing filter still returns 0). Bails
+    on the first real blocker (user fixes one and re-runs). Returns a dict
     {base_count, single_blockers, per_card_gpu_ram, sample_offer}.
     """
     base_query = {"gpu_name": {"eq": gpu_name},
@@ -186,10 +197,19 @@ def _find_blockers(vast, *, gpu_name, num_gpus, extra_filters):
     per_card = sample.get("gpu_ram") if sample else None
     blockers = []
     if base > 0:
-        for key, op in (extra_filters or {}).items():
+        for key, ops in (extra_filters or {}).items():
+            # Skip filters where the GPU's actual value satisfies all ops; otherwise the
+            # search-engine-quirk path in _format_skip_message would hide them anyway.
+            if isinstance(ops, dict) and sample is not None:
+                actual = sample.get(key)
+                if actual is not None and all(
+                    _check_template_filter(actual, op, threshold) is True
+                    for op, threshold in ops.items()
+                ):
+                    continue
             single = _count_matching_offers(
                 vast, gpu_name=gpu_name, num_gpus=num_gpus,
-                extra_filters={key: op},
+                extra_filters={key: ops},
             )
             if single == 0:
                 blockers.append(key)
@@ -301,7 +321,7 @@ def _update_worker_states(worker_states, current_workers, gpu_name):
             del worker_states[wid]
 
 
-def _update_row(class_states, gpu_name, **fields):
+def _update_row(class_states, row_id, **fields):
     """Update one GPU's row in the live-table state dict. Sets
     ``run_started`` on first non-``queued`` status and ``run_ended`` on
     terminal status (so elapsed freezes); each thread only writes its own
@@ -309,7 +329,7 @@ def _update_row(class_states, gpu_name, **fields):
     """
     if class_states is None:
         return
-    cur = class_states.setdefault(gpu_name, {})
+    cur = class_states.setdefault(row_id, {})
     new_status = fields.get("status")
     now_ts = time.monotonic()
     if new_status and new_status != cur.get("status"):
@@ -372,14 +392,16 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
                    class_states=None, stop_event=None):
     """Rent one instance for ``gpu_name``, poll until idle + measured_perf,
     tear down. Each call owns its own endpoint + workergroup so it can run
-    in parallel safely. Returns ``(gpu_name, status, perf, err, dph_total)``.
+    in parallel safely. Returns ``(gpu_name, num_gpus, status, perf, err, dph_total)``.
     """
     endpoint_id = None
     wg_id = None
     # uuid suffix: autoscaler enforces unique endpoint_name per account, so reuse-after-leak collides.
     endpoint_name = f"benchmark {num_gpus}x {gpu_name} ({uuid.uuid4().hex[:8]})"
+    # row_id keys class_states uniquely per (gpu, num_gpus) so the live table doesn't collide same-gpu rows.
+    row_id = f"{num_gpus}x {gpu_name}"
     start = time.monotonic()
-    _update_row(class_states, gpu_name, status="provisioning")
+    _update_row(class_states, row_id, status="provisioning")
     search = f"gpu_name={gpu_name.replace(' ', '_')} num_gpus={num_gpus}"
     # status_vast routes get_endpoint_workers through --autoscaler_url if set; CRUD always stays on the default server.
     if autoscaler_url:
@@ -395,10 +417,10 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
         # Autoscaler returns the new id under either "result" or "id" depending on resource.
         endpoint_id = ep_resp.get("result", ep_resp.get("id")) if isinstance(ep_resp, dict) else None
         if not isinstance(endpoint_id, int):
-            return (gpu_name, "error", None,
+            return (gpu_name, num_gpus, "error", None,
                     f"create_endpoint returned no id: {ep_resp!r}", None)
         active_endpoints.add(endpoint_id)
-        _update_row(class_states, gpu_name, endpoint_id=endpoint_id)
+        _update_row(class_states, row_id, endpoint_id=endpoint_id)
 
         wg_kwargs = dict(
             endpoint_id=endpoint_id,
@@ -417,16 +439,16 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
         resp = vast.create_workergroup(**wg_kwargs)
         wg_id = resp.get("result", resp.get("id")) if isinstance(resp, dict) else None
         if not isinstance(wg_id, int):
-            return (gpu_name, "error", None,
+            return (gpu_name, num_gpus, "error", None,
                     f"create_workergroup returned no id: {resp!r}", None)
         active_workergroups.add(wg_id)
-        _update_row(class_states, gpu_name, status="waiting_for_worker")
+        _update_row(class_states, row_id, status="waiting_for_worker")
         worker_states = {}
 
         while time.monotonic() - start < timeout:
             if stop_event is not None and stop_event.is_set():
-                _update_row(class_states, gpu_name, status="aborted")
-                return (gpu_name, "aborted", None, "user aborted", None)
+                _update_row(class_states, row_id, status="aborted")
+                return (gpu_name, num_gpus, "aborted", None, "user aborted", None)
             # Endpoint-level only: get_workergroup_workers gates measured_perf behind ready_ever_, which never flips for benchmark workers.
             resp = status_vast.get_endpoint_workers(endpoint_id)
             if isinstance(resp, list):
@@ -439,7 +461,7 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
             if workers:
                 primary = workers[0]
                 _update_row(
-                    class_states, gpu_name,
+                    class_states, row_id,
                     status=str(primary.get("status") or "?").lower(),
                     worker_id=primary.get("id"),
                 )
@@ -457,9 +479,9 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
                         dph = inst.get("dph_total")
                     except Exception:
                         pass
-                _update_row(class_states, gpu_name, status="done",
+                _update_row(class_states, row_id, status="done",
                                  perf=ready[0]["measured_perf"], dph=dph)
-                return (gpu_name, "ok", ready[0]["measured_perf"], None, dph)
+                return (gpu_name, num_gpus, "ok", ready[0]["measured_perf"], None, dph)
             # Fail fast: every worker stuck terminal past debounce, none reached idle.
             now_ts = time.monotonic()
             terminal_workers_long = workers and all(
@@ -473,16 +495,16 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
             if terminal_workers_long:
                 states = sorted({str(w.get("status", "")).lower()
                                  for w in workers})
-                _update_row(class_states, gpu_name, status="failed")
-                return (gpu_name, "failed", None,
+                _update_row(class_states, row_id, status="failed")
+                return (gpu_name, num_gpus, "failed", None,
                         f"all workers terminal ({', '.join(states)}) for "
                         f">{_TERMINAL_DEBOUNCE}s without reaching idle; "
                         f"autoscaler not rotating", None)
             # Fail fast if no real worker (int id) has ever appeared.
             if (not any(isinstance(k, int) for k in worker_states)
                     and time.monotonic() - start > _NO_WORKER_TIMEOUT):
-                _update_row(class_states, gpu_name, status="no_worker")
-                return (gpu_name, "no_worker", None,
+                _update_row(class_states, row_id, status="no_worker")
+                return (gpu_name, num_gpus, "no_worker", None,
                         f"autoscaler did not rent in {_NO_WORKER_TIMEOUT}s "
                         f"(scoring issue, all candidates failed silently, "
                         f"or template+GPU mismatch missed by pre-flight)", None)
@@ -490,13 +512,13 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
             delay = _POLL_INTERVAL + random.uniform(0, 2.0)
             if stop_event is not None:
                 if stop_event.wait(timeout=delay):
-                    _update_row(class_states, gpu_name, status="aborted")
-                    return (gpu_name, "aborted", None, "user aborted", None)
+                    _update_row(class_states, row_id, status="aborted")
+                    return (gpu_name, num_gpus, "aborted", None, "user aborted", None)
             else:
                 time.sleep(delay)
 
-        _update_row(class_states, gpu_name, status="timeout")
-        return (gpu_name, "timeout", None,
+        _update_row(class_states, row_id, status="timeout")
+        return (gpu_name, num_gpus, "timeout", None,
                 f"no measured_perf in {timeout}s", None)
     finally:
         # Workergroup first (stops new workers), then endpoint. atexit sweeps anything we miss.
@@ -522,11 +544,11 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
     argument("--template_id", type=int, default=None,
              help="(required, one of --template_hash or --template_id) template id; wins over --template_hash if both are passed"),
     argument("--gpus", type=str,
-             help="comma-separated GPU names, same format as `vastai search offers` (e.g. RTX_4090,RTX_3090); optional Nx prefix per token (e.g. \"2x RTX_4090\")"),
+             help="comma-separated GPU names, same format as `vastai search offers` (e.g. RTX_4090,RTX_3090); optional Nx prefix per token wins over --num_gpus (e.g. \"2x RTX_4090\")"),
     argument("--num_gpus", type=int, default=None,
-             help="GPUs per instance for tokens without an Nx prefix (default 1)"),
+             help="GPUs per instance for tokens without an Nx prefix (default 1); overridden by inline Nx in --gpus"),
     argument("--timeout", type=int, default=_DEFAULT_TIMEOUT,
-             help=f"per-GPU safety ceiling in seconds (default {_DEFAULT_TIMEOUT})"),
+             help=f"per-GPU max wait (seconds) before giving up on a benchmark; the autoscaler's own loading timeout for fresh templates can be a few hours, so this caps that (default {_DEFAULT_TIMEOUT})"),
     argument("-y", "--yes", action="store_true",
              help="Skip confirmation prompt"),
     argument("--auto_instance", type=str, default=None, help=argparse.SUPPRESS),
@@ -550,8 +572,8 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
             # default count for tokens without an Nx prefix
             vastai run benchmark --template_hash 79ebdd2ebfb9d42cedf7a221c42d37a5 --gpus RTX_4090,RTX_3090 --num_gpus 2
 
-            # shorter timeout, skipping the cost prompt
-            vastai run benchmark --template_hash 393fa8572e6c73c927c8275fe4dffd53 --timeout 600 -y
+            # shorter timeout (30 min), skipping the cost prompt
+            vastai run benchmark --template_hash 393fa8572e6c73c927c8275fe4dffd53 --timeout 1800 -y
 
             # raw JSON output for piping into another tool
             vastai run benchmark --template_hash 40ef49becc953aa910ee05bd4653b9b3 --raw
@@ -587,7 +609,7 @@ def run__benchmark(args):
 
     tpl_name = template.get("name") or template.get("title") or "?"
     filter_str = _format_filter_query(extra_filters) or "none"
-    print(f"Template id={template.get('id')} ({tpl_name}), filters: {filter_str}")
+    print(f"\nTemplate id={template.get('id')} {tpl_name}, filters: {filter_str}")
 
     # Resolve gpu_specs: explicit --gpus parses inline Nx; otherwise auto-size from gpu_total_ram unless --num_gpus is given.
     if args.gpus:
@@ -603,6 +625,18 @@ def run__benchmark(args):
 
     console = Console(stderr=True)
 
+    # Dedupe: same (gpu, num_gpus) twice produces the same benchmark result, so warn and drop dupes.
+    seen = set()
+    deduped = []
+    for g, n in gpu_specs:
+        if (g, n) in seen:
+            console.print(f"[yellow]skipping duplicate spec {n}x {g}[/yellow]",
+                          highlight=False)
+            continue
+        seen.add((g, n))
+        deduped.append((g, n))
+    gpu_specs = deduped
+
     # Pre-flight before the prompt so the user sees skip reasons and accurate cost before approving.
     compatible_specs = []
     skipped_results = []
@@ -616,9 +650,9 @@ def run__benchmark(args):
                 vast, gpu_name=g, num_gpus=n,
                 extra_filters=extra_filters,
             )
-            console.print(f"[yellow][{g}] skipping:[/yellow] {msg}",
+            console.print(f"[yellow][{n}x {g}] skipping:[/yellow] {msg}",
                           highlight=False)
-            skipped_results.append((g, "skipped", None, msg, None))
+            skipped_results.append((g, n, "skipped", None, msg, None))
         else:
             compatible_specs.append((g, n))
 
@@ -633,16 +667,17 @@ def run__benchmark(args):
     spec_strs = [f"{cnt}x {gpu}" for gpu, cnt in compatible_specs]
     spec_summary = ", ".join(spec_strs)
     if n == 1:
-        print(f"Will rent 1 GPU configuration ({spec_summary}) for up to "
+        print(f"\nWill rent 1 GPU configuration ({spec_summary}) for up to "
               f"{timeout_minutes:.0f} min.")
     else:
-        print(f"Will rent {n} GPU configurations in parallel "
+        print(f"\nWill rent {n} GPU configurations in parallel "
               f"({spec_summary}). Each runs for up to "
               f"{timeout_minutes:.0f} min.")
     if not args.yes:
         if input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
             print("Aborted.", file=sys.stderr)
             sys.exit(130)
+    print()
 
     # Backing sets for the atexit sweep; per-GPU teardown discards on success.
     active_workergroups = set()
@@ -679,10 +714,10 @@ def run__benchmark(args):
 
     # Live-table state. Pre-populate every GPU so the table is complete.
     class_states = {}
-    for g, _n in compatible_specs:
-        _update_row(class_states, g, status="queued")
+    for g, n in compatible_specs:
+        _update_row(class_states, f"{n}x {g}", status="queued")
     for sr in skipped_results:
-        _update_row(class_states, sr[0], status="skipped")
+        _update_row(class_states, f"{sr[1]}x {sr[0]}", status="skipped")
 
     def _run_one_gpu(g, n):
         try:
@@ -701,7 +736,7 @@ def run__benchmark(args):
                 stop_event=stop_event,
             )
         except Exception as e:
-            _update_row(class_states, g, status="error")
+            _update_row(class_states, f"{n}x {g}", status="error")
             # Surface response body for HTTPError so backend rate-limit / validation
             # messages aren't swallowed (default __str__ on HTTPError just shows the URL).
             body = ""
@@ -711,7 +746,7 @@ def run__benchmark(args):
                     body = f" | body: {resp.text[:500]}"
                 except Exception:
                     pass
-            return (g, "error", None, f"{type(e).__name__}: {e}{body}", None)
+            return (g, n, "error", None, f"{type(e).__name__}: {e}{body}", None)
 
     run_results = []
     executor = ThreadPoolExecutor(max_workers=len(compatible_specs))
@@ -733,10 +768,10 @@ def run__benchmark(args):
                         result = fut.result()
                         run_results.append(result)
                         # Surface failures live above the table.
-                        g, status, _perf, err, _price = result
+                        g, n, status, _perf, err, _price = result
                         if status not in ("ok", "skipped") and err:
                             console.print(
-                                f"[red][{g}] {status}:[/red] {err}",
+                                f"[red][{n}x {g}] {status}:[/red] {err}",
                                 highlight=False)
                     live.update(_render_table(class_states))
         except KeyboardInterrupt:
@@ -763,10 +798,11 @@ def _print_results(args, results):
     (or raw JSON on --raw).
     """
     rows = []
-    for gpu, status, perf, err, price in results:
+    for gpu, num_gpus, status, perf, err, price in results:
         pps = (perf / price) if (perf and price) else None
         rows.append({
             "gpu_name": gpu,
+            "num_gpus": num_gpus,
             "rental_dph": price,
             "measured_perf": perf,
             "status": status,

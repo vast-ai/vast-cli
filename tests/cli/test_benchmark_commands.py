@@ -67,7 +67,7 @@ class TestBenchmarkOne:
                           side_effect=[0, 0, 1, 2, 3, 4, 5, 6]):
             active_wgs = set()
             active_eps = set()
-            gpu, status, perf, err, price = bench._benchmark_gpu(
+            gpu, num_gpus, status, perf, err, price = bench._benchmark_gpu(
                 vast,
                 gpu_name="RTX 4080", num_gpus=1, timeout=60,
                 active_workergroups=active_wgs, active_endpoints=active_eps,
@@ -128,7 +128,7 @@ class TestBenchmarkOne:
                           side_effect=[0, 0, 2, 3, 4, 5]):
             active_wgs = set()
             active_eps = set()
-            gpu, status, perf, err, price = bench._benchmark_gpu(
+            gpu, num_gpus, status, perf, err, price = bench._benchmark_gpu(
                 vast,
                 gpu_name="RTX 3060", num_gpus=1, timeout=1,
                 active_workergroups=active_wgs,
@@ -163,7 +163,7 @@ class TestBenchmarkOne:
     def test_create_returns_no_id_reports_error(self):
         vast = _mk_vast(create_workergroup={"success": False})
         with patch.object(bench.time, "monotonic", return_value=0):
-            gpu, status, perf, err, price = bench._benchmark_gpu(
+            gpu, num_gpus, status, perf, err, price = bench._benchmark_gpu(
                 vast,
                 gpu_name="RTX 3060", num_gpus=1, timeout=10,
                 active_workergroups=set(), active_endpoints=set(),
@@ -183,7 +183,7 @@ class TestBenchmarkOne:
         with patch.object(bench.time, "sleep"), \
              patch.object(bench.time, "monotonic",
                           side_effect=[0, 0, 0, 5, 5, 50, 50]):
-            gpu, status, perf, err, price = bench._benchmark_gpu(
+            gpu, num_gpus, status, perf, err, price = bench._benchmark_gpu(
                 vast,
                 gpu_name="RTX 3060", num_gpus=1, timeout=600,
                 active_workergroups=set(), active_endpoints=set(),
@@ -201,7 +201,7 @@ class TestBenchmarkOne:
                         show_instance={"dph_total": 1.0})
         with patch.object(bench.time, "sleep"), \
              patch.object(bench.time, "monotonic", side_effect=[0, 0, 1]):
-            gpu, status, perf, err, price = bench._benchmark_gpu(
+            gpu, num_gpus, status, perf, err, price = bench._benchmark_gpu(
                 vast,
                 gpu_name="RTX 3060", num_gpus=1, timeout=60,
                 active_workergroups=set(), active_endpoints=set(),

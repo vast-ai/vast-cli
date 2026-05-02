@@ -72,8 +72,8 @@ except NameError:
 
 
 #server_url_default = "https://vast.ai"
-server_url_default = os.getenv("VAST_URL") or "https://console.vast.ai"
-#server_url_default = "http://localhost:5002"
+#server_url_default = os.getenv("VAST_URL") or "https://console.vast.ai"
+server_url_default = "http://localhost:5002"
 #server_url_default = "host.docker.internal"
 #server_url_default = "http://localhost:5002"
 #server_url_default  = "https://vast.ai/api/v0"
@@ -7598,6 +7598,7 @@ def update__env_var(args):
     argument("--args", help="new arguments for the instance", type=str),
     argument("--env", help="new environment variables for the instance", type=json.loads),
     argument("--onstart", help="new onstart script for the instance", type=str),
+    argument("--disk", help="Disk size to update your instance to", type=str),
     usage="vastai update instance ID [OPTIONS]",
     help="Update recreate an instance from a new/updated template",
     epilog=deindent("""
@@ -7624,6 +7625,8 @@ def update__instance(args):
         json_blob["env"] = args.env
     if args.onstart:
         json_blob["onstart"] = args.onstart
+    if args.disk:
+        json_blob["disk"] = args.disk
 
     if args.explain:
         print("request json: ")

@@ -308,7 +308,6 @@ class Backend:
             workload=auth_data.get("cost"),
             status="SessionActive",
             is_session=True,
-            entered_queue_at=time.time(),
         )
 
         async with self._sessions_lock:
@@ -444,7 +443,6 @@ class Backend:
             reqnum=auth_data.reqnum,
             workload=workload,
             status="Created",
-            entered_queue_at=time.time(),
         )
 
         event = asyncio.Event()

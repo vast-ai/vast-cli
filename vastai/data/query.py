@@ -3,8 +3,8 @@
 from typing import Any, Optional
 
 
-# Op-to-string symbol mapping. Used by Query.unparse_query and shared with
-# external callers that need to render an op dict back to vast query syntax.
+# Op-to-string symbol mapping. Used by Query.unparse_query() and by
+# vastai/cli/commands/benchmarks.py for human-readable filter rendering.
 OP_TO_STR = {
     "eq": "=",
     "neq": "!=",

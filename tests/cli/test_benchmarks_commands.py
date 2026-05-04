@@ -70,7 +70,7 @@ class TestBenchmarkOne:
             gpu, num_gpus, status, perf, err, price = bench._benchmark_gpu(
                 vast,
                 gpu_name="RTX 4080", num_gpus=1, timeout=60,
-                active_workergroups=active_wgs, active_endpoints=active_eps,
+                workergroups=active_wgs, endpoints=active_eps,
                 template_id=99999,
             )
             assert status == "ok"
@@ -95,7 +95,7 @@ class TestBenchmarkOne:
             bench._benchmark_gpu(
                 vast,
                 gpu_name="RTX 3060", num_gpus=1, timeout=60,
-                active_workergroups=set(), active_endpoints=set(),
+                workergroups=set(), endpoints=set(),
                 template_id=12345, template_hash="abc",
             )
             call = vast.create_workergroup.call_args
@@ -113,7 +113,7 @@ class TestBenchmarkOne:
             bench._benchmark_gpu(
                 vast,
                 gpu_name="RTX 3060", num_gpus=1, timeout=60,
-                active_workergroups=set(), active_endpoints=set(),
+                workergroups=set(), endpoints=set(),
                 template_hash="abc123",
             )
             call = vast.create_workergroup.call_args
@@ -131,8 +131,8 @@ class TestBenchmarkOne:
             gpu, num_gpus, status, perf, err, price = bench._benchmark_gpu(
                 vast,
                 gpu_name="RTX 3060", num_gpus=1, timeout=1,
-                active_workergroups=active_wgs,
-                active_endpoints=active_eps,
+                workergroups=active_wgs,
+                endpoints=active_eps,
             )
             assert status == "timeout"
             assert perf is None
@@ -152,8 +152,8 @@ class TestBenchmarkOne:
                 bench._benchmark_gpu(
                     vast,
                     gpu_name="RTX 3060", num_gpus=1, timeout=10,
-                    active_workergroups=active_wgs,
-                    active_endpoints=active_eps,
+                    workergroups=active_wgs,
+                    endpoints=active_eps,
                 )
             vast.delete_workergroup.assert_not_called()
             vast.delete_endpoint.assert_called_once()
@@ -166,7 +166,7 @@ class TestBenchmarkOne:
             gpu, num_gpus, status, perf, err, price = bench._benchmark_gpu(
                 vast,
                 gpu_name="RTX 3060", num_gpus=1, timeout=10,
-                active_workergroups=set(), active_endpoints=set(),
+                workergroups=set(), endpoints=set(),
             )
             assert status == "error"
             assert "no id" in err
@@ -186,7 +186,7 @@ class TestBenchmarkOne:
             gpu, num_gpus, status, perf, err, price = bench._benchmark_gpu(
                 vast,
                 gpu_name="RTX 3060", num_gpus=1, timeout=600,
-                active_workergroups=set(), active_endpoints=set(),
+                workergroups=set(), endpoints=set(),
             )
             assert status == "failed"
             assert "terminal" in err
@@ -204,7 +204,7 @@ class TestBenchmarkOne:
             gpu, num_gpus, status, perf, err, price = bench._benchmark_gpu(
                 vast,
                 gpu_name="RTX 3060", num_gpus=1, timeout=60,
-                active_workergroups=set(), active_endpoints=set(),
+                workergroups=set(), endpoints=set(),
             )
             assert status == "ok"
 
@@ -271,7 +271,7 @@ class TestBenchmarkRunCLI:
             "--timeout", "60", "-y", "--raw",
         ])
         rc = args.func(args)
-        assert rc == 2
+        assert rc == 1
         assert "template_id" in capsys.readouterr().err
 
     def test_endpoint_name_includes_gpu_spec(self, parse_argv):

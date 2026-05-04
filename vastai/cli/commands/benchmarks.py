@@ -274,7 +274,7 @@ def _pick_num_gpus(gpu_name, extra_filters):
 def _update_worker_states(worker_states, current_workers, gpu_name):
     """Update worker_states with current poll, and print only on worker
     rotation (the live rich table already shows current status / elapsed).
-    Tracks state_started per worker for the terminal-debounce gate.
+    Tracks state_started per worker for the terminal-state grace check.
     Returns the count of workers abandoned during this poll.
     """
     now = time.monotonic()
@@ -381,7 +381,7 @@ def _render_table(class_states):
 
 
 def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
-                   active_workergroups, active_endpoints,
+                   workergroups, endpoints,
                    template_hash=None, template_id=None,
                    auto_instance=None, autoscaler_url=None,
                    class_states=None, stop_event=None):
@@ -391,6 +391,7 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
     """
     endpoint_id = None
     wg_id = None
+    # need the uuid so the endpoint name is unique if we benchmark the same GPU in parallel
     endpoint_name = f"benchmark {num_gpus}x {gpu_name} ({uuid.uuid4().hex[:8]})"
     row_id = f"{num_gpus}x {gpu_name}" # id for the live table so 1x/2x/4x of the same GPU gets its own row
     start = time.monotonic()
@@ -411,7 +412,7 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
         if not isinstance(endpoint_id, int):
             return (gpu_name, num_gpus, "error", None,
                     f"create_endpoint returned no id: {ep_resp!r}", None)
-        active_endpoints.add(endpoint_id)
+        endpoints.add(endpoint_id)
         _update_row(class_states, row_id, endpoint_id=endpoint_id)
 
         wg_kwargs = dict(
@@ -421,7 +422,6 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
             cold_workers=1,
             min_load=1.0,
         )
-        # --template_id wins; --template_hash can silently resolve to a stale id.
         if template_id is not None:
             wg_kwargs["template_id"] = template_id
         elif template_hash is not None:
@@ -433,7 +433,7 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
         if not isinstance(wg_id, int):
             return (gpu_name, num_gpus, "error", None,
                     f"create_workergroup returned no id: {resp!r}", None)
-        active_workergroups.add(wg_id)
+        workergroups.add(wg_id)
         _update_row(class_states, row_id, status="waiting_for_worker")
         worker_states = {}
         dph_by_worker = {}  # cache so we don't re-fetch dph on every poll
@@ -489,7 +489,7 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
                 _update_row(class_states, row_id, status="done",
                                  perf=ready[0]["measured_perf"], dph=dph)
                 return (gpu_name, num_gpus, "ok", ready[0]["measured_perf"], None, dph)
-            # Fail fast: every worker stuck terminal past debounce, none reached idle.
+            # Fail fast: every worker stuck terminal past the grace period, none reached idle.
             now_ts = time.monotonic()
             terminal_workers_long = workers and all(
                 str(w.get("status", "")).lower() in _TERMINAL_STATES
@@ -534,23 +534,23 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
         if wg_id is not None:
             try:
                 vast.delete_workergroup(id=wg_id)
-                active_workergroups.discard(wg_id)
+                workergroups.discard(wg_id)
             except Exception as e:
                 if getattr(getattr(e, "response", None), "status_code", None) != 404:
                     print(f"[cleanup] failed to delete workergroup {wg_id}: {e}",
                           file=sys.stderr)
                 else:
-                    active_workergroups.discard(wg_id)
+                    workergroups.discard(wg_id)
         if endpoint_id is not None:
             try:
                 vast.delete_endpoint(id=endpoint_id)
-                active_endpoints.discard(endpoint_id)
+                endpoints.discard(endpoint_id)
             except Exception as e:
                 if getattr(getattr(e, "response", None), "status_code", None) != 404:
                     print(f"[cleanup] failed to delete endpoint {endpoint_id}: {e}",
                           file=sys.stderr)
                 else:
-                    active_endpoints.discard(endpoint_id)
+                    endpoints.discard(endpoint_id)
 
 
 @parser.command(
@@ -599,8 +599,8 @@ def run__benchmarks(args):
         print("error: one of --template_id or --template_hash is required "
               "(run `vastai run benchmarks --help` for usage)",
               file=sys.stderr)
-        return 2
-    # Bump retry budget so parallel polls don't exhaust VastClient's tiny default (3 attempts, ~0.7s) under autoscaler rate limits.
+        return 1
+    # bump retry budget so parallel polls don't exhaust VastClient's tiny default (3 attempts, ~0.7s) under autoscaler rate limits.
     retry = max(args.retry, 8)
     vast = VastAI(api_key=args.api_key, server_url=args.url, retry=retry,
                   explain=getattr(args, 'explain', False),
@@ -622,11 +622,11 @@ def run__benchmarks(args):
     except (ValueError, TypeError):
         extra_filters = {}
 
-    tpl_name = template.get("name") or template.get("title") or "?"
-    filter_str = _format_filter_query(extra_filters) or "none"
-    print(f"\nTemplate id={template.get('id')} {tpl_name}, filters: {filter_str}")
+    template_name = template.get("name") or template.get("title") or "?"
+    filter_summary = _format_filter_query(extra_filters) or "none"
+    print(f"\nTemplate id={template.get('id')} {template_name}, filters: {filter_summary}")
 
-    # Resolve gpu_specs: explicit --gpus parses inline Nx; otherwise auto-size from gpu_total_ram unless --num_gpus is given.
+    # if user provides specific GPU count like "2x RTX 4090", that takes precedence over --num_gpus
     if args.gpus:
         gpu_specs = [_parse_gpu_spec(t, args.num_gpus or 1)
                      for t in args.gpus.split(",") if t.strip()]
@@ -640,7 +640,7 @@ def run__benchmarks(args):
 
     console = Console(stderr=True)
 
-    # Dedupe: same (gpu, num_gpus) twice produces the same benchmark result, so warn and drop dupes.
+    # deduplicates (gpu, num_gpus) so we dont benchmark the same GPU config twice 
     seen = set()
     deduped = []
     for g, n in gpu_specs:
@@ -652,7 +652,8 @@ def run__benchmarks(args):
         deduped.append((g, n))
     gpu_specs = deduped
 
-    # Pre-flight before the prompt so the user sees skip reasons and accurate cost before approving.
+    # Pre-flight: skip GPU specs that have 0 matching offers before prompting,
+    # so the user sees skip reasons before approving the rentals.
     compatible_specs = []
     skipped_results = []
     for g, n in gpu_specs:
@@ -694,8 +695,8 @@ def run__benchmarks(args):
     print()
 
     # Backing sets for the atexit sweep; per-GPU teardown discards on success.
-    active_workergroups = set()
-    active_endpoints = set()
+    workergroups = set()
+    endpoints = set()
     stop_event = threading.Event()
 
     def _cleanup():
@@ -706,16 +707,16 @@ def run__benchmarks(args):
         except (ValueError, OSError):
             pass
         try:
-            for wg_id in list(active_workergroups):
+            for wg_id in list(workergroups):
                 try:
                     vast.delete_workergroup(id=wg_id)
-                    active_workergroups.discard(wg_id)
+                    workergroups.discard(wg_id)
                 except BaseException:
                     pass
-            for ep_id in list(active_endpoints):
+            for ep_id in list(endpoints):
                 try:
                     vast.delete_endpoint(id=ep_id)
-                    active_endpoints.discard(ep_id)
+                    endpoints.discard(ep_id)
                 except BaseException:
                     pass
         finally:
@@ -740,8 +741,8 @@ def run__benchmarks(args):
                 gpu_name=g,
                 num_gpus=n,
                 timeout=args.timeout,
-                active_workergroups=active_workergroups,
-                active_endpoints=active_endpoints,
+                workergroups=workergroups,
+                endpoints=endpoints,
                 template_hash=args.template_hash,
                 template_id=args.template_id,
                 auto_instance=args.auto_instance,
@@ -807,10 +808,6 @@ def run__benchmarks(args):
 
 
 def _print_results(args, results):
-    """Print the post-run summary. Failure / skip details have already
-    scrolled above the live table; this just outputs the result rows
-    (or raw JSON on --raw).
-    """
     rows = []
     for gpu, num_gpus, status, perf, err, price in results:
         pps = (perf / price) if (perf and price) else None

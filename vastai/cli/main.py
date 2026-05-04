@@ -45,6 +45,7 @@ def main():
     from vastai.cli.commands import (  # noqa: F401
         instances, offers, machines, teams, keys, endpoints,
         billing, storage, auth, misc, deployments, metrics,
+        benchmarks,
         # clusters,  # cluster/overlay commands disabled for now
     )
 

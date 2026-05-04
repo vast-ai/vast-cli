@@ -31,7 +31,7 @@ from vastai.data import query as _query_consts
 parser = _get_parser()
 
 
-# Default GPUs (per-card VRAM in MB). Single-SKU only; VRAM variants under one gpu_name break the auto-sizer.
+# Default GPUs (per-card VRAM in MB).
 _DEFAULT_GPUS = {
     "RTX 5090":  32607,
     "RTX 4090":  24564,
@@ -42,24 +42,20 @@ _DEFAULT_GPUS = {
 _ENDPOINT_CONFIG = {"cold_workers": 1, "max_workers": 1, "min_load": 1.0}
 
 _WORKER_POLL_INTERVAL = 10.0
-_DEFAULT_BENCHMARK_TIMEOUT = 60 * 60  # how long to wait for a benchmark to complete before giving up (seconds)
-_RENTAL_TIMEOUT = 120  # pre-rental gate: fail-fast if the autoscaler hasn't rented anything by then
-_MAX_ABANDONS = 3  # bail after this many workers get abandoned without one reaching idle (autoscaler thrashing)
-_SUBMIT_STAGGER = 4.0  # spacing between parallel submits; prod's create_endpoint rate limit returns 400 (not 429) so VastClient can't auto-retry
+_DEFAULT_BENCHMARK_TIMEOUT = 60 * 60  # seconds to wait for a benchmark to complete before giving up 
+_RENTAL_TIMEOUT = 120  # fail fast if the autoscaler hasn't rented anything by then
+_MAX_ABANDONS = 3  # bail after this many workers get abandoned without one reaching idle 
+_PARALLEL_SUBMIT_DELAY = 4.0  # spacing between parallel submits 
 
-_GPU_COUNT_RE = re.compile(r"^(\d+)[\s_]*x[\s_]*(.+)$", re.IGNORECASE)  # "Nx GPU NAME" prefix on a --gpus token; underscore or space (or neither) accepted as separator
-
-# Worker states the autoscaler does NOT recover from. Workers in any of these for
-# >_TERMINAL_GRACE_SECONDS without ever reaching idle trigger fail-fast.
-# `error` is excluded since the autoscaler retries via error -> rebooting -> model_loading.
+# Worker states the autoscaler does NOT recover from. 
+# these will timeout if they persist for >_TERMINAL_GRACE_SECONDS without any worker reaching idle
+# `error` is excluded since the autoscaler retries with error -> rebooting -> model_loading.
 _TERMINAL_STATES = {"stopped", "destroying", "unavail"}
 _TERMINAL_GRACE_SECONDS = 30  # how long a worker can sit in a terminal state before we give up on it
-
-# Final per-GPU run statuses; freezes the elapsed column in the live table. Excludes `error` since the autoscaler recovers from it.
+# statuses to use for the live table
 _TERMINAL_STATUSES = {"done", "skipped", "timeout", "failed", "no_worker"}
 
-# String sentinel keyed in worker_states to mark "no real worker has appeared yet
-# in polling." Real worker ids are ints, so this string can never collide.
+# key in worker states that says "no worker rented yet"
 _WAITING_KEY = "__waiting__"
 
 
@@ -69,21 +65,22 @@ def _format_time_elapsed(seconds):
 
 
 def _parse_gpu_spec(token, default_num_gpus):
-    """Parse one --gpus token like ``RTX_4090`` or ``2x RTX_4090``.
+    """parses the gpu arg into (gpu_name, num_gpus)
+    ex. "2x RTX_4090" -> ("RTX 4090", 2)
 
-    Returns ``(gpu_name, num_gpus)``. The ``Nx`` prefix wins; if absent,
-    ``default_num_gpus`` (typically the value of ``--num_gpus``) is used.
-    Underscores in the name are converted to spaces, and casing is normalized
-    against the canonical names in vastai.data.query (so ``rtx_5090`` works).
+    if both --num_gpus and inline Nx (1x, 2x, etc) prefix are given, Nx wins
+    if no count per gpu isprovided, uses default num_gpus
     """
-    # Case-insensitive lookup from any-casing to canonical gpu_name; built from
-    # the ~140 GPU name string constants in vastai.data.query (RTX_5090 = "RTX 5090" etc).
+
+    # so users can input "rtx_4090" or "RTX 4090" or "Rtx_4090" and all resolves to "RTX 4090" 
     canonical = {
         v.lower(): v for k, v in vars(_query_consts).items()
         if isinstance(v, str) and not k.startswith("_")
     }
+
     token = token.strip()
-    m = _GPU_COUNT_RE.match(token)
+    # converts "2x RTX_4090" to ("RTX 4090", 2)
+    m = re.match(r"^(\d+)[\s_]*x[\s_]*(.+)$", token, re.IGNORECASE)
     if m:
         raw_name, n = m.group(2).strip().replace("_", " "), int(m.group(1))
     else:
@@ -92,11 +89,8 @@ def _parse_gpu_spec(token, default_num_gpus):
 
 
 def _format_filter_query(filters):
-    """Render an extra_filters dict back into comparison strings.
-
+    """Render extra_filters dict into comparison string.
     e.g. {"gpu_ram": {"gte": 16000}} -> "gpu_ram>=16000"
-    Unknown operators fall through as-is rather than being dropped, so a
-    surprise from the backend is visible rather than silently swallowed.
     """
     parts = []
     for field, ops in (filters or {}).items():
@@ -108,32 +102,25 @@ def _format_filter_query(filters):
     return ", ".join(parts)
 
 
-# ---------------------------------------------------------------------------
-# Pre-flight: check whether each (template, gpu_name, num_gpus) combo is rentable
-# before we start renting. Skips obviously-incompatible specs and produces a
-# user-readable explanation when a spec has 0 matching offers.
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------
+# the next few functions are pre flight helpers 
+# they check whether each (template, gpu_name, and num_gpus) is rentable
+# so we dont run the benchmark only for it to fail due to 0 matching offers
+# if no mathcing offers, returns user friendly msg 
+# -----------------------------------------------------------------------------------
 
 
-def _count_matching_offers(vast, *, gpu_name, num_gpus, extra_filters):
-    """Return how many verified+rentable offers match the template's filters
-    plus ``gpu_name`` and ``num_gpus``. ``limit=1`` because we only care
-    whether any exist.
-    """
+def _has_matching_offer(vast, *, gpu_name, num_gpus, extra_filters):
+    """True if any verified+rentable offer matches the template's filters"""
     query = dict(extra_filters or {})
     query["gpu_name"] = {"eq": gpu_name}
     query["num_gpus"] = {"eq": num_gpus}
-    offers = vast.search_offers(query=query, limit=1)
-    return len(offers)
+    return bool(vast.search_offers(query=query, limit=1))
 
 
 def _format_skip_message(vast, *, gpu_name, num_gpus, extra_filters):
-    """Build a human-readable explanation for why a GPU has 0 matching offers.
-
-    Skips the diagnostic API calls when there are no template filters (nothing
-    to attribute the zero to). When there are filters, runs the diagnosis and
-    surfaces the actual blocker (single filter, multi-filter, or no offers at
-    all for the GPU).
+    """Build a user friendlyexplanation for why a GPU has 0 matching offers.
+    Calls search offers to find the blocking filter
     """
     if not extra_filters:
         return (f"no offers for {gpu_name} (num_gpus={num_gpus})")
@@ -149,7 +136,6 @@ def _format_skip_message(vast, *, gpu_name, num_gpus, extra_filters):
     blockers = diag["single_blockers"]
     if blockers:
         sample = diag.get("sample_offer") or {}
-        # Skip "blockers" the GPU actually satisfies (Vast search-engine quirk on numeric ops).
         blocker_lines = []
         for key in blockers:
             ops = extra_filters.get(key)
@@ -183,16 +169,15 @@ def _format_skip_message(vast, *, gpu_name, num_gpus, extra_filters):
                             f"  hint: try {viable}x {gpu_name} "
                             f"(host total then satisfies {value})")
             return "\n".join(lines)
-        # All "blockers" turned out to be quirks; fall through to combined-exclusion message.
+        # All "blockers" turned out to be quirks; fall through to generic failure message
 
-    # No single filter is sufficient; combination of filters is the culprit.
     return ("0 offers match. No single filter is the culprit; the combination "
             f"of template filters excludes {gpu_name} "
             f"({_format_filter_query(extra_filters)})")
 
 
 def _find_blockers(vast, *, gpu_name, num_gpus, extra_filters):
-    """Identify why ``_count_matching_offers`` returned 0.
+    """Identify why ``_has_matching_offer`` returned False.
 
     Skips filters the GPU mathematically satisfies (avoids API call + dodges
     Vast search-engine quirks where a passing filter still returns 0). Bails
@@ -208,8 +193,7 @@ def _find_blockers(vast, *, gpu_name, num_gpus, extra_filters):
     blockers = []
     if base > 0:
         for key, ops in (extra_filters or {}).items():
-            # Skip filters where the GPU's actual value satisfies all ops; otherwise the
-            # search-engine-quirk path in _format_skip_message would hide them anyway.
+            # if GPU satisfies the given filter, its not a blocker so skip
             if isinstance(ops, dict) and sample is not None:
                 gpu_value = sample.get(key)
                 if gpu_value is not None and all(
@@ -217,11 +201,10 @@ def _find_blockers(vast, *, gpu_name, num_gpus, extra_filters):
                     for op, threshold in ops.items()
                 ):
                     continue
-            single = _count_matching_offers(
+            if not _has_matching_offer(
                 vast, gpu_name=gpu_name, num_gpus=num_gpus,
                 extra_filters={key: ops},
-            )
-            if single == 0:
+            ):
                 blockers.append(key)
                 break
     return {"base_count": base, "single_blockers": blockers,
@@ -229,9 +212,7 @@ def _find_blockers(vast, *, gpu_name, num_gpus, extra_filters):
 
 
 def _check_template_filter(gpu_value, op, threshold):
-    """Does ``gpu_value`` satisfy the comparison ``op threshold``? Returns True,
-    False, or None if either input is missing or the operator is unsupported.
-    """
+    """Checks if gpu_value matches the template filters (e.g. gpu_total_ram>=16000)"""
     if gpu_value is None or threshold is None:
         return None
     try:
@@ -410,14 +391,11 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
     """
     endpoint_id = None
     wg_id = None
-    # uuid suffix: autoscaler enforces unique endpoint_name per account, so reuse-after-leak collides.
     endpoint_name = f"benchmark {num_gpus}x {gpu_name} ({uuid.uuid4().hex[:8]})"
-    # row_id keys class_states uniquely per (gpu, num_gpus) so the live table doesn't collide same-gpu rows.
-    row_id = f"{num_gpus}x {gpu_name}"
+    row_id = f"{num_gpus}x {gpu_name}" # id for the live table so 1x/2x/4x of the same GPU gets its own row
     start = time.monotonic()
     _update_row(class_states, row_id, status="provisioning")
     search = f"gpu_name={gpu_name.replace(' ', '_')} num_gpus={num_gpus}"
-    # status_vast routes get_endpoint_workers through --autoscaler_url if set; CRUD always stays on the default server.
     if autoscaler_url:
         status_vast = VastAI(api_key=vast.client.api_key, server_url=autoscaler_url, retry=vast.client.retry)
     else:
@@ -428,7 +406,7 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
         if auto_instance is not None:
             ep_kwargs["auto_instance"] = auto_instance
         ep_resp = vast.create_endpoint(**ep_kwargs)
-        # Autoscaler returns the new id under either "result" or "id" depending on resource.
+        # autoscaler returns the new id under either "result" or "id" depending on resource
         endpoint_id = ep_resp.get("result", ep_resp.get("id")) if isinstance(ep_resp, dict) else None
         if not isinstance(endpoint_id, int):
             return (gpu_name, num_gpus, "error", None,
@@ -465,7 +443,7 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
             if stop_event is not None and stop_event.is_set():
                 _update_row(class_states, row_id, status="aborted")
                 return (gpu_name, num_gpus, "aborted", None, "user aborted", None)
-            # Endpoint-level only: get_workergroup_workers gates measured_perf behind ready_ever_, which never flips for benchmark workers.
+            # calls get endpoint workers which includes measured perf(get workergroup workers doesnt)  
             resp = status_vast.get_endpoint_workers(endpoint_id)
             if isinstance(resp, list):
                 workers = resp
@@ -678,11 +656,10 @@ def run__benchmarks(args):
     compatible_specs = []
     skipped_results = []
     for g, n in gpu_specs:
-        offer_count = _count_matching_offers(
+        if not _has_matching_offer(
             vast, gpu_name=g, num_gpus=n,
             extra_filters=extra_filters,
-        )
-        if offer_count == 0:
+        ):
             msg = _format_skip_message(
                 vast, gpu_name=g, num_gpus=n,
                 extra_filters=extra_filters,
@@ -793,7 +770,7 @@ def run__benchmarks(args):
         for i, (g, n_for_class) in enumerate(compatible_specs):
             futures.append(executor.submit(_run_one_gpu, g, n_for_class))
             if i < len(compatible_specs) - 1:
-                time.sleep(_SUBMIT_STAGGER)
+                time.sleep(_PARALLEL_SUBMIT_DELAY)
         try:
             with Live(_render_table(class_states), console=console,
                       refresh_per_second=2, transient=False) as live:

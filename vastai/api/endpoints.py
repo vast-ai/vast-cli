@@ -348,7 +348,7 @@ def get_wrkgrp_logs(client, id, level=1, tail=None):
     return {"error": r.text}
 
 
-def get_workers(client, id):
+def get_endpoint_workers(client, id):
     """List the live worker instances under a given endpoint, with runtime
     status (creating/loading/idle/error/...) and ``measured_perf``.
 

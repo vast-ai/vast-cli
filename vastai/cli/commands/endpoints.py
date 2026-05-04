@@ -181,16 +181,16 @@ def get__endpt_logs(args):
 
 @parser.command(
     argument("id", help="id of endpoint group whose workers to list", type=int),
-    usage="vastai get workers ID [--api-key API_KEY]",
+    usage="vastai get endpt-workers ID [--api-key API_KEY]",
     help="List workers on an endpoint group with status and measured_perf",
     epilog=deindent("""
-        Example: vastai get workers 21979
+        Example: vastai get endpt-workers 21979
     """),
 )
-def get__workers(args):
+def get__endpt_workers(args):
     """List workers on a specific serverless endpoint group."""
     client = get_client(args)
-    rj = endpoints_api.get_workers(client, id=args.id)
+    rj = endpoints_api.get_endpoint_workers(client, id=args.id)
 
     if isinstance(rj, dict) and "error" in rj:
         print(rj["error"])

@@ -1,4 +1,4 @@
-"""Tests for ``vastai run benchmark``.
+"""Tests for ``vastai run benchmarks``.
 
 Covers the two things that actually matter:
   1. Cleanup invariant — the workergroup and endpoint are deleted on every
@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from vastai.cli.commands import benchmark as bench
+from vastai.cli.commands import benchmarks as bench
 
 
 # ---------------------------------------------------------------------------
@@ -20,7 +20,7 @@ from vastai.cli.commands import benchmark as bench
 
 
 def _mk_vast(*, create_endpoint=None, create_workergroup=None,
-             get_workers=None, delete_workergroup=None,
+             get_endpoint_workers=None, delete_workergroup=None,
              delete_endpoint=None, show_instance=None,
              create_workergroup_raises=None, delete_workergroup_raises=None):
     """Build a MagicMock VastAI with serverless methods configured."""
@@ -36,12 +36,12 @@ def _mk_vast(*, create_endpoint=None, create_workergroup=None,
         v.create_workergroup.return_value = (create_workergroup
                                              if create_workergroup is not None
                                              else {"success": True, "result": 999})
-    if isinstance(get_workers, list):
-        v.get_workers.side_effect = get_workers
-    elif get_workers is not None:
-        v.get_workers.return_value = get_workers
+    if isinstance(get_endpoint_workers, list):
+        v.get_endpoint_workers.side_effect = get_endpoint_workers
+    elif get_endpoint_workers is not None:
+        v.get_endpoint_workers.return_value = get_endpoint_workers
     else:
-        v.get_workers.return_value = []
+        v.get_endpoint_workers.return_value = []
     if delete_workergroup_raises:
         v.delete_workergroup.side_effect = delete_workergroup_raises
     else:
@@ -59,7 +59,7 @@ def _mk_vast(*, create_endpoint=None, create_workergroup=None,
 
 class TestBenchmarkOne:
     def test_happy_path_returns_ok(self):
-        vast = _mk_vast(get_workers=[
+        vast = _mk_vast(get_endpoint_workers=[
             [{"id": 1, "measured_perf": 42.0, "status": "idle"}],
         ])
         with patch.object(bench.time, "sleep", return_value=None), \
@@ -86,7 +86,7 @@ class TestBenchmarkOne:
             assert "verified" not in call.kwargs["search_params"]
 
     def test_template_id_wins_over_hash(self):
-        vast = _mk_vast(get_workers=[
+        vast = _mk_vast(get_endpoint_workers=[
             [{"id": 1, "measured_perf": 1.0, "status": "idle"}],
         ])
         with patch.object(bench.time, "sleep", return_value=None), \
@@ -104,7 +104,7 @@ class TestBenchmarkOne:
             assert "template_hash" not in call.kwargs
 
     def test_template_hash_used_when_no_id(self):
-        vast = _mk_vast(get_workers=[
+        vast = _mk_vast(get_endpoint_workers=[
             [{"id": 1, "measured_perf": 1.0, "status": "idle"}],
         ])
         with patch.object(bench.time, "sleep", return_value=None), \
@@ -122,7 +122,7 @@ class TestBenchmarkOne:
 
     def test_timeout_still_tears_down(self):
         vast = _mk_vast(create_workergroup={"success": True, "result": 777},
-                        get_workers=[[]])
+                        get_endpoint_workers=[[]])
         with patch.object(bench.time, "sleep"), \
              patch.object(bench.time, "monotonic",
                           side_effect=[0, 0, 2, 3, 4, 5]):
@@ -179,7 +179,7 @@ class TestBenchmarkOne:
         # via error -> rebooting -> model_loading.
         poll = [{"id": 1, "status": "stopped"}]
         vast = _mk_vast(create_workergroup={"success": True, "result": 1},
-                        get_workers=[poll, poll])
+                        get_endpoint_workers=[poll, poll])
         with patch.object(bench.time, "sleep"), \
              patch.object(bench.time, "monotonic",
                           side_effect=[0, 0, 0, 5, 5, 50, 50]):
@@ -196,7 +196,7 @@ class TestBenchmarkOne:
         # delete_workergroup raises in finally; should be caught and logged.
         poll = [{"id": 1, "measured_perf": 5.0, "status": "idle"}]
         vast = _mk_vast(create_workergroup={"success": True, "result": 1},
-                        get_workers=[poll],
+                        get_endpoint_workers=[poll],
                         delete_workergroup_raises=RuntimeError("delete failed"),
                         show_instance={"dph_total": 1.0})
         with patch.object(bench.time, "sleep"), \
@@ -238,7 +238,7 @@ def _run_cli(parse_argv, argv, *, create_resp=None, workers_seq=None,
         vast.create_workergroup.return_value = (create_resp
                                                 if create_resp is not None
                                                 else {"success": True, "result": 500})
-    vast.get_workers.side_effect = list(workers_seq or [[]])
+    vast.get_endpoint_workers.side_effect = list(workers_seq or [[]])
     vast.delete_workergroup.return_value = {}
 
     with patch.object(bench, "VastAI", return_value=vast), \
@@ -251,7 +251,7 @@ class TestBenchmarkRunCLI:
     def test_happy_path_returns_rows(self, parse_argv):
         result, _ = _run_cli(
             parse_argv,
-            ["run", "benchmark", "--template_id", "99999",
+            ["run", "benchmarks", "--template_id", "99999",
              "--gpus", "RTX_4080", "--timeout", "60", "-y", "--raw"],
             workers_seq=[[{"id": 1, "measured_perf": 100.0, "status": "idle"}]],
             rental_dph=0.5,
@@ -267,7 +267,7 @@ class TestBenchmarkRunCLI:
 
     def test_missing_template_flag_errors(self, parse_argv, capsys):
         args = parse_argv([
-            "run", "benchmark", "--gpus", "RTX_3060",
+            "run", "benchmarks", "--gpus", "RTX_3060",
             "--timeout", "60", "-y", "--raw",
         ])
         rc = args.func(args)
@@ -277,7 +277,7 @@ class TestBenchmarkRunCLI:
     def test_endpoint_name_includes_gpu_spec(self, parse_argv):
         _, vast = _run_cli(
             parse_argv,
-            ["run", "benchmark", "--template_id", "99999",
+            ["run", "benchmarks", "--template_id", "99999",
              "--gpus", "RTX_3060", "--timeout", "60", "-y", "--raw"],
             create_resp={"result": 2},
             workers_seq=[[{"id": 1, "measured_perf": 1.0, "status": "idle"}]],
@@ -290,7 +290,7 @@ class TestBenchmarkRunCLI:
     def test_endpoint_deleted_even_on_exception(self, parse_argv):
         rows, vast = _run_cli(
             parse_argv,
-            ["run", "benchmark", "--template_id", "99999",
+            ["run", "benchmarks", "--template_id", "99999",
              "--gpus", "RTX_3060", "--timeout", "60", "-y", "--raw"],
             create_workergroup_raises=RuntimeError("boom"),
         )
@@ -300,7 +300,7 @@ class TestBenchmarkRunCLI:
     def test_template_id_threaded_to_workergroup(self, parse_argv):
         _, vast = _run_cli(
             parse_argv,
-            ["run", "benchmark", "--template_id", "12345",
+            ["run", "benchmarks", "--template_id", "12345",
              "--gpus", "RTX_3060", "--timeout", "60", "-y", "--raw"],
             create_resp={"result": 2},
             workers_seq=[[{"id": 7, "measured_perf": 1, "status": "idle"}]],
@@ -313,7 +313,7 @@ class TestBenchmarkRunCLI:
         # creating a workergroup.
         rows, vast = _run_cli(
             parse_argv,
-            ["run", "benchmark", "--template_id", "99999",
+            ["run", "benchmarks", "--template_id", "99999",
              "--gpus", "RTX_3060", "--timeout", "60", "-y", "--raw"],
             preflight_offers=0,
         )
@@ -325,7 +325,7 @@ class TestBenchmarkRunCLI:
         vast.search_templates.return_value = []
         with patch.object(bench, "VastAI", return_value=vast):
             args = parse_argv([
-                "run", "benchmark", "--template_id", "99999",
+                "run", "benchmarks", "--template_id", "99999",
                 "--gpus", "RTX_3060", "--timeout", "60", "-y", "--raw",
             ])
             rc = args.func(args)

@@ -390,7 +390,7 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
     in parallel safely. Returns ``(gpu_name, num_gpus, status, perf, err, dph_total)``.
     """
     endpoint_id = None
-    wg_id = None
+    workergroup_id = None
     # need the uuid so the endpoint name is unique if we benchmark the same GPU in parallel
     endpoint_name = f"benchmark {num_gpus}x {gpu_name} ({uuid.uuid4().hex[:8]})"
     row_id = f"{num_gpus}x {gpu_name}" # id for the live table so 1x/2x/4x of the same GPU gets its own row
@@ -403,10 +403,10 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
         status_vast = vast
 
     try:
-        ep_kwargs = dict(_ENDPOINT_CONFIG, endpoint_name=endpoint_name)
+        endpoint_kwargs = dict(_ENDPOINT_CONFIG, endpoint_name=endpoint_name)
         if auto_instance is not None:
-            ep_kwargs["auto_instance"] = auto_instance
-        ep_resp = vast.create_endpoint(**ep_kwargs)
+            endpoint_kwargs["auto_instance"] = auto_instance
+        ep_resp = vast.create_endpoint(**endpoint_kwargs)
         # autoscaler returns the new id under either "result" or "id" depending on resource
         endpoint_id = ep_resp.get("result", ep_resp.get("id")) if isinstance(ep_resp, dict) else None
         if not isinstance(endpoint_id, int):
@@ -415,29 +415,29 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
         endpoints.add(endpoint_id)
         _update_row(class_states, row_id, endpoint_id=endpoint_id)
 
-        wg_kwargs = dict(
+        # cold_workers and min_load are set on _ENDPOINT_CONFIG, not here; the autoscaler reads
+        # both from the endpoint group, not the workergroup (verified via autoscaler.cpp).
+        workergroup_kwargs = dict(
             endpoint_id=endpoint_id,
             endpoint_name=endpoint_name,
             search_params=search,
-            cold_workers=1,
-            min_load=1.0,
         )
         if template_id is not None:
-            wg_kwargs["template_id"] = template_id
+            workergroup_kwargs["template_id"] = template_id
         elif template_hash is not None:
-            wg_kwargs["template_hash"] = template_hash
+            workergroup_kwargs["template_hash"] = template_hash
         if auto_instance is not None:
-            wg_kwargs["auto_instance"] = auto_instance
-        resp = vast.create_workergroup(**wg_kwargs)
-        wg_id = resp.get("result", resp.get("id")) if isinstance(resp, dict) else None
-        if not isinstance(wg_id, int):
+            workergroup_kwargs["auto_instance"] = auto_instance
+        resp = vast.create_workergroup(**workergroup_kwargs)
+        workergroup_id = resp.get("result", resp.get("id")) if isinstance(resp, dict) else None
+        if not isinstance(workergroup_id, int):
             return (gpu_name, num_gpus, "error", None,
                     f"create_workergroup returned no id: {resp!r}", None)
-        workergroups.add(wg_id)
+        workergroups.add(workergroup_id)
         _update_row(class_states, row_id, status="waiting_for_worker")
         worker_states = {}
         dph_by_worker = {}  # cache so we don't re-fetch dph on every poll
-        total_abandoned = 0  # cumulative count; >= _MAX_ABANDONS bails out as autoscaler thrashing
+        abandoned_count = 0  # bail when this hits _MAX_ABANDONS; autoscaler is renting + giving up repeatedly, no progress
 
         while time.monotonic() - start < timeout:
             if stop_event is not None and stop_event.is_set():
@@ -451,11 +451,11 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
                 workers = resp["workers"]
             else:
                 workers = []
-            total_abandoned += _update_worker_states(worker_states, workers, gpu_name)
-            if total_abandoned >= _MAX_ABANDONS:
+            abandoned_count += _update_worker_states(worker_states, workers, gpu_name)
+            if abandoned_count >= _MAX_ABANDONS:
                 _update_row(class_states, row_id, status="failed")
                 return (gpu_name, num_gpus, "failed", None,
-                        f"autoscaler abandoned {total_abandoned} workers without "
+                        f"autoscaler abandoned {abandoned_count} workers without "
                         f"any reaching idle (likely template + GPU config not loadable "
                         f"on these hosts)", None)
             if workers:
@@ -531,16 +531,16 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
     finally:
         # Workergroup first (stops new workers), then endpoint. atexit sweeps anything we miss.
         # 404s are silently absorbed since "already gone" is the desired end state.
-        if wg_id is not None:
+        if workergroup_id is not None:
             try:
-                vast.delete_workergroup(id=wg_id)
-                workergroups.discard(wg_id)
+                vast.delete_workergroup(id=workergroup_id)
+                workergroups.discard(workergroup_id)
             except Exception as e:
                 if getattr(getattr(e, "response", None), "status_code", None) != 404:
-                    print(f"[cleanup] failed to delete workergroup {wg_id}: {e}",
+                    print(f"[cleanup] failed to delete workergroup {workergroup_id}: {e}",
                           file=sys.stderr)
                 else:
-                    workergroups.discard(wg_id)
+                    workergroups.discard(workergroup_id)
         if endpoint_id is not None:
             try:
                 vast.delete_endpoint(id=endpoint_id)
@@ -707,10 +707,10 @@ def run__benchmarks(args):
         except (ValueError, OSError):
             pass
         try:
-            for wg_id in list(workergroups):
+            for workergroup_id in list(workergroups):
                 try:
-                    vast.delete_workergroup(id=wg_id)
-                    workergroups.discard(wg_id)
+                    vast.delete_workergroup(id=workergroup_id)
+                    workergroups.discard(workergroup_id)
                 except BaseException:
                     pass
             for ep_id in list(endpoints):

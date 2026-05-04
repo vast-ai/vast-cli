@@ -190,7 +190,7 @@ def get__endpt_logs(args):
 def get__workers(args):
     """List workers on a specific serverless endpoint group."""
     client = get_client(args)
-    rj = endpoints_api.get_endpoint_workers(client, id=args.id)
+    rj = endpoints_api.get_workers(client, id=args.id)
 
     if isinstance(rj, dict) and "error" in rj:
         print(rj["error"])

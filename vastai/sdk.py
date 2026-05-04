@@ -557,9 +557,9 @@ class VastAI:
         """Fetch logs for a worker group."""
         return endpoints.get_wrkgrp_logs(self.client, id, level=level, tail=tail)
 
-    def get_endpoint_workers(self, id: int):
-        """List workers on an endpoint group, with live status and measured_perf."""
-        return endpoints.get_endpoint_workers(self.client, id)
+    def get_workers(self, id: int):
+        """List workers under a given endpoint, with live status and measured_perf."""
+        return endpoints.get_workers(self.client, id)
 
     # ------------------------------------------------------------------
     # Billing methods

@@ -50,11 +50,11 @@ _ENDPOINT_CONFIG = {"cold_workers": 1, "max_workers": 1, "min_load": 1.0}
 
 _POLL_INTERVAL = 10.0
 _DEFAULT_TIMEOUT = 60 * 60
-_NO_WORKER_TIMEOUT = 120  # bail if autoscaler hasn't rented anything by here
+_RENTAL_TIMEOUT = 120  # pre-rental gate: fail-fast if the autoscaler hasn't rented anything by then
 _MAX_ABANDONS = 3  # bail after this many workers get abandoned without one reaching idle (autoscaler thrashing)
 _SUBMIT_STAGGER = 4.0  # spacing between parallel submits; prod's create_endpoint rate limit returns 400 (not 429) so VastClient can't auto-retry
 
-_GPU_COUNT_RE = re.compile(r"^(\d+)\s*x\s*(.+)$", re.IGNORECASE)  # "Nx GPU NAME" prefix on a --gpus token
+_GPU_COUNT_RE = re.compile(r"^(\d+)[\s_]*x[\s_]*(.+)$", re.IGNORECASE)  # "Nx GPU NAME" prefix on a --gpus token; underscore or space (or neither) accepted as separator
 
 # Workers stuck in these for >_TERMINAL_DEBOUNCE seconds trigger fail-fast.
 # `error` excluded since the autoscaler recovers (error, rebooting, model_loading).
@@ -457,7 +457,7 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
                 _update_row(class_states, row_id, status="aborted")
                 return (gpu_name, num_gpus, "aborted", None, "user aborted", None)
             # Endpoint-level only: get_workergroup_workers gates measured_perf behind ready_ever_, which never flips for benchmark workers.
-            resp = status_vast.get_endpoint_workers(endpoint_id)
+            resp = status_vast.get_workers(endpoint_id)
             if isinstance(resp, list):
                 workers = resp
             elif isinstance(resp, dict) and isinstance(resp.get("workers"), list):
@@ -519,10 +519,10 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
                         f"autoscaler not rotating", None)
             # Fail fast if no real worker (int id) has ever appeared.
             if (not any(isinstance(k, int) for k in worker_states)
-                    and time.monotonic() - start > _NO_WORKER_TIMEOUT):
+                    and time.monotonic() - start > _RENTAL_TIMEOUT):
                 _update_row(class_states, row_id, status="no_worker")
                 return (gpu_name, num_gpus, "no_worker", None,
-                        f"autoscaler did not rent in {_NO_WORKER_TIMEOUT}s "
+                        f"autoscaler did not rent in {_RENTAL_TIMEOUT}s "
                         f"(possible causes: insufficient credit, scoring issue, "
                         f"all candidates failed silently, or template+GPU mismatch "
                         f"missed by pre-flight)", None)

@@ -20,7 +20,7 @@ authors = [
   { name = "zuby javed", email = "zuby@vast.ai" },
 ]
 readme = "README.md"
-requires-python = ">3.9.1, <4.0"
+requires-python = ">=3.10, <4.0"
 license = { text = "MIT" }
 dynamic = ["version"]
 dependencies = [
@@ -39,7 +39,8 @@ dependencies = [
   "argcomplete>=2.0",
   "curlify>=2.2",
   "rich>=13.0",
-  "cryptography<=46.0.4",
+  "cryptography==46.0.5",
+  "pillow==12.2.0"
 ]
 
 [tool.poetry]

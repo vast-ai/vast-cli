@@ -1927,7 +1927,7 @@ COMMAND_MODULES = [
     "vastai.cli.commands.clusters",
     "vastai.cli.commands.misc",
     "vastai.cli.commands.deployments",
-    "vastai.cli.commands.benchmark",
+    "vastai.cli.commands.benchmarks",
 ]
 
 

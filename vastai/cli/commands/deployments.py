@@ -174,3 +174,64 @@ def delete__deployment(args):
             print("Deployment deleted successfully")
     else:
         print(rj.get("msg", rj))
+
+
+# ---------------------------------------------------------------------------
+# stop deployment
+# ---------------------------------------------------------------------------
+
+@parser.command(
+    argument("id", help="id of deployment to stop", type=int),
+    usage="vastai stop deployment ID",
+    help="Stop a deployment (workers drain to stopped state, config preserved)",
+    epilog=deindent("""
+        Stops a deployment by setting its endpoint state to "stopped". Workers
+        are paused (not destroyed), so model weights remain on disk and the
+        deployment can be restarted quickly. Billing for compute stops while
+        the deployment is stopped.
+
+        Example:
+            vastai stop deployment 1234
+    """),
+)
+def stop__deployment(args):
+    """Stop a deployment."""
+    client = get_client(args)
+    rj = deployments_api.stop_deployment(client, id=args.id)
+
+    if args.raw:
+        return rj
+    elif rj.get("success"):
+        print(f"Stopped deployment {args.id}.")
+    else:
+        print(rj.get("msg", rj))
+
+
+# ---------------------------------------------------------------------------
+# start deployment
+# ---------------------------------------------------------------------------
+
+@parser.command(
+    argument("id", help="id of deployment to start", type=int),
+    usage="vastai start deployment ID",
+    help="Start a previously stopped deployment",
+    epilog=deindent("""
+        Starts a stopped deployment by setting its endpoint state back to
+        "active". The autoscaler resumes scaling workers per the deployment's
+        existing configuration.
+
+        Example:
+            vastai start deployment 1234
+    """),
+)
+def start__deployment(args):
+    """Start a deployment."""
+    client = get_client(args)
+    rj = deployments_api.start_deployment(client, id=args.id)
+
+    if args.raw:
+        return rj
+    elif rj.get("success"):
+        print(f"Started deployment {args.id}.")
+    else:
+        print(rj.get("msg", rj))

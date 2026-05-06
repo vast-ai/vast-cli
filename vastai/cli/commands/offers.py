@@ -137,8 +137,21 @@ def search__offers(args):
         else:
             query = {"verified": {"eq": True}, "external": {"eq": False}, "rentable": {"eq": True}, "rented": {"eq": False}}
 
+        # Remember which keys we seeded so we can detect user removals via `=any`.
+        # parse_query() deletes a field when the user writes `field=any` (or `=*`).
+        # If we just let those keys disappear, the API server re-applies its own
+        # implicit defaults (e.g. rentable=True), and a query like
+        # `rented=true rentable=any` silently returns the empty intersection.
+        # Re-inserting `{"eq": "any"}` for stripped seeded keys tells the server
+        # explicitly "no filter on this field", which it honours.
+        seeded_default_keys = set() if args.no_default else set(query.keys())
+
         if args.query is not None:
             query = parse_query(args.query, query, offers_fields, offers_alias, offers_mult)
+
+        for k in seeded_default_keys:
+            if k not in query:
+                query[k] = {"eq": "any"}
 
         order = []
         for name in args.order.split(","):

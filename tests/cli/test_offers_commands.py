@@ -35,6 +35,36 @@ class TestSearchOffers:
         captured = capsys.readouterr()
         assert "ID" in captured.out
 
+    def test_search_offers_rentable_any_preserved(self, parse_argv, patch_get_client, mock_response):
+        """Regression for #391: `rentable=any` must not be silently stripped.
+
+        Without the fix the field disappears from the body (parse_query
+        deletes `=any` keys), and the API server re-applies its implicit
+        `rentable=true` default — so `rented=true rentable=any` returns 0.
+        The CLI must instead send `{"rentable": {"eq": "any"}}` to override
+        the server-side default.
+        """
+        patch_get_client.post.return_value = mock_response(200, {"offers": []})
+        args = parse_argv(["search", "offers", "--raw", "rented=true rentable=any"])
+        args.func(args)
+        patch_get_client.post.assert_called_once()
+        json_data = patch_get_client.post.call_args[1]["json_data"]
+        assert json_data["rentable"] == {"eq": "any"}, (
+            f"rentable should be present as {{'eq': 'any'}} but body was: {json_data}"
+        )
+        assert json_data["rented"] == {"eq": True}
+
+    def test_search_offers_seeded_defaults_preserved_when_unmentioned(self, parse_argv, patch_get_client, mock_response):
+        """Defaults the user does NOT touch must remain at their seeded values."""
+        patch_get_client.post.return_value = mock_response(200, {"offers": []})
+        args = parse_argv(["search", "offers", "--raw", "num_gpus=1"])
+        args.func(args)
+        json_data = patch_get_client.post.call_args[1]["json_data"]
+        assert json_data["verified"] == {"eq": True}
+        assert json_data["external"] == {"eq": False}
+        assert json_data["rentable"] == {"eq": True}
+        assert json_data["rented"] == {"eq": False}
+
 
 class TestSearchTemplates:
     def test_search_templates(self, parse_argv, patch_get_client, mock_response, capsys):

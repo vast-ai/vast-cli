@@ -3490,7 +3490,6 @@ def _parse_region(region):
     argument("--extra", help=argparse.SUPPRESS),
     argument("--env",   help="env variables and port mapping options, surround with '' ", type=str),
     argument("--args",  nargs=argparse.REMAINDER, help="list of arguments passed to container ENTRYPOINT. Onstart is recommended for this purpose. (must be last argument)"),
-    argument("--force", help="Skip sanity checks when creating from an existing instance", action="store_true"),
     argument("--cancel-unavail", help="Return error if scheduling fails (rather than creating a stopped instance)", action="store_true"),
     argument("--template_hash",   help="template hash which contains all relevant information about an instance. This can be used as a replacement for other parameters describing the instance configuration", type=str),
     usage="vastai launch instance [--help] [--api-key API_KEY] <gpu_name> <num_gpus> <image> [geolocation] [disk_space]",
@@ -3579,15 +3578,10 @@ def launch__instance(args):
         args.onstart_cmd = args.entrypoint
 
     json_blob = {
-        "client_id": "me", 
-        "gpu_name": args.gpu_name, 
-        "num_gpus": args.num_gpus, 
-        "region": args.region, 
-        "image": args.image, 
-        "disk": args.disk,  
+        "image": args.image,
+        "disk": args.disk,
         "q" : query,
         "env" : parse_env(args.env),
-        "disk": args.disk,
         "label": args.label,
         "extra": args.extra,
         "onstart": args.onstart_cmd,
@@ -3596,7 +3590,6 @@ def launch__instance(args):
         "lang_utf8": args.lang_utf8,
         "use_jupyter_lab": args.jupyter_lab,
         "jupyter_dir": args.jupyter_dir,
-        "force": args.force,
         "cancel_unavail": args.cancel_unavail,
         "template_hash_id" : args.template_hash
     }

@@ -69,6 +69,9 @@ _GPU_LOCATION_FIELDS = (
              help="Filter GPUs by verification status"),
     argument("--datacenter", type=str, choices=["true", "false", "all"], default="all",
              help="Filter GPUs by datacenter hosting type"),
+    argument("--num-gpus", type=str, default="all",
+             help="Filter to a specific rig size: 'all' (default, cross-bucket population) "
+                  "or a positive integer like 1, 2, 4, 8."),
     usage="vastai metrics gpu [OPTIONS]",
     help="[Host] Get current GPU market metrics",
     epilog=deindent("""
@@ -79,6 +82,7 @@ _GPU_LOCATION_FIELDS = (
         Examples:
             vastai metrics gpu
             vastai metrics gpu --verified true --datacenter true
+            vastai metrics gpu --num-gpus 8
             vastai metrics gpu --raw
     """),
 )
@@ -89,6 +93,7 @@ def metrics__gpu(args):
         client,
         verified=_VERIFIED_MAP[args.verified],
         hosting_type=_HOSTING_MAP[args.datacenter],
+        num_gpus=args.num_gpus,
     )
     if resp.get("needs_machine"):
         print(_NEEDS_MACHINE_MSG)
@@ -106,6 +111,9 @@ def metrics__gpu(args):
              help="Filter by verified status"),
     argument("--datacenter", type=str, choices=["true", "false", "all"], default="all",
              help="Filter by datacenter hosting type"),
+    argument("--num-gpus", type=str, default="all",
+             help="Filter to a specific rig size: 'all' (default, cross-bucket population) "
+                  "or a positive integer like 1, 2, 4, 8."),
     argument("--start", type=int, default=None, help="Start unix timestamp"),
     argument("--end", type=int, default=None, help="End unix timestamp"),
     argument("--step", type=int, default=None,
@@ -124,6 +132,7 @@ def metrics__gpu(args):
             vastai metrics gpu-trends "RTX 4090" --full
             vastai metrics gpu-trends "RTX 4090" --raw
             vastai metrics gpu-trends all --verified true --datacenter true
+            vastai metrics gpu-trends "RTX 4090" --num-gpus 8
             vastai metrics gpu-trends "RTX 4090,H100_SXM" --start 1773298800 --end 1773817200 --step 3600
     """),
 )
@@ -137,6 +146,7 @@ def metrics__gpu_trends(args):
         gpu_name=args.name,
         verified=_VERIFIED_MAP[args.verified],
         hosting_type=_HOSTING_MAP[args.datacenter],
+        num_gpus=args.num_gpus,
         start=args.start,
         end=args.end,
         step=args.step,

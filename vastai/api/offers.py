@@ -360,7 +360,7 @@ def launch_instance(client: VastClient, gpu_name: str, num_gpus: str, image: str
                     extra: str = None, onstart_cmd: str = None, login: str = None,
                     python_utf8: bool = False, lang_utf8: bool = False,
                     jupyter_lab: bool = False, jupyter_dir: str = None,
-                    force: bool = False, cancel_unavail: bool = False,
+                    cancel_unavail: bool = False,
                     template_hash: str = None, runtype: str = None,
                     args: str = None, query: dict = None) -> dict:
     """Launch the top instance from search offers matching the given criteria.
@@ -385,7 +385,6 @@ def launch_instance(client: VastClient, gpu_name: str, num_gpus: str, image: str
         lang_utf8: Enable lang UTF-8 mode.
         jupyter_lab: Launch with Jupyter Lab.
         jupyter_dir: Jupyter directory.
-        force: Force launch even if offer is unavailable.
         cancel_unavail: Cancel if unavailable.
         template_hash: Template hash ID.
         runtype: Run type (jupyter, ssh, args).
@@ -445,10 +444,6 @@ def launch_instance(client: VastClient, gpu_name: str, num_gpus: str, image: str
     query["allocated_storage"] = disk
 
     json_blob = {
-        "client_id": "me",
-        "gpu_name": gpu_name,
-        "num_gpus": num_gpus,
-        "region": region,
         "image": image,
         "disk": disk,
         "q": query,
@@ -461,7 +456,6 @@ def launch_instance(client: VastClient, gpu_name: str, num_gpus: str, image: str
         "lang_utf8": lang_utf8,
         "use_jupyter_lab": jupyter_lab,
         "jupyter_dir": jupyter_dir,
-        "force": force,
         "cancel_unavail": cancel_unavail,
         "template_hash_id": template_hash,
     }

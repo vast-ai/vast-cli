@@ -47,8 +47,8 @@ parser = _get_parser()
 
         Examples:
 
-            # search for somewhat reliable single RTX 3090 instances, filter out any duplicates or offers that conflict with our existing stopped instances
-            vastai search offers 'reliability > 0.98 num_gpus=1 gpu_name=RTX_3090 rented=False'
+            # search for somewhat reliable single RTX 3090 instances
+            vastai search offers 'reliability > 0.98 num_gpus=1 gpu_name=RTX_3090'
 
             # search for datacenter gpus with minimal compute_cap and total_flops
             vastai search offers 'compute_cap > 610 total_flops > 5 datacenter=True'
@@ -62,8 +62,8 @@ parser = _get_parser()
             # search for machines with nvidia drivers 535.86.05 or greater (and various other options)
             vastai search offers 'disk_space>146 duration>24 gpu_ram>10 cuda_vers>=12.1 direct_port_count>=2 driver_version >= 535.86.05'
 
-            # search for reliable machines with at least 4 gpus, unverified, order by num_gpus, allow conflicts
-            vastai search offers 'reliability > 0.99  num_gpus>=4 verified=False rented=any' -o 'num_gpus-'
+            # search for reliable machines with at least 4 gpus, unverified, order by num_gpus
+            vastai search offers 'reliability > 0.99  num_gpus>=4 verified=False' -o 'num_gpus-'
 
             # search for arm64 cpu architecture
             vastai search offers 'cpu_arch=arm64'
@@ -114,7 +114,6 @@ parser = _get_parser()
             pcie_bw:                float     PCIE bandwidth (CPU to GPU)
             reliability:            float     machine reliability score (see FAQ for explanation)
             rentable:               bool      is the instance currently rentable
-            rented:                 bool      allow/disallow duplicates and potential conflicts with existing stopped instances
             storage_cost:           float     storage cost in $/GB/month
             static_ip:              bool      is the IP addr static/stable
             total_flops:            float     total TFLOPs from all GPUs
@@ -135,7 +134,7 @@ def search__offers(args):
         if args.no_default:
             query = {}
         else:
-            query = {"verified": {"eq": True}, "external": {"eq": False}, "rentable": {"eq": True}, "rented": {"eq": False}}
+            query = {"verified": {"eq": True}, "external": {"eq": False}, "rentable": {"eq": True}}
 
         if args.query is not None:
             query = parse_query(args.query, query, offers_fields, offers_alias, offers_mult)
@@ -190,25 +189,6 @@ def search__offers(args):
         return
 
     rows = r.json()["offers"]
-
-    if 'rented' in query:
-        filter_q = query['rented']
-        filter_op = list(filter_q.keys())[0]
-        target = filter_q[filter_op]
-        new_rows = []
-        for row in rows:
-            rented = False
-            if "rented" in row and row["rented"] is not None:
-                rented = row["rented"]
-            if filter_op == "eq" and rented == target:
-                new_rows.append(row)
-            if filter_op == "neq" and rented != target:
-                new_rows.append(row)
-            if filter_op == "in" and rented in target:
-                new_rows.append(row)
-            if filter_op == "notin" and rented not in target:
-                new_rows.append(row)
-        rows = new_rows
 
     if args.raw:
         return rows
@@ -475,7 +455,7 @@ def create__template(args):
         docker_login_repo = None
     default_search_query = {}
     if not args.no_default:
-        default_search_query = {"verified": {"eq": True}, "external": {"eq": False}, "rentable": {"eq": True}, "rented": {"eq": False}}
+        default_search_query = {"verified": {"eq": True}, "external": {"eq": False}, "rentable": {"eq": True}}
 
     extra_filters = parse_query(args.search_params, default_search_query, offers_fields, offers_alias, offers_mult)
 
@@ -543,7 +523,7 @@ def update__template(args):
         docker_login_repo = None
     default_search_query = {}
     if not args.no_default:
-        default_search_query = {"verified": {"eq": True}, "external": {"eq": False}, "rentable": {"eq": True}, "rented": {"eq": False}}
+        default_search_query = {"verified": {"eq": True}, "external": {"eq": False}, "rentable": {"eq": True}}
 
     extra_filters = parse_query(args.search_params, default_search_query, offers_fields, offers_alias, offers_mult)
 

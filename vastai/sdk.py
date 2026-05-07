@@ -218,7 +218,7 @@ class VastAI:
             georegion_active, chunked, query = preprocess_search_query(query)
             base = {} if no_default else {
                 "verified": {"eq": True}, "external": {"eq": False},
-                "rentable": {"eq": True}, "rented": {"eq": False},
+                "rentable": {"eq": True},
             }
             query = parse_query(query, base, offers_fields, offers_alias, offers_mult)
             defaults_applied = True
@@ -305,7 +305,7 @@ class VastAI:
             georegion_active, chunked, query = preprocess_search_query(query)
             base = {} if no_default else {
                 "verified": {"eq": True}, "external": {"eq": False},
-                "rentable": {"eq": True}, "rented": {"eq": False},
+                "rentable": {"eq": True},
             }
             query = parse_query(query, base, offers_fields, offers_alias, offers_mult)
             defaults_applied = True

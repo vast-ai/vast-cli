@@ -189,7 +189,6 @@ class TestSearchOffers:
             assert q["verified"] == {"eq": True}
             assert q["rentable"] == {"eq": True}
             assert q["external"] == {"eq": False}
-            assert q["rented"] == {"eq": False}
             assert mock.call_args.kwargs["no_default"] is True
 
     def test_field_any_removes_default(self, sdk):
@@ -201,7 +200,6 @@ class TestSearchOffers:
             assert "verified" not in q
             assert "rentable" not in q
             assert q["external"] == {"eq": False}
-            assert q["rented"] == {"eq": False}
             assert mock.call_args.kwargs["no_default"] is True
 
     def test_no_default_skips_seeding(self, sdk):

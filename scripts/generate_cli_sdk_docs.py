@@ -28,11 +28,13 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import ast
 import inspect
 import json
 import re
 import sys
 import textwrap
+from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -89,6 +91,7 @@ class CliCommand:
     examples: str           # block from epilog after "Examples:" / "Example:"
     arguments: list[CliArg] = field(default_factory=list)
     options: list[CliArg] = field(default_factory=list)
+    func_name: str = ""     # Python name of the handler — used for scope lookup
 
 
 def load_cli_parser():
@@ -180,6 +183,7 @@ def extract_command(subparser: argparse.ArgumentParser, command_name: str,
         examples=examples,
         arguments=arguments,
         options=options,
+        func_name=getattr(func, "__name__", ""),
     )
 
 
@@ -555,6 +559,387 @@ def _demo_value(p: SdkParam) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Scope-based filtering
+# ---------------------------------------------------------------------------
+#
+# A CLI command or SDK method is "internal" if every backend endpoint it hits
+# is gated by an internal-only scope (admin_read_new, lower_admin, etc.).  We
+# determine the endpoints by AST-walking vastai/api/*.py, vastai/cli/commands/*.py,
+# and vastai/sdk.py, then look each (METHOD, URL) up in the snapshot file
+# scripts/data/api_scopes.json (derived from vast/web/scope.json + paths.py).
+#
+# Policy:
+#   - endpoint scope ∈ INTERNAL_SCOPES                → endpoint is internal
+#   - endpoint scope ∉ INTERNAL_SCOPES (or "misc")    → endpoint is public
+#   - all endpoints internal → command/method excluded
+#   - at least one endpoint public → command/method included
+#   - no endpoints found (couldn't statically resolve) → included (don't drop
+#     unclassified items; emits a manifest warning instead)
+
+SCOPE_DATA_PATH = Path(__file__).resolve().parent / "data" / "api_scopes.json"
+
+# HTTP verbs exposed on VastClient (mirrors vastai/api/client.py)
+CLIENT_VERBS = {"get", "post", "put", "delete", "patch"}
+
+
+def _is_client_receiver(node: ast.AST) -> bool:
+    """True if `node` denotes a VastClient instance — i.e. the parameter
+    named ``client`` (the convention in vastai/api/*.py) or ``self.client``.
+    Restricting matches this way prevents collisions with unrelated ``.get(...)``
+    calls on dicts, requests.Response, the requests module, etc."""
+    if isinstance(node, ast.Name) and node.id == "client":
+        return True
+    if (isinstance(node, ast.Attribute)
+            and node.attr == "client"
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "self"):
+        return True
+    return False
+
+
+def _stringify_url(node: ast.AST) -> Optional[str]:
+    """Convert a string literal or f-string AST node to a route pattern.
+
+    f-string interpolations are turned into named placeholders so
+    f"/instances/{id}/" -> "/instances/{id}/", matching the route pattern
+    style in vast/web/paths.py.  Returns None if the path can't be
+    statically resolved.
+    """
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        out: list[str] = []
+        for v in node.values:
+            if isinstance(v, ast.Constant) and isinstance(v.value, str):
+                out.append(v.value)
+            elif isinstance(v, ast.FormattedValue):
+                inner = v.value
+                if isinstance(inner, ast.Name):
+                    out.append("{" + inner.id + "}")
+                elif isinstance(inner, ast.Attribute):
+                    out.append("{" + inner.attr + "}")
+                else:
+                    # Unresolvable expression — placeholder
+                    out.append("{x}")
+            else:
+                return None
+        return "".join(out)
+    return None
+
+
+def _normalize_subpath(subpath: Optional[str]) -> Optional[str]:
+    """Apply VastClient._build_url's /api/v0 prefix rule and strip
+    trailing slash so callsite and snapshot URLs can be compared
+    irrespective of the noslash _auto routes Pyramid generates."""
+    if not subpath:
+        return None
+    if not re.match(r"^/api/v\d+/", subpath):
+        subpath = "/api/v0" + subpath
+    if subpath.endswith("/") and len(subpath) > 1:
+        subpath = subpath[:-1]
+    return subpath
+
+
+def _build_import_map(tree: ast.AST) -> dict[str, str]:
+    """Map local names -> api module basenames for `from vastai.api import X`
+    and `from vastai.api import X as Y` style imports."""
+    aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.module and node.module.startswith("vastai.api"):
+                # `from vastai.api import instances` -> instances=instances
+                # `from vastai.api.instances import foo` -> foo=instances::foo
+                #   (function-level alias, ignored — we resolve via call attr)
+                if node.module == "vastai.api":
+                    for alias in node.names:
+                        aliases[alias.asname or alias.name] = alias.name
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.startswith("vastai.api."):
+                    base = alias.name.split(".")[-1]
+                    aliases[alias.asname or base] = base
+    return aliases
+
+
+def _stringify_url_candidates(node: ast.AST) -> list[str]:
+    """Like _stringify_url but for ``a if cond else b`` returns both
+    branches.  Useful for resolving things like
+    ``endpoint = '/v0/charges/' if x else '/v1/invoices/'``."""
+    single = _stringify_url(node)
+    if single is not None:
+        return [single]
+    if isinstance(node, ast.IfExp):
+        out: list[str] = []
+        for branch in (node.body, node.orelse):
+            out.extend(_stringify_url_candidates(branch))
+        return out
+    return []
+
+
+def _collect_client_endpoints(fn_node: ast.AST) -> list[tuple[str, str]]:
+    """Walk one function body and return the list of (METHOD, URL) tuples
+    for every ``client.<verb>(<path>, ...)`` (or ``self.client.<verb>(...)``)
+    call inside it.  Handles three forms of path expression:
+      1. Literal string or f-string passed directly.
+      2. A ``Name`` reference resolved against simple local bindings of the
+         form ``url = "..."`` or ``url = f"..."`` earlier in the function.
+      3. The bound value may itself be an ``a if cond else b`` expression
+         where both branches are stringifiable — both URLs are recorded.
+    """
+    # First pass: gather trivial local string bindings within this function.
+    local_strs: dict[str, list[str]] = {}
+    for sub in ast.walk(fn_node):
+        if not isinstance(sub, ast.Assign):
+            continue
+        if len(sub.targets) == 1 and isinstance(sub.targets[0], ast.Name):
+            vals = _stringify_url_candidates(sub.value)
+            if vals:
+                local_strs[sub.targets[0].id] = vals
+
+    out: list[tuple[str, str]] = []
+    for sub in ast.walk(fn_node):
+        if not isinstance(sub, ast.Call):
+            continue
+        func = sub.func
+        if not (isinstance(func, ast.Attribute)
+                and func.attr in CLIENT_VERBS
+                and sub.args
+                and _is_client_receiver(func.value)):
+            continue
+        arg = sub.args[0]
+        candidates = _stringify_url_candidates(arg)
+        if not candidates and isinstance(arg, ast.Name):
+            candidates = local_strs.get(arg.id, [])
+        for url in candidates:
+            norm = _normalize_subpath(url)
+            if norm:
+                out.append((func.attr.upper(), norm))
+    return out
+
+
+def walk_api_endpoints(api_dir: Path) -> dict[tuple[str, str], list[tuple[str, str]]]:
+    """For every function in vastai/api/*.py, list every (METHOD, URL) it
+    calls on a VastClient.  Returns {(module_basename, func_name): [...]}."""
+    endpoints: dict[tuple[str, str], list[tuple[str, str]]] = {}
+
+    for f in sorted(api_dir.glob("*.py")):
+        if f.name.startswith("_") or f.name == "client.py":
+            continue
+        mod = f.stem
+        try:
+            tree = ast.parse(f.read_text())
+        except SyntaxError:
+            continue
+
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            hits = _collect_client_endpoints(fn)
+            if hits:
+                endpoints[(mod, fn.name)] = hits
+    return endpoints
+
+
+def walk_caller_endpoints(
+    py_path: Path,
+    api_endpoints: dict[tuple[str, str], list[tuple[str, str]]],
+) -> dict[str, list[tuple[str, str]]]:
+    """For each module-level function (or method on a class) in `py_path`,
+    list the endpoints it reaches.
+
+    Resolution chains through:
+      1. Direct alias.api_fn(...) calls (resolved via this file's import map).
+      2. Same-file function references — e.g. ``create__instance`` simply
+         delegates to ``create_instance_impl``, which is where the api call
+         actually lives.
+
+    Returns {fn_name: [(METHOD, URL), ...]}.
+    """
+    tree = ast.parse(py_path.read_text())
+    alias_map = _build_import_map(tree)
+
+    # Collect local function names so we can chase intra-file calls
+    local_fns = set()
+    # Class-body assignments like ``invite_team_member = invite_member`` are
+    # alias re-exports — record the source name so we can copy its endpoints.
+    method_aliases: dict[str, str] = {}
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            local_fns.add(node.name)
+        elif isinstance(node, ast.ClassDef):
+            for sub in node.body:
+                if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    local_fns.add(sub.name)
+                elif (isinstance(sub, ast.Assign)
+                        and len(sub.targets) == 1
+                        and isinstance(sub.targets[0], ast.Name)
+                        and isinstance(sub.value, ast.Name)):
+                    method_aliases[sub.targets[0].id] = sub.value.id
+
+    direct: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    local_refs: dict[str, set[str]] = defaultdict(set)
+
+    def scan(fn_node: ast.AST, fn_name: str) -> None:
+        # Direct client.verb(...) calls in the function body — search__offers
+        # in offers.py is the canonical example.
+        direct[fn_name].extend(_collect_client_endpoints(fn_node))
+
+        for sub in ast.walk(fn_node):
+            if not isinstance(sub, ast.Call):
+                continue
+            func = sub.func
+            # alias.fn(...) where alias resolves to an api module
+            if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+                mod = alias_map.get(func.value.id)
+                if mod is not None:
+                    hits = api_endpoints.get((mod, func.attr))
+                    if hits:
+                        direct[fn_name].extend(hits)
+                    continue
+                # self.<method>(...) — record for sdk.py-style methods
+                if func.value.id == "self" and func.attr in local_fns:
+                    local_refs[fn_name].add(func.attr)
+            # local_helper(...) at the module level
+            elif isinstance(func, ast.Name) and func.id in local_fns:
+                local_refs[fn_name].add(func.id)
+
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            scan(node, node.name)
+        elif isinstance(node, ast.ClassDef):
+            for sub in node.body:
+                if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    scan(sub, sub.name)
+
+    # Resolve same-file call chains to fixed point.  Depth-bounded to avoid
+    # cycles (mutual recursion is fine — we just stop reseeding after we
+    # stop accumulating new endpoints).
+    resolved: dict[str, list[tuple[str, str]]] = {fn: list(direct.get(fn, [])) for fn in local_fns}
+
+    # Seed aliases with their source method's direct endpoints; chain
+    # resolution below will continue propagating through any helpers the
+    # source calls.
+    for alias, source in method_aliases.items():
+        if source in resolved:
+            resolved[alias] = list(resolved[source])
+            local_refs.setdefault(alias, set()).add(source)
+            local_fns.add(alias)
+
+    for _ in range(8):
+        changed = False
+        for fn, callees in local_refs.items():
+            before = len(resolved.get(fn, []))
+            existing = set(map(tuple, resolved.get(fn, [])))
+            for callee in callees:
+                for hit in resolved.get(callee, []):
+                    if tuple(hit) not in existing:
+                        resolved.setdefault(fn, []).append(hit)
+                        existing.add(tuple(hit))
+            if len(resolved.get(fn, [])) != before:
+                changed = True
+        if not changed:
+            break
+
+    return {k: v for k, v in resolved.items() if v}
+
+
+@dataclass
+class ScopeIndex:
+    """Snapshot of api endpoints -> {METHOD: scope}.
+
+    Match logic uses regex patterns so a call to ``/api/v0/users/me/invoices``
+    matches the snapshot route ``/api/v0/users/{user_id}/invoices``.  Exact
+    matches are tried first (fast path); the regex pass handles literal/
+    placeholder mismatches.
+    """
+    by_url: dict[str, dict[str, str]]
+    patterns: list[tuple[re.Pattern, dict[str, str]]]
+    internal_scopes: set[str]
+
+    @classmethod
+    def load(cls, path: Path = SCOPE_DATA_PATH) -> "ScopeIndex":
+        raw = json.loads(path.read_text())
+        by_url: dict[str, dict[str, str]] = {}
+        patterns: list[tuple[re.Pattern, dict[str, str]]] = []
+        for url, methods in raw["endpoints"].items():
+            canon = _canon_url(url)
+            by_url[canon] = methods
+            # Compile a regex by replacing each placeholder token with a
+            # one-segment wildcard.  _canon_url already mapped {name} -> {}.
+            regex = re.compile("^" + re.escape(canon).replace(r"\{\}", "[^/]+") + "$")
+            patterns.append((regex, methods))
+        return cls(
+            by_url=by_url,
+            patterns=patterns,
+            internal_scopes=set(raw["_meta"]["internal_scopes"]),
+        )
+
+    def _lookup(self, url: str) -> Optional[dict[str, str]]:
+        canon = _canon_url(url)
+        hit = self.by_url.get(canon)
+        if hit is not None:
+            return hit
+        for regex, methods in self.patterns:
+            if regex.match(canon):
+                return methods
+        return None
+
+    def classify(self, endpoint_hits: list[tuple[str, str]]) -> str:
+        """Return 'public', 'internal', or 'unknown'."""
+        if not endpoint_hits:
+            return "unknown"
+        any_public = False
+        any_matched = False
+        for method, url in endpoint_hits:
+            scopes = self._lookup(url)
+            if not scopes:
+                continue
+            scope = scopes.get(method)
+            if scope is None:
+                continue
+            any_matched = True
+            if scope not in self.internal_scopes:
+                any_public = True
+        if not any_matched:
+            return "unknown"
+        return "public" if any_public else "internal"
+
+
+_PLACEHOLDER_RX = re.compile(r"\{[^}]*\}")
+
+
+def _canon_url(url: str) -> str:
+    """Strip trailing slash and replace every ``{name}`` placeholder with
+    ``{}`` so call-sites using ``{id}`` line up with routes declared with
+    ``{machine_id}`` and similar."""
+    s = _PLACEHOLDER_RX.sub("{}", url)
+    if s.endswith("/") and len(s) > 1:
+        s = s[:-1]
+    return s
+
+
+def build_function_endpoint_map(
+    vastai_pkg: Path,
+) -> tuple[dict[str, list[tuple[str, str]]], dict[str, list[tuple[str, str]]]]:
+    """Return (cli_command_endpoints, sdk_method_endpoints) keyed by
+    plain Python function/method name.  Names collide across CLI command
+    files only when the same dest name is registered twice, which doesn't
+    happen in this codebase — but if it ever does, the last writer wins."""
+    api_endpoints = walk_api_endpoints(vastai_pkg / "api")
+
+    cli_endpoints: dict[str, list[tuple[str, str]]] = {}
+    cmd_dir = vastai_pkg / "cli" / "commands"
+    for f in sorted(cmd_dir.glob("*.py")):
+        if f.name.startswith("_"):
+            continue
+        for fn_name, hits in walk_caller_endpoints(f, api_endpoints).items():
+            cli_endpoints[fn_name] = hits
+
+    sdk_endpoints = walk_caller_endpoints(vastai_pkg / "sdk.py", api_endpoints)
+    return cli_endpoints, sdk_endpoints
+
+
+# ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
 
@@ -635,16 +1020,39 @@ def main():
     cli_commands = collect_cli_commands(parser_obj)
     print(f"Discovered {len(cli_commands)} CLI commands.")
 
+    # Load the scope snapshot + endpoint map so we can drop internal-only
+    # commands/methods.  Snapshot lives at scripts/data/api_scopes.json.
+    import vastai
+    scope_index = ScopeIndex.load()
+    vastai_pkg = Path(vastai.__file__).resolve().parent
+    cli_fn_endpoints, sdk_fn_endpoints = build_function_endpoint_map(vastai_pkg)
+
     written: list[dict] = []
+    excluded_cli: list[dict] = []
+    excluded_sdk: list[dict] = []
+    unknown_cli: list[str] = []
+    unknown_sdk: list[str] = []
 
     if not args.skip_cli:
         cli_dir = out_root / args.cli_subdir
         cli_dir.mkdir(parents=True, exist_ok=True)
         for doc_name, cmd in sorted(cli_commands.items()):
+            hits = cli_fn_endpoints.get(cmd.func_name, [])
+            verdict = scope_index.classify(hits)
+            if verdict == "internal":
+                excluded_cli.append({
+                    "name": doc_name,
+                    "func": cmd.func_name,
+                    "endpoints": hits,
+                })
+                continue
+            if verdict == "unknown":
+                unknown_cli.append(doc_name)
             mdx = render_cli_mdx(cmd)
             (cli_dir / f"{doc_name}.mdx").write_text(mdx)
             written.append({"kind": "cli", "name": doc_name})
-        print(f"Wrote {len(cli_commands)} CLI pages to {cli_dir}")
+        print(f"Wrote {sum(1 for w in written if w['kind'] == 'cli')} CLI pages to {cli_dir} "
+              f"({len(excluded_cli)} excluded as internal, {len(unknown_cli)} unclassified)")
 
     if not args.skip_sdk:
         sdk_dir = out_root / args.sdk_subdir
@@ -652,16 +1060,32 @@ def main():
         sdk_methods = extract_sdk_methods(cli_commands)
         print(f"Discovered {len(sdk_methods)} SDK methods.")
         for m in sorted(sdk_methods, key=lambda x: x.doc_name):
+            hits = sdk_fn_endpoints.get(m.name, [])
+            verdict = scope_index.classify(hits)
+            if verdict == "internal":
+                excluded_sdk.append({
+                    "name": m.doc_name,
+                    "func": m.name,
+                    "endpoints": hits,
+                })
+                continue
+            if verdict == "unknown":
+                unknown_sdk.append(m.doc_name)
             mdx = render_sdk_mdx(m)
             (sdk_dir / f"{m.doc_name}.mdx").write_text(mdx)
             written.append({"kind": "sdk", "name": m.doc_name})
-        print(f"Wrote {len(sdk_methods)} SDK pages to {sdk_dir}")
+        print(f"Wrote {sum(1 for w in written if w['kind'] == 'sdk')} SDK pages to {sdk_dir} "
+              f"({len(excluded_sdk)} excluded as internal, {len(unknown_sdk)} unclassified)")
 
     if args.manifest:
         Path(args.manifest).write_text(json.dumps({
             "cli_count": sum(1 for w in written if w["kind"] == "cli"),
             "sdk_count": sum(1 for w in written if w["kind"] == "sdk"),
             "files": written,
+            "excluded_internal_cli": excluded_cli,
+            "excluded_internal_sdk": excluded_sdk,
+            "unclassified_cli": unknown_cli,
+            "unclassified_sdk": unknown_sdk,
         }, indent=2))
 
     return 0

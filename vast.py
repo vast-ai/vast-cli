@@ -8631,17 +8631,38 @@ def self_test__machine(args):
                             result["success"] = success
                             result["reason"] = reason
 
+    except KeyboardInterrupt:
+        result["success"] = False
+        result["reason"] = "Interrupted by user (Ctrl+C)"
+        progress_print(args, "\nInterrupted — cleaning up test instance...")
     except Exception as e:
         result["success"] = False
         result["reason"] = str(e)
 
     finally:
-        try:
-            if instance_id and instance_exist(instance_id, api_key, destroy_args):
-                destroy_instance_silent(instance_id, destroy_args)
-        except Exception as e:
-            if args.debugging:
-                debug_print(args, f"Error during cleanup: {e}")
+        # Always attempt to destroy the test instance, including on Ctrl+C.
+        # KeyboardInterrupt is BaseException (not Exception) so it skips the
+        # typed except above and lands here. Surface failures loudly: a
+        # silently-leaked instance keeps billing the host.
+        if instance_id:
+            try:
+                if instance_exist(instance_id, api_key, destroy_args):
+                    progress_print(args, f"Destroying test instance {instance_id}...")
+                    destroy_instance_silent(instance_id, destroy_args)
+                    progress_print(args, f"Test instance {instance_id} destroyed.")
+            except KeyboardInterrupt:
+                progress_print(
+                    args,
+                    f"\nSecond interrupt during cleanup — instance {instance_id} may still be running.\n"
+                    f"  Destroy it manually: vastai destroy instance {instance_id}"
+                )
+                raise
+            except Exception as e:
+                progress_print(
+                    args,
+                    f"WARNING: failed to destroy test instance {instance_id}: {e}\n"
+                    f"  Destroy it manually: vastai destroy instance {instance_id}"
+                )
 
     # Output results
     if args.raw:

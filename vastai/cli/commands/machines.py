@@ -1019,25 +1019,38 @@ def self_test__machine(args):
                             result["success"] = success
                             result["reason"] = reason
 
+    except KeyboardInterrupt:
+        result["success"] = False
+        result["reason"] = "Interrupted by user (Ctrl+C)"
+        progress_print("\nInterrupted — cleaning up test instance...")
     except Exception as e:
         result["success"] = False
         result["reason"] = str(e)
 
     finally:
-        try:
-            if instance_id:
-                # Helper might not be defined if we failed early, so use API directly
-                try:
-                    info = instances_api.show_instance(client, id=instance_id)
-                    if info:
-                        status = info.get('intended_status') or info.get('actual_status')
-                        if status not in ['destroyed', 'terminated', 'offline']:
-                            instances_api.destroy_instance(client, id=instance_id)
-                except Exception:
-                    pass
-        except Exception as e:
-            if args.debugging:
-                print(f"Error during cleanup: {e}")
+        # Always attempt to destroy the test instance, including on Ctrl+C.
+        # KeyboardInterrupt is BaseException (not Exception) so it skips the
+        # typed except above and lands here. Surface failures loudly: a
+        # silently-leaked instance keeps billing the host.
+        if instance_id:
+            try:
+                info = instances_api.show_instance(client, id=instance_id)
+                status = (info or {}).get('intended_status') or (info or {}).get('actual_status')
+                if status not in ('destroyed', 'terminated', 'offline'):
+                    progress_print(f"Destroying test instance {instance_id} (status: {status})...")
+                    instances_api.destroy_instance(client, id=instance_id)
+                    progress_print(f"Test instance {instance_id} destroyed.")
+            except KeyboardInterrupt:
+                progress_print(
+                    f"\nSecond interrupt during cleanup — instance {instance_id} may still be running.\n"
+                    f"  Destroy it manually: vastai destroy instance {instance_id}"
+                )
+                raise
+            except Exception as e:
+                progress_print(
+                    f"WARNING: failed to destroy test instance {instance_id}: {e}\n"
+                    f"  Destroy it manually: vastai destroy instance {instance_id}"
+                )
 
     if args.raw:
         print(json.dumps(result))

@@ -8415,7 +8415,7 @@ def self_test__machine(args):
 
         def cuda_map_to_image(cuda_version, compute_cap=None):
             """
-            Maps a CUDA version to a Docker image tag, falling back to the next lower version until failure.
+            Map a CUDA version (and optional compute_cap) to (image, reason).
 
             If compute_cap is below 700 (sm_70 / Volta), the cu118 image is
             forced regardless of CUDA version. cu128 (torch 2.10) still ships
@@ -8426,22 +8426,31 @@ def self_test__machine(args):
             Volta hosts whose operator has installed a CUDA 13 driver get the
             cuda_version clamped down to 12.8 before the version map runs,
             since cu130 wheels never built sm_70.
+
+            The returned reason is a short human-readable string so callers
+            can log why a particular image was chosen.
             """
             docker_repo = "robatvastai/test"
             # Convert float input to string
             if isinstance(cuda_version, float):
                 cuda_version = str(cuda_version)
+            original_cuda = cuda_version
 
             # Force the cu118 legacy image on pre-Volta hardware (sm_50/sm_60).
             if compute_cap is not None and compute_cap < 700:
-                return f"{docker_repo}:self-test-cu118"
+                return (
+                    f"{docker_repo}:self-test-cu118",
+                    f"compute_cap={compute_cap} below sm_70 → forced cu118",
+                )
 
             # Volta sm_70/sm_72: cu128 has sm_70, cu130 doesn't. Cap driver
             # CUDA at 12.8 so the map below picks cu128 even on a V100 host
             # with a CUDA 13 driver installed.
+            clamped_for_volta = False
             if compute_cap is not None and compute_cap < 750:
                 if float(cuda_version) > 12.8:
                     cuda_version = "12.8"
+                    clamped_for_volta = True
 
             # Predefined mapping. Tracks PyTorch releases and the docker
             # images we currently publish (cu118 / cu128 / cu130).
@@ -8451,8 +8460,15 @@ def self_test__machine(args):
                 "13.0": "cu130",
             }
 
+            cap_hint = f"compute_cap={compute_cap}" if compute_cap is not None else "compute_cap=unknown"
+
             if cuda_version in docker_tag_map:
-                return f"{docker_repo}:self-test-{docker_tag_map[cuda_version]}"
+                tag = docker_tag_map[cuda_version]
+                if clamped_for_volta:
+                    reason = f"{cap_hint} (Volta) + cuda_max_good={original_cuda} → clamped to {cuda_version} → {tag}"
+                else:
+                    reason = f"{cap_hint}, cuda_max_good={cuda_version} → exact match → {tag}"
+                return f"{docker_repo}:self-test-{tag}", reason
 
             # Try to find the next version down
             cuda_float = float(cuda_version)
@@ -8462,7 +8478,12 @@ def self_test__machine(args):
             while next_version >= min(float(v) for v in docker_tag_map.keys()):
                 next_version_str = str(next_version)
                 if next_version_str in docker_tag_map:
-                    return f"{docker_repo}:self-test-{docker_tag_map[next_version_str]}"
+                    tag = docker_tag_map[next_version_str]
+                    reason = (
+                        f"{cap_hint}, cuda_max_good={original_cuda} → "
+                        f"stepped down to {next_version_str} → {tag}"
+                    )
+                    return f"{docker_repo}:self-test-{tag}", reason
                 next_version = round(next_version - 0.1, 1)
 
             raise KeyError(f"No CUDA version found for {cuda_version} or any lower version")
@@ -8510,7 +8531,7 @@ def self_test__machine(args):
             ask_contract_id = top_offer["id"]
             cuda_version = top_offer["cuda_max_good"]
             compute_cap = top_offer.get("compute_cap")
-            docker_image = cuda_map_to_image(cuda_version, compute_cap)
+            docker_image, image_reason = cuda_map_to_image(cuda_version, compute_cap)
 
             # Prepare arguments for instance creation
             create_args = argparse.Namespace(
@@ -8550,7 +8571,7 @@ def self_test__machine(args):
 
             # Create instance
             try:
-                progress_print(args, f"Starting test with {docker_image}")
+                progress_print(args, f"Starting test with {docker_image} ({image_reason})")
                 response = create__instance(create_args)
                 if isinstance(response, requests.Response):  # Check if it's an HTTP response
                     if response.status_code == 200:

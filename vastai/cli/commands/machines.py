@@ -661,23 +661,30 @@ def self_test__machine(args):
 
         # ----- CUDA version to docker image mapping -----
         def cuda_map_to_image(cuda_version, compute_cap=None):
+            """Return (image, reason). Reason explains why this image was picked."""
             docker_repo = "vastai/test"
             if isinstance(cuda_version, float):
                 cuda_version = str(cuda_version)
+            original_cuda = cuda_version
 
             # cu128 (torch 2.10) still ships sm_70 (Volta); cu130 (torch 2.11)
             # never did. Neither builds sm_50/sm_60 kernels. Anything pre-Volta
             # (compute_cap < 700) must use the cu118 legacy image.
             if compute_cap is not None and compute_cap < 700:
-                return f"{docker_repo}:self-test-cu118"
+                return (
+                    f"{docker_repo}:self-test-cu118",
+                    f"compute_cap={compute_cap} below sm_70 → forced cu118",
+                )
 
             # Volta sm_70/sm_72 hosts: cu128 wheels include sm_70 but cu130
             # wheels never did. Cap the driver-reported CUDA version at 12.8
             # so the map below resolves to cu128 even if the operator has
             # installed a CUDA 13 driver on a V100.
+            clamped_for_volta = False
             if compute_cap is not None and compute_cap < 750:
                 if float(cuda_version) > 12.8:
                     cuda_version = "12.8"
+                    clamped_for_volta = True
 
             docker_tag_map = {
                 "11.8": "cu118",
@@ -685,15 +692,27 @@ def self_test__machine(args):
                 "13.0": "cu130",
             }
 
+            cap_hint = f"compute_cap={compute_cap}" if compute_cap is not None else "compute_cap=unknown"
+
             if cuda_version in docker_tag_map:
-                return f"{docker_repo}:self-test-{docker_tag_map[cuda_version]}"
+                tag = docker_tag_map[cuda_version]
+                if clamped_for_volta:
+                    reason = f"{cap_hint} (Volta) + cuda_max_good={original_cuda} → clamped to {cuda_version} → {tag}"
+                else:
+                    reason = f"{cap_hint}, cuda_max_good={cuda_version} → exact match → {tag}"
+                return f"{docker_repo}:self-test-{tag}", reason
 
             cuda_float = float(cuda_version)
             next_version = round(cuda_float - 0.1, 1)
             while next_version >= min(float(v) for v in docker_tag_map.keys()):
                 next_version_str = str(next_version)
                 if next_version_str in docker_tag_map:
-                    return f"{docker_repo}:self-test-{docker_tag_map[next_version_str]}"
+                    tag = docker_tag_map[next_version_str]
+                    reason = (
+                        f"{cap_hint}, cuda_max_good={original_cuda} → "
+                        f"stepped down to {next_version_str} → {tag}"
+                    )
+                    return f"{docker_repo}:self-test-{tag}", reason
                 next_version = round(next_version - 0.1, 1)
 
             raise KeyError(f"No CUDA version found for {cuda_version} or any lower version")
@@ -729,14 +748,14 @@ def self_test__machine(args):
             ask_contract_id = top_offer["id"]
             cuda_version = top_offer["cuda_max_good"]
             compute_cap = top_offer.get("compute_cap")
-            docker_image = cuda_map_to_image(cuda_version, compute_cap)
+            docker_image, image_reason = cuda_map_to_image(cuda_version, compute_cap)
 
             # ----- create the test instance -----
             try:
                 from vastai.cli.util import parse_env
                 env = parse_env("-e TZ=PDT -e XNAME=XX4 -p 5000:5000 -p 1234:1234")
 
-                progress_print(f"Starting test with {docker_image}")
+                progress_print(f"Starting test with {docker_image} ({image_reason})")
                 rj = instances_api.create_instance(
                     client,
                     id=ask_contract_id,

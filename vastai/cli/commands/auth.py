@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from vastai.cli.parser import argument
 from vastai.cli.display import deindent, display_table
 from vastai.api import auth as auth_api
-from vastai.cli.util import SUCCESS, WARN, FAIL, fmt_key_suffix
+from vastai.cli.util import SUCCESS, WARN, FAIL, format_key_suffix
 
 
 # ---------------------------------------------------------------------------
@@ -215,7 +215,7 @@ def set__api_key(args):
 
     env_key = os.environ.get("VAST_API_KEY")
     if env_key:
-        print(f"\n{WARN} VAST_API_KEY is set in your environment (ends in {fmt_key_suffix(env_key)}) and overrides the key you just saved.")
+        print(f"\n{WARN} VAST_API_KEY is set in your environment (ends in {format_key_suffix(env_key)}) and overrides the key you just saved.")
         print("Unset VAST_API_KEY to use the saved key.")
 
 

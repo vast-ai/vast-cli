@@ -157,7 +157,7 @@ if not os.path.exists(APIKEY_FILE) and os.path.exists(APIKEY_FILE_HOME):
     shutil.copyfile(APIKEY_FILE_HOME, APIKEY_FILE)
 
 
-def fmt_key_suffix(k):
+def format_key_suffix(k):
     """Format the last 4 chars of an API key for display, e.g. '...a3f9'.
     Used in diagnostics so users can identify keys without seeing the full secret."""
     if k and len(k) >= 4:

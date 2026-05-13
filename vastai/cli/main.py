@@ -7,7 +7,7 @@ import requests
 from vastai.cli.parser import apwrap, argument, MyWideHelpFormatter, set_completers
 from vastai.cli.util import (
     APIKEY_FILE, TFAKEY_FILE, VERSION, server_url_default, api_key_guard,
-    fmt_key_suffix,
+    format_key_suffix,
 )
 
 try:
@@ -47,9 +47,9 @@ def _emit_error(args, status_code, message):
         if not env and not file_key:
             return
         if env:
-            print(f"  $VAST_API_KEY is set (ends in {fmt_key_suffix(env)}); env beats file.", file=sys.stderr)
+            print(f"  $VAST_API_KEY is set (ends in {format_key_suffix(env)}); env beats file.", file=sys.stderr)
         if file_key:
-            print(f"  {APIKEY_FILE} contains a key (ends in {fmt_key_suffix(file_key)}).", file=sys.stderr)
+            print(f"  {APIKEY_FILE} contains a key (ends in {format_key_suffix(file_key)}).", file=sys.stderr)
         print("  Compare with the key you expected to use.", file=sys.stderr)
 
 

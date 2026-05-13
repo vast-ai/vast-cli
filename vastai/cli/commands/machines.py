@@ -660,17 +660,21 @@ def self_test__machine(args):
             progress_print("Continuing despite unmet requirements because --ignore-requirements is set.")
 
         # ----- CUDA version to docker image mapping -----
-        def cuda_map_to_image(cuda_version):
+        def cuda_map_to_image(cuda_version, compute_cap=None):
             docker_repo = "vastai/test"
             if isinstance(cuda_version, float):
                 cuda_version = str(cuda_version)
 
+            # cu128 and cu130 PyTorch wheels don't ship sm_50/sm_60/sm_70
+            # kernels. Anything below Turing (sm_75 == compute_cap 750)
+            # must use the cu118 legacy image regardless of driver CUDA.
+            if compute_cap is not None and compute_cap < 750:
+                return f"{docker_repo}:self-test-cu118"
+
             docker_tag_map = {
                 "11.8": "cu118",
-                "12.1": "cu121",
-                "12.4": "cu124",
-                "12.6": "cu126",
                 "12.8": "cu128",
+                "13.0": "cu130",
             }
 
             if cuda_version in docker_tag_map:
@@ -716,7 +720,8 @@ def self_test__machine(args):
         else:
             ask_contract_id = top_offer["id"]
             cuda_version = top_offer["cuda_max_good"]
-            docker_image = cuda_map_to_image(cuda_version)
+            compute_cap = top_offer.get("compute_cap")
+            docker_image = cuda_map_to_image(cuda_version, compute_cap)
 
             # ----- create the test instance -----
             try:

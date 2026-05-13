@@ -8413,30 +8413,37 @@ def self_test__machine(args):
                 # If user did pass --ignore-requirements, warn and continue
                 progress_print(args, "Continuing despite unmet requirements because --ignore-requirements is set.")
 
-        def cuda_map_to_image(cuda_version):
+        def cuda_map_to_image(cuda_version, compute_cap=None):
             """
             Maps a CUDA version to a Docker image tag, falling back to the next lower version until failure.
+
+            If compute_cap is below 750 (sm_75 / Turing), the cu118 image is
+            forced regardless of CUDA version: cu128/cu130 PyTorch wheels
+            don't ship sm_50/sm_60/sm_70 kernels.
             """
             docker_repo = "vastai/test"
             # Convert float input to string
             if isinstance(cuda_version, float):
                 cuda_version = str(cuda_version)
-            
-            # Predefined mapping. Tracks PyTorch releases
+
+            # Force the cu118 legacy image on pre-Turing hardware.
+            if compute_cap is not None and compute_cap < 750:
+                return f"{docker_repo}:self-test-cu118"
+
+            # Predefined mapping. Tracks PyTorch releases and the docker
+            # images we currently publish (cu118 / cu128 / cu130).
             docker_tag_map = {
                 "11.8": "cu118",
-                "12.1": "cu121",
-                "12.4": "cu124",
-                "12.6": "cu126",
-                "12.8": "cu128"
+                "12.8": "cu128",
+                "13.0": "cu130",
             }
-            
+
             if cuda_version in docker_tag_map:
                 return f"{docker_repo}:self-test-{docker_tag_map[cuda_version]}"
-            
+
             # Try to find the next version down
             cuda_float = float(cuda_version)
-            
+
             # Try to decrement the version by 0.1 until we find a match or run out of options
             next_version = round(cuda_float - 0.1, 1)
             while next_version >= min(float(v) for v in docker_tag_map.keys()):
@@ -8444,7 +8451,7 @@ def self_test__machine(args):
                 if next_version_str in docker_tag_map:
                     return f"{docker_repo}:self-test-{docker_tag_map[next_version_str]}"
                 next_version = round(next_version - 0.1, 1)
-            
+
             raise KeyError(f"No CUDA version found for {cuda_version} or any lower version")
     
 
@@ -8489,7 +8496,8 @@ def self_test__machine(args):
         else:
             ask_contract_id = top_offer["id"]
             cuda_version = top_offer["cuda_max_good"]
-            docker_image = cuda_map_to_image(cuda_version)
+            compute_cap = top_offer.get("compute_cap")
+            docker_image = cuda_map_to_image(cuda_version, compute_cap)
 
             # Prepare arguments for instance creation
             create_args = argparse.Namespace(

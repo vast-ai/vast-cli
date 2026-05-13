@@ -8417,15 +8417,15 @@ def self_test__machine(args):
             """
             Map a CUDA version (and optional compute_cap) to (image, reason).
 
-            If compute_cap is below 700 (sm_70 / Volta), the cu118 image is
-            forced regardless of CUDA version. cu128 (torch 2.10) still ships
-            sm_70 kernels so Volta hosts land on cu128 via the version map;
-            cu130 (torch 2.11) and cu128 do not ship sm_50/sm_60 kernels, so
-            Maxwell and Pascal must use cu118.
+            If compute_cap is below 700 (sm_70 / Volta), the cuda-11.8 image
+            is forced regardless of CUDA version. cuda-12.8 (torch 2.10) still
+            ships sm_70 kernels so Volta hosts land on cuda-12.8 via the
+            version map; cuda-13.0 (torch 2.11) and cuda-12.8 do not ship
+            sm_50/sm_60 kernels, so Maxwell and Pascal must use cuda-11.8.
 
             Volta hosts whose operator has installed a CUDA 13 driver get the
             cuda_version clamped down to 12.8 before the version map runs,
-            since cu130 wheels never built sm_70.
+            since cuda-13.0 wheels never built sm_70.
 
             The returned reason is a short human-readable string so callers
             can log why a particular image was chosen.
@@ -8436,16 +8436,16 @@ def self_test__machine(args):
                 cuda_version = str(cuda_version)
             original_cuda = cuda_version
 
-            # Force the cu118 legacy image on pre-Volta hardware (sm_50/sm_60).
+            # Force the cuda-11.8 legacy image on pre-Volta hardware (sm_50/sm_60).
             if compute_cap is not None and compute_cap < 700:
                 return (
-                    f"{docker_repo}:self-test-cu118",
-                    f"compute_cap={compute_cap} below sm_70 → forced cu118",
+                    f"{docker_repo}:self-test-cuda-11.8",
+                    f"compute_cap={compute_cap} below sm_70 → forced cuda-11.8",
                 )
 
-            # Volta sm_70/sm_72: cu128 has sm_70, cu130 doesn't. Cap driver
-            # CUDA at 12.8 so the map below picks cu128 even on a V100 host
-            # with a CUDA 13 driver installed.
+            # Volta sm_70/sm_72: cuda-12.8 has sm_70, cuda-13.0 doesn't. Cap
+            # driver CUDA at 12.8 so the map below picks cuda-12.8 even on a
+            # V100 host with a CUDA 13 driver installed.
             clamped_for_volta = False
             if compute_cap is not None and compute_cap < 750:
                 if float(cuda_version) > 12.8:
@@ -8453,11 +8453,11 @@ def self_test__machine(args):
                     clamped_for_volta = True
 
             # Predefined mapping. Tracks PyTorch releases and the docker
-            # images we currently publish (cu118 / cu128 / cu130).
+            # images we currently publish (cuda-11.8 / cuda-12.8 / cuda-13.0).
             docker_tag_map = {
-                "11.8": "cu118",
-                "12.8": "cu128",
-                "13.0": "cu130",
+                "11.8": "cuda-11.8",
+                "12.8": "cuda-12.8",
+                "13.0": "cuda-13.0",
             }
 
             cap_hint = f"compute_cap={compute_cap}" if compute_cap is not None else "compute_cap=unknown"

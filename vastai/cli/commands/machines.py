@@ -667,19 +667,20 @@ def self_test__machine(args):
                 cuda_version = str(cuda_version)
             original_cuda = cuda_version
 
-            # cu128 (torch 2.10) still ships sm_70 (Volta); cu130 (torch 2.11)
-            # never did. Neither builds sm_50/sm_60 kernels. Anything pre-Volta
-            # (compute_cap < 700) must use the cu118 legacy image.
+            # cuda-12.8 (torch 2.10) still ships sm_70 (Volta); cuda-13.0
+            # (torch 2.11) never did. Neither builds sm_50/sm_60 kernels.
+            # Anything pre-Volta (compute_cap < 700) must use the cuda-11.8
+            # legacy image.
             if compute_cap is not None and compute_cap < 700:
                 return (
-                    f"{docker_repo}:self-test-cu118",
-                    f"compute_cap={compute_cap} below sm_70 → forced cu118",
+                    f"{docker_repo}:self-test-cuda-11.8",
+                    f"compute_cap={compute_cap} below sm_70 → forced cuda-11.8",
                 )
 
-            # Volta sm_70/sm_72 hosts: cu128 wheels include sm_70 but cu130
-            # wheels never did. Cap the driver-reported CUDA version at 12.8
-            # so the map below resolves to cu128 even if the operator has
-            # installed a CUDA 13 driver on a V100.
+            # Volta sm_70/sm_72 hosts: cuda-12.8 wheels include sm_70 but
+            # cuda-13.0 wheels never did. Cap the driver-reported CUDA version
+            # at 12.8 so the map below resolves to cuda-12.8 even if the
+            # operator has installed a CUDA 13 driver on a V100.
             clamped_for_volta = False
             if compute_cap is not None and compute_cap < 750:
                 if float(cuda_version) > 12.8:
@@ -687,9 +688,9 @@ def self_test__machine(args):
                     clamped_for_volta = True
 
             docker_tag_map = {
-                "11.8": "cu118",
-                "12.8": "cu128",
-                "13.0": "cu130",
+                "11.8": "cuda-11.8",
+                "12.8": "cuda-12.8",
+                "13.0": "cuda-13.0",
             }
 
             cap_hint = f"compute_cap={compute_cap}" if compute_cap is not None else "compute_cap=unknown"

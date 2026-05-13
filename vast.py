@@ -8417,17 +8417,19 @@ def self_test__machine(args):
             """
             Maps a CUDA version to a Docker image tag, falling back to the next lower version until failure.
 
-            If compute_cap is below 750 (sm_75 / Turing), the cu118 image is
-            forced regardless of CUDA version: cu128/cu130 PyTorch wheels
-            don't ship sm_50/sm_60/sm_70 kernels.
+            If compute_cap is below 700 (sm_70 / Volta), the cu118 image is
+            forced regardless of CUDA version. cu128 (torch 2.10) still ships
+            sm_70 kernels so Volta hosts land on cu128 via the version map;
+            cu130 (torch 2.11) and cu128 do not ship sm_50/sm_60 kernels, so
+            Maxwell and Pascal must use cu118.
             """
             docker_repo = "vastai/test"
             # Convert float input to string
             if isinstance(cuda_version, float):
                 cuda_version = str(cuda_version)
 
-            # Force the cu118 legacy image on pre-Turing hardware.
-            if compute_cap is not None and compute_cap < 750:
+            # Force the cu118 legacy image on pre-Volta hardware (sm_50/sm_60).
+            if compute_cap is not None and compute_cap < 700:
                 return f"{docker_repo}:self-test-cu118"
 
             # Predefined mapping. Tracks PyTorch releases and the docker

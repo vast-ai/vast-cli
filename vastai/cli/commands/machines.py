@@ -665,10 +665,11 @@ def self_test__machine(args):
             if isinstance(cuda_version, float):
                 cuda_version = str(cuda_version)
 
-            # cu128 and cu130 PyTorch wheels don't ship sm_50/sm_60/sm_70
-            # kernels. Anything below Turing (sm_75 == compute_cap 750)
-            # must use the cu118 legacy image regardless of driver CUDA.
-            if compute_cap is not None and compute_cap < 750:
+            # cu128 (torch 2.10) still ships sm_70 (Volta); cu130 (torch 2.11)
+            # never did. Neither builds sm_50/sm_60 kernels. Anything pre-Volta
+            # (compute_cap < 700) must use the cu118 legacy image; Volta itself
+            # lands on cu128 via the version mapping below.
+            if compute_cap is not None and compute_cap < 700:
                 return f"{docker_repo}:self-test-cu118"
 
             docker_tag_map = {

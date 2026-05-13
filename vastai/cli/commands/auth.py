@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from vastai.cli.parser import argument
 from vastai.cli.display import deindent, display_table
 from vastai.api import auth as auth_api
-from vastai.cli.util import SUCCESS, WARN, FAIL
+from vastai.cli.util import SUCCESS, WARN, FAIL, fmt_key_suffix
 
 
 # ---------------------------------------------------------------------------
@@ -215,15 +215,8 @@ def set__api_key(args):
 
     env_key = os.environ.get("VAST_API_KEY")
     if env_key:
-        env_last4 = f"...{env_key[-4:]}" if len(env_key) >= 4 else "(empty)"
-        print(f"\n{WARN} VAST_API_KEY is set in your environment (ends in {env_last4}) and takes precedence over the saved file.")
-        print("The key you just saved will not be used until you unset VAST_API_KEY:")
-        if os.name == "nt":
-            print("  PowerShell:  Remove-Item Env:VAST_API_KEY")
-            print("  cmd.exe:     set VAST_API_KEY=")
-        else:
-            print("  unset VAST_API_KEY")
-        print("If you set it permanently (shell rc file, or `setx` on Windows), you'll also need to remove it from there.")
+        print(f"\n{WARN} VAST_API_KEY is set in your environment (ends in {fmt_key_suffix(env_key)}) and overrides the key you just saved.")
+        print("Unset VAST_API_KEY to use the saved key.")
 
 
 # ---------------------------------------------------------------------------

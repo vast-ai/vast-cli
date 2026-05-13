@@ -7,6 +7,7 @@ import requests
 from vastai.cli.parser import apwrap, argument, MyWideHelpFormatter, set_completers
 from vastai.cli.util import (
     APIKEY_FILE, TFAKEY_FILE, VERSION, server_url_default, api_key_guard,
+    fmt_key_suffix,
 )
 
 try:
@@ -21,9 +22,6 @@ def _emit_error(args, status_code, message):
     In ``--raw`` mode, prints a JSON error object to stderr so scripts can
     parse it; otherwise prints a human-readable line. Always goes to stderr
     so stdout stays clean for scripting consumers.
-
-    On 401 "Invalid user key" (non-raw mode), also surface which keys are
-    currently configured so the user can spot a stale env var or wrong file.
     """
     if getattr(args, "raw", False):
         payload = {"error": True, "status_code": status_code, "msg": message}
@@ -35,9 +33,9 @@ def _emit_error(args, status_code, message):
     else:
         print(message, file=sys.stderr)
 
-    if status_code == 401 and message == "Invalid user key":
-        def last4(k):
-            return f"...{k[-4:]}" if k and len(k) >= 4 else "(empty)"
+    # Surface which keys are configured so the user can confirm they're
+    # using the key they expect.
+    if status_code == 401:
         env = os.environ.get("VAST_API_KEY")
         file_key = None
         if os.path.exists(APIKEY_FILE):
@@ -49,10 +47,10 @@ def _emit_error(args, status_code, message):
         if not env and not file_key:
             return
         if env:
-            print(f"  $VAST_API_KEY is set (ends in {last4(env)}); env beats file.", file=sys.stderr)
+            print(f"  $VAST_API_KEY is set (ends in {fmt_key_suffix(env)}); env beats file.", file=sys.stderr)
         if file_key:
-            print(f"  {APIKEY_FILE} contains a key (ends in {last4(file_key)}).", file=sys.stderr)
-        print("  Compare the suffix to the key you meant to use; unset or replace whichever is stale.", file=sys.stderr)
+            print(f"  {APIKEY_FILE} contains a key (ends in {fmt_key_suffix(file_key)}).", file=sys.stderr)
+        print("  Compare with the key you expected to use.", file=sys.stderr)
 
 
 # Create the global parser instance

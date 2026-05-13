@@ -8430,7 +8430,7 @@ def self_test__machine(args):
             The returned reason is a short human-readable string so callers
             can log why a particular image was chosen.
             """
-            docker_repo = "robatvastai/test"
+            docker_repo = "vastai/test"
             # Convert float input to string
             if isinstance(cuda_version, float):
                 cuda_version = str(cuda_version)

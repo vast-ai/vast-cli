@@ -223,6 +223,7 @@ def set__api_key(args):
             print("  cmd.exe:     set VAST_API_KEY=")
         else:
             print("  unset VAST_API_KEY")
+        print("If you set it permanently (shell rc file, or `setx` on Windows), you'll also need to remove it from there.")
 
 
 # ---------------------------------------------------------------------------

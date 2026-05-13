@@ -213,6 +213,17 @@ def set__api_key(args):
         os.remove(APIKEY_FILE_HOME)
         print("Your api key has been removed from {}".format(APIKEY_FILE_HOME))
 
+    env_key = os.environ.get("VAST_API_KEY")
+    if env_key:
+        env_last4 = f"...{env_key[-4:]}" if len(env_key) >= 4 else "(empty)"
+        print(f"\n{WARN} VAST_API_KEY is set in your environment (ends in {env_last4}) and takes precedence over the saved file.")
+        print("The key you just saved will not be used until you unset VAST_API_KEY:")
+        if os.name == "nt":
+            print("  PowerShell:  Remove-Item Env:VAST_API_KEY")
+            print("  cmd.exe:     set VAST_API_KEY=")
+        else:
+            print("  unset VAST_API_KEY")
+
 
 # ---------------------------------------------------------------------------
 # Note: set__user and show__user are in billing.py.

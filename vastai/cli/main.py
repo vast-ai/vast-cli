@@ -32,6 +32,47 @@ def _emit_error(args, status_code, message):
             print(message, file=sys.stderr)
 
 
+def _gather_key_sources(cli_flag_value):
+    """Return all configured API key sources in precedence order.
+
+    Each entry is ``(source_label, key_value)``. The first entry is the one
+    the CLI will actually use; remaining entries exist for diagnostics so a
+    401 message can tell the user which other keys are configured.
+    """
+    sources = []
+    if cli_flag_value is not api_key_guard:
+        sources.append(("--api-key flag", cli_flag_value))
+    env = os.getenv("VAST_API_KEY")
+    if env:
+        sources.append(("VAST_API_KEY env var", env))
+    if os.path.exists(TFAKEY_FILE):
+        try:
+            with open(TFAKEY_FILE) as f:
+                sources.append((f"TFA session file ({TFAKEY_FILE})", f.read().strip()))
+        except OSError:
+            pass
+    if os.path.exists(APIKEY_FILE):
+        try:
+            with open(APIKEY_FILE) as f:
+                sources.append((f"API key file ({APIKEY_FILE})", f.read().strip()))
+        except OSError:
+            pass
+    return sources
+
+
+def _format_key_diagnostic(used_source, used_key, all_sources):
+    def last4(k):
+        return f"...{k[-4:]}" if k and len(k) >= 4 else "(empty)"
+    lines = [f"  Used key from: {used_source} (ends in {last4(used_key)})"]
+    others = [(s, k) for s, k in all_sources if s != used_source]
+    if others:
+        lines.append("  Also configured:")
+        for s, k in others:
+            lines.append(f"    - {s} (ends in {last4(k)})")
+        lines.append("  Tip: env var beats file. Unset VAST_API_KEY or pass --api-key to use a different key.")
+    return "\n".join(lines)
+
+
 # Create the global parser instance
 parser = apwrap(
     epilog="Use 'vast COMMAND --help' for more info about a command. AI agent? See https://raw.githubusercontent.com/vast-ai/vast-cli/master/vastai/SKILL.md",
@@ -70,7 +111,7 @@ def main():
     parser.add_argument("--raw", action="store_true", help="Output machine-readable json")
     parser.add_argument("--full", action="store_true", help="Print full results instead of paging with `less` for commands that support it")
     parser.add_argument("--curl", action="store_true", help="Show a curl equivalency to the call")
-    parser.add_argument("--api-key", help="API Key to use. defaults to using the one stored in {}".format(APIKEY_FILE), type=str, required=False, default=os.getenv("VAST_API_KEY", api_key_guard))
+    parser.add_argument("--api-key", help="API key to use. If unset, falls back to $VAST_API_KEY, then {}".format(APIKEY_FILE), type=str, required=False, default=api_key_guard)
     parser.add_argument("--version", help="Show CLI version", action="version", version=VERSION)
     parser.add_argument("--no-color", action="store_true", help="Disable colored output for commands that support it")
 
@@ -91,14 +132,16 @@ def main():
 
     args = parser.parse_args()
 
-    # API key resolution
-    if args.api_key is api_key_guard:
-        key_file = TFAKEY_FILE if os.path.exists(TFAKEY_FILE) else APIKEY_FILE
-        if os.path.exists(key_file):
-            with open(key_file, "r") as reader:
-                args.api_key = reader.read().strip()
-        else:
-            args.api_key = None
+    # API key resolution. Precedence (highest first): --api-key flag,
+    # $VAST_API_KEY, TFA session file, API key file. The source label is
+    # kept around so a 401 can tell the user which key was rejected.
+    original_cli_flag = args.api_key
+    key_sources = _gather_key_sources(original_cli_flag)
+    if key_sources:
+        key_source, args.api_key = key_sources[0]
+    else:
+        key_source = None
+        args.api_key = None
 
     # Execute command with error handling
     while True:
@@ -121,19 +164,29 @@ def main():
                 else:
                     errmsg = "(no detail message supplied)"
 
-            # 2FA Session Key Expired
             if e.response.status_code == 401 and errmsg == "Invalid user key":
-                if os.path.exists(TFAKEY_FILE):
+                # TFA session rejected -> assume expiry, retry with long-lived key.
+                if key_source and key_source.startswith("TFA session file"):
                     print(f"Failed with error {e.response.status_code}: Your 2FA session has expired.")
-                    os.remove(TFAKEY_FILE)
+                    try:
+                        os.remove(TFAKEY_FILE)
+                    except OSError:
+                        pass
                     if os.path.exists(APIKEY_FILE):
                         with open(APIKEY_FILE, "r") as reader:
                             args.api_key = reader.read().strip()
-                            print(f"Trying again with your normal API Key from {APIKEY_FILE}...")
-                            continue
+                        key_source = f"API key file ({APIKEY_FILE})"
+                        key_sources = _gather_key_sources(original_cli_flag)
+                        print(f"Trying again with your normal API Key from {APIKEY_FILE}...")
+                        continue
                     else:
                         print("Please log in using the `tfa login` command and try again.")
                         break
+
+                _emit_error(args, e.response.status_code, errmsg)
+                if key_source and not getattr(args, "raw", False):
+                    print(_format_key_diagnostic(key_source, args.api_key, key_sources), file=sys.stderr)
+                break
 
             _emit_error(args, e.response.status_code, errmsg)
             break

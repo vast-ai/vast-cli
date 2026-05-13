@@ -8422,8 +8422,12 @@ def self_test__machine(args):
             sm_70 kernels so Volta hosts land on cu128 via the version map;
             cu130 (torch 2.11) and cu128 do not ship sm_50/sm_60 kernels, so
             Maxwell and Pascal must use cu118.
+
+            Volta hosts whose operator has installed a CUDA 13 driver get the
+            cuda_version clamped down to 12.8 before the version map runs,
+            since cu130 wheels never built sm_70.
             """
-            docker_repo = "vastai/test"
+            docker_repo = "robatvastai/test"
             # Convert float input to string
             if isinstance(cuda_version, float):
                 cuda_version = str(cuda_version)
@@ -8431,6 +8435,13 @@ def self_test__machine(args):
             # Force the cu118 legacy image on pre-Volta hardware (sm_50/sm_60).
             if compute_cap is not None and compute_cap < 700:
                 return f"{docker_repo}:self-test-cu118"
+
+            # Volta sm_70/sm_72: cu128 has sm_70, cu130 doesn't. Cap driver
+            # CUDA at 12.8 so the map below picks cu128 even on a V100 host
+            # with a CUDA 13 driver installed.
+            if compute_cap is not None and compute_cap < 750:
+                if float(cuda_version) > 12.8:
+                    cuda_version = "12.8"
 
             # Predefined mapping. Tracks PyTorch releases and the docker
             # images we currently publish (cu118 / cu128 / cu130).

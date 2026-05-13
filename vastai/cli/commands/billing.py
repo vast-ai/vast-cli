@@ -1,6 +1,7 @@
 """CLI commands for billing, invoices, earnings, and user account management."""
 
 import json
+import sys
 import time
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -59,37 +60,11 @@ def _select(X, k):
     return Y
 
 
-def convert_dates_to_timestamps(args):
-    """Convert start_date/end_date from args into UNIX timestamps."""
-    end_timestamp = time.time()
-    start_timestamp = time.time() - (24 * 60 * 60)
-
-    import dateutil
-    from dateutil import parser as dateutil_parser
-
-    if args.end_date:
-        try:
-            end_date = dateutil_parser.parse(str(args.end_date))
-            end_timestamp = time.mktime(end_date.timetuple())
-        except ValueError as e:
-            print(f"Warning: Invalid end date format! Ignoring end date! \n {str(e)}")
-
-    if args.start_date:
-        try:
-            start_date = dateutil_parser.parse(str(args.start_date))
-            start_timestamp = time.mktime(start_date.timetuple())
-        except ValueError as e:
-            print(f"Warning: Invalid start date format! Ignoring start date! \n {str(e)}")
-
-    return start_timestamp, end_timestamp
-
-
 def filter_invoice_items(args, rows):
     """Filter invoice items by date range and charge/credit type."""
     from datetime import date
 
     try:
-        import dateutil
         from dateutil import parser as dateutil_parser
     except ImportError:
         print("\nWARNING: Missing dateutil, can't parse time format")
@@ -103,14 +78,18 @@ def filter_invoice_items(args, rows):
         try:
             end_date = dateutil_parser.parse(str(args.end_date))
             end_date_txt = end_date.isoformat()
-            end_timestamp = time.mktime(end_date.timetuple())
+            if end_date.tzinfo is None:
+                end_date = end_date.replace(tzinfo=timezone.utc)
+            end_timestamp = end_date.timestamp()
         except ValueError:
             print("Warning: Invalid end date format! Ignoring end date!")
     if args.start_date:
         try:
             start_date = dateutil_parser.parse(str(args.start_date))
             start_date_txt = start_date.isoformat()
-            start_timestamp = time.mktime(start_date.timetuple())
+            if start_date.tzinfo is None:
+                start_date = start_date.replace(tzinfo=timezone.utc)
+            start_timestamp = start_date.timestamp()
         except ValueError:
             print("Warning: Invalid start date format! Ignoring start date!")
 
@@ -314,13 +293,15 @@ def create_rich_table_for_invoices(results):
     argument("-p", "--only_credits", action="store_true", help="Show only credit items"),
     argument("--instance_label", help="Filter charges on a particular instance label (useful for autoscaler groups)"),
     usage="(DEPRECATED) vastai show invoices [OPTIONS]",
-    help="(DEPRECATED) Get billing history reports",
+    help="(DEPRECATED) Get billing history reports. Use `vastai show invoices-v1` instead.",
 )
 def show__invoices(args):
     """Show current payments and charges (deprecated)."""
+    if not args.quiet:
+        print("DEPRECATED: `vastai show invoices` will be removed in a future release. "
+              "Use `vastai show invoices-v1` for the new paginated command.", file=sys.stderr)
     client = get_client(args)
 
-    sdate, edate = convert_dates_to_timestamps(args)
     result = billing_api.show_invoices(client, start_date=args.start_date, end_date=args.end_date,
                                        only_charges=args.only_charges, only_credits=args.only_credits)
     rows = result["invoices"]
@@ -330,7 +311,6 @@ def show__invoices(args):
     rows = invoice_filter_data["rows"]
     filter_header = invoice_filter_data["header_text"]
 
-    contract_ids = None
     if args.instance_label:
         contract_ids = _select(rows, 'instance_id')
         req_json = {
@@ -344,12 +324,7 @@ def show__invoices(args):
         result2.raise_for_status()
         filtered_rows = result2.json()["contracts"]
         contract_ids = _select(filtered_rows, 'id')
-        rows2 = []
-        for row in rows:
-            id = row.get("instance_id", None)
-            if id in contract_ids:
-                rows2.append(row)
-        rows = rows2
+        rows = [row for row in rows if row.get("instance_id") in contract_ids]
 
     if args.quiet:
         for row in rows:
@@ -434,7 +409,7 @@ def show__invoices_v1(args):
         print("Use format YYYY-MM-DD or UNIX timestamp")
         return
 
-    if has_rich and not args.no_color:
+    if has_rich and not args.no_color and not args.raw:
         print("(use --no-color to disable colored output)\n")
 
     start_date = convert_timestamp_to_date(start_timestamp)
@@ -456,6 +431,12 @@ def show__invoices_v1(args):
     }
 
     client = get_client(args)
+
+    if args.raw:
+        # Single-page raw response; dispatcher JSON-prints. Callers paginate
+        # by re-running with --next-token.
+        return billing_api.show_invoices_v1(client, params)
+
     found_results, found_count = [], 0
     looping = True
     while looping:
@@ -466,7 +447,7 @@ def show__invoices_v1(args):
         total = response.get('total', 0)
         next_token = response.get('next_token')
 
-        if args.raw or has_rich is False:
+        if has_rich is False:
             output_lines.append("Raw response:\n" + json.dumps(response, indent=2))
             if next_token:
                 print(f"Next page token: {next_token}\n")
@@ -684,32 +665,48 @@ def show__ipaddrs(args):
 # ---------------------------------------------------------------------------
 
 @parser.command(
-    argument("recipient", help="email (or id) of recipient account", type=str),
-    argument("amount",    help="$dollars of credit to transfer ", type=float),
+    argument("recipient_pos", nargs="?", default=None, metavar="RECIPIENT",
+             help="email (or id) of recipient account (positional; use --recipient to name)"),
+    argument("amount_pos",    nargs="?", default=None, type=float, metavar="AMOUNT",
+             help="dollars of credit to transfer (positional; use --amount to name)"),
+    argument("-r", "--recipient", help="email (or id) of recipient account", type=str, default=None),
+    argument("-a", "--amount",    help="dollars of credit to transfer", type=float, default=None),
     argument("--skip", help="skip confirmation", action="store_true", default=False),
-    usage="vastai transfer credit RECIPIENT AMOUNT",
+    usage="vastai transfer credit [--recipient EMAIL] [--amount DOLLARS] [RECIPIENT AMOUNT]",
     help="Transfer credits to another account",
     epilog=deindent("""
-        Transfer (amount) credits to account with email (recipient).
+        Transfer credits to another account. This action is irreversible.
+
+        Supports both named flags (recommended) and legacy positional arguments:
+          vastai transfer credit --recipient user@example.com --amount 25.50
+          vastai transfer credit -r user@example.com -a 25.50
+          vastai transfer credit user@example.com 25.50
     """),
 )
 def transfer__credit(args):
     """Transfer credits to another account."""
+    recipient = args.recipient if args.recipient is not None else args.recipient_pos
+    amount = args.amount if args.amount is not None else args.amount_pos
+
+    if recipient is None or amount is None:
+        print("Error: both recipient and amount are required (as flags or positional args).")
+        return
+
     if not args.skip:
-        print(f"Transfer ${args.amount} credit to account {args.recipient}?  This is irreversible.")
+        print(f"Transfer ${amount} credit to account {recipient}?  This is irreversible.")
         ok = input("Continue? [y/n] ")
         if ok.strip().lower() != "y":
             return
 
     if args.explain:
         print("request json: ")
-        print({"sender": "me", "recipient": args.recipient, "amount": args.amount})
+        print({"sender": "me", "recipient": recipient, "amount": amount})
 
     client = get_client(args)
     try:
-        rj = teams_api.transfer_credit(client, recipient=args.recipient, amount=args.amount)
+        rj = teams_api.transfer_credit(client, recipient=recipient, amount=amount)
         if rj["success"]:
-            print(f"Sent {args.amount} to {args.recipient}")
+            print(f"Sent {amount} to {recipient}")
         else:
             print(rj["msg"])
     except Exception as e:

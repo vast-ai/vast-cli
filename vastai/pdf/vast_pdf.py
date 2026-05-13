@@ -271,10 +271,10 @@ def product_row(charge_fields) -> Charge:
     last4 = charge_fields["last4"] if "last4" in charge_fields and charge_fields["last4"] is not None else " "
 
     def credit_or_auto_billing():
+        formatted = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')
         if is_credit:
-            return "Add Credit: *" + last4 + " : " + datetime.datetime.fromtimestamp(timestamp).strftime(
-                '%Y-%m-%d %H:%M')
-        return "Auto-Billing: *" + last4 + " : " + datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M')
+            return "Add Credit: *" + last4 + " : " + formatted
+        return "Auto-Billing: *" + last4 + " : " + formatted
 
     description = charge_fields[
         "description"] if "description" in charge_fields else credit_or_auto_billing()  # "Add Credit: *" + last4 + ":" + str(timestamp)

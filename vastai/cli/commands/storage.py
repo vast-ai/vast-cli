@@ -1,6 +1,7 @@
 """CLI commands for managing volumes, storage, copies, and cloud sync."""
 
 import json
+import os
 import time
 import subprocess
 
@@ -84,20 +85,30 @@ def copy(args):
     rj = storage_api.copy(client, src_id=src_id, dst_id=dst_id, src_path=src_path, dst_path=dst_path)
 
     if (rj.get("success")) and ((src_id is None or src_id == "local") or (dst_id is None or dst_id == "local")):
-        identity = f"-i {args.identity}" if (args.identity is not None) else ""
+        ssh_args = ["ssh"]
+        if args.identity is not None:
+            ssh_args.extend(["-i", args.identity])
         if (src_id is None or src_id == "local"):
             remote_port = rj["dst_port"]
             remote_addr = rj["dst_addr"]
-            cmd = f"rsync -arz -v --progress --rsh=ssh -e 'ssh {identity} -p {remote_port} -o StrictHostKeyChecking=no' {src_path} vastai_kaalia@{remote_addr}::{dst_id}/{dst_path}"
-            print(cmd)
-            subprocess.run(cmd, shell=True)
+            ssh_cmd = " ".join(ssh_args + ["-p", str(remote_port), "-o", "StrictHostKeyChecking=no"])
+            cmd = [
+                "rsync", "-arz", "-v", "--progress", "--rsh=ssh", "-e", ssh_cmd,
+                src_path, f"vastai_kaalia@{remote_addr}::{dst_id}/{dst_path}",
+            ]
+            print(" ".join(cmd))
+            subprocess.run(cmd)
         elif (dst_id is None or dst_id == "local"):
-            subprocess.run(f"mkdir -p {dst_path}", shell=True)
+            os.makedirs(dst_path, exist_ok=True)
             remote_port = rj["src_port"]
             remote_addr = rj["src_addr"]
-            cmd = f"rsync -arz -v --progress --rsh=ssh -e 'ssh {identity} -p {remote_port} -o StrictHostKeyChecking=no' vastai_kaalia@{remote_addr}::{src_id}/{src_path} {dst_path}"
-            print(cmd)
-            subprocess.run(cmd, shell=True)
+            ssh_cmd = " ".join(ssh_args + ["-p", str(remote_port), "-o", "StrictHostKeyChecking=no"])
+            cmd = [
+                "rsync", "-arz", "-v", "--progress", "--rsh=ssh", "-e", ssh_cmd,
+                f"vastai_kaalia@{remote_addr}::{src_id}/{src_path}", dst_path,
+            ]
+            print(" ".join(cmd))
+            subprocess.run(cmd)
     else:
         if rj.get("success"):
             print("Remote to Remote copy initiated - check instance status bar for progress updates (~30 seconds delayed).")

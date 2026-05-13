@@ -3,7 +3,7 @@
 import re
 import shutil
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Tuple
 
 
@@ -245,8 +245,8 @@ machine_fields = (
 # These fields are displayed when you do 'show maints'
 maintenance_fields = (
     ("machine_id", "Machine ID", "{}", None, True),
-    ("start_time", "Start (Date/Time)", "{}", lambda x: datetime.fromtimestamp(x).strftime('%Y-%m-%d/%H:%M'), True),
-    ("end_time", "End (Date/Time)", "{}", lambda x: datetime.fromtimestamp(x).strftime('%Y-%m-%d/%H:%M'), True),
+    ("start_time", "Start (Date/Time in UTC)", "{}", lambda x: datetime.fromtimestamp(x, tz=timezone.utc).strftime('%Y-%m-%d/%H:%M'), True),
+    ("end_time", "End (Date/Time in UTC)", "{}", lambda x: datetime.fromtimestamp(x, tz=timezone.utc).strftime('%Y-%m-%d/%H:%M'), True),
     ("duration_hours", "Duration (Hrs)", "{}", None, True),
     ("maintenance_category", "Category", "{}", None, True),
 )
@@ -271,8 +271,8 @@ scheduled_jobs_fields = (
     ("id", "Scheduled Job ID", "{}", None, True),
     ("instance_id", "Instance ID", "{}", None, True),
     ("api_endpoint", "API Endpoint", "{}", None, True),
-    ("start_time", "Start (Date/Time in UTC)", "{}", lambda x: datetime.fromtimestamp(x).strftime('%Y-%m-%d/%H:%M'), True),
-    ("end_time", "End (Date/Time in UTC)", "{}", lambda x: datetime.fromtimestamp(x).strftime('%Y-%m-%d/%H:%M'), True),
+    ("start_time", "Start (Date/Time in UTC)", "{}", lambda x: datetime.fromtimestamp(x, tz=timezone.utc).strftime('%Y-%m-%d/%H:%M'), True),
+    ("end_time", "End (Date/Time in UTC)", "{}", lambda x: datetime.fromtimestamp(x, tz=timezone.utc).strftime('%Y-%m-%d/%H:%M'), True),
     ("day_of_the_week", "Day of the Week", "{}", None, True),
     ("hour_of_the_day", "Hour of the Day in UTC", "{}", None, True),
     ("min_of_the_hour", "Minute of the Hour", "{}", None, True),

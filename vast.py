@@ -223,9 +223,11 @@ try:
 
 except:
   # Reasonable defaults.
+  from pathlib import Path
+  _home = str(Path.home())
   DIRS = {
-      'config': os.path.join(os.getenv('HOME'), '.config'),
-      'temp': os.path.join(os.getenv('HOME'), '.cache'),
+      'config': os.path.join(_home, '.config'),
+      'temp': os.path.join(_home, '.cache'),
   }
 
 for key in DIRS.keys():
@@ -550,7 +552,7 @@ class MyWideHelpFormatter(argparse.RawTextHelpFormatter):
 
 
 parser = apwrap(
-    epilog="Use 'vast COMMAND --help' for more info about a command",
+    epilog="Use 'vast COMMAND --help' for more info about a command. AI agent? See https://raw.githubusercontent.com/vast-ai/vast-cli/master/vastai/SKILL.md",
     formatter_class=MyWideHelpFormatter
 )
 
@@ -3488,7 +3490,6 @@ def _parse_region(region):
     argument("--extra", help=argparse.SUPPRESS),
     argument("--env",   help="env variables and port mapping options, surround with '' ", type=str),
     argument("--args",  nargs=argparse.REMAINDER, help="list of arguments passed to container ENTRYPOINT. Onstart is recommended for this purpose. (must be last argument)"),
-    argument("--force", help="Skip sanity checks when creating from an existing instance", action="store_true"),
     argument("--cancel-unavail", help="Return error if scheduling fails (rather than creating a stopped instance)", action="store_true"),
     argument("--template_hash",   help="template hash which contains all relevant information about an instance. This can be used as a replacement for other parameters describing the instance configuration", type=str),
     usage="vastai launch instance [--help] [--api-key API_KEY] <gpu_name> <num_gpus> <image> [geolocation] [disk_space]",
@@ -3577,15 +3578,10 @@ def launch__instance(args):
         args.onstart_cmd = args.entrypoint
 
     json_blob = {
-        "client_id": "me", 
-        "gpu_name": args.gpu_name, 
-        "num_gpus": args.num_gpus, 
-        "region": args.region, 
-        "image": args.image, 
-        "disk": args.disk,  
+        "image": args.image,
+        "disk": args.disk,
         "q" : query,
         "env" : parse_env(args.env),
-        "disk": args.disk,
         "label": args.label,
         "extra": args.extra,
         "onstart": args.onstart_cmd,
@@ -3594,7 +3590,6 @@ def launch__instance(args):
         "lang_utf8": args.lang_utf8,
         "use_jupyter_lab": args.jupyter_lab,
         "jupyter_dir": args.jupyter_dir,
-        "force": args.force,
         "cancel_unavail": args.cancel_unavail,
         "template_hash_id" : args.template_hash
     }
@@ -6476,7 +6471,7 @@ def show__user(args):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, "/users/current", {"owner": "me"});
+    req_url = apiurl(args, "/users/current");
     r = http_get(args, req_url);
     r.raise_for_status()
     user_blob = r.json()
@@ -9680,7 +9675,16 @@ def main():
                     errmsg = "(no detail message supplied)"
 
             # 2FA Session Key Expired
-            if e.response.status_code == 401 and errmsg == "Invalid user key":
+            # 401 "Invalid user key" is sent when a deleted API key is used
+            # expired TFA sessions return 404 "Session expired. Please log in again."
+            session_expired = (
+                (e.response.status_code == 401 and errmsg == "Invalid user key")
+                or (
+                    e.response.status_code == 404
+                    and errmsg == "Session expired. Please log in again."
+                )
+            )
+            if session_expired:
                 if os.path.exists(TFAKEY_FILE):
                     print(f"Failed with error {e.response.status_code}: Your 2FA session has expired.")
                     os.remove(TFAKEY_FILE)

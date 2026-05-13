@@ -1,0 +1,49 @@
+name: OS smoke test
+
+on:
+  push:
+    branches: [fix-windows-home-env]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install package
+        env:
+          POETRY_DYNAMIC_VERSIONING_BYPASS: "0.0.0"
+        run: pip install -e .
+
+      - name: Smoke test — CLI loads and --help runs
+        run: python vast.py --help
+
+      - name: Fallback test — simulate xdg ImportError, verify Path.home() resolves
+        shell: python
+        run: |
+          import os, sys
+          sys.modules['xdg'] = None  # forces ImportError on `import xdg`
+          # replicate the DIRS-setup block
+          try:
+              import xdg
+              DIRS = {'config': xdg.xdg_config_home(), 'temp': xdg.xdg_cache_home()}
+              raise SystemExit('unexpected: xdg import succeeded')
+          except Exception:
+              from pathlib import Path
+              _home = str(Path.home())
+              DIRS = {
+                  'config': os.path.join(_home, '.config'),
+                  'temp': os.path.join(_home, '.cache'),
+              }
+          print('fallback DIRS:', DIRS)
+          assert _home, 'Path.home() returned empty'
+          assert os.path.isabs(_home), f'home not absolute: {_home}'

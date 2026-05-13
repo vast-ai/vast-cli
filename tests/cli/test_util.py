@@ -178,3 +178,51 @@ class TestParseHourCronStyle:
     def test_boundary_23(self):
         from vastai.cli.util import parse_hour_cron_style
         assert parse_hour_cron_style("23") == 23
+
+
+class TestConvertDatesToTimestamps:
+    def _args(self, start=None, end=None):
+        return argparse.Namespace(start_date=start, end_date=end)
+
+    def test_date_only_input_is_utc_midnight(self):
+        from vastai.cli.util import convert_dates_to_timestamps
+        start, end = convert_dates_to_timestamps(self._args(start="2024-01-15", end="2024-01-16"))
+        # 2024-01-15 00:00 UTC and 2024-01-16 00:00 UTC
+        assert start == 1705276800.0
+        assert end == 1705363200.0
+
+    def test_date_only_input_unaffected_by_local_tz(self, monkeypatch):
+        import time as _time
+        if not hasattr(_time, "tzset"):
+            pytest.skip("tzset unavailable on this platform")
+        monkeypatch.setenv("TZ", "America/Los_Angeles")
+        _time.tzset()
+        try:
+            from vastai.cli.util import convert_dates_to_timestamps
+            start, end = convert_dates_to_timestamps(self._args(start="2024-01-15", end="2024-01-16"))
+            assert start == 1705276800.0
+            assert end == 1705363200.0
+        finally:
+            _time.tzset()
+
+    def test_aware_input_keeps_its_offset(self):
+        from vastai.cli.util import convert_dates_to_timestamps
+        # 2024-01-15 00:00 -05:00 = 2024-01-15 05:00 UTC
+        start, _ = convert_dates_to_timestamps(self._args(start="2024-01-15T00:00:00-05:00"))
+        assert start == 1705276800.0 + 5 * 3600
+
+
+class TestScheduledJobsDisplayUtc:
+    def test_start_time_formats_in_utc(self, monkeypatch):
+        import time as _time
+        if not hasattr(_time, "tzset"):
+            pytest.skip("tzset unavailable on this platform")
+        monkeypatch.setenv("TZ", "America/Los_Angeles")
+        _time.tzset()
+        try:
+            from vastai.cli.display import scheduled_jobs_fields
+            formatter = dict((f[0], f[3]) for f in scheduled_jobs_fields)["start_time"]
+            # 1705276800 = 2024-01-15 00:00 UTC
+            assert formatter(1705276800) == "2024-01-15/00:00"
+        finally:
+            _time.tzset()

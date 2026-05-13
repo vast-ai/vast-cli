@@ -51,6 +51,9 @@ parser = _get_parser()
 )
 def show__instances(args, extra_filters=None):
     """Show the user's current instances."""
+    if not (extra_filters and extra_filters.get('internal')) and not args.quiet:
+        print("DEPRECATED: `vastai show instances` will be removed in a future release. "
+              "Use `vastai show instances-v1` for the new paginated command.", file=sys.stderr)
     client = get_client(args)
     rows = instances_api.show_instances(client)
 
@@ -68,6 +71,10 @@ def show__instances(args, extra_filters=None):
     else:
         display_table(rows, instance_fields)
 
+
+# ---------------------------------------------------------------------------
+# show instance (single)
+# ---------------------------------------------------------------------------
 
 @parser.command(
     argument("id", help="id of instance to get", type=int),
@@ -288,7 +295,9 @@ _create_instance_args = [
 )
 def create__instance(args):
     """Create an instance from an offer ID."""
-    create_instance_impl(args.id, args)
+    rj = create_instance_impl(args.id, args)
+    if args.raw:
+        return rj
 
 
 @parser.command(
@@ -633,6 +642,93 @@ def change__bid(args):
 
 
 # ---------------------------------------------------------------------------
+# accept price-increase (CLN-3107)
+# ---------------------------------------------------------------------------
+
+# Backend pairs with web/views/instance.py (CLN-3107-f3):
+#   - PUT /api/v0/instances/{id}/accept-price-increase/   — single
+#   - PUT /api/v0/instances/accept-price-increase/        — batch (instance_ids | host_id)
+# The server caps batches at 64 IDs and rejects payloads that set both selectors
+# (instance_ids + host_id) or neither. We mirror those checks client-side so users
+# get an early, clear error instead of a 400 round-trip.
+@parser.command(
+    argument("ids", help="instance IDs to accept (one or more). Omit when --host is used.",
+             type=int, nargs='*'),
+    argument("--host", dest="host_id",
+             help="accept every pending price-increase from this host (mutually exclusive with IDs)",
+             type=int),
+    usage="vastai accept price-increase ID [ID ...] | --host HOST_ID",
+    help="Accept a pending host price increase on one or more instances",
+    epilog=deindent("""
+        When a host raises the rental price, the auto-extend mechanism stops
+        renewing your affected contracts and an email notification is sent.
+        This command accepts the new price and lets the affected instances
+        keep auto-extending at the updated rate.
+
+        Batch accepts are capped at 64 instance IDs per call (server-side limit).
+
+        Examples:
+            vastai accept price-increase 123
+            vastai accept price-increase 123 456 789
+            vastai accept price-increase --host 12345
+    """),
+)
+def accept__price_increase(args):
+    """Accept one or more pending price-increase challenges."""
+    ids = list(getattr(args, "ids", None) or [])
+    host_id = getattr(args, "host_id", None)
+
+    # Match backend validation: exactly one selector (ids XOR host).
+    if bool(ids) == (host_id is not None):
+        msg = ("Provide either instance IDs or --host, not both."
+               if ids else
+               "Provide either one or more instance IDs or --host.")
+        print(msg, file=sys.stderr)
+        sys.exit(1)
+
+    if len(ids) > 64:
+        print(f"Too many instance IDs: {len(ids)} > 64 (server limit).", file=sys.stderr)
+        sys.exit(1)
+
+    if args.explain:
+        if len(ids) == 1:
+            print(f"PUT /instances/{ids[0]}/accept-price-increase/")
+            print("request json: {}")
+        else:
+            payload = {}
+            if ids:
+                payload["instance_ids"] = ids
+            if host_id is not None:
+                payload["host_id"] = host_id
+            print("PUT /instances/accept-price-increase/")
+            print(f"request json: {payload}")
+
+    client = get_client(args)
+
+    if len(ids) == 1:
+        rj = instances_api.accept_price_increase(client, id=ids[0])
+    else:
+        rj = instances_api.accept_price_increase(
+            client,
+            instance_ids=ids if ids else None,
+            host_id=host_id,
+        )
+
+    if args.raw:
+        return rj
+
+    if rj.get("success"):
+        accepted = rj.get("accepted_contract_ids") or []
+        if accepted:
+            ids_str = ", ".join(str(cid) for cid in accepted)
+            print(f"Accepted price increase for {len(accepted)} instance(s): {ids_str}")
+        else:
+            print("No pending price increases matched your request.")
+    else:
+        print(rj.get("msg", rj))
+
+
+# ---------------------------------------------------------------------------
 # launch instance
 # ---------------------------------------------------------------------------
 
@@ -659,7 +755,6 @@ def change__bid(args):
     argument("--extra", help=argparse.SUPPRESS),
     argument("--env", help="env variables and port mapping options, surround with '' ", type=str),
     argument("--args", nargs=argparse.REMAINDER, help="list of arguments passed to container ENTRYPOINT. Onstart is recommended for this purpose. (must be last argument)"),
-    argument("--force", help="Skip sanity checks when creating from an existing instance", action="store_true"),
     argument("--cancel-unavail", help="Return error if scheduling fails (rather than creating a stopped instance)", action="store_true"),
     argument("--template_hash", help="template hash which contains all relevant information about an instance. This can be used as a replacement for other parameters describing the instance configuration", type=str),
     usage="vastai launch instance [--help] [--api-key API_KEY] <gpu_name> <num_gpus> <image> [geolocation] [disk_space]",
@@ -729,7 +824,6 @@ def launch__instance(args):
             lang_utf8=args.lang_utf8,
             jupyter_lab=args.jupyter_lab,
             jupyter_dir=args.jupyter_dir,
-            force=args.force,
             cancel_unavail=args.cancel_unavail,
             template_hash=args.template_hash,
             runtype=runtype,
@@ -1174,8 +1268,7 @@ def show__instances_v1(args):
         page       += 1
 
         if args.raw:
-            print(json.dumps(data, indent=1))
-            return
+            return data
 
         if args.quiet:
             for inst in instances:

@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import os
+import warnings
 from typing import Dict, List, Optional
 
+from vastai._base import _resolve_api_key, _APIKEY_SENTINEL
 from vastai.api.client import VastClient
 from vastai.api import instances, offers, machines, teams, keys, endpoints, billing, storage, clusters, auth, deployments
-
-
-# Default API key file location (matches legacy CLI behavior)
-APIKEY_FILE = os.path.join(os.path.expanduser("~"), ".vast_api_key")
 
 
 class VastAI:
@@ -22,8 +19,10 @@ class VastAI:
     caller-supplied arguments.
 
     Args:
-        api_key: Vast.ai API key.  When *None*, the key is read from
-            ``~/.vast_api_key`` if the file exists.
+        api_key: Vast.ai API key.  When omitted, the key is resolved from
+            ``VAST_API_KEY``, then ``$XDG_CONFIG_HOME/vastai/vast_api_key``
+            (falling back to ``~/.config/vastai/vast_api_key``), then the
+            legacy ``~/.vast_api_key``.
         server_url: Base URL of the Vast.ai API server.
         retry: Number of retries on transient HTTP errors.
         raw: If *True*, return raw JSON dicts instead of formatted output.
@@ -42,11 +41,8 @@ class VastAI:
         quiet: bool = False,
         curl: bool = False,
     ):
-        if api_key is None and os.path.exists(APIKEY_FILE):
-            with open(APIKEY_FILE, "r") as f:
-                api_key = f.read().strip()
-
-        self.client = VastClient(api_key, server_url, retry, explain, curl)
+        resolved_key = _resolve_api_key(_APIKEY_SENTINEL if api_key is None else api_key)
+        self.client = VastClient(resolved_key, server_url, retry, explain, curl)
         self.raw = raw
         self.quiet = quiet
 
@@ -55,7 +51,11 @@ class VastAI:
     # ------------------------------------------------------------------
 
     def show_instances(self) -> list[dict]:
-        """Return all instances for the authenticated user."""
+        """Return all instances for the authenticated user (deprecated; use show_instances_v1)."""
+        warnings.warn(
+            "VastAI.show_instances() is deprecated; use VastAI.show_instances_v1(params) for the paginated v1 API.",
+            DeprecationWarning, stacklevel=2,
+        )
         return instances.show_instances(self.client)
 
     def show_instances_v1(self, params: dict) -> dict:
@@ -105,6 +105,25 @@ class VastAI:
     def change_bid(self, id: int, price: Optional[float] = None) -> dict:
         """Change the bid price for an instance."""
         return instances.change_bid(self.client, id, price=price)
+
+    def accept_price_increase(
+        self,
+        id: Optional[int] = None,
+        instance_ids: Optional[List[int]] = None,
+        host_id: Optional[int] = None,
+    ) -> dict:
+        """Accept a host price increase on one or more rented instances.
+
+        Pass exactly one of ``id`` (single instance), ``instance_ids``
+        (batch of up to 64 IDs), or ``host_id`` (every pending challenge
+        for that host).
+        """
+        return instances.accept_price_increase(
+            self.client,
+            id=id,
+            instance_ids=instance_ids,
+            host_id=host_id,
+        )
 
     def execute(self, id: int, command: str) -> dict:
         """Execute a command on an instance."""
@@ -189,11 +208,20 @@ class VastAI:
         from vastai.api.query import parse_query, offers_fields, offers_alias, offers_mult
         from vastai.utils import preprocess_search_query, postprocess_search_results
 
-        # Expand georegion/chunked directives before parsing
+        # Expand georegion/chunked directives before parsing.
+        # Seed defaults before parsing so `field=any` correctly removes them,
+        # matching CLI behavior. Pass no_default=True to the helper afterward
+        # so it does not reapply the same defaults.
         georegion_active, chunked = False, False
+        defaults_applied = False
         if isinstance(query, str):
             georegion_active, chunked, query = preprocess_search_query(query)
-            query = parse_query(query, {}, offers_fields, offers_alias, offers_mult)
+            base = {} if no_default else {
+                "verified": {"eq": True}, "external": {"eq": False},
+                "rentable": {"eq": True},
+            }
+            query = parse_query(query, base, offers_fields, offers_alias, offers_mult)
+            defaults_applied = True
 
         # Parse order string into list
         order_list = None
@@ -219,7 +247,8 @@ class VastAI:
 
         results = offers.search_offers(
             self.client, query=query, offer_type=type, order=order_list,
-            limit=limit, storage=storage, no_default=no_default, **kwargs,
+            limit=limit, storage=storage,
+            no_default=(no_default or defaults_applied), **kwargs,
         )
 
         if isinstance(results, list):
@@ -271,9 +300,15 @@ class VastAI:
         from vastai.utils import preprocess_search_query, postprocess_search_results
 
         georegion_active, chunked = False, False
+        defaults_applied = False
         if isinstance(query, str):
             georegion_active, chunked, query = preprocess_search_query(query)
-            query = parse_query(query, {}, offers_fields, offers_alias, offers_mult)
+            base = {} if no_default else {
+                "verified": {"eq": True}, "external": {"eq": False},
+                "rentable": {"eq": True},
+            }
+            query = parse_query(query, base, offers_fields, offers_alias, offers_mult)
+            defaults_applied = True
 
         order_list = None
         if isinstance(order, str):
@@ -298,7 +333,8 @@ class VastAI:
 
         results = offers.search_offers_new(
             self.client, query=query, offer_type=type, order=order_list,
-            limit=limit, storage=storage, no_default=no_default, **kwargs,
+            limit=limit, storage=storage,
+            no_default=(no_default or defaults_applied), **kwargs,
         )
 
         if isinstance(results, list):
@@ -319,8 +355,20 @@ class VastAI:
         return machines.show_machines(self.client)
 
     def show_machine(self, id: int) -> dict:
-        """Return details of a single machine."""
-        return machines.show_machine(self.client, id)
+        """Return details of a single machine.
+
+        The underlying ``GET /machines/{id}`` endpoint returns a one-element
+        list; this wrapper unwraps it so callers get a single machine dict.
+        Raises ``ValueError`` if the backend returns zero or multiple rows.
+        """
+        result = machines.show_machine(self.client, id)
+        if not isinstance(result, list):
+            return result
+        if not result:
+            raise ValueError(f"Machine {id} not found")
+        if len(result) > 1:
+            raise ValueError(f"Expected 1 machine for id={id}, got {len(result)}")
+        return result[0]
 
     def show_maints(self, ids) -> list[dict]:
         """Show maintenance information for machines."""
@@ -442,8 +490,16 @@ class VastAI:
         return keys.detach_ssh(self.client, instance_id, ssh_key_id)
 
     def show_api_keys(self) -> list[dict]:
-        """Show all API keys."""
-        return keys.show_api_keys(self.client)
+        """Return all API keys associated with the account.
+
+        The underlying ``GET /auth/apikeys/`` endpoint returns an envelope dict
+        ``{"apikeys": [...]}``; this wrapper unwraps it so callers get a plain
+        list of API key dicts.
+        """
+        result = keys.show_api_keys(self.client)
+        if isinstance(result, dict) and "apikeys" in result:
+            return result["apikeys"]
+        return result
 
     def show_api_key(self, id: int) -> dict:
         """Show details of an API key."""
@@ -501,13 +557,28 @@ class VastAI:
         """Fetch logs for a worker group."""
         return endpoints.get_wrkgrp_logs(self.client, id, level=level, tail=tail)
 
+    def get_endpoint_workers(self, id: int):
+        """List workers under a given endpoint, with live status and measured_perf."""
+        return endpoints.get_endpoint_workers(self.client, id)
+
     # ------------------------------------------------------------------
     # Billing methods
     # ------------------------------------------------------------------
 
-    def show_invoices(self, **kwargs) -> list[dict]:
-        """Show invoice details."""
+    def show_invoices(self, **kwargs) -> dict:
+        """Show invoice details (deprecated; use show_invoices_v1).
+
+        Returns dict with 'invoices' list and 'current' charges.
+        """
+        warnings.warn(
+            "VastAI.show_invoices() is deprecated; use VastAI.show_invoices_v1(**params) for the paginated v1 API.",
+            DeprecationWarning, stacklevel=2,
+        )
         return billing.show_invoices(self.client, **kwargs)
+
+    def show_invoices_v1(self, **kwargs) -> dict:
+        """Get billing history reports with advanced filtering and pagination."""
+        return billing.show_invoices_v1(self.client, kwargs)
 
     def show_earnings(self, **kwargs) -> list[dict]:
         """Show earnings information."""
@@ -864,10 +935,6 @@ class VastAI:
     def generate_pdf_invoices(self, **kwargs):
         """Generate PDF invoices based on filters."""
         raise NotImplementedError("generate_pdf_invoices is not yet implemented")
-
-    def show_invoices_v1(self, **kwargs) -> dict:
-        """Get billing history reports with advanced filtering and pagination."""
-        return billing.show_invoices_v1(self.client, kwargs)
 
     def transfer_credit(self, recipient: str, amount: float) -> dict:
         """Transfer credit to another account."""

@@ -3,6 +3,20 @@
 from typing import Any, Optional
 
 
+# Op-to-string symbol mapping. Used by Query.unparse_query() and by
+# vastai/cli/commands/benchmarks.py for human-readable filter rendering.
+OP_TO_STR = {
+    "eq": "=",
+    "neq": "!=",
+    "gt": ">",
+    "gte": ">=",
+    "lt": "<",
+    "lte": "<=",
+    "in": " in ",
+    "notin": " notin ",
+}
+
+
 class Query:
     def __init__(self, query_dict: dict[str, dict[str, Any]]):
         # self.query has format {column : {op : value}}; may have multiple ops per column and multiple columns.
@@ -31,16 +45,6 @@ class Query:
 
         Inverse of vast/web/parse.py:parse_query, i.e. parse_query(query.unparse_query()) == query.query.
         """
-        op_to_str = {
-            "eq": "=",
-            "neq": "!=",
-            "gt": ">",
-            "gte": ">=",
-            "lt": "<",
-            "lte": "<=",
-            "in": " in ",
-            "notin": " notin ",
-        }
         # Fields whose values get multiplied by these factors during parsing
         mult_fields = {
             "cpu_ram": 1000,
@@ -52,7 +56,7 @@ class Query:
         parts = []
         for field, ops in self.query.items():
             for op, value in ops.items():
-                op_str = op_to_str[op]
+                op_str = OP_TO_STR[op]
 
                 # Reverse the multiplier applied during parsing
                 if field in mult_fields:

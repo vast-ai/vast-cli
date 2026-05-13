@@ -1,9 +1,11 @@
 """Tests for VastAI SDK class — covers methods with real logic beyond simple delegation."""
 
+import os
+
 import pytest
 from unittest.mock import patch, MagicMock, mock_open
 
-from vastai.sdk import VastAI, APIKEY_FILE
+from vastai.sdk import VastAI
 
 
 # ---------------------------------------------------------------------------
@@ -31,19 +33,51 @@ class TestInit:
             VastAI(api_key="explicit-key")
             assert MockClient.call_args[0][0] == "explicit-key"
 
-    def test_reads_key_from_file(self, tmp_path):
-        key_file = tmp_path / ".vast_api_key"
-        key_file.write_text("  file-key  \n")
-        with patch("vastai.sdk.APIKEY_FILE", str(key_file)), \
-             patch("vastai.sdk.VastClient") as MockClient:
+    def test_reads_key_from_legacy_file(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.delenv("VAST_API_KEY", raising=False)
+        monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+        (tmp_path / ".vast_api_key").write_text("  legacy-key  \n")
+        with patch("vastai.sdk.VastClient") as MockClient:
             VastAI()
-            assert MockClient.call_args[0][0] == "file-key"
+            assert MockClient.call_args[0][0] == "legacy-key"
 
-    def test_no_key_no_file(self):
-        with patch("vastai.sdk.os.path.exists", return_value=False), \
-             patch("vastai.sdk.VastClient") as MockClient:
+    def test_reads_key_from_xdg_path(self, tmp_path, monkeypatch):
+        """Regression: VastAI() must pick up the key stored by `vastai set api-key`."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.delenv("VAST_API_KEY", raising=False)
+        monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+        xdg_dir = tmp_path / ".config" / "vastai"
+        xdg_dir.mkdir(parents=True)
+        (xdg_dir / "vast_api_key").write_text("xdg-key")
+        with patch("vastai.sdk.VastClient") as MockClient:
             VastAI()
-            assert MockClient.call_args[0][0] is None
+            assert MockClient.call_args[0][0] == "xdg-key"
+
+    def test_reads_key_from_env(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("VAST_API_KEY", "env-key")
+        with patch("vastai.sdk.VastClient") as MockClient:
+            VastAI()
+            assert MockClient.call_args[0][0] == "env-key"
+
+    def test_env_var_takes_precedence_over_files(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("VAST_API_KEY", "env-key")
+        (tmp_path / ".vast_api_key").write_text("legacy-key")
+        xdg_dir = tmp_path / ".config" / "vastai"
+        xdg_dir.mkdir(parents=True)
+        (xdg_dir / "vast_api_key").write_text("xdg-key")
+        with patch("vastai.sdk.VastClient") as MockClient:
+            VastAI()
+            assert MockClient.call_args[0][0] == "env-key"
+
+    def test_no_key_raises(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.delenv("VAST_API_KEY", raising=False)
+        monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+        with pytest.raises(RuntimeError, match="No API key found"):
+            VastAI()
 
     def test_options_passed_through(self):
         with patch("vastai.sdk.VastClient") as MockClient:
@@ -145,6 +179,52 @@ class TestSearchOffers:
             sdk.search_offers(order="score-,")
             order = mock.call_args.kwargs["order"]
             assert len(order) == 1
+
+    def test_string_query_seeds_defaults(self, sdk):
+        """String queries should arrive at the helper with defaults pre-merged
+        and no_default=True so defaults are not applied a second time."""
+        with patch("vastai.api.offers.search_offers", return_value=[]) as mock:
+            sdk.search_offers("num_gpus>=1")
+            q = mock.call_args.kwargs["query"]
+            assert q["verified"] == {"eq": True}
+            assert q["rentable"] == {"eq": True}
+            assert q["external"] == {"eq": False}
+            assert mock.call_args.kwargs["no_default"] is True
+
+    def test_field_any_removes_default(self, sdk):
+        """Regression: explicit `field=any` must clear the default filter
+        (matches CLI behavior). Reported in vast-cli#383."""
+        with patch("vastai.api.offers.search_offers", return_value=[]) as mock:
+            sdk.search_offers("num_gpus>=1 verified=any rentable=any")
+            q = mock.call_args.kwargs["query"]
+            assert "verified" not in q
+            assert "rentable" not in q
+            assert q["external"] == {"eq": False}
+            assert mock.call_args.kwargs["no_default"] is True
+
+    def test_no_default_skips_seeding(self, sdk):
+        """no_default=True should skip default seeding entirely."""
+        with patch("vastai.api.offers.search_offers", return_value=[]) as mock:
+            sdk.search_offers("num_gpus>=1", no_default=True)
+            q = mock.call_args.kwargs["query"]
+            assert "verified" not in q
+            assert "rentable" not in q
+            assert mock.call_args.kwargs["no_default"] is True
+
+    def test_dict_query_lets_helper_apply_defaults(self, sdk):
+        """Dict queries are not pre-seeded; the helper still applies defaults
+        per no_default. Preserves existing behavior for dict callers."""
+        with patch("vastai.api.offers.search_offers", return_value=[]) as mock:
+            sdk.search_offers({"num_gpus": {"gte": 1}})
+            assert mock.call_args.kwargs["no_default"] is False
+
+    def test_field_any_removes_default_search_offers_new(self, sdk):
+        """Same regression coverage for the search_offers_new path."""
+        with patch("vastai.api.offers.search_offers_new", return_value=[]) as mock:
+            sdk.search_offers_new("num_gpus>=1 verified=any")
+            q = mock.call_args.kwargs["query"]
+            assert "verified" not in q
+            assert mock.call_args.kwargs["no_default"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +340,45 @@ class TestCreateSubaccount:
 # ---------------------------------------------------------------------------
 # list_machines — loops over IDs
 # ---------------------------------------------------------------------------
+
+
+class TestShowApiKeysUnwraps:
+    def test_unwraps_envelope(self, sdk):
+        with patch("vastai.api.keys.show_api_keys", return_value={"apikeys": [{"id": 1}, {"id": 2}]}):
+            result = sdk.show_api_keys()
+            assert result == [{"id": 1}, {"id": 2}]
+
+    def test_empty_envelope(self, sdk):
+        with patch("vastai.api.keys.show_api_keys", return_value={"apikeys": []}):
+            assert sdk.show_api_keys() == []
+
+    def test_passes_through_non_envelope(self, sdk):
+        """If the backend ever switches to a bare list, don't choke."""
+        with patch("vastai.api.keys.show_api_keys", return_value=[{"id": 1}]):
+            assert sdk.show_api_keys() == [{"id": 1}]
+
+
+class TestShowMachineUnwraps:
+    def test_unwraps_single_element_list(self, sdk):
+        with patch("vastai.api.machines.show_machine", return_value=[{"id": 42, "gpu_name": "RTX_4090"}]):
+            result = sdk.show_machine(id=42)
+            assert result == {"id": 42, "gpu_name": "RTX_4090"}
+
+    def test_empty_list_raises(self, sdk):
+        with patch("vastai.api.machines.show_machine", return_value=[]):
+            with pytest.raises(ValueError, match="not found"):
+                sdk.show_machine(id=42)
+
+    def test_multiple_rows_raises(self, sdk):
+        with patch("vastai.api.machines.show_machine", return_value=[{"id": 42}, {"id": 43}]):
+            with pytest.raises(ValueError, match="got 2"):
+                sdk.show_machine(id=42)
+
+    def test_passes_through_non_list_response(self, sdk):
+        """Defensive: if the backend ever starts returning a dict directly, don't choke."""
+        with patch("vastai.api.machines.show_machine", return_value={"id": 42, "gpu_name": "RTX_4090"}):
+            result = sdk.show_machine(id=42)
+            assert result == {"id": 42, "gpu_name": "RTX_4090"}
 
 
 class TestListMachines:

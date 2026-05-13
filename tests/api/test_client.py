@@ -2,6 +2,7 @@
 
 import json
 import pytest
+import requests
 from unittest.mock import patch, MagicMock
 from vastai.api.client import VastClient
 
@@ -71,7 +72,7 @@ class TestHttpMethods:
     def test_get_calls_request(self, mock_url, mock_headers, mock_req):
         c = VastClient(api_key=None)
         c.get("/test")
-        mock_req.assert_called_once_with("GET", "https://example.com/api/v0/test", {}, None)
+        mock_req.assert_called_once_with("GET", "https://example.com/api/v0/test", {}, None, timeout=None)
 
     @patch.object(VastClient, "_request")
     @patch.object(VastClient, "_build_headers", return_value={})
@@ -79,7 +80,7 @@ class TestHttpMethods:
     def test_post_calls_request(self, mock_url, mock_headers, mock_req):
         c = VastClient(api_key=None)
         c.post("/test", json_data={"a": 1})
-        mock_req.assert_called_once_with("POST", "https://example.com/api/v0/test", {}, {"a": 1})
+        mock_req.assert_called_once_with("POST", "https://example.com/api/v0/test", {}, {"a": 1}, timeout=None)
 
     @patch.object(VastClient, "_request")
     @patch.object(VastClient, "_build_headers", return_value={})
@@ -87,7 +88,7 @@ class TestHttpMethods:
     def test_put_calls_request(self, mock_url, mock_headers, mock_req):
         c = VastClient(api_key=None)
         c.put("/test", json_data={"b": 2})
-        mock_req.assert_called_once_with("PUT", "https://example.com/api/v0/test", {}, {"b": 2})
+        mock_req.assert_called_once_with("PUT", "https://example.com/api/v0/test", {}, {"b": 2}, timeout=None)
 
     @patch.object(VastClient, "_request")
     @patch.object(VastClient, "_build_headers", return_value={})
@@ -95,7 +96,7 @@ class TestHttpMethods:
     def test_delete_calls_request(self, mock_url, mock_headers, mock_req):
         c = VastClient(api_key=None)
         c.delete("/test")
-        mock_req.assert_called_once_with("DELETE", "https://example.com/api/v0/test", {}, {})
+        mock_req.assert_called_once_with("DELETE", "https://example.com/api/v0/test", {}, {}, timeout=None)
 
     @patch.object(VastClient, "_request")
     @patch.object(VastClient, "_build_headers", return_value={})
@@ -103,7 +104,7 @@ class TestHttpMethods:
     def test_post_defaults_json_to_empty_dict(self, mock_url, mock_headers, mock_req):
         c = VastClient(api_key=None)
         c.post("/test")
-        mock_req.assert_called_once_with("POST", "https://example.com/api/v0/test", {}, {})
+        mock_req.assert_called_once_with("POST", "https://example.com/api/v0/test", {}, {}, timeout=None)
 
 
 class TestRetryLogic:
@@ -164,6 +165,120 @@ class TestRetryLogic:
 
         assert result.status_code == 429
         assert mock_session.send.call_count == 2
+
+    @patch("vastai.api.client.time.sleep")
+    @patch("vastai.api.client.requests.Session")
+    def test_retries_on_503(self, mock_session_cls, mock_sleep):
+        """503 (transient upstream error) should retry the same way 429 does."""
+        mock_session = MagicMock()
+        mock_session_cls.return_value = mock_session
+        mock_session.prepare_request.return_value = MagicMock()
+
+        resp_503 = MagicMock(status_code=503)
+        resp_200 = MagicMock(status_code=200)
+        mock_session.send.side_effect = [resp_503, resp_200]
+
+        c = VastClient(api_key=None, retry=3)
+        result = c._request("GET", "https://example.com", {})
+
+        assert result.status_code == 200
+        assert mock_sleep.call_count == 1
+
+    @patch("vastai.api.client.time.sleep")
+    @patch("vastai.api.client.requests.Session")
+    def test_retries_on_502_and_504(self, mock_session_cls, mock_sleep):
+        mock_session = MagicMock()
+        mock_session_cls.return_value = mock_session
+        mock_session.prepare_request.return_value = MagicMock()
+
+        resp_502 = MagicMock(status_code=502)
+        resp_504 = MagicMock(status_code=504)
+        resp_200 = MagicMock(status_code=200)
+        mock_session.send.side_effect = [resp_502, resp_504, resp_200]
+
+        c = VastClient(api_key=None, retry=3)
+        result = c._request("GET", "https://example.com", {})
+
+        assert result.status_code == 200
+        assert mock_session.send.call_count == 3
+
+    @patch("vastai.api.client.time.sleep")
+    @patch("vastai.api.client.requests.Session")
+    def test_retries_on_connection_error(self, mock_session_cls, mock_sleep):
+        """First attempt raises ConnectionError; second succeeds."""
+        mock_session = MagicMock()
+        mock_session_cls.return_value = mock_session
+        mock_session.prepare_request.return_value = MagicMock()
+
+        resp_200 = MagicMock(status_code=200)
+        mock_session.send.side_effect = [
+            requests.exceptions.ConnectionError("connection reset"),
+            resp_200,
+        ]
+
+        c = VastClient(api_key=None, retry=3)
+        result = c._request("GET", "https://example.com", {})
+
+        assert result.status_code == 200
+        assert mock_session.send.call_count == 2
+        assert mock_sleep.call_count == 1
+
+    @patch("vastai.api.client.time.sleep")
+    @patch("vastai.api.client.requests.Session")
+    def test_timeout_exhausts_retries_raises(self, mock_session_cls, mock_sleep):
+        """All attempts raise Timeout; the exception propagates (doesn't hang or return None)."""
+        mock_session = MagicMock()
+        mock_session_cls.return_value = mock_session
+        mock_session.prepare_request.return_value = MagicMock()
+
+        mock_session.send.side_effect = requests.exceptions.ReadTimeout("read timed out")
+
+        c = VastClient(api_key=None, retry=3)
+        with pytest.raises(requests.exceptions.ReadTimeout):
+            c._request("GET", "https://example.com", {})
+
+        assert mock_session.send.call_count == 3
+
+    @patch("vastai.api.client.requests.Session")
+    def test_non_retryable_exception_propagates_immediately(self, mock_session_cls):
+        """InvalidURL etc. must not be retried — retrying them burns time for no reason."""
+        mock_session = MagicMock()
+        mock_session_cls.return_value = mock_session
+        mock_session.prepare_request.return_value = MagicMock()
+        mock_session.send.side_effect = requests.exceptions.InvalidURL("bad url")
+
+        c = VastClient(api_key=None, retry=3)
+        with pytest.raises(requests.exceptions.InvalidURL):
+            c._request("GET", "https://example.com", {})
+
+        assert mock_session.send.call_count == 1
+
+    @patch("vastai.api.client.requests.Session")
+    def test_timeout_is_passed_to_send(self, mock_session_cls):
+        """The per-request timeout must actually reach session.send()."""
+        mock_session = MagicMock()
+        mock_session_cls.return_value = mock_session
+        mock_session.prepare_request.return_value = MagicMock()
+        mock_session.send.return_value = MagicMock(status_code=200)
+
+        c = VastClient(api_key=None, retry=1, timeout=45)
+        c._request("GET", "https://example.com", {})
+
+        _, kwargs = mock_session.send.call_args
+        assert kwargs.get("timeout") == 45
+
+    @patch("vastai.api.client.requests.Session")
+    def test_per_call_timeout_overrides_default(self, mock_session_cls):
+        mock_session = MagicMock()
+        mock_session_cls.return_value = mock_session
+        mock_session.prepare_request.return_value = MagicMock()
+        mock_session.send.return_value = MagicMock(status_code=200)
+
+        c = VastClient(api_key=None, retry=1, timeout=120)
+        c._request("GET", "https://example.com", {}, timeout=5)
+
+        _, kwargs = mock_session.send.call_args
+        assert kwargs.get("timeout") == 5
 
 
 class TestClientInit:

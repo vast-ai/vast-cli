@@ -302,12 +302,15 @@ class Backend:
         except json.JSONDecodeError:
             return web.json_response(dict(error="invalid JSON"), status=422)
 
+        now = time.time()
         session_request_metrics = RequestMetrics(
             request_idx=auth_data.get("request_idx"),
             reqnum=auth_data.get("reqnum"),
             workload=auth_data.get("cost"),
             status="SessionActive",
             is_session=True,
+            entered_queue_at=now,
+            work_started_at=now,
         )
 
         async with self._sessions_lock:
@@ -443,6 +446,7 @@ class Backend:
             reqnum=auth_data.reqnum,
             workload=workload,
             status="Created",
+            entered_queue_at=time.time(),
         )
 
         event = asyncio.Event()
@@ -475,6 +479,7 @@ class Backend:
                         pass
 
         async def make_request() -> Union[web.Response, web.StreamResponse]:
+            request_metrics.work_started_at = time.time()
             try:
                 if handler.remote_function:
                     # Remote dispatch: return JSON directly, bypassing the

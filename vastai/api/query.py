@@ -6,7 +6,7 @@ This module is shared between the SDK and CLI layers.
 import re
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List
 
 
@@ -40,9 +40,10 @@ def string_to_unix_epoch(date_string):
         # Check if the input is a float or integer representing Unix time
         return float(date_string)
     except ValueError:
-        # If not, parse it as a date string
-        date_object = datetime.strptime(date_string, "%m/%d/%Y")
-        return time.mktime(date_object.timetuple())
+        # Parse MM/DD/YYYY input; interpret as UTC midnight so filtering
+        # windows don't shift with the caller's local timezone.
+        date_object = datetime.strptime(date_string, "%m/%d/%Y").replace(tzinfo=timezone.utc)
+        return date_object.timestamp()
 
 def fix_date_fields(query: Dict[str, Dict], date_fields: List[str]):
     """Takes in a query and date fields to correct and returns query with appropriate epoch dates"""
@@ -301,13 +302,16 @@ def parse_query(query_str: str, res: Dict = None, fields = {}, field_alias = {},
 
     for field, op, _, value, _ in opts:
         value = value.strip(",[]")
-        v = res.setdefault(field, {})
         op = op.strip()
         op_name = op_names.get(op)
 
         if field in field_alias:
-            res.pop(field)
+            old_field = field
             field = field_alias[field]
+            if old_field in res:
+                res[field] = res.pop(old_field)
+
+        v = res.setdefault(field, {})
 
         if (field == "driver_version") and ('.' in value):
             value = numeric_version(value)

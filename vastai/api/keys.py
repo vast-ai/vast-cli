@@ -143,7 +143,9 @@ def show_api_keys(client: VastClient) -> dict:
         client: VastClient instance.
 
     Returns:
-        Response dict with API key info.
+        Envelope dict of the form ``{"apikeys": [...]}`` (what the backend
+        sends). The high-level ``VastAI.show_api_keys`` wrapper unwraps this
+        to a plain list.
     """
     r = client.get("/auth/apikeys/")
     r.raise_for_status()

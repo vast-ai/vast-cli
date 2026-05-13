@@ -1,7 +1,5 @@
 """Endpoint and workergroup API functions for the Vast.ai SDK."""
 
-import requests
-
 
 def show_endpoints(client):
     """Display user's current endpoint groups.
@@ -124,11 +122,12 @@ def delete_endpoint(client, id):
     return r.json()
 
 
-def _get_logs_base_url(client):
-    """Derive the base URL for log endpoints.
+def _get_autoscaler_base_url(client):
+    """Derive the autoscaler base URL (used for logs, worker status, and
+    update_workers; the autoscaler service is separate from the console API).
 
-    If the client is using the default console.vast.ai URL, logs are served
-    from run.vast.ai.  Otherwise the user's custom URL is used.
+    If the client is using the default console.vast.ai URL, the autoscaler
+    is at run.vast.ai. Otherwise the user's custom URL is used.
     """
     from vastai.api.client import server_url_default
     if client.server_url == server_url_default:
@@ -151,7 +150,7 @@ def get_endpt_logs(client, id, level=1, tail=None):
     Returns:
         dict: Log data from the API response.
     """
-    base = _get_logs_base_url(client)
+    base = _get_autoscaler_base_url(client)
     url = base + "/get_endpoint_logs/"
     json_blob = {"id": id, "api_key": client.api_key}
     if tail is not None:
@@ -161,7 +160,7 @@ def get_endpt_logs(client, id, level=1, tail=None):
     if client.api_key is not None:
         headers["Authorization"] = "Bearer " + client.api_key
 
-    r = requests.post(url, headers=headers, json=json_blob)
+    r = client._request('POST', url, headers, json_blob)
     r.raise_for_status()
 
     if r.status_code == 200:
@@ -330,7 +329,7 @@ def get_wrkgrp_logs(client, id, level=1, tail=None):
     Returns:
         dict: Log data from the API response.
     """
-    base = _get_logs_base_url(client)
+    base = _get_autoscaler_base_url(client)
     url = base + "/get_autogroup_logs/"
     json_blob = {"id": id, "api_key": client.api_key}
     if tail is not None:
@@ -340,13 +339,44 @@ def get_wrkgrp_logs(client, id, level=1, tail=None):
     if client.api_key is not None:
         headers["Authorization"] = "Bearer " + client.api_key
 
-    r = requests.post(url, headers=headers, json=json_blob)
+    r = client._request('POST', url, headers, json_blob)
     r.raise_for_status()
 
     if r.status_code == 200:
         rj = r.json()
         return rj
     return {"error": r.text}
+
+
+def get_endpoint_workers(client, id):
+    """List the live worker instances under a given endpoint, with runtime
+    status (creating/loading/idle/error/...) and ``measured_perf``.
+
+    Different from ``show_workergroups``: that one returns the user's
+    workergroup config records (template, search params, scaling policy, etc).
+    This returns the actual rented instances under one endpoint with their
+    current status.
+
+    POST to <base>/get_endpoint_workers/
+
+    Args:
+        client: VastClient instance.
+        id (int): ID of endpoint whose workers to list.
+
+    Returns:
+        list | dict: Worker data from the API response.
+    """
+    base = _get_autoscaler_base_url(client)
+    url = base + "/get_endpoint_workers/"
+    json_blob = {"id": id}
+
+    headers = {}
+    if client.api_key is not None:
+        headers["Authorization"] = "Bearer " + client.api_key
+
+    r = client._request('POST', url, headers, json_blob)
+    r.raise_for_status()
+    return r.json()
 
 
 def update_workers(client, id: int, cancel: bool = False):
@@ -375,6 +405,6 @@ def update_workers(client, id: int, cancel: bool = False):
     if client.api_key is not None:
         headers["Authorization"] = "Bearer " + client.api_key
 
-    r = requests.post(url, headers=headers, json=json_blob)
+    r = client._request('POST', url, headers, json_blob)
     r.raise_for_status()
     return r.json()

@@ -179,6 +179,34 @@ def get__endpt_logs(args):
             print(rj[dbg_lvl])
 
 
+@parser.command(
+    argument("id", help="id of endpoint group whose workers to list", type=int),
+    usage="vastai get endpt-workers ID [--api-key API_KEY]",
+    help="List workers on an endpoint group with status and measured_perf",
+    epilog=deindent("""
+        Example: vastai get endpt-workers 21979
+    """),
+)
+def get__endpt_workers(args):
+    """List workers on a specific serverless endpoint group."""
+    client = get_client(args)
+    rj = endpoints_api.get_endpoint_workers(client, id=args.id)
+
+    if isinstance(rj, dict) and "error" in rj:
+        print(rj["error"])
+        return
+
+    workers = rj if isinstance(rj, list) else rj.get("workers", [])
+    if args.raw:
+        return workers
+    if not workers:
+        print("No workers found.")
+        return
+    for w in workers:
+        print(f"id={w.get('id')} status={w.get('status')} "
+              f"gpu_name={w.get('gpu_name')} measured_perf={w.get('measured_perf')}")
+
+
 # ---------------------------------------------------------------------------
 # workergroups
 # ---------------------------------------------------------------------------

@@ -157,6 +157,13 @@ if not os.path.exists(APIKEY_FILE) and os.path.exists(APIKEY_FILE_HOME):
     shutil.copyfile(APIKEY_FILE_HOME, APIKEY_FILE)
 
 
+def format_key_suffix(k):
+    """Format the last 4 chars of an API key for display, e.g. '...a3f9'."""
+    if k and len(k) >= 4:
+        return f"...{k[-4:]}"
+    return "(empty)"
+
+
 # ---------------------------------------------------------------------------
 # Simple utility class
 # ---------------------------------------------------------------------------

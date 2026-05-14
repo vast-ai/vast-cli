@@ -33,8 +33,6 @@ def _emit_error(args, status_code, message):
     else:
         print(message, file=sys.stderr)
 
-    # Surface which keys are configured so the user can confirm they're
-    # using the key they expect.
     if status_code == 401:
         env = os.environ.get("VAST_API_KEY")
         file_key = None

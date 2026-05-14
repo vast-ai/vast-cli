@@ -211,7 +211,8 @@ def set__api_key(args):
 
     if os.path.exists(APIKEY_FILE_HOME):
         os.remove(APIKEY_FILE_HOME)
-        print("Your api key has been removed from {}".format(APIKEY_FILE_HOME))
+        if getattr(args, "explain", False):
+            print("Removed legacy api key file at {} (no longer used).".format(APIKEY_FILE_HOME))
 
     env_key = os.environ.get("VAST_API_KEY")
     if env_key:

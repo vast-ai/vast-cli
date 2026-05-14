@@ -54,13 +54,14 @@ def _emit_error(args, status_code, message):
                     file_key = f.read().strip()
             except OSError:
                 pass
-        if not env and not file_key:
-            return
-        if env:
-            print(f"  $VAST_API_KEY is set (ends in {format_key_suffix(env)}); env beats file.", file=sys.stderr)
-        if file_key:
-            print(f"  {APIKEY_FILE} contains a key (ends in {format_key_suffix(file_key)}).", file=sys.stderr)
-        print("  Compare with the key you expected to use.", file=sys.stderr)
+
+        if env and file_key:
+            print(f"  Sent key from $VAST_API_KEY (ends in {format_key_suffix(env)}). Env var overrides the file.", file=sys.stderr)
+            print(f"  Unset the VAST_API_KEY env var to use the saved key in {APIKEY_FILE} (ends in {format_key_suffix(file_key)}) instead.", file=sys.stderr)
+        elif env:
+            print(f"  Sent key from $VAST_API_KEY (ends in {format_key_suffix(env)}). Update the env var with a new key.", file=sys.stderr)
+        elif file_key:
+            print(f"  Sent key from {APIKEY_FILE} (ends in {format_key_suffix(file_key)}). Update with: vastai set api-key <KEY>", file=sys.stderr)
 
 
 # Create the global parser instance

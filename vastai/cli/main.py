@@ -34,6 +34,18 @@ def _emit_error(args, status_code, message):
         print(message, file=sys.stderr)
 
     if status_code == 401:
+        if "Two Factor Authentication" in message:
+            print(
+                "\nThis endpoint requires a 2FA session. Authenticate with the method you have set up:\n"
+                "  vastai tfa login --method-type totp -c <CODE>\n"
+                "  vastai tfa login --method-type sms   --secret <SECRET> -c <CODE>\n"
+                "  vastai tfa login --method-type email --secret <SECRET> -c <CODE>\n"
+                "  vastai tfa login --backup-code ABCD-EFGH-IJKL\n"
+                "For SMS or email, first run 'vastai tfa send-sms' or 'vastai tfa send-email' to get <SECRET>.",
+                file=sys.stderr,
+            )
+            return
+
         env = os.environ.get("VAST_API_KEY")
         file_key = None
         if os.path.exists(APIKEY_FILE):

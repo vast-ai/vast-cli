@@ -157,7 +157,7 @@ jobs:
               -H "Authorization: token ${GH_TOKEN}" \
               -H "Accept: application/vnd.github+json" \
               "https://api.github.com/repos/${DOCS_REPO}/pulls" \
-              -d "$(python -c "import json,sys,os; print(json.dumps({'title': f'[Preview] vast-cli #${PR_NUMBER}: {os.environ[\"PR_TITLE\"]}', 'head': '${PREVIEW_BRANCH}', 'base': '${DOCS_DEFAULT_BRANCH}', 'body': sys.stdin.read(), 'draft': True}))" <<< "${BODY}")"
+              -d "$(python -c "import json,sys,os; print(json.dumps({'title': f'[Preview] vast-cli #${PR_NUMBER}: {os.environ[\"PR_TITLE\"]}', 'head': '${PREVIEW_BRANCH}', 'base': '${DOCS_DEFAULT_BRANCH}', 'body': sys.stdin.read()}))" <<< "${BODY}")"
           else
             echo "Preview PR #${EXISTING} already exists, branch was force-pushed."
           fi

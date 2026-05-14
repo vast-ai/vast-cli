@@ -81,11 +81,21 @@ jobs:
             --sdk-subdir "${SDK_SUBDIR}" \
             --manifest manifest.json
 
+      - name: Patch docs.json navigation
+        # Mintlify only renders pages registered in docs.json's nav.  This
+        # step adds new generated pages to the right semantic groups and
+        # removes nav entries for deleted commands.  Without it, every
+        # generated PR ships orphan pages and Mintlify skips the preview.
+        run: |
+          python scripts/patch_docs_nav.py \
+            --docs-json docs-repo/docs.json \
+            --manifest manifest.json
+
       - name: Show diff summary
         id: diff
         run: |
           cd docs-repo
-          git add -A "${CLI_SUBDIR}" "${SDK_SUBDIR}"
+          git add -A "${CLI_SUBDIR}" "${SDK_SUBDIR}" docs.json
           if git diff --cached --quiet; then
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
             echo "No CLI/SDK doc changes detected."

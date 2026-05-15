@@ -56,9 +56,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
-        # Avoid fetch-depth: 0 — the repo has a remote ref with a `"` in its
-        # name which Windows filesystem rejects. Tests don't need git history.
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -75,8 +75,8 @@ jobs:
           virtualenvs-in-project: false
 
       # snok/install-poetry adds Poetry to PATH, but PowerShell on Windows
-      # runners does not pick up the update — subsequent pwsh steps fail with
-      # "poetry: not recognized". Force bash (works on all 3 OSes).
+      # runners does not pick up the update, so subsequent pwsh steps fail
+      # with "poetry: not recognized". Force bash (works on all 3 OSes).
       - name: Install poetry-dynamic-versioning plugin
         shell: bash
         run: poetry self add "poetry-dynamic-versioning[plugin]"
@@ -84,12 +84,6 @@ jobs:
       - name: Install test dependencies
         shell: bash
         working-directory: tests
-        # tests/pyproject.toml has `vastai-sdk = { path = ".." }`, so install
-        # triggers a build of the parent which runs poetry-dynamic-versioning;
-        # dynamic-versioning does a git fetch that fails on Windows because of
-        # a bad ref name in the repo. Bypass version computation here too.
-        env:
-          POETRY_DYNAMIC_VERSIONING_BYPASS: "0.0.0"
         run: poetry install --no-interaction
 
       - name: Run CLI, API, and SDK tests

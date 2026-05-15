@@ -35,6 +35,7 @@ class TestInit:
 
     def test_reads_key_from_legacy_file(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Path.home() on Windows
         monkeypatch.delenv("VAST_API_KEY", raising=False)
         monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
         (tmp_path / ".vast_api_key").write_text("  legacy-key  \n")
@@ -45,6 +46,7 @@ class TestInit:
     def test_reads_key_from_xdg_path(self, tmp_path, monkeypatch):
         """Regression: VastAI() must pick up the key stored by `vastai set api-key`."""
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Path.home() on Windows
         monkeypatch.delenv("VAST_API_KEY", raising=False)
         monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
         xdg_dir = tmp_path / ".config" / "vastai"
@@ -54,8 +56,24 @@ class TestInit:
             VastAI()
             assert MockClient.call_args[0][0] == "xdg-key"
 
+    def test_reads_key_from_xdg_path_when_xdg_import_fails(self, tmp_path, monkeypatch):
+        # `import xdg` raising in _resolve_api_key must fall back to ~/.config.
+        import sys
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Path.home() on Windows
+        monkeypatch.delenv("VAST_API_KEY", raising=False)
+        monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+        monkeypatch.setitem(sys.modules, "xdg", None)
+        xdg_dir = tmp_path / ".config" / "vastai"
+        xdg_dir.mkdir(parents=True)
+        (xdg_dir / "vast_api_key").write_text("xdg-fallback-key")
+        with patch("vastai.sdk.VastClient") as MockClient:
+            VastAI()
+            assert MockClient.call_args[0][0] == "xdg-fallback-key"
+
     def test_reads_key_from_env(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Path.home() on Windows
         monkeypatch.setenv("VAST_API_KEY", "env-key")
         with patch("vastai.sdk.VastClient") as MockClient:
             VastAI()
@@ -63,6 +81,7 @@ class TestInit:
 
     def test_env_var_takes_precedence_over_files(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Path.home() on Windows
         monkeypatch.setenv("VAST_API_KEY", "env-key")
         (tmp_path / ".vast_api_key").write_text("legacy-key")
         xdg_dir = tmp_path / ".config" / "vastai"
@@ -74,6 +93,7 @@ class TestInit:
 
     def test_no_key_raises(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Path.home() on Windows
         monkeypatch.delenv("VAST_API_KEY", raising=False)
         monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
         with pytest.raises(RuntimeError, match="No API key found"):

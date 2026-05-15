@@ -49,7 +49,11 @@ jobs:
   unit-and-integration:
     needs: detect-changes
     if: needs.detect-changes.outputs.sdk == 'true'
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -62,15 +66,77 @@ jobs:
           python-version: "3.12"
 
       - name: Install Poetry and plugins
-        run: |
-          curl -sSL https://install.python-poetry.org | python3 -
-          poetry self add "poetry-dynamic-versioning[plugin]"
+        # snok/install-poetry works on Windows/macOS/Linux; the curl-pipe-python3
+        # bootstrap does not (no python3 alias on Windows runners).
+        uses: snok/install-poetry@v1
+        with:
+          version: "1.8.3"
+          virtualenvs-create: true
+          virtualenvs-in-project: false
+
+      # snok/install-poetry adds Poetry to PATH, but PowerShell on Windows
+      # runners does not pick up the update, so subsequent pwsh steps fail
+      # with "poetry: not recognized". Force bash (works on all 3 OSes).
+      - name: Install poetry-dynamic-versioning plugin
+        shell: bash
+        run: poetry self add "poetry-dynamic-versioning[plugin]"
 
       - name: Install test dependencies
-        run: poetry install -C tests --no-interaction
+        shell: bash
+        working-directory: tests
+        run: poetry install --no-interaction
 
       - name: Run CLI, API, and SDK tests
-        run: poetry run -C tests pytest -vvv -s --tb=short cli api sdk
+        shell: bash
+        working-directory: tests
+        run: poetry run pytest -vvv -s --tb=short cli api sdk
+
+  # --------------------------------------------------------------------------
+  # Branch protection requires a check literally named `unit-and-integration`,
+  # but the matrix above produces `unit-and-integration (ubuntu-latest)` etc.,
+  # not the bare name. This aggregator reports the bare name to satisfy the
+  # rule. Treats `skipped` as passing so the rule is also satisfied when
+  # detect-changes filters this job out.
+  # --------------------------------------------------------------------------
+  unit-and-integration-check:
+    name: unit-and-integration
+    needs: unit-and-integration
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate matrix result
+        run: |
+          result="${{ needs.unit-and-integration.result }}"
+          if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+            echo "Matrix job did not succeed (result=$result)"
+            exit 1
+          fi
+
+  # --------------------------------------------------------------------------
+  #            Install Smoke (package installs + CLI entrypoint runs)
+  # --------------------------------------------------------------------------
+  # Catches packaging bugs (wheel missing files, entry-point misregistered,
+  # broken pyproject config) that unit tests don't, because the unit tests
+  # import the source tree directly rather than the installed package.
+  install-smoke:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.sdk == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package
+        env:
+          POETRY_DYNAMIC_VERSIONING_BYPASS: "0.0.0"
+        run: pip install .
+      - name: Invoke CLI entrypoint
+        run: vastai --help
 
   # --------------------------------------------------------------------------
   #                           Serverless Tests

@@ -1,5 +1,8 @@
 """Integration tests for auth CLI commands with mocked HTTP."""
 
+import argparse
+from unittest.mock import patch
+
 import pytest
 from requests.exceptions import HTTPError
 
@@ -80,6 +83,40 @@ class TestDeleteEnvVar:
         call_args = patch_get_client.delete.call_args
         assert "/secrets/" in call_args[0][0]
         assert call_args[1]["json_data"]["key"] == "MY_NAME"
+
+
+class TestSetApiKey:
+    def test_writes_byte_exact_no_text_mode_translation(self, tmp_path, monkeypatch):
+        # `open(path, "w").write(key)` on Windows turns `\n` -> `\r\n`; the key
+        # file must contain exactly the key bytes and nothing else, so trailing
+        # whitespace bugs are also caught.
+        key_file = tmp_path / "vast_api_key"
+        legacy_file = tmp_path / ".vast_api_key"
+        monkeypatch.setattr("vastai.cli.util.APIKEY_FILE", str(key_file))
+        monkeypatch.setattr("vastai.cli.util.APIKEY_FILE_HOME", str(legacy_file))
+        from vastai.cli.commands.auth import set__api_key
+        set__api_key(argparse.Namespace(new_api_key="test-key-abc-123"))
+        assert key_file.read_bytes() == b"test-key-abc-123"
+
+    def test_sdk_reads_back_key_written_by_cli(self, tmp_path, monkeypatch):
+        # End-to-end: `set api-key` writes the file; VastAI() picks it up.
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Path.home() on Windows
+        monkeypatch.delenv("VAST_API_KEY", raising=False)
+        monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+        xdg_dir = tmp_path / ".config" / "vastai"
+        xdg_dir.mkdir(parents=True)
+        key_file = xdg_dir / "vast_api_key"
+        monkeypatch.setattr("vastai.cli.util.APIKEY_FILE", str(key_file))
+        monkeypatch.setattr("vastai.cli.util.APIKEY_FILE_HOME", str(tmp_path / ".vast_api_key"))
+
+        from vastai.cli.commands.auth import set__api_key
+        set__api_key(argparse.Namespace(new_api_key="round-trip-key"))
+
+        from vastai import VastAI
+        with patch("vastai.sdk.VastClient") as MockClient:
+            VastAI()
+            assert MockClient.call_args[0][0] == "round-trip-key"
 
 
 class TestTfaStatus:

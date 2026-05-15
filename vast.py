@@ -8413,38 +8413,79 @@ def self_test__machine(args):
                 # If user did pass --ignore-requirements, warn and continue
                 progress_print(args, "Continuing despite unmet requirements because --ignore-requirements is set.")
 
-        def cuda_map_to_image(cuda_version):
+        def cuda_map_to_image(cuda_version, compute_cap=None):
             """
-            Maps a CUDA version to a Docker image tag, falling back to the next lower version until failure.
+            Map a CUDA version (and optional compute_cap) to (image, reason).
+
+            If compute_cap is below 700 (sm_70 / Volta), the cuda-11.8 image
+            is forced regardless of CUDA version. cuda-12.8 (torch 2.10) still
+            ships sm_70 kernels so Volta hosts land on cuda-12.8 via the
+            version map; cuda-13.0 (torch 2.11) and cuda-12.8 do not ship
+            sm_50/sm_60 kernels, so Maxwell and Pascal must use cuda-11.8.
+
+            Volta hosts whose operator has installed a CUDA 13 driver get the
+            cuda_version clamped down to 12.8 before the version map runs,
+            since cuda-13.0 wheels never built sm_70.
+
+            The returned reason is a short human-readable string so callers
+            can log why a particular image was chosen.
             """
             docker_repo = "vastai/test"
             # Convert float input to string
             if isinstance(cuda_version, float):
                 cuda_version = str(cuda_version)
-            
-            # Predefined mapping. Tracks PyTorch releases
+            original_cuda = cuda_version
+
+            # Force the cuda-11.8 legacy image on pre-Volta hardware (sm_50/sm_60).
+            if compute_cap is not None and compute_cap < 700:
+                return (
+                    f"{docker_repo}:self-test-cuda-11.8",
+                    f"compute_cap={compute_cap} below sm_70 → forced cuda-11.8",
+                )
+
+            # Volta sm_70/sm_72: cuda-12.8 has sm_70, cuda-13.0 doesn't. Cap
+            # driver CUDA at 12.8 so the map below picks cuda-12.8 even on a
+            # V100 host with a CUDA 13 driver installed.
+            clamped_for_volta = False
+            if compute_cap is not None and compute_cap < 750:
+                if float(cuda_version) > 12.8:
+                    cuda_version = "12.8"
+                    clamped_for_volta = True
+
+            # Predefined mapping. Tracks PyTorch releases and the docker
+            # images we currently publish (cuda-11.8 / cuda-12.8 / cuda-13.0).
             docker_tag_map = {
-                "11.8": "cu118",
-                "12.1": "cu121",
-                "12.4": "cu124",
-                "12.6": "cu126",
-                "12.8": "cu128"
+                "11.8": "cuda-11.8",
+                "12.8": "cuda-12.8",
+                "13.0": "cuda-13.0",
             }
-            
+
+            cap_hint = f"compute_cap={compute_cap}" if compute_cap is not None else "compute_cap=unknown"
+
             if cuda_version in docker_tag_map:
-                return f"{docker_repo}:self-test-{docker_tag_map[cuda_version]}"
-            
+                tag = docker_tag_map[cuda_version]
+                if clamped_for_volta:
+                    reason = f"{cap_hint} (Volta) + cuda_max_good={original_cuda} → clamped to {cuda_version} → {tag}"
+                else:
+                    reason = f"{cap_hint}, cuda_max_good={cuda_version} → exact match → {tag}"
+                return f"{docker_repo}:self-test-{tag}", reason
+
             # Try to find the next version down
             cuda_float = float(cuda_version)
-            
+
             # Try to decrement the version by 0.1 until we find a match or run out of options
             next_version = round(cuda_float - 0.1, 1)
             while next_version >= min(float(v) for v in docker_tag_map.keys()):
                 next_version_str = str(next_version)
                 if next_version_str in docker_tag_map:
-                    return f"{docker_repo}:self-test-{docker_tag_map[next_version_str]}"
+                    tag = docker_tag_map[next_version_str]
+                    reason = (
+                        f"{cap_hint}, cuda_max_good={original_cuda} → "
+                        f"stepped down to {next_version_str} → {tag}"
+                    )
+                    return f"{docker_repo}:self-test-{tag}", reason
                 next_version = round(next_version - 0.1, 1)
-            
+
             raise KeyError(f"No CUDA version found for {cuda_version} or any lower version")
     
 
@@ -8489,7 +8530,8 @@ def self_test__machine(args):
         else:
             ask_contract_id = top_offer["id"]
             cuda_version = top_offer["cuda_max_good"]
-            docker_image = cuda_map_to_image(cuda_version)
+            compute_cap = top_offer.get("compute_cap")
+            docker_image, image_reason = cuda_map_to_image(cuda_version, compute_cap)
 
             # Prepare arguments for instance creation
             create_args = argparse.Namespace(
@@ -8529,7 +8571,7 @@ def self_test__machine(args):
 
             # Create instance
             try:
-                progress_print(args, f"Starting test with {docker_image}")
+                progress_print(args, f"Starting test with {docker_image} ({image_reason})")
                 response = create__instance(create_args)
                 if isinstance(response, requests.Response):  # Check if it's an HTTP response
                     if response.status_code == 200:
@@ -8589,17 +8631,38 @@ def self_test__machine(args):
                             result["success"] = success
                             result["reason"] = reason
 
+    except KeyboardInterrupt:
+        result["success"] = False
+        result["reason"] = "Interrupted by user (Ctrl+C)"
+        progress_print(args, "\nInterrupted — cleaning up test instance...")
     except Exception as e:
         result["success"] = False
         result["reason"] = str(e)
 
     finally:
-        try:
-            if instance_id and instance_exist(instance_id, api_key, destroy_args):
-                destroy_instance_silent(instance_id, destroy_args)
-        except Exception as e:
-            if args.debugging:
-                debug_print(args, f"Error during cleanup: {e}")
+        # Always attempt to destroy the test instance, including on Ctrl+C.
+        # KeyboardInterrupt is BaseException (not Exception) so it skips the
+        # typed except above and lands here. Surface failures loudly: a
+        # silently-leaked instance keeps billing the host.
+        if instance_id:
+            try:
+                if instance_exist(instance_id, api_key, destroy_args):
+                    progress_print(args, f"Destroying test instance {instance_id}...")
+                    destroy_instance_silent(instance_id, destroy_args)
+                    progress_print(args, f"Test instance {instance_id} destroyed.")
+            except KeyboardInterrupt:
+                progress_print(
+                    args,
+                    f"\nSecond interrupt during cleanup — instance {instance_id} may still be running.\n"
+                    f"  Destroy it manually: vastai destroy instance {instance_id}"
+                )
+                raise
+            except Exception as e:
+                progress_print(
+                    args,
+                    f"WARNING: failed to destroy test instance {instance_id}: {e}\n"
+                    f"  Destroy it manually: vastai destroy instance {instance_id}"
+                )
 
     # Output results
     if args.raw:

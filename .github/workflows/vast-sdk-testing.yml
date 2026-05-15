@@ -92,6 +92,27 @@ jobs:
         run: poetry run pytest -vvv -s --tb=short cli api sdk
 
   # --------------------------------------------------------------------------
+  # Branch protection requires a check literally named `unit-and-integration`,
+  # but the matrix above produces `unit-and-integration (ubuntu-latest)` etc.,
+  # not the bare name. This aggregator reports the bare name to satisfy the
+  # rule. Treats `skipped` as passing so the rule is also satisfied when
+  # detect-changes filters this job out.
+  # --------------------------------------------------------------------------
+  unit-and-integration-check:
+    name: unit-and-integration
+    needs: unit-and-integration
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate matrix result
+        run: |
+          result="${{ needs.unit-and-integration.result }}"
+          if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+            echo "Matrix job did not succeed (result=$result)"
+            exit 1
+          fi
+
+  # --------------------------------------------------------------------------
   #            Install Smoke (package installs + CLI entrypoint runs)
   # --------------------------------------------------------------------------
   # Catches packaging bugs (wheel missing files, entry-point misregistered,

@@ -49,12 +49,16 @@ jobs:
   unit-and-integration:
     needs: detect-changes
     if: needs.detect-changes.outputs.sdk == 'true'
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
+        # Avoid fetch-depth: 0 — the repo has a remote ref with a `"` in its
+        # name which Windows filesystem rejects. Tests don't need git history.
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -62,15 +66,62 @@ jobs:
           python-version: "3.12"
 
       - name: Install Poetry and plugins
-        run: |
-          curl -sSL https://install.python-poetry.org | python3 -
-          poetry self add "poetry-dynamic-versioning[plugin]"
+        # snok/install-poetry works on Windows/macOS/Linux; the curl-pipe-python3
+        # bootstrap does not (no python3 alias on Windows runners).
+        uses: snok/install-poetry@v1
+        with:
+          version: "1.8.3"
+          virtualenvs-create: true
+          virtualenvs-in-project: false
+
+      # snok/install-poetry adds Poetry to PATH, but PowerShell on Windows
+      # runners does not pick up the update — subsequent pwsh steps fail with
+      # "poetry: not recognized". Force bash (works on all 3 OSes).
+      - name: Install poetry-dynamic-versioning plugin
+        shell: bash
+        run: poetry self add "poetry-dynamic-versioning[plugin]"
 
       - name: Install test dependencies
-        run: poetry install -C tests --no-interaction
+        shell: bash
+        working-directory: tests
+        # tests/pyproject.toml has `vastai-sdk = { path = ".." }`, so install
+        # triggers a build of the parent which runs poetry-dynamic-versioning;
+        # dynamic-versioning does a git fetch that fails on Windows because of
+        # a bad ref name in the repo. Bypass version computation here too.
+        env:
+          POETRY_DYNAMIC_VERSIONING_BYPASS: "0.0.0"
+        run: poetry install --no-interaction
 
       - name: Run CLI, API, and SDK tests
-        run: poetry run -C tests pytest -vvv -s --tb=short cli api sdk
+        shell: bash
+        working-directory: tests
+        run: poetry run pytest -vvv -s --tb=short cli api sdk
+
+  # --------------------------------------------------------------------------
+  #            Install Smoke (package installs + CLI entrypoint runs)
+  # --------------------------------------------------------------------------
+  # Catches packaging bugs (wheel missing files, entry-point misregistered,
+  # broken pyproject config) that unit tests don't, because the unit tests
+  # import the source tree directly rather than the installed package.
+  install-smoke:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.sdk == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package
+        env:
+          POETRY_DYNAMIC_VERSIONING_BYPASS: "0.0.0"
+        run: pip install .
+      - name: Invoke CLI entrypoint
+        run: vastai --help
 
   # --------------------------------------------------------------------------
   #                           Serverless Tests

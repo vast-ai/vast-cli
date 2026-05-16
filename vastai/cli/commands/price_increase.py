@@ -60,7 +60,7 @@ def _fmt_delta(old, new, scale, precision):
         return "-"
     old_part = f"{old * scale:.{precision}f}" if old is not None else "?"
     new_part = f"{new * scale:.{precision}f}"
-    return f"{old_part} → {new_part}"
+    return f"{old_part} -> {new_part}"
 
 
 def _prepare_row(row):
@@ -130,7 +130,7 @@ def _is_stale_error(err):
     help="List pending price-increase challenges for the authenticated user",
     epilog=deindent("""
         Lists every pending price-increase challenge the backend has open for
-        you. Each row shows the per-resource old → new prices and the cutover
+        you. Each row shows the per-resource old -> new prices and the cutover
         boundary: the new rate applies only after each contract's current
         end_date — your remaining time on the current term is billed at the
         original price.

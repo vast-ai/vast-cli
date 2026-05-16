@@ -1778,6 +1778,7 @@ def cli_parser():
         instances, offers, machines, teams, keys, endpoints,
         billing, storage, clusters, auth, misc, deployments,
         benchmarks,
+        price_increase,
     )
     from vastai.cli.util import server_url_default, api_key_guard
     parser.add_argument("--url", help="Server REST API URL", default=server_url_default)
@@ -1816,6 +1817,8 @@ def parse_argv(cli_parser):
             args.no_color = False
         if not hasattr(args, 'quiet'):
             args.quiet = False
+        if not hasattr(args, 'yes'):
+            args.yes = False
         return args
     return _parse
 
@@ -1927,6 +1930,8 @@ COMMAND_MODULES = [
     "vastai.cli.commands.clusters",
     "vastai.cli.commands.misc",
     "vastai.cli.commands.deployments",
+    "vastai.cli.commands.benchmarks",
+    "vastai.cli.commands.price_increase",
     "vastai.cli.commands.benchmarks",
 ]
 

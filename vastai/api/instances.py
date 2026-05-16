@@ -177,30 +177,30 @@ def change_bid(client: VastClient, id: int, price: float = None) -> dict:
 
 def accept_price_increase(client: VastClient, id: int = None,
                           instance_ids=None, host_id: int = None) -> dict:
-    """Accept a pending price-increase challenge for one or more instances.
+    """Deprecated shim that resolves to the per-row endpoint.
 
-    The backend pairs with three routes:
-      - PUT /api/v0/instances/{id}/accept-price-increase/   (single)
-      - PUT /api/v0/instances/accept-price-increase/        (batch by instance_ids or host_id)
-
-    Exactly one selector must be used:
-      * ``id``           — single instance (path param)
-      * ``instance_ids`` — list/tuple of instance IDs (max 64)
-      * ``host_id``      — accept every pending challenge from this host
-
-    Returns the server response dict (``accepted_contract_ids``, ``batch_keys``, …).
+    Prefer :func:`vastai.api.price_increase.accept`. The old
+    ``id`` / ``instance_ids`` / ``host_id`` selectors are no longer
+    supported by the backend; ``id`` here is reinterpreted as an
+    instance id, looked up against the pending list, and forwarded
+    to the per-row accept. ``instance_ids`` and ``host_id`` raise.
+    Removed in the release after this one.
     """
-    if id is not None:
-        r = client.put(f"/instances/{id}/accept-price-increase/", json_data={})
-    else:
-        payload = {}
-        if instance_ids:
-            payload["instance_ids"] = [int(i) for i in instance_ids]
-        if host_id is not None:
-            payload["host_id"] = int(host_id)
-        r = client.put("/instances/accept-price-increase/", json_data=payload)
-    r.raise_for_status()
-    return r.json()
+    from vastai.api import price_increase as _pi
+    if instance_ids is not None or host_id is not None:
+        raise TypeError(
+            "accept_price_increase: instance_ids and host_id are no longer "
+            "supported. Use vastai.api.price_increase.accept(client, pending_id) "
+            "per row, or vastai.sdk.VastAI.accept_price_increase(instance_id=…).")
+    if id is None:
+        raise TypeError("accept_price_increase: instance id is required")
+    envelope = _pi.list_pending(client)
+    rows = envelope.get("pending_price_increases", []) or []
+    match = next((row for row in rows if row.get("contract_id") == int(id)), None)
+    if match is None:
+        raise LookupError(
+            f"accept_price_increase: no pending price increase for instance {id}")
+    return _pi.accept(client, match["pending_price_increase_id"])
 
 
 def execute(client: VastClient, id: int, command: str):

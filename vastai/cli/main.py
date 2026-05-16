@@ -78,6 +78,7 @@ def main():
         instances, offers, machines, teams, keys, endpoints,
         billing, storage, auth, misc, deployments, metrics,
         benchmarks,
+        price_increase,
         # clusters,  # cluster/overlay commands disabled for now
     )
 

@@ -23,6 +23,7 @@ from vastai.api import storage as storage_api
 
 
 from vastai.cli.utils import get_parser as _get_parser, get_client  # noqa: F401
+from vastai.cli.util import required_inet_mbps
 
 
 parser = _get_parser()
@@ -611,14 +612,15 @@ def self_test__machine(args):
                     unmet_reasons.append("Direct port count <= 3")
                 if safe_float(top_offer.get('pcie_bw')) <= 2.85:
                     unmet_reasons.append("PCIe bandwidth <= 2.85")
-                if safe_float(top_offer.get('inet_down')) < 500:
-                    unmet_reasons.append("Download speed < 500 Mb/s")
-                if safe_float(top_offer.get('inet_up')) < 500:
-                    unmet_reasons.append("Upload speed < 500 Mb/s")
+                gpu_total_ram = safe_float(top_offer.get('gpu_total_ram'))
+                required_mbps = required_inet_mbps(gpu_total_ram)
+                if safe_float(top_offer.get('inet_down')) < required_mbps:
+                    unmet_reasons.append(f"Download speed < {required_mbps:.0f} Mb/s")
+                if safe_float(top_offer.get('inet_up')) < required_mbps:
+                    unmet_reasons.append(f"Upload speed < {required_mbps:.0f} Mb/s")
                 if safe_float(top_offer.get('gpu_ram')) <= 7:
                     unmet_reasons.append("GPU RAM <= 7 GB")
 
-                gpu_total_ram = safe_float(top_offer.get('gpu_total_ram'))
                 cpu_ram = safe_float(top_offer.get('cpu_ram'))
                 if cpu_ram < 0.95 * gpu_total_ram:
                     unmet_reasons.append("System RAM is less than total VRAM.")

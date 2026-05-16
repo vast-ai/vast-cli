@@ -757,3 +757,23 @@ def get_template_arguments():
         argument("--desc", help="description string", type=str),
         argument("--public", help="make template available to public", action="store_true"),
     ]
+
+
+# ---------------------------------------------------------------------------
+# Verification thresholds
+# ---------------------------------------------------------------------------
+
+def required_inet_mbps(gpu_total_ram_mib):
+    """Machine-total VRAM-scaled bandwidth floor for the self-test pre-flight check.
+
+    Returns the minimum inet_down / inet_up (Mb/s) a machine needs to qualify
+    for the GPU verification pipeline. Floors at 100, caps at 500, scales
+    linearly with total VRAM against a 192 GiB reference point.
+
+    Falsy / missing gpu_total_ram falls to the 100 Mb/s floor. The column is
+    MiB (binary), so a B200 reporting 183359 MiB (~179 GiB) lands at 466
+    Mb/s; the cap is reached once total VRAM crosses 192 GiB, e.g. multi-GPU
+    machines.
+    """
+    total_vram_gib = (gpu_total_ram_mib or 0) / 1024.0
+    return min(500.0, max(100.0, 500.0 * total_vram_gib / 192.0))

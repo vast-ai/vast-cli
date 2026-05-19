@@ -148,6 +148,12 @@ vastai create instance <id> --image vastai/comfy:@vastai-automatic-tag --disk 40
 
 > **Charges:** Storage charges begin at creation. GPU charges begin when status reaches `running`.
 
+### Interruptible (spot) rentals
+
+Interruptible (spot) instances are priced below on-demand instances, but can be interrupted at any time by another user with a lower bid. Note: `search offers --type bid` exposes `min_bid`, but `create instance` defaults to **on-demand at `dph_total`** unless you pass `--bid_price <floor>`. Always pass `--bid_price` after a `--type bid` search, otherwise the instance will be rented as an on-demand instance/price instead of as an interruptible.
+
+When outbid, the instance moves to `stopped` (not destroyed) and storage charges continue. Resume by raising the bid via `update instance --bid_price`.
+
 ### Search
 
 ```bash

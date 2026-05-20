@@ -23,6 +23,7 @@ from vastai.api import storage as storage_api
 
 
 from vastai.cli.utils import get_parser as _get_parser, get_client  # noqa: F401
+from vastai.cli.util import required_inet_mbps
 
 
 parser = _get_parser()
@@ -611,14 +612,15 @@ def self_test__machine(args):
                     unmet_reasons.append("Direct port count <= 3")
                 if safe_float(top_offer.get('pcie_bw')) <= 2.85:
                     unmet_reasons.append("PCIe bandwidth <= 2.85")
-                if safe_float(top_offer.get('inet_down')) < 500:
-                    unmet_reasons.append("Download speed < 500 Mb/s")
-                if safe_float(top_offer.get('inet_up')) < 500:
-                    unmet_reasons.append("Upload speed < 500 Mb/s")
+                gpu_total_ram = safe_float(top_offer.get('gpu_total_ram'))
+                required_mbps = required_inet_mbps(gpu_total_ram)
+                if safe_float(top_offer.get('inet_down')) < required_mbps:
+                    unmet_reasons.append(f"Download speed < {required_mbps:.0f} Mb/s")
+                if safe_float(top_offer.get('inet_up')) < required_mbps:
+                    unmet_reasons.append(f"Upload speed < {required_mbps:.0f} Mb/s")
                 if safe_float(top_offer.get('gpu_ram')) <= 7:
                     unmet_reasons.append("GPU RAM <= 7 GB")
 
-                gpu_total_ram = safe_float(top_offer.get('gpu_total_ram'))
                 cpu_ram = safe_float(top_offer.get('cpu_ram'))
                 if cpu_ram < 0.95 * gpu_total_ram:
                     unmet_reasons.append("System RAM is less than total VRAM.")
@@ -660,28 +662,60 @@ def self_test__machine(args):
             progress_print("Continuing despite unmet requirements because --ignore-requirements is set.")
 
         # ----- CUDA version to docker image mapping -----
-        def cuda_map_to_image(cuda_version):
+        def cuda_map_to_image(cuda_version, compute_cap=None):
+            """Return (image, reason). Reason explains why this image was picked."""
             docker_repo = "vastai/test"
             if isinstance(cuda_version, float):
                 cuda_version = str(cuda_version)
+            original_cuda = cuda_version
+
+            # cuda-12.8 (torch 2.10) still ships sm_70 (Volta); cuda-13.0
+            # (torch 2.11) never did. Neither builds sm_50/sm_60 kernels.
+            # Anything pre-Volta (compute_cap < 700) must use the cuda-11.8
+            # legacy image.
+            if compute_cap is not None and compute_cap < 700:
+                return (
+                    f"{docker_repo}:self-test-cuda-11.8",
+                    f"compute_cap={compute_cap} below sm_70 → forced cuda-11.8",
+                )
+
+            # Volta sm_70/sm_72 hosts: cuda-12.8 wheels include sm_70 but
+            # cuda-13.0 wheels never did. Cap the driver-reported CUDA version
+            # at 12.8 so the map below resolves to cuda-12.8 even if the
+            # operator has installed a CUDA 13 driver on a V100.
+            clamped_for_volta = False
+            if compute_cap is not None and compute_cap < 750:
+                if float(cuda_version) > 12.8:
+                    cuda_version = "12.8"
+                    clamped_for_volta = True
 
             docker_tag_map = {
-                "11.8": "cu118",
-                "12.1": "cu121",
-                "12.4": "cu124",
-                "12.6": "cu126",
-                "12.8": "cu128",
+                "11.8": "cuda-11.8",
+                "12.8": "cuda-12.8",
+                "13.0": "cuda-13.0",
             }
 
+            cap_hint = f"compute_cap={compute_cap}" if compute_cap is not None else "compute_cap=unknown"
+
             if cuda_version in docker_tag_map:
-                return f"{docker_repo}:self-test-{docker_tag_map[cuda_version]}"
+                tag = docker_tag_map[cuda_version]
+                if clamped_for_volta:
+                    reason = f"{cap_hint} (Volta) + cuda_max_good={original_cuda} → clamped to {cuda_version} → {tag}"
+                else:
+                    reason = f"{cap_hint}, cuda_max_good={cuda_version} → exact match → {tag}"
+                return f"{docker_repo}:self-test-{tag}", reason
 
             cuda_float = float(cuda_version)
             next_version = round(cuda_float - 0.1, 1)
             while next_version >= min(float(v) for v in docker_tag_map.keys()):
                 next_version_str = str(next_version)
                 if next_version_str in docker_tag_map:
-                    return f"{docker_repo}:self-test-{docker_tag_map[next_version_str]}"
+                    tag = docker_tag_map[next_version_str]
+                    reason = (
+                        f"{cap_hint}, cuda_max_good={original_cuda} → "
+                        f"stepped down to {next_version_str} → {tag}"
+                    )
+                    return f"{docker_repo}:self-test-{tag}", reason
                 next_version = round(next_version - 0.1, 1)
 
             raise KeyError(f"No CUDA version found for {cuda_version} or any lower version")
@@ -716,14 +750,15 @@ def self_test__machine(args):
         else:
             ask_contract_id = top_offer["id"]
             cuda_version = top_offer["cuda_max_good"]
-            docker_image = cuda_map_to_image(cuda_version)
+            compute_cap = top_offer.get("compute_cap")
+            docker_image, image_reason = cuda_map_to_image(cuda_version, compute_cap)
 
             # ----- create the test instance -----
             try:
                 from vastai.cli.util import parse_env
                 env = parse_env("-e TZ=PDT -e XNAME=XX4 -p 5000:5000 -p 1234:1234")
 
-                progress_print(f"Starting test with {docker_image}")
+                progress_print(f"Starting test with {docker_image} ({image_reason})")
                 rj = instances_api.create_instance(
                     client,
                     id=ask_contract_id,
@@ -987,25 +1022,38 @@ def self_test__machine(args):
                             result["success"] = success
                             result["reason"] = reason
 
+    except KeyboardInterrupt:
+        result["success"] = False
+        result["reason"] = "Interrupted by user (Ctrl+C)"
+        progress_print("\nInterrupted — cleaning up test instance...")
     except Exception as e:
         result["success"] = False
         result["reason"] = str(e)
 
     finally:
-        try:
-            if instance_id:
-                # Helper might not be defined if we failed early, so use API directly
-                try:
-                    info = instances_api.show_instance(client, id=instance_id)
-                    if info:
-                        status = info.get('intended_status') or info.get('actual_status')
-                        if status not in ['destroyed', 'terminated', 'offline']:
-                            instances_api.destroy_instance(client, id=instance_id)
-                except Exception:
-                    pass
-        except Exception as e:
-            if args.debugging:
-                print(f"Error during cleanup: {e}")
+        # Always attempt to destroy the test instance, including on Ctrl+C.
+        # KeyboardInterrupt is BaseException (not Exception) so it skips the
+        # typed except above and lands here. Surface failures loudly: a
+        # silently-leaked instance keeps billing the host.
+        if instance_id:
+            try:
+                info = instances_api.show_instance(client, id=instance_id)
+                status = (info or {}).get('intended_status') or (info or {}).get('actual_status')
+                if status not in ('destroyed', 'terminated', 'offline'):
+                    progress_print(f"Destroying test instance {instance_id} (status: {status})...")
+                    instances_api.destroy_instance(client, id=instance_id)
+                    progress_print(f"Test instance {instance_id} destroyed.")
+            except KeyboardInterrupt:
+                progress_print(
+                    f"\nSecond interrupt during cleanup — instance {instance_id} may still be running.\n"
+                    f"  Destroy it manually: vastai destroy instance {instance_id}"
+                )
+                raise
+            except Exception as e:
+                progress_print(
+                    f"WARNING: failed to destroy test instance {instance_id}: {e}\n"
+                    f"  Destroy it manually: vastai destroy instance {instance_id}"
+                )
 
     if args.raw:
         print(json.dumps(result))

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from vastai.cli.parser import argument
 from vastai.cli.display import deindent, display_table
 from vastai.api import auth as auth_api
-from vastai.cli.util import SUCCESS, WARN, FAIL
+from vastai.cli.util import SUCCESS, WARN, FAIL, format_key_suffix
 
 
 # ---------------------------------------------------------------------------
@@ -211,7 +211,13 @@ def set__api_key(args):
 
     if os.path.exists(APIKEY_FILE_HOME):
         os.remove(APIKEY_FILE_HOME)
-        print("Your api key has been removed from {}".format(APIKEY_FILE_HOME))
+        if getattr(args, "explain", False):
+            print("Removed legacy api key file at {} (no longer used).".format(APIKEY_FILE_HOME))
+
+    env_key = os.environ.get("VAST_API_KEY")
+    if env_key:
+        print(f"\n{WARN} VAST_API_KEY is set in your environment (ends in {format_key_suffix(env_key)}) and overrides the key you just saved.")
+        print("Unset VAST_API_KEY to use the saved key.")
 
 
 # ---------------------------------------------------------------------------

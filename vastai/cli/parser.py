@@ -82,13 +82,104 @@ class hidden_aliases(object):
         self.l.append(x)
 
 
-# ---------------------------------------------------------------------------
-# Help formatter
-# ---------------------------------------------------------------------------
-
 class MyWideHelpFormatter(argparse.RawTextHelpFormatter):
     def __init__(self, prog):
         super().__init__(prog, width=128, max_help_position=50, indent_increment=1)
+
+
+COMMAND_GROUPS = {
+    'vastai.cli.commands.offers':       'Search',
+    'vastai.cli.commands.instances':    'Instances',
+    'vastai.cli.commands.benchmarks':   'Instances',
+    'vastai.cli.commands.machines':     'Host machines',
+    'vastai.cli.commands.teams':        'Teams',
+    'vastai.cli.commands.keys':         'Auth & keys',
+    'vastai.cli.commands.auth':         'Auth & keys',
+    'vastai.cli.commands.billing':      'Billing & account',
+    'vastai.cli.commands.endpoints':    'Serverless',
+    'vastai.cli.commands.deployments':  'Serverless',
+    'vastai.cli.commands.metrics':      'Metrics',
+    'vastai.cli.commands.storage':      'Storage volumes',
+    'vastai.cli.commands.misc':         'Other',
+}
+
+# Some misc.py commands belong with their target resource section, not Other.
+COMMAND_OVERRIDES = {
+    'execute':       'Instances',
+    'logs':          'Instances',
+    'ssh-url':       'Instances',
+    'scp-url':       'Instances',
+    'take snapshot': 'Instances',
+    'reports':       'Host machines',
+}
+
+GROUP_ORDER = [
+    'Search', 'Instances', 'Host machines', 'Teams', 'Auth & keys',
+    'Billing & account', 'Serverless', 'Metrics', 'Storage volumes', 'Other',
+]
+
+
+class GroupedArgumentParser(argparse.ArgumentParser):
+    """ArgumentParser that renders subcommands grouped by registering module."""
+
+    def format_help(self):
+        sub_action = self._subparsers_action()
+        if sub_action is None or not sub_action.choices:
+            return super().format_help()
+
+        formatter = self._get_formatter()
+        formatter.add_usage(self.usage, self._actions, self._mutually_exclusive_groups)
+        formatter.add_text(self.description)
+
+        # Skip the subparsers action; we render commands grouped below.
+        for action_group in self._action_groups:
+            non_sub_actions = [
+                a for a in action_group._group_actions
+                if not isinstance(a, argparse._SubParsersAction)
+            ]
+            if not non_sub_actions:
+                continue
+            formatter.start_section(action_group.title)
+            formatter.add_text(action_group.description)
+            formatter.add_arguments(non_sub_actions)
+            formatter.end_section()
+
+        self._add_grouped_commands(formatter, sub_action)
+        formatter.add_text(self.epilog)
+        return formatter.format_help()
+
+    def _subparsers_action(self):
+        for a in self._actions:
+            if isinstance(a, argparse._SubParsersAction):
+                return a
+        return None
+
+    def _add_grouped_commands(self, formatter, sub_action):
+        grouped = {}
+        for pseudo in sub_action._choices_actions:
+            sp = sub_action.choices.get(pseudo.dest)
+            if sp is None:
+                continue
+            label = COMMAND_OVERRIDES.get(pseudo.dest)
+            if label is None:
+                func = sp.get_default('func')
+                module = getattr(func, '__module__', None)
+                label = COMMAND_GROUPS.get(module, 'Other')
+            grouped.setdefault(label, []).append(pseudo)
+
+        seen = set()
+        for label in GROUP_ORDER:
+            if label in grouped:
+                formatter.start_section(label)
+                formatter.add_arguments(grouped[label])
+                formatter.end_section()
+                seen.add(label)
+        for label, actions in grouped.items():
+            if label in seen:
+                continue
+            formatter.start_section(label)
+            formatter.add_arguments(actions)
+            formatter.end_section()
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +193,7 @@ class apwrap(object):
     def __init__(self, *args, **kwargs):
         if "formatter_class" not in kwargs:
             kwargs["formatter_class"] = MyWideHelpFormatter
-        self.parser = argparse.ArgumentParser(*args, **kwargs)
+        self.parser = GroupedArgumentParser(*args, **kwargs)
         self.parser.set_defaults(func=self.fail_with_help)
         self.subparsers_ = None
         self.subparser_objs = []

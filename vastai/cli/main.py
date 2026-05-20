@@ -7,6 +7,7 @@ import requests
 from vastai.cli.parser import apwrap, argument, MyWideHelpFormatter, set_completers
 from vastai.cli.util import (
     APIKEY_FILE, TFAKEY_FILE, VERSION, server_url_default, api_key_guard,
+    format_key_suffix,
 )
 
 try:
@@ -25,11 +26,42 @@ def _emit_error(args, status_code, message):
     if getattr(args, "raw", False):
         payload = {"error": True, "status_code": status_code, "msg": message}
         print(json.dumps(payload), file=sys.stderr)
+        return
+
+    if status_code:
+        print(f"Failed with error {status_code}: {message}", file=sys.stderr)
     else:
-        if status_code:
-            print(f"Failed with error {status_code}: {message}", file=sys.stderr)
-        else:
-            print(message, file=sys.stderr)
+        print(message, file=sys.stderr)
+
+    if status_code == 401:
+        if "Two Factor Authentication" in message:
+            print(
+                "\nThis endpoint requires a 2FA session. Authenticate with the method you have set up:\n"
+                "  vastai tfa login --method-type totp -c <CODE>\n"
+                "  vastai tfa login --method-type sms   --secret <SECRET> -c <CODE>\n"
+                "  vastai tfa login --method-type email --secret <SECRET> -c <CODE>\n"
+                "  vastai tfa login --backup-code ABCD-EFGH-IJKL\n"
+                "For SMS or email, first run 'vastai tfa send-sms' or 'vastai tfa send-email' to get <SECRET>.",
+                file=sys.stderr,
+            )
+            return
+
+        env = os.environ.get("VAST_API_KEY")
+        file_key = None
+        if os.path.exists(APIKEY_FILE):
+            try:
+                with open(APIKEY_FILE) as f:
+                    file_key = f.read().strip()
+            except OSError:
+                pass
+
+        if env and file_key:
+            print(f"  Sent key from $VAST_API_KEY (ends in {format_key_suffix(env)}). Env var overrides the file.", file=sys.stderr)
+            print(f"  Unset the VAST_API_KEY env var to use the saved key in {APIKEY_FILE} (ends in {format_key_suffix(file_key)}) instead.", file=sys.stderr)
+        elif env:
+            print(f"  Sent key from $VAST_API_KEY (ends in {format_key_suffix(env)}). Update the env var with a new key.", file=sys.stderr)
+        elif file_key:
+            print(f"  Sent key from {APIKEY_FILE} (ends in {format_key_suffix(file_key)}). Update with: vastai set api-key <KEY>", file=sys.stderr)
 
 
 # Create the global parser instance
@@ -121,19 +153,19 @@ def main():
                 else:
                     errmsg = "(no detail message supplied)"
 
-            # 2FA Session Key Expired
-            if e.response.status_code == 401 and errmsg == "Invalid user key":
-                if os.path.exists(TFAKEY_FILE):
-                    print(f"Failed with error {e.response.status_code}: Your 2FA session has expired.")
-                    os.remove(TFAKEY_FILE)
-                    if os.path.exists(APIKEY_FILE):
-                        with open(APIKEY_FILE, "r") as reader:
-                            args.api_key = reader.read().strip()
-                            print(f"Trying again with your normal API Key from {APIKEY_FILE}...")
-                            continue
-                    else:
-                        print("Please log in using the `tfa login` command and try again.")
-                        break
+            # 2FA session key expired -> retry with long-lived API key
+            if (e.response.status_code == 401 and errmsg == "Invalid user key"
+                    and os.path.exists(TFAKEY_FILE)):
+                print(f"Failed with error {e.response.status_code}: Your 2FA session has expired.")
+                os.remove(TFAKEY_FILE)
+                if os.path.exists(APIKEY_FILE):
+                    with open(APIKEY_FILE, "r") as reader:
+                        args.api_key = reader.read().strip()
+                        print(f"Trying again with your normal API Key from {APIKEY_FILE}...")
+                        continue
+                else:
+                    print("Please log in using the `tfa login` command and try again.")
+                    break
 
             _emit_error(args, e.response.status_code, errmsg)
             break

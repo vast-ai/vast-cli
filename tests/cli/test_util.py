@@ -226,3 +226,74 @@ class TestScheduledJobsDisplayUtc:
             assert formatter(1705276800) == "2024-01-15/00:00"
         finally:
             _time.tzset()
+
+
+class TestRequiredInetMbps:
+    # Inputs are gpu_total_ram in MiB (matches ask_contract_offers.gpu_total_ram).
+    # Formula: min(500, max(100, 500 * (mib/1024) / 192))
+
+    def test_missing_falls_to_floor(self):
+        from vastai.cli.util import required_inet_mbps
+        assert required_inet_mbps(None) == 100.0
+        assert required_inet_mbps(0) == 100.0
+
+    def test_tiny_vram_floors_at_100(self):
+        from vastai.cli.util import required_inet_mbps
+        # 8 GiB
+        assert required_inet_mbps(8 * 1024) == 100.0
+
+    def test_huge_vram_caps_at_500(self):
+        from vastai.cli.util import required_inet_mbps
+        # 1 TiB total VRAM
+        assert required_inet_mbps(1024 * 1024) == 500.0
+
+    # Single-GPU reference table from the ticket. VRAM expressed as marketing-GiB
+    # converted to MiB by multiplying by 1024 (i.e. binary GiB inputs).
+    def test_reference_48gib_single_gpu(self):
+        from vastai.cli.util import required_inet_mbps
+        # A6000 marketing 48 GB
+        assert required_inet_mbps(48 * 1024) == pytest.approx(125.0, rel=1e-3)
+
+    def test_reference_80gib_single_gpu(self):
+        from vastai.cli.util import required_inet_mbps
+        # H100 80 GB
+        assert required_inet_mbps(80 * 1024) == pytest.approx(208.33, rel=1e-3)
+
+    def test_reference_96gib_single_gpu(self):
+        from vastai.cli.util import required_inet_mbps
+        assert required_inet_mbps(96 * 1024) == pytest.approx(250.0, rel=1e-3)
+
+    def test_reference_141gib_single_gpu(self):
+        from vastai.cli.util import required_inet_mbps
+        # H200 141 GB
+        assert required_inet_mbps(141 * 1024) == pytest.approx(367.19, rel=1e-3)
+
+    def test_reference_192gib_single_gpu_hits_cap(self):
+        from vastai.cli.util import required_inet_mbps
+        # B200 marketing 192 GB, expressed as binary GiB
+        assert required_inet_mbps(192 * 1024) == 500.0
+
+    # Multi-GPU machines scale with total VRAM and hit the cap quickly.
+    def test_2x_h100_total_160gib(self):
+        from vastai.cli.util import required_inet_mbps
+        assert required_inet_mbps(2 * 80 * 1024) == pytest.approx(416.67, rel=1e-3)
+
+    def test_4x_h100_total_320gib_caps(self):
+        from vastai.cli.util import required_inet_mbps
+        assert required_inet_mbps(4 * 80 * 1024) == 500.0
+
+    def test_8x_a6000_total_384gib_caps(self):
+        from vastai.cli.util import required_inet_mbps
+        assert required_inet_mbps(8 * 48 * 1024) == 500.0
+
+    def test_2x_a6000_total_96gib(self):
+        from vastai.cli.util import required_inet_mbps
+        assert required_inet_mbps(2 * 48 * 1024) == pytest.approx(250.0, rel=1e-3)
+
+    # Real B200 reports 183359 MiB (~179 GiB) — verifies that actual hardware
+    # values land just below the cap rather than hitting it exactly. Documented
+    # behavior; cap is reached at 192 GiB total.
+    def test_real_b200_mib_lands_below_cap(self):
+        from vastai.cli.util import required_inet_mbps
+        result = required_inet_mbps(183359)
+        assert 460.0 < result < 470.0

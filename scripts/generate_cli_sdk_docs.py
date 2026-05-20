@@ -65,6 +65,26 @@ The following options are available for all commands:
 """
 
 
+def _escape_mdx_prose(text: str) -> str:
+    """Escape ``<`` and ``>`` outside inline backticks so MDX doesn't parse
+    placeholder text like ``<PHONE_NUMBER>`` or ``<name of a field>`` as JSX.
+
+    Mintlify renders ``&lt;`` / ``&gt;`` identically to ``<`` / ``>`` in prose,
+    so this is visually transparent. Text inside inline backticks is left
+    alone so it stays literal in monospace.
+    """
+    if not text or ("<" not in text and ">" not in text):
+        return text
+    out: list[str] = []
+    in_code = False
+    for chunk in re.split(r"(`[^`\n]*`)", text):
+        if chunk.startswith("`") and chunk.endswith("`") and len(chunk) >= 2:
+            out.append(chunk)
+        else:
+            out.append(chunk.replace("<", "&lt;").replace(">", "&gt;"))
+    return "".join(out)
+
+
 # ---------------------------------------------------------------------------
 # CLI introspection
 # ---------------------------------------------------------------------------
@@ -253,7 +273,7 @@ def render_cli_mdx(cmd: CliCommand) -> str:
     out.append("---")
     out.append("")
     if cmd.summary:
-        out.append(cmd.summary)
+        out.append(_escape_mdx_prose(cmd.summary))
         out.append("")
 
     out.append("## Usage")
@@ -280,7 +300,7 @@ def render_cli_mdx(cmd: CliCommand) -> str:
     if cmd.description:
         out.append("## Description")
         out.append("")
-        out.append(cmd.description)
+        out.append(_escape_mdx_prose(cmd.description))
         out.append("")
 
     if cmd.examples:
@@ -314,6 +334,7 @@ def _render_param_field(a: CliArg, is_arg: bool) -> str:
     else:
         body = a.help or ""
 
+    body = _escape_mdx_prose(body)
     open_tag = f"<ParamField {' '.join(attrs)}>"
     return f"{open_tag}\n  {body}\n</ParamField>"
 
@@ -496,7 +517,7 @@ def render_sdk_mdx(method: SdkMethod) -> str:
     out.append("---")
     out.append("")
     if method.summary:
-        out.append(method.summary)
+        out.append(_escape_mdx_prose(method.summary))
         out.append("")
 
     out.append("## Signature")
@@ -516,7 +537,7 @@ def render_sdk_mdx(method: SdkMethod) -> str:
             if p.default_repr is not None and p.default_repr not in ("None", "False"):
                 attrs.append(f'default="{p.default_repr.strip(chr(39))}"')
             out.append(f"<ParamField {' '.join(attrs)}>")
-            out.append(f"  {p.help or ''}")
+            out.append(f"  {_escape_mdx_prose(p.help or '')}")
             out.append("</ParamField>")
             out.append("")
 

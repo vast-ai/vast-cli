@@ -213,6 +213,90 @@ jobs:
             -d "$(python -c "import json,sys,os; print(json.dumps({'title': f'Auto-generated CLI/SDK docs (vast-cli@${GITHUB_SHA::8})', 'head': '${DEPLOY_BRANCH}', 'base': '${DOCS_DEFAULT_BRANCH}', 'body': sys.stdin.read()}))" <<< "${BODY}")"
 
       # ----------------------------------------------------------------
+      # Post-deploy 404 sweep.
+      #
+      # Mintlify reports "Deployment: success" even when individual MDX pages
+      # fail to build — those pages silently return HTTP 404. We've shipped 10
+      # such pages by accident before (SO-80, 2026-05-20: unescaped <PLACEHOLDER>
+      # tokens in argparse epilogs parsed as JSX and failed the page build).
+      # This step waits for Mintlify to deploy the freshly-pushed commit, then
+      # curls every CLI/SDK reference URL in docs.json and fails the workflow
+      # on any non-200. Catches silent generator regressions before they merge.
+      # ----------------------------------------------------------------
+      - name: Wait for Mintlify and sweep for 404s
+        if: |
+          steps.diff.outputs.has_changes == 'true' &&
+          (github.event_name == 'pull_request' || github.event_name == 'push')
+        env:
+          GH_TOKEN: ${{ secrets.DOCS_GITHUB_TOKEN }}
+        run: |
+          set -e
+          cd docs-repo
+          HEAD_SHA=$(git rev-parse HEAD)
+          echo "Waiting for Mintlify deploy on docs commit ${HEAD_SHA}..."
+
+          PREVIEW_URL=""
+          # Poll for up to ~10 minutes (40 * 15s). Mintlify usually deploys in
+          # 1-2 min, but cold builds on a fresh preview branch can take longer.
+          for i in $(seq 1 40); do
+            state=$(curl -fsSL \
+              -H "Authorization: token ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${DOCS_REPO}/commits/${HEAD_SHA}/check-runs" 2>/dev/null \
+              | jq -r '.check_runs[]? | select(.name=="Mintlify Deployment") | "\(.status) \(.conclusion // "null") \(.output.summary // "")"' || echo "")
+
+            status=$(echo "$state" | awk '{print $1}')
+            conclusion=$(echo "$state" | awk '{print $2}')
+
+            if [ "$status" = "completed" ]; then
+              if [ "$conclusion" = "success" ]; then
+                PREVIEW_URL=$(echo "$state" | grep -oE 'https://[^[:space:]!]+\.mintlify\.app' | head -1)
+                if [ -z "$PREVIEW_URL" ]; then
+                  echo "::error::Mintlify reported success but no preview URL in summary: ${state}"
+                  exit 1
+                fi
+                echo "Mintlify deployed: ${PREVIEW_URL} (after ${i} polls)"
+                break
+              else
+                echo "::error::Mintlify deployment ${conclusion}"
+                exit 1
+              fi
+            fi
+            sleep 15
+          done
+
+          if [ -z "$PREVIEW_URL" ]; then
+            echo "::error::Mintlify deploy did not complete on ${HEAD_SHA} within 10 minutes"
+            exit 1
+          fi
+
+          mapfile -t PAGES < <(jq -r '.. | strings? | select(startswith("cli/reference/") or startswith("sdk/python/reference/"))' docs.json | sort -u)
+          if [ "${#PAGES[@]}" -eq 0 ]; then
+            echo "::warning::No CLI/SDK pages found in docs.json — skipping sweep"
+            exit 0
+          fi
+          echo "Sweeping ${#PAGES[@]} CLI/SDK reference pages..."
+
+          FAIL_COUNT=0
+          FAILED=()
+          for path in "${PAGES[@]}"; do
+            [ -z "$path" ] && continue
+            code=$(curl -s -o /dev/null -w '%{http_code}' -L --max-time 20 "${PREVIEW_URL}/${path}" || echo "000")
+            if [ "$code" != "200" ]; then
+              echo "::error file=${path}.mdx::HTTP ${code} on ${PREVIEW_URL}/${path}"
+              FAILED+=("${path} (HTTP ${code})")
+              FAIL_COUNT=$((FAIL_COUNT+1))
+            fi
+          done
+
+          if [ $FAIL_COUNT -gt 0 ]; then
+            echo "::error::${FAIL_COUNT} of ${#PAGES[@]} pages failed the 404 sweep:"
+            printf '  - %s\n' "${FAILED[@]}"
+            exit 1
+          fi
+          echo "All ${#PAGES[@]} pages returned HTTP 200."
+
+      # ----------------------------------------------------------------
       # Cleanup: close orphan preview PRs whose source PR was merged/closed.
       # Runs on master pushes, when we know which previews are obsolete.
       # ----------------------------------------------------------------

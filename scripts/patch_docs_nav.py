@@ -82,7 +82,14 @@ def classify_new(name: str) -> str | None:
         return "Host"
     if name.startswith("search-"):
         return "Search & templates"
-    if "instance" in name or name == "take-snapshot" or name == "show-instance-filters":
+    if "endpt" in name or "endpoint" in name or "workergroup" in name or "wrkgrp" in name:
+        return "Serverless"
+    if (
+        "instance" in name
+        or name == "take-snapshot"
+        or name == "show-instance-filters"
+        or name == "accept-price-increase"
+    ):
         return "Instances"
     return None
 

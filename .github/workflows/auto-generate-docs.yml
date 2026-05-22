@@ -73,6 +73,18 @@ jobs:
           git config user.email "vast-cli-docs-bot@vast.ai"
           git config user.name "vast-cli docs bot"
 
+      - name: Wipe stale CLI/SDK MDX before regeneration
+        # Without this, files persist after their source command/method is
+        # removed (e.g. cluster/overlay commands disabled in vast-cli/main.py
+        # left 11 orphan MDX files on the preview branch as of 2026-05-20).
+        # Orphans are harmless visually (not in nav, not rendered) but they
+        # accumulate and confuse audits. Preserve hand-authored entries: the
+        # SDK overview at sdk/python/reference/vastai.mdx is the only one.
+        run: |
+          cd docs-repo
+          find "${CLI_SUBDIR}" -maxdepth 1 -name '*.mdx' -delete 2>/dev/null || true
+          find "${SDK_SUBDIR}" -maxdepth 1 -name '*.mdx' ! -name 'vastai.mdx' -delete 2>/dev/null || true
+
       - name: Generate docs into clone
         run: |
           python scripts/generate_cli_sdk_docs.py \

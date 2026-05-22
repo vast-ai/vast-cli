@@ -48,6 +48,23 @@ GLOBAL_CLI_OPTIONS = {
     "version", "no_color", "help",
 }
 
+# Commands/methods we never publish to public docs, regardless of scope.
+# These are CLI/SDK surface that exists in code but isn't part of the
+# publicly-supported product. Public stance is that vast.ai does not offer
+# network volumes — the network-volume / network-disk commands were written
+# for a single customer and aren't verified to work for general users.
+#
+# Names are doc_names (kebab-case, no extension). The same set applies to
+# both CLI and SDK because the kebab-case is identical across surfaces.
+EXCLUDED_NAMES = {
+    "add-network-disk",
+    "create-network-volume",
+    "list-network-volume",
+    "search-network-volumes",
+    "show-network-disks",
+    "unlist-network-volume",
+}
+
 # Hardcoded markdown block to render at the bottom of every CLI page so the
 # table of universal flags stays consistent.  Matches the format guthrie-vast
 # established in docs PR #99.
@@ -1051,6 +1068,8 @@ def main():
     written: list[dict] = []
     excluded_cli: list[dict] = []
     excluded_sdk: list[dict] = []
+    excluded_policy_cli: list[str] = []
+    excluded_policy_sdk: list[str] = []
     unknown_cli: list[str] = []
     unknown_sdk: list[str] = []
 
@@ -1058,6 +1077,9 @@ def main():
         cli_dir = out_root / args.cli_subdir
         cli_dir.mkdir(parents=True, exist_ok=True)
         for doc_name, cmd in sorted(cli_commands.items()):
+            if doc_name in EXCLUDED_NAMES:
+                excluded_policy_cli.append(doc_name)
+                continue
             hits = cli_fn_endpoints.get(cmd.func_name, [])
             verdict = scope_index.classify(hits)
             if verdict == "internal":
@@ -1073,7 +1095,8 @@ def main():
             (cli_dir / f"{doc_name}.mdx").write_text(mdx)
             written.append({"kind": "cli", "name": doc_name})
         print(f"Wrote {sum(1 for w in written if w['kind'] == 'cli')} CLI pages to {cli_dir} "
-              f"({len(excluded_cli)} excluded as internal, {len(unknown_cli)} unclassified)")
+              f"({len(excluded_policy_cli)} excluded by policy, "
+              f"{len(excluded_cli)} excluded as internal, {len(unknown_cli)} unclassified)")
 
     if not args.skip_sdk:
         sdk_dir = out_root / args.sdk_subdir
@@ -1081,6 +1104,9 @@ def main():
         sdk_methods = extract_sdk_methods(cli_commands)
         print(f"Discovered {len(sdk_methods)} SDK methods.")
         for m in sorted(sdk_methods, key=lambda x: x.doc_name):
+            if m.doc_name in EXCLUDED_NAMES:
+                excluded_policy_sdk.append(m.doc_name)
+                continue
             hits = sdk_fn_endpoints.get(m.name, [])
             verdict = scope_index.classify(hits)
             if verdict == "internal":
@@ -1096,7 +1122,8 @@ def main():
             (sdk_dir / f"{m.doc_name}.mdx").write_text(mdx)
             written.append({"kind": "sdk", "name": m.doc_name})
         print(f"Wrote {sum(1 for w in written if w['kind'] == 'sdk')} SDK pages to {sdk_dir} "
-              f"({len(excluded_sdk)} excluded as internal, {len(unknown_sdk)} unclassified)")
+              f"({len(excluded_policy_sdk)} excluded by policy, "
+              f"{len(excluded_sdk)} excluded as internal, {len(unknown_sdk)} unclassified)")
 
     if args.manifest:
         Path(args.manifest).write_text(json.dumps({
@@ -1105,6 +1132,8 @@ def main():
             "files": written,
             "excluded_internal_cli": excluded_cli,
             "excluded_internal_sdk": excluded_sdk,
+            "excluded_policy_cli": excluded_policy_cli,
+            "excluded_policy_sdk": excluded_policy_sdk,
             "unclassified_cli": unknown_cli,
             "unclassified_sdk": unknown_sdk,
         }, indent=2))

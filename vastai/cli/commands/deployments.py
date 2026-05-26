@@ -122,6 +122,63 @@ def show__deployment_versions(args):
 
 
 # ---------------------------------------------------------------------------
+# stop deployment
+# ---------------------------------------------------------------------------
+
+@parser.command(
+    argument("id", help="id of deployment to stop", type=int),
+    usage="vastai stop deployment ID [OPTIONS]",
+    help="Stop a running deployment",
+    epilog=deindent("""
+        Stops the endpoint associated with a deployment. The deployment is not
+        deleted and can be restarted with 'vastai start deployment'.
+
+        Examples:
+            vastai stop deployment 1234
+            vastai stop deployment 1234 --raw
+    """),
+)
+def stop__deployment(args):
+    """Stop a running deployment."""
+    client = get_client(args)
+    rj = deployments_api.stop_deployment(client, id=args.id)
+    if args.raw:
+        return rj
+    elif rj.get("success"):
+        print(f"Deployment {args.id} stopped.")
+    else:
+        print(rj.get("msg", rj))
+
+
+# ---------------------------------------------------------------------------
+# start deployment
+# ---------------------------------------------------------------------------
+
+@parser.command(
+    argument("id", help="id of deployment to start", type=int),
+    usage="vastai start deployment ID [OPTIONS]",
+    help="Start a stopped deployment",
+    epilog=deindent("""
+        Starts (or restarts) the endpoint associated with a deployment.
+
+        Examples:
+            vastai start deployment 1234
+            vastai start deployment 1234 --raw
+    """),
+)
+def start__deployment(args):
+    """Start a stopped deployment."""
+    client = get_client(args)
+    rj = deployments_api.start_deployment(client, id=args.id)
+    if args.raw:
+        return rj
+    elif rj.get("success"):
+        print(f"Deployment {args.id} started.")
+    else:
+        print(rj.get("msg", rj))
+
+
+# ---------------------------------------------------------------------------
 # delete deployment
 # ---------------------------------------------------------------------------
 

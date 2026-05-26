@@ -56,6 +56,50 @@ class TestShowDeployment:
             args.func(args)
 
 
+class TestStopDeployment:
+    def test_stop_deployment(self, parse_argv, patch_get_client, mock_response, capsys):
+        patch_get_client.post.return_value = mock_response(200, {"success": True, "endpoint_state": "stopped"})
+        args = parse_argv(["stop", "deployment", "42"])
+        args.func(args)
+        patch_get_client.post.assert_called_once()
+        call_args = patch_get_client.post.call_args
+        assert "/deployment/42/stop/" in call_args[0][0]
+
+    def test_stop_deployment_raw(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.post.return_value = mock_response(200, {"success": True, "endpoint_state": "stopped"})
+        args = parse_argv(["stop", "deployment", "42", "--raw"])
+        result = args.func(args)
+        assert result["success"] is True
+
+    def test_stop_deployment_error(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.post.return_value = mock_response(404, {"error": "not found"})
+        args = parse_argv(["stop", "deployment", "999"])
+        with pytest.raises(HTTPError):
+            args.func(args)
+
+
+class TestStartDeployment:
+    def test_start_deployment(self, parse_argv, patch_get_client, mock_response, capsys):
+        patch_get_client.post.return_value = mock_response(200, {"success": True, "endpoint_state": "active"})
+        args = parse_argv(["start", "deployment", "42"])
+        args.func(args)
+        patch_get_client.post.assert_called_once()
+        call_args = patch_get_client.post.call_args
+        assert "/deployment/42/start/" in call_args[0][0]
+
+    def test_start_deployment_raw(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.post.return_value = mock_response(200, {"success": True, "endpoint_state": "active"})
+        args = parse_argv(["start", "deployment", "42", "--raw"])
+        result = args.func(args)
+        assert result["success"] is True
+
+    def test_start_deployment_error(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.post.return_value = mock_response(404, {"error": "not found"})
+        args = parse_argv(["start", "deployment", "999"])
+        with pytest.raises(HTTPError):
+            args.func(args)
+
+
 class TestDeleteDeployment:
     def test_delete_deployment(self, parse_argv, patch_get_client, mock_response):
         patch_get_client.delete.return_value = mock_response(200, {"success": True})

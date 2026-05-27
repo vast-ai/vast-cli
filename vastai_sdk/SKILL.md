@@ -78,6 +78,12 @@ ssh_url = vast.ssh_url(id=12345)   # returns "ssh -p PORT user@host"
 scp_url = vast.scp_url(id=12345)   # returns scp-compatible URL
 ```
 
+### Interruptible (spot) rentals
+
+Interruptible (spot) instances are priced below on-demand instances, but can be interrupted at any time by another user with a lower bid. Note: `vast.search_offers(type='bid', ...)` exposes `min_bid`, but `vast.create_instance(...)` defaults to **on-demand at `dph_total`** unless you pass `bid_price=<floor>`. Always pass `bid_price` after a `type='bid'` search, otherwise the instance will be rented as an on-demand instance/price instead of as an interruptible.
+
+When outbid, the instance moves to `stopped` (not destroyed) and storage charges continue. Resume by raising the bid via `vast.change_bid(id=..., price=...)`.
+
 ### Search
 
 ```python

@@ -795,6 +795,12 @@ def self_test__machine(args):
                 result["stage"] = "create_instance"
                 from vastai.cli.util import parse_env
                 env = parse_env("-e TZ=PDT -e XNAME=XX4 -p 5000:5000 -p 1234:1234")
+                runtype = "ssh_direc ssh_proxy"
+                result["diagnostics"]["launch"] = {
+                    "runtype": runtype,
+                    "jupyter_lab": False,
+                    "ports": ["5000/tcp", "1234/tcp"],
+                }
 
                 progress_print(f"Starting test with {docker_image} ({image_reason})")
                 rj = instances_api.create_instance(
@@ -816,7 +822,7 @@ def self_test__machine(args):
                     cancel_unavail=False,
                     template_hash=None,
                     user=None,
-                    runtype="jupyter_direc ssh_direc ssh_proxy",
+                    runtype=runtype,
                     args=None,
                 )
                 debug_print("Captured instance_info from create_instance:", rj)

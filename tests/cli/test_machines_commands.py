@@ -315,6 +315,9 @@ class TestSelfTestMachineDiagnostics:
         assert search.call_count == 1
         create.assert_called_once()
         assert create.call_args.kwargs["id"] == 2002
+        assert create.call_args.kwargs["runtype"] == "ssh_direc ssh_proxy"
+        assert create.call_args.kwargs["jupyter_lab"] is False
+        assert result["diagnostics"]["launch"]["runtype"] == "ssh_direc ssh_proxy"
 
     def test_preflight_normalizes_api_gpu_ram_units(
         self, parse_argv, patch_get_client, monkeypatch, capsys
@@ -370,6 +373,7 @@ class TestSelfTestMachineDiagnostics:
 
         assert result["diagnostics"]["image"]["override"] is True
         assert create.call_args.kwargs["image"] == "vastai/test:p3-dogfood"
+        assert create.call_args.kwargs["runtype"] == "ssh_direc ssh_proxy"
 
     def test_env_test_image_overrides_default_mapping(
         self, parse_argv, patch_get_client, monkeypatch
@@ -388,6 +392,7 @@ class TestSelfTestMachineDiagnostics:
 
         assert result["diagnostics"]["image"]["override"] is True
         assert create.call_args.kwargs["image"] == "vastai/test:p3-env"
+        assert create.call_args.kwargs["runtype"] == "ssh_direc ssh_proxy"
 
     def test_default_cuda_mapping_still_selects_official_image(
         self, parse_argv, patch_get_client, monkeypatch
@@ -406,6 +411,7 @@ class TestSelfTestMachineDiagnostics:
 
         assert result["diagnostics"]["image"]["override"] is False
         assert create.call_args.kwargs["image"] == "vastai/test:self-test-cuda-12.8"
+        assert create.call_args.kwargs["runtype"] == "ssh_direc ssh_proxy"
 
     def test_startup_status_msg_is_classified_in_raw_output(
         self, parse_argv, patch_get_client, monkeypatch

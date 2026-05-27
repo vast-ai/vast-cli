@@ -1,0 +1,154 @@
+import pytest
+
+from vastai.cli.self_test import runtime_diagnostics as diag
+
+
+def test_failure_catalog_contains_stable_runtime_codes():
+    catalog = diag.failure_catalog()
+
+    assert set(diag.RUNTIME_FAILURE_CODES) == set(catalog)
+    assert catalog[diag.DOCKER_PULL_FAILED]["code"] == diag.DOCKER_PULL_FAILED
+    assert catalog[diag.CLEANUP_FAILED]["suggested_steps"]
+
+
+def test_make_failure_shapes_raw_output_dict():
+    result = diag.make_failure(
+        diag.INSTANCE_STATUS_ERROR,
+        stage=diag.STAGE_STARTUP,
+        error="Error: status failed",
+        underlying_error="backend status_msg",
+    )
+
+    assert result["code"] == diag.INSTANCE_STATUS_ERROR
+    assert result["stage"] == diag.STAGE_STARTUP
+    assert result["summary"]
+    assert result["remediation"]
+    assert result["suggested_steps"]
+    assert result["error"] == "Error: status failed"
+    assert result["underlying_error"] == "backend status_msg"
+
+
+def test_make_failure_rejects_unknown_code():
+    with pytest.raises(ValueError, match="Unknown runtime failure code"):
+        diag.make_failure("not_a_real_failure")
+
+
+def test_legacy_parser_tracks_stage_and_classifies_nccl_error():
+    parser = diag.LegacyProgressParser()
+
+    assert parser.process_line("Running NCCL distributed test...") is None
+    result = parser.process_line("ERROR: NCCL unhandled system error during allreduce")
+
+    assert parser.stage == diag.STAGE_NCCL
+    assert result["code"] == diag.NCCL_FAILED
+    assert result["stage"] == diag.STAGE_NCCL
+    assert result["underlying_error"] == "ERROR: NCCL unhandled system error during allreduce"
+
+
+def test_legacy_parser_classifies_unknown_error_as_legacy_progress_error():
+    result = diag.parse_legacy_progress(
+        "\n".join(
+            [
+                "Running system requirements test...",
+                "ERROR: something unexpected happened",
+            ]
+        )
+    )
+
+    assert len(result) == 1
+    assert result[0]["code"] == diag.LEGACY_PROGRESS_ERROR
+    assert result[0]["stage"] == diag.STAGE_SYSTEM_REQUIREMENTS
+
+
+def test_legacy_parser_classifies_nvml_and_nvidia_smi_error():
+    result = diag.parse_legacy_progress(
+        "\n".join(
+            [
+                "Running system requirements test...",
+                "ERROR: nvidia-smi failed: Failed to initialize NVML",
+            ]
+        )
+    )
+
+    assert result[0]["code"] == diag.NVML_FAILED
+    assert result[0]["stage"] == diag.STAGE_SYSTEM_REQUIREMENTS
+
+
+def test_legacy_parser_classifies_resnet_torch_oom():
+    result = diag.parse_legacy_progress(
+        "\n".join(
+            [
+                "Running ResNet50/ResNet18 test...",
+                "ERROR: torch RuntimeError: CUDA out of memory",
+            ]
+        )
+    )
+
+    assert result[0]["code"] == diag.RESNET_FAILED
+    assert result[0]["stage"] == diag.STAGE_RESNET
+
+
+def test_legacy_parser_classifies_ecc_error():
+    result = diag.parse_legacy_progress(
+        "\n".join(
+            [
+                "Running ECC test...",
+                "ERROR: ECC double bit error detected",
+            ]
+        )
+    )
+
+    assert result[0]["code"] == diag.ECC_FAILED
+    assert result[0]["stage"] == diag.STAGE_ECC
+
+
+def test_legacy_parser_classifies_stress_gpu_burn_xid_error():
+    result = diag.parse_legacy_progress(
+        "\n".join(
+            [
+                "Running stress-ng and gpu-burn...",
+                "ERROR: gpu-burn failed after kernel Xid 79",
+            ]
+        )
+    )
+
+    assert result[0]["code"] == diag.STRESS_GPU_BURN_FAILED
+    assert result[0]["stage"] == diag.STAGE_STRESS_GPU_BURN
+
+
+@pytest.mark.parametrize(
+    "status_msg",
+    [
+        "Error response from daemon: manifest for vastai/test:self-test-cuda-99 not found",
+        "pull access denied for private/image, repository does not exist or may require authorization",
+        "unauthorized: authentication required",
+    ],
+)
+def test_status_msg_classifies_docker_pull_failures(status_msg):
+    result = diag.classify_status_msg(status_msg)
+
+    assert result["code"] == diag.DOCKER_PULL_FAILED
+    assert result["stage"] == diag.STAGE_STARTUP
+    assert result["underlying_error"] == status_msg
+
+
+def test_status_msg_classifies_generic_daemon_startup_failure():
+    status_msg = "Error: container failed to start: OCI runtime create failed"
+
+    result = diag.classify_status_msg(status_msg)
+
+    assert result["code"] == diag.DAEMON_STARTUP_FAILED
+    assert result["stage"] == diag.STAGE_STARTUP
+    assert result["underlying_error"] == status_msg
+
+
+def test_status_msg_classifies_other_errors_as_status_error():
+    result = diag.classify_status_msg("Error: host reported an unknown fault")
+
+    assert result["code"] == diag.INSTANCE_STATUS_ERROR
+    assert result["stage"] == diag.STAGE_STARTUP
+
+
+def test_status_msg_ignores_empty_values():
+    assert diag.classify_status_msg(None) is None
+    assert diag.classify_status_msg("  ") is None

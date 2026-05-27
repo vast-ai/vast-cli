@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+import requests
 
 
 class TestShowMachines:
@@ -209,3 +210,306 @@ class TestSelfTestMachineIgnoreRequirements:
         assert "warning" in raw
         assert "Requirement checks are skipped as a pass/fail gate" in raw["warning"]
         assert "does not qualify this machine for verification" in raw["warning"]
+
+
+def _self_test_offer(**overrides):
+    offer = {
+        "id": 1001,
+        "machine_id": "42",
+        "gpu_name": "RTX_4090",
+        "num_gpus": 1,
+        "dph_total": 0.5,
+        "dlperf": 100,
+        "cuda_max_good": 12.8,
+        "compute_cap": 890,
+        "reliability": 0.99,
+        "direct_port_count": 4,
+        "pcie_bw": 3.2,
+        "inet_down": 200,
+        "inet_up": 200,
+        "gpu_ram": 24,
+        "gpu_total_ram": 24 * 1024,
+        "cpu_ram": 32 * 1024,
+        "cpu_cores": 4,
+    }
+    offer.update(overrides)
+    return offer
+
+
+class TestSelfTestMachineDiagnostics:
+    def test_no_offer_raw_returns_structured_failure(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        search = Mock(side_effect=[[], []])
+        monkeypatch.setattr("vastai.cli.commands.machines.offers_api.search_offers", search)
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert result["success"] is False
+        assert result["reason"] == "No on-demand offer found for machine 42."
+        assert result["failure_code"] == "no_offer"
+        assert result["phase"] == "preflight"
+        assert result["machine_id"] == "42"
+        assert result["checks"][0]["id"] == "offer.available"
+        assert result["failure"]["likely_causes"]
+        assert search.call_count == 2
+
+    def test_no_offer_non_raw_renders_once_without_stale_placeholders(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        broader_offer = _self_test_offer(rentable=False, rented=True)
+        search = Mock(side_effect=[[], [broader_offer]])
+        monkeypatch.setattr("vastai.cli.commands.machines.offers_api.search_offers", search)
+
+        args = parse_argv(["self-test", "machine", "42"])
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 1
+        assert captured.out.count("Preflight diagnostics for machine 42 failed:") == 1
+        assert "actual: 0 offers" in captured.out
+        assert "required: >= 1 offers" in captured.out
+        assert "vastai search offers 'machine_id=42 rentable=any rented=any'" in captured.out
+        assert "{machine_id}" not in captured.out
+        assert "--filter" not in captured.out
+
+    def test_preflight_outputs_actual_required_once(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        bad_offer = _self_test_offer(cuda_max_good=11.7, reliability=0.9)
+        search = Mock(return_value=[bad_offer])
+        monkeypatch.setattr("vastai.cli.commands.machines.offers_api.search_offers", search)
+
+        args = parse_argv(["self-test", "machine", "42"])
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 1
+        assert captured.out.count("Preflight diagnostics for machine 42 failed:") == 1
+        assert "- CUDA version" in captured.out
+        assert "actual: 11.7 CUDA" in captured.out
+        assert "required: >= 11.8 CUDA" in captured.out
+        assert "{machine_id}" not in captured.out
+        assert "--filter" not in captured.out
+        assert search.call_count == 1
+
+    def test_selected_offer_is_reused_for_rental(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        lower_offer = _self_test_offer(id=1001, dlperf=10)
+        selected_offer = _self_test_offer(id=2002, dlperf=50)
+        search = Mock(return_value=[lower_offer, selected_offer])
+        create = Mock(side_effect=RuntimeError("stop before live rental"))
+        monkeypatch.setattr("vastai.cli.commands.machines.offers_api.search_offers", search)
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.create_instance", create)
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        assert result["failure_code"] == "instance_create_failed"
+        assert search.call_count == 1
+        create.assert_called_once()
+        assert create.call_args.kwargs["id"] == 2002
+
+    def test_preflight_normalizes_api_gpu_ram_units(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        bad_offer = _self_test_offer(gpu_ram=6 * 1024)
+        search = Mock(return_value=[bad_offer])
+        monkeypatch.setattr("vastai.cli.commands.machines.offers_api.search_offers", search)
+
+        args = parse_argv(["self-test", "machine", "42"])
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 1
+        assert "- GPU RAM" in captured.out
+        assert "actual: 6.0 GiB" in captured.out
+        assert "required: > 7 GiB" in captured.out
+
+    def test_ignore_requirements_includes_failed_checks_and_continues(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        bad_offer = _self_test_offer(reliability=0.9)
+        search = Mock(return_value=[bad_offer])
+        create = Mock(side_effect=RuntimeError("stop before live rental"))
+        monkeypatch.setattr("vastai.cli.commands.machines.offers_api.search_offers", search)
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.create_instance", create)
+
+        args = parse_argv(["self-test", "machine", "42", "--ignore-requirements"])
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 1
+        assert "Continuing despite unmet requirements because --ignore-requirements is set." in captured.out
+        assert "WARNING: --ignore-requirements is set." in captured.out
+        assert "does not qualify this machine for verification" in captured.out
+        create.assert_called_once()
+        assert search.call_count == 1
+
+    def test_test_image_option_overrides_default_mapping(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer()
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        create = Mock(side_effect=RuntimeError("stop before live rental"))
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.create_instance", create)
+
+        args = parse_argv(["self-test", "machine", "42", "--test-image", "vastai/test:p3-dogfood", "--raw"])
+        result = args.func(args)
+
+        assert result["diagnostics"]["image"]["override"] is True
+        assert create.call_args.kwargs["image"] == "vastai/test:p3-dogfood"
+
+    def test_env_test_image_overrides_default_mapping(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer()
+        monkeypatch.setenv("VAST_SELF_TEST_IMAGE", "vastai/test:p3-env")
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        create = Mock(side_effect=RuntimeError("stop before live rental"))
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.create_instance", create)
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        assert result["diagnostics"]["image"]["override"] is True
+        assert create.call_args.kwargs["image"] == "vastai/test:p3-env"
+
+    def test_default_cuda_mapping_still_selects_official_image(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer(cuda_max_good=12.8, compute_cap=890)
+        monkeypatch.delenv("VAST_SELF_TEST_IMAGE", raising=False)
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        create = Mock(side_effect=RuntimeError("stop before live rental"))
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.create_instance", create)
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        assert result["diagnostics"]["image"]["override"] is False
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cuda-12.8"
+
+    def test_startup_status_msg_is_classified_in_raw_output(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer()
+        status_msg = "Error response from daemon: manifest for vastai/test:self-test-cuda-99 not found"
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        show = Mock(
+            side_effect=[
+                {
+                    "id": 123,
+                    "status_msg": status_msg,
+                    "actual_status": "created",
+                    "intended_status": "running",
+                },
+                {"id": 123, "actual_status": "running", "intended_status": "running"},
+                {"id": 123, "actual_status": "destroyed", "intended_status": "destroyed"},
+            ]
+        )
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.show_instance", show)
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.destroy_instance", destroy)
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        assert result["success"] is False
+        assert result["failure_code"] == "docker_pull_failed"
+        assert result["failure"]["underlying_error"] == status_msg
+        assert result["diagnostics"]["runtime_failure"]["code"] == "docker_pull_failed"
+        destroy.assert_called_once()
+
+    def test_cleanup_404_after_destroy_is_not_reported_as_leak(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        offer = _self_test_offer()
+        status_msg = "Error: container failed to start: OCI runtime create failed"
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        response = Mock(status_code=404)
+        gone = requests.exceptions.HTTPError("404 Client Error: Not Found for url: https://example.test/?api_key=secret")
+        gone.response = response
+        show = Mock(
+            side_effect=[
+                {
+                    "id": 123,
+                    "status_msg": status_msg,
+                    "actual_status": "created",
+                    "intended_status": "running",
+                },
+                {"id": 123, "actual_status": "running", "intended_status": "running"},
+                gone,
+            ]
+        )
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.show_instance", show)
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.destroy_instance", destroy)
+
+        args = parse_argv(["self-test", "machine", "42"])
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 1
+        assert "Runtime failure diagnostics:" in captured.out
+        assert "- code: daemon_startup_failed" in captured.out
+        assert "- remediation: Inspect docker daemon, OCI runtime, and container startup logs." in captured.out
+        assert "WARNING: failed to destroy test instance" not in captured.out
+        assert "api_key=secret" not in captured.out
+        destroy.assert_called_once()
+
+    def test_create_instance_error_redacts_api_key(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        offer = _self_test_offer()
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        create = Mock(
+            side_effect=RuntimeError(
+                "404 Client Error: Not Found for url: https://console.vast.ai/api/v0/instances/?api_key=secret"
+            )
+        )
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.create_instance", create)
+
+        args = parse_argv(["self-test", "machine", "42"])
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 1
+        assert "api_key=secret" not in captured.out
+        assert "api_key=REDACTED" in captured.out

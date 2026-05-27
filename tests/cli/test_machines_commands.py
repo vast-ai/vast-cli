@@ -1,5 +1,8 @@
 """Integration tests for machine CLI commands with mocked HTTP."""
 
+from types import SimpleNamespace
+from unittest.mock import Mock
+
 import pytest
 
 
@@ -73,3 +76,57 @@ class TestListMachineMinChunkDefault:
         args.func(args)
         body = patch_get_client.put.call_args[1]["json_data"]
         assert body["min_chunk"] == 4
+
+
+class TestSelfTestMachineCleanup:
+    def test_successful_destroy_does_not_warn_when_instance_is_already_gone(
+        self, parse_argv, monkeypatch, capsys
+    ):
+        from vastai.cli.commands import machines
+
+        offer = {
+            "id": 777,
+            "cuda_max_good": "13.0",
+            "compute_cap": 860,
+            "dlperf": 1,
+            "reliability": 0.99,
+            "direct_port_count": 4,
+            "pcie_bw": 3.0,
+            "gpu_total_ram": 12288,
+            "inet_down": 500,
+            "inet_up": 500,
+            "gpu_ram": 8,
+            "cpu_ram": 16000,
+            "cpu_cores": 4,
+            "num_gpus": 1,
+        }
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"5000/tcp": [{"HostPort": "5000"}]},
+            "status_msg": "",
+        }
+
+        monkeypatch.setattr(machines.offers_api, "search_offers", Mock(return_value=[offer]))
+        monkeypatch.setattr(machines.instances_api, "create_instance", Mock(return_value={"new_contract": 123}))
+        monkeypatch.setattr(machines.instances_api, "show_instance", Mock(side_effect=[
+            running_instance,
+            running_instance,
+            None,
+        ]))
+        destroy_instance = Mock(return_value={"success": True})
+        monkeypatch.setattr(machines.instances_api, "destroy_instance", destroy_instance)
+        monkeypatch.setattr(machines.requests, "get", lambda *_, **__: SimpleNamespace(status_code=200, text="DONE"))
+        monkeypatch.setattr(machines.time, "sleep", lambda *_: None)
+
+        args = parse_argv(["self-test", "machine", "46368"])
+        with pytest.raises(SystemExit) as exit_info:
+            args.func(args)
+
+        assert exit_info.value.code == 0
+        assert destroy_instance.call_count == 1
+        captured = capsys.readouterr()
+        assert "Instance 123 destroyed successfully on attempt 1." in captured.out
+        assert "WARNING: failed to destroy test instance 123" not in captured.out

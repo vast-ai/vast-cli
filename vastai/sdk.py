@@ -144,6 +144,8 @@ class VastAI:
         inst = instances.show_instance(self.client, id)
         if isinstance(inst, list):
             inst = inst[0] if inst else {}
+        if not isinstance(inst, dict):
+            return ""
         port = inst.get("ssh_port") or (inst.get("ports") or {}).get("22/tcp", [{}])[0].get("HostPort")
         ip = inst.get("ssh_host") or inst.get("public_ipaddr")
         return f"ssh://root@{ip}:{port}" if port and ip else ""
@@ -153,6 +155,8 @@ class VastAI:
         inst = instances.show_instance(self.client, id)
         if isinstance(inst, list):
             inst = inst[0] if inst else {}
+        if not isinstance(inst, dict):
+            return ""
         port = inst.get("ssh_port") or (inst.get("ports") or {}).get("22/tcp", [{}])[0].get("HostPort")
         ip = inst.get("ssh_host") or inst.get("public_ipaddr")
         return f"scp://root@{ip}:{port}" if port and ip else ""

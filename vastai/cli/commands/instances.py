@@ -86,6 +86,12 @@ def show__instance(args):
     """Shows stats for a single instance."""
     client = get_client(args)
     result = instances_api.show_instance(client, id=args.id)
+    if result is None:
+        if args.raw:
+            return {"instances": None}
+        if not args.quiet:
+            print(f"Instance {args.id} not found or no longer exists.")
+        return 1
     if args.raw:
         return result
     if args.quiet:

@@ -6,6 +6,7 @@ Covers the per-row rewrite: `show pending-price-increases`,
 asserts the new flow end-to-end with mocked HTTP.
 """
 
+import json
 import re
 
 import pytest
@@ -176,9 +177,11 @@ class TestAcceptPriceIncrease:
             200, {"success": True, "pending_price_increase_id": 999, "contract_id": 123},
         )
         args = parse_argv(["accept", "price-increase", "123", "--yes", "--raw"])
-        result = args.func(args)
+        with pytest.raises(SystemExit) as excinfo:
+            args.func(args)
+        assert excinfo.value.code == 0
         captured = capsys.readouterr()
-        assert captured.out == ""
+        result = json.loads(captured.out)
         assert result["success"] is True
         assert result["exit_code"] == 0
         assert result["acted"] == 1
@@ -195,6 +198,24 @@ class TestAcceptPriceIncrease:
                 },
             }
         ]
+
+    def test_raw_non_stale_failure_exits_1(self, parse_argv, patch_get_client, mock_response, capsys):
+        patch_get_client.get.return_value = mock_response(200, _envelope([PENDING_ROW]))
+        patch_get_client.put.return_value = mock_response(500, {"msg": "boom"})
+        args = parse_argv(["accept", "price-increase", "123", "--yes", "--raw"])
+        with pytest.raises(SystemExit) as excinfo:
+            args.func(args)
+        assert excinfo.value.code == 1
+        captured = capsys.readouterr()
+        result = json.loads(captured.out)
+        assert result["success"] is False
+        assert result["exit_code"] == 1
+        assert result["acted"] == 0
+        assert result["failed"] == 1
+        assert result["stale"] == 0
+        assert result["results"][0]["status"] == "failed"
+        assert result["results"][0]["instance_id"] == 123
+        assert result["results"][0]["pending_price_increase_id"] == 999
 
     def test_missing_yes_non_tty_exits_1(self, parse_argv, patch_get_client, mock_response, capsys, monkeypatch):
         monkeypatch.setattr("sys.stdin.isatty", lambda: False)

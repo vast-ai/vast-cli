@@ -15,6 +15,7 @@ Stale signal is ``HTTP 404`` with body
 ``HTTP 409`` is treated identically — the FE still recognises it).
 """
 
+import json
 import sys
 from datetime import datetime, timezone
 
@@ -304,16 +305,17 @@ def _run_per_row(args, *, route_verb, api_call, present_imperative, past_tense, 
     n_ok = len(acted_ids)
     if args.raw:
         exit_code = 1 if failed else 2 if stale else 0
-        return {
+        payload = {
             "success": exit_code == 0,
             "exit_code": exit_code,
-            "_exit_code": exit_code,
             "requested": total,
             "acted": n_ok,
             "stale": stale,
             "failed": failed,
             "results": results,
         }
+        print(json.dumps(payload, indent=1, sort_keys=True))
+        sys.exit(exit_code)
 
     print(
         f"\n{past_tense} {n_ok} / Stale {stale} / Failed {failed} "

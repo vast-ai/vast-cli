@@ -20,6 +20,14 @@ class TestShowInstances:
         assert "/instances" in call_args[0][0]
         assert isinstance(result, list)
 
+    def test_show_instances_raw_null_instances(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.get.return_value = mock_response(200, {"instances": None})
+        args = parse_argv(["show", "instances", "--raw"])
+
+        result = args.func(args)
+
+        assert result == []
+
     def test_show_instances_display(self, parse_argv, patch_get_client, mock_response, capsys):
         patch_get_client.get.return_value = mock_response(200, {
             "instances": [
@@ -60,7 +68,8 @@ class TestShowInstance:
 
         assert result == 1
         captured = capsys.readouterr()
-        assert "Instance 123 not found or no longer exists." in captured.out
+        assert captured.out == ""
+        assert "Instance 123 not found or no longer exists." in captured.err
 
 
 class TestDestroyInstance:

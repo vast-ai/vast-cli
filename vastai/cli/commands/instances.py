@@ -90,7 +90,7 @@ def show__instance(args):
         if args.raw:
             return {"instances": None}
         if not args.quiet:
-            print(f"Instance {args.id} not found or no longer exists.")
+            print(f"Instance {args.id} not found or no longer exists.", file=sys.stderr)
         return 1
     if args.raw:
         return result

@@ -66,7 +66,7 @@ class VastAI:
         """Return distinct filterable values for instances."""
         return instances.show_instance_filters(self.client)
 
-    def show_instance(self, id: int) -> dict:
+    def show_instance(self, id: int) -> Optional[dict]:
         """Return details of a single instance."""
         return instances.show_instance(self.client, id)
 

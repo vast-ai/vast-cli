@@ -496,6 +496,40 @@ class TestSelfTestMachineDiagnostics:
         assert result["diagnostics"]["runtime_failure"]["code"] == "docker_pull_failed"
         destroy.assert_called_once()
 
+    def test_stopped_startup_status_is_classified_without_waiting_for_timeout(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer()
+        status_msg = "docker_build() error writing dockerfile"
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        stopped_instance = {
+            "id": 123,
+            "status_msg": status_msg,
+            "actual_status": "loading",
+            "intended_status": "stopped",
+        }
+        show = Mock(side_effect=[stopped_instance, stopped_instance, None])
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.show_instance", show)
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.destroy_instance", destroy)
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        assert result["success"] is False
+        assert result["failure_code"] == "daemon_startup_failed"
+        assert result["failure"]["underlying_error"] == status_msg
+        assert result["diagnostics"]["runtime_failure"]["code"] == "daemon_startup_failed"
+        assert show.call_count == 3
+        destroy.assert_called_once()
+
     def test_cleanup_404_after_destroy_is_not_reported_as_leak(
         self, parse_argv, patch_get_client, monkeypatch, capsys
     ):

@@ -912,14 +912,28 @@ def self_test__machine(args):
                                 continue
 
                             status_msg = instance_info.get('status_msg', '')
-                            if status_msg and 'Error' in status_msg:
-                                diagnostic = classify_status_msg(status_msg) or make_failure(
+                            status_msg_clean = status_msg.strip() if isinstance(status_msg, str) else ""
+                            status_msg_lower = status_msg_clean.lower()
+                            status_msg_is_error = any(
+                                token in status_msg_lower
+                                for token in (
+                                    "error",
+                                    "failed",
+                                    "failure",
+                                    "exception",
+                                    "traceback",
+                                    "oci runtime",
+                                    "permission denied",
+                                )
+                            )
+                            if status_msg_clean and status_msg_is_error:
+                                diagnostic = classify_status_msg(status_msg_clean) or make_failure(
                                     DAEMON_STARTUP_FAILED,
                                     stage="startup",
-                                    error=status_msg.strip(),
-                                    underlying_error=status_msg.strip(),
+                                    error=status_msg_clean,
+                                    underlying_error=status_msg_clean,
                                 )
-                                reason = f"Instance {inst_id} encountered an error: {status_msg.strip()}"
+                                reason = f"Instance {inst_id} encountered an error: {status_msg_clean}"
                                 progress_print(reason)
                                 if instance_exist(inst_id):
                                     destroy_instance_silent(inst_id)
@@ -929,6 +943,7 @@ def self_test__machine(args):
                                 return False, reason, diagnostic
 
                             actual_status = instance_info.get('actual_status', 'unknown')
+                            intended_status = instance_info.get('intended_status', 'unknown')
                             if actual_status == 'offline':
                                 reason = "Instance offline during testing"
                                 diagnostic = make_failure(INSTANCE_OFFLINE_BEFORE_TEST, stage="startup")
@@ -940,7 +955,29 @@ def self_test__machine(args):
                                     progress_print(f"Instance {inst_id} could not be destroyed or does not exist.")
                                 return False, reason, diagnostic
 
-                            if instance_info.get('intended_status') == 'running' and actual_status == 'running':
+                            if intended_status in ('stopped', 'exited') or actual_status in ('stopped', 'exited'):
+                                reason = f"Instance {inst_id} stopped before reaching running status"
+                                if status_msg_clean:
+                                    reason = f"{reason}: {status_msg_clean}"
+                                diagnostic = classify_status_msg(status_msg_clean) if status_msg_clean else None
+                                if diagnostic is None:
+                                    diagnostic = make_failure(
+                                        DAEMON_STARTUP_FAILED,
+                                        stage="startup",
+                                        summary="Instance stopped before the self-test runtime started.",
+                                        details=reason,
+                                        error=status_msg_clean or None,
+                                        underlying_error=status_msg_clean or None,
+                                    )
+                                progress_print(reason)
+                                if instance_exist(inst_id):
+                                    destroy_instance_silent(inst_id)
+                                    progress_print(f"Instance {inst_id} has been destroyed due to startup failure.")
+                                else:
+                                    progress_print(f"Instance {inst_id} could not be destroyed or does not exist.")
+                                return False, reason, diagnostic
+
+                            if intended_status == 'running' and actual_status == 'running':
                                 debug_print(f"Instance {inst_id} is now running.")
                                 return instance_info, None, None
 

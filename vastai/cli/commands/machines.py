@@ -559,7 +559,7 @@ def self_test__machine(args):
     if not hasattr(args, 'debugging'):
         args.debugging = False
 
-    if getattr(args, "ignore_requirements", False):
+    if args.ignore_requirements:
         result["warning"] = ignore_requirements_warning
 
     def progress_print(*args_to_print):

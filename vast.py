@@ -8374,10 +8374,17 @@ def self_test__machine(args):
     """
     instance_id = None  # Store instance ID for cleanup if needed
     result = {"success": False, "reason": ""}
+    ignore_requirements_warning = (
+        "WARNING: --ignore-requirements is set. Requirement checks are skipped as a "
+        "pass/fail gate, and passing this self-test does not qualify this machine for verification."
+    )
     
     # Ensure debugging attribute exists in args
     if not hasattr(args, 'debugging'):
         args.debugging = False
+
+    if args.ignore_requirements:
+        result["warning"] = ignore_requirements_warning
     
     try:
         # Load API key
@@ -8417,8 +8424,9 @@ def self_test__machine(args):
             progress_print(args, f"Machine ID {args.machine_id} does not meet the following requirements:")
             for reason in unmet_reasons:
                 progress_print(args, f"- {reason}")
-                # If user did pass --ignore-requirements, warn and continue
-                progress_print(args, "Continuing despite unmet requirements because --ignore-requirements is set.")
+            progress_print(args, "Continuing despite unmet requirements because --ignore-requirements is set.")
+        if args.ignore_requirements:
+            progress_print(args, ignore_requirements_warning)
 
         def cuda_map_to_image(cuda_version, compute_cap=None):
             """
@@ -8691,6 +8699,8 @@ def self_test__machine(args):
         print(json.dumps(result))
         sys.exit(0)
     else:
+        if result.get("warning"):
+            print(result["warning"])
         if result["success"]:
             print("Test completed successfully.")
             sys.exit(0)

@@ -138,11 +138,18 @@ def main():
         try:
             res = args.func(args)
             if args.raw and res is not None:
+                exit_code = 0
+                if isinstance(res, dict) and "_exit_code" in res:
+                    exit_code = int(res.get("_exit_code") or 0)
+                    res = {
+                        key: value for key, value in res.items()
+                        if key != "_exit_code"
+                    }
                 try:
                     print(json.dumps(res, indent=1, sort_keys=True))
                 except (TypeError, ValueError):
                     print(json.dumps(res.json(), indent=1, sort_keys=True))
-                sys.exit(0)
+                sys.exit(exit_code)
             sys.exit(res)
 
         except requests.exceptions.HTTPError as e:

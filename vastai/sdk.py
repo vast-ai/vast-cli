@@ -124,12 +124,7 @@ class VastAI:
         Raises ``LookupError`` when no pending row matches the instance id.
         """
         from vastai.api import price_increase
-        envelope = price_increase.list_pending(self.client)
-        rows = envelope.get("pending_price_increases", []) or []
-        match = next((r for r in rows if r.get("contract_id") == int(instance_id)), None)
-        if match is None:
-            raise LookupError(
-                f"no pending price increase for instance {instance_id}")
+        match = price_increase.resolve_instance_to_pending(self.client, instance_id)
         return price_increase.accept(self.client, match["pending_price_increase_id"])
 
     def reject_price_increase(self, instance_id: int) -> dict:
@@ -139,12 +134,7 @@ class VastAI:
         follows. Raises ``LookupError`` when no pending row matches.
         """
         from vastai.api import price_increase
-        envelope = price_increase.list_pending(self.client)
-        rows = envelope.get("pending_price_increases", []) or []
-        match = next((r for r in rows if r.get("contract_id") == int(instance_id)), None)
-        if match is None:
-            raise LookupError(
-                f"no pending price increase for instance {instance_id}")
+        match = price_increase.resolve_instance_to_pending(self.client, instance_id)
         return price_increase.reject(self.client, match["pending_price_increase_id"])
 
     def execute(self, id: int, command: str) -> dict:

@@ -194,12 +194,12 @@ def accept_price_increase(client: VastClient, id: int = None,
             "per row, or vastai.sdk.VastAI.accept_price_increase(instance_id=…).")
     if id is None:
         raise TypeError("accept_price_increase: instance id is required")
-    envelope = _pi.list_pending(client)
-    rows = envelope.get("pending_price_increases", []) or []
-    match = next((row for row in rows if row.get("contract_id") == int(id)), None)
-    if match is None:
+    try:
+        match = _pi.resolve_instance_to_pending(client, id)
+    except LookupError as err:
         raise LookupError(
-            f"accept_price_increase: no pending price increase for instance {id}")
+            f"accept_price_increase: no pending price increase for instance {id}"
+        ) from err
     return _pi.accept(client, match["pending_price_increase_id"])
 
 

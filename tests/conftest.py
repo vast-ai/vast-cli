@@ -1932,7 +1932,6 @@ COMMAND_MODULES = [
     "vastai.cli.commands.deployments",
     "vastai.cli.commands.benchmarks",
     "vastai.cli.commands.price_increase",
-    "vastai.cli.commands.benchmarks",
 ]
 
 
@@ -1968,4 +1967,3 @@ def live_client(api_key):
     """Real VastClient for live tests."""
     from vastai.api.client import VastClient
     return VastClient(api_key=api_key)
-

@@ -60,11 +60,36 @@ def list_pending(client: VastClient) -> dict:
     return r.json()
 
 
+def pending_rows(envelope: dict) -> list[dict]:
+    """Return the pending rows from a pending-price-increase envelope."""
+    return envelope.get("pending_price_increases", []) or []
+
+
+def find_pending_for_instance(rows: list[dict], instance_id: int) -> dict | None:
+    """Find one pending row by contract/instance id."""
+    target = int(instance_id)
+    return next((row for row in rows if row.get("contract_id") == target), None)
+
+
+def resolve_instance_to_pending(client: VastClient, instance_id: int) -> dict:
+    """Resolve an instance id to its pending-price-increase row.
+
+    Raises ``LookupError`` when no pending row matches the instance id.
+    """
+    envelope = list_pending(client)
+    match = find_pending_for_instance(pending_rows(envelope), instance_id)
+    if match is None:
+        raise LookupError(
+            f"no pending price increase for instance {instance_id}"
+        )
+    return match
+
+
 def accept(client: VastClient, pending_id: int) -> dict:
     """Accept one pending price-increase row.
 
     The body must be exactly ``{"pending_price_increase_id": int}``;
-    backend ``extra='forbid'`` returns 422 for any extra key. Returns
+    backend ``extra='forbid'`` returns 400 for any extra key. Returns
     ``{"success": True, "pending_price_increase_id": int, "contract_id": int}``.
     """
     r = client.put(

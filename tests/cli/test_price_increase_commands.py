@@ -6,6 +6,8 @@ Covers the per-row rewrite: `show pending-price-increases`,
 asserts the new flow end-to-end with mocked HTTP.
 """
 
+import re
+
 import pytest
 
 
@@ -35,6 +37,9 @@ SECOND_ROW = {
 }
 
 
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
 def _envelope(rows):
     return {
         "success": True,
@@ -42,6 +47,19 @@ def _envelope(rows):
         "truncated": False,
         "pending_price_increases": list(rows),
     }
+
+
+def _rendered_table_cell(output, header_text, column_name):
+    lines = [
+        line for line in _ANSI_RE.sub("", output).splitlines()
+        if line.strip()
+    ]
+    header_idx = next(
+        idx for idx, line in enumerate(lines) if header_text in line
+    )
+    headers = re.split(r"\s{2,}", lines[header_idx].strip())
+    values = re.split(r"\s{2,}", lines[header_idx + 1].strip())
+    return values[headers.index(column_name)]
 
 
 # ---------------------------------------------------------------------------
@@ -70,9 +88,10 @@ class TestShowPendingPriceIncreases:
         args.func(args)
         captured = capsys.readouterr()
         # `new_disk_ram_costpersec` is None on the fixture, so the storage cell
-        # collapses to "-" (rendered as "-" in display_table; "_" if space).
-        # Either "_" (replaced spaces) or "-" should be present.
-        assert " - " in captured.out.replace("_", " ") or "-" in captured.out
+        # collapses to "-".
+        assert _rendered_table_cell(
+            captured.out, "Storage ($/GB/mo)", "Storage ($/GB/mo)"
+        ) == "-"
 
     def test_raw_returns_envelope_unchanged(self, parse_argv, patch_get_client, mock_response):
         envelope = _envelope([PENDING_ROW])
@@ -140,6 +159,43 @@ class TestAcceptPriceIncrease:
             {"pending_price_increase_id": 1000},
         ]
 
+    def test_duplicate_ids_are_deduped(self, parse_argv, patch_get_client, mock_response, capsys):
+        patch_get_client.get.return_value = mock_response(200, _envelope([PENDING_ROW]))
+        patch_get_client.put.return_value = mock_response(
+            200, {"success": True, "pending_price_increase_id": 999, "contract_id": 123},
+        )
+        args = parse_argv(["accept", "price-increase", "123", "123", "--yes"])
+        args.func(args)
+        patch_get_client.put.assert_called_once()
+        captured = capsys.readouterr()
+        assert "Accepted 1 / Stale 0 / Failed 0 of 1 requested." in captured.out
+
+    def test_raw_returns_machine_readable_summary(self, parse_argv, patch_get_client, mock_response, capsys):
+        patch_get_client.get.return_value = mock_response(200, _envelope([PENDING_ROW]))
+        patch_get_client.put.return_value = mock_response(
+            200, {"success": True, "pending_price_increase_id": 999, "contract_id": 123},
+        )
+        args = parse_argv(["accept", "price-increase", "123", "--yes", "--raw"])
+        result = args.func(args)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert result["success"] is True
+        assert result["exit_code"] == 0
+        assert result["acted"] == 1
+        assert result["results"] == [
+            {
+                "instance_id": 123,
+                "pending_price_increase_id": 999,
+                "contract_id": 123,
+                "status": "accepted",
+                "response": {
+                    "success": True,
+                    "pending_price_increase_id": 999,
+                    "contract_id": 123,
+                },
+            }
+        ]
+
     def test_missing_yes_non_tty_exits_1(self, parse_argv, patch_get_client, mock_response, capsys, monkeypatch):
         monkeypatch.setattr("sys.stdin.isatty", lambda: False)
         # list_pending may or may not be called before the gate; assert no PUT.
@@ -161,6 +217,20 @@ class TestAcceptPriceIncrease:
         patch_get_client.put.assert_not_called()
         captured = capsys.readouterr()
         assert "Aborted." in captured.out
+
+    def test_no_matching_rows_skip_prompt_and_exit_stale(self, parse_argv, patch_get_client, mock_response, monkeypatch):
+        monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+
+        def fail_if_prompted(_):
+            raise AssertionError("prompt should not be shown without matching rows")
+
+        monkeypatch.setattr("builtins.input", fail_if_prompted)
+        patch_get_client.get.return_value = mock_response(200, _envelope([PENDING_ROW]))
+        args = parse_argv(["accept", "price-increase", "555"])
+        with pytest.raises(SystemExit) as excinfo:
+            args.func(args)
+        assert excinfo.value.code == 2
+        patch_get_client.put.assert_not_called()
 
     def test_tty_prompt_accepts_on_y(self, parse_argv, patch_get_client, mock_response, monkeypatch):
         monkeypatch.setattr("sys.stdin.isatty", lambda: True)

@@ -149,7 +149,7 @@ def show__pending_price_increases(args):
     envelope = price_increase_api.list_pending(client)
     if args.raw:
         return envelope
-    rows = envelope.get("pending_price_increases", []) or []
+    rows = price_increase_api.pending_rows(envelope)
     if args.quiet:
         for row in rows:
             print(row.get("pending_price_increase_id"))
@@ -168,16 +168,33 @@ def show__pending_price_increases(args):
 # ---------------------------------------------------------------------------
 
 
+def _unique_instance_ids(ids):
+    """Return integer ids in first-seen order."""
+    unique = []
+    seen = set()
+    for raw_id in ids:
+        instance_id = int(raw_id)
+        if instance_id in seen:
+            continue
+        seen.add(instance_id)
+        unique.append(instance_id)
+    return unique
+
+
 def _resolve_instance_ids_to_pending(rows, instance_ids):
     """Return ``[(instance_id, pending_id_or_None)]`` preserving CLI argument order."""
-    by_contract = {r.get("contract_id"): r for r in rows}
     return [
-        (iid, (by_contract.get(iid) or {}).get("pending_price_increase_id"))
+        (
+            iid,
+            (
+                price_increase_api.find_pending_for_instance(rows, iid) or {}
+            ).get("pending_price_increase_id"),
+        )
         for iid in instance_ids
     ]
 
 
-def _prompt_or_exit(present_imperative, instance_ids, rows, *, yes):
+def _prompt_or_exit(present_imperative, instance_ids, rows, *, yes, raw=False):
     """Confirm before mutating; honours the spec's TTY + --yes rules.
 
     Returns ``True`` to proceed, ``False`` to abort cleanly with exit 0.
@@ -186,6 +203,12 @@ def _prompt_or_exit(present_imperative, instance_ids, rows, *, yes):
     """
     if yes:
         return True
+    if raw:
+        print(
+            "--yes is required with --raw so stdout remains machine-readable.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     if not sys.stdin.isatty():
         print(
             '--yes is required when stdin is not a TTY. Run "vastai show '
@@ -193,7 +216,8 @@ def _prompt_or_exit(present_imperative, instance_ids, rows, *, yes):
             file=sys.stderr,
         )
         sys.exit(1)
-    matching = [r for r in rows if r.get("contract_id") in set(instance_ids)]
+    instance_id_set = set(instance_ids)
+    matching = [r for r in rows if r.get("contract_id") in instance_id_set]
     if matching:
         display_table(
             [_prepare_row(r) for r in matching], pending_price_increase_fields,
@@ -206,51 +230,97 @@ def _prompt_or_exit(present_imperative, instance_ids, rows, *, yes):
 
 def _run_per_row(args, *, route_verb, api_call, present_imperative, past_tense, cutover_note):
     """Shared accept/reject driver: resolve, confirm, fan-out, summarise."""
-    instance_ids = [int(x) for x in args.ids]
+    instance_ids = _unique_instance_ids(args.ids)
     if args.explain:
         for iid in instance_ids:
             print(f"PUT /instances/{route_verb}-price-increase/  body for instance {iid}")
     client = get_client(args)
     envelope = price_increase_api.list_pending(client)
-    rows = envelope.get("pending_price_increases", []) or []
-    if not _prompt_or_exit(present_imperative, instance_ids, rows, yes=args.yes):
+    rows = price_increase_api.pending_rows(envelope)
+    pairs = _resolve_instance_ids_to_pending(rows, instance_ids)
+    has_matching_rows = any(pid is not None for _, pid in pairs)
+    if has_matching_rows and not _prompt_or_exit(
+        present_imperative, instance_ids, rows, yes=args.yes, raw=args.raw,
+    ):
         print("Aborted.")
         return
 
-    pairs = _resolve_instance_ids_to_pending(rows, instance_ids)
-    accepted_ids, stale, failed = [], 0, 0
+    acted_ids, stale, failed = [], 0, 0
+    results = []
     for iid, pid in pairs:
         if pid is None:
-            print(f"pending price increase no longer available for instance {iid}")
+            if not args.raw:
+                print(f"pending price increase no longer available for instance {iid}")
+            results.append({
+                "instance_id": iid,
+                "pending_price_increase_id": None,
+                "status": "stale",
+                "error": price_increase_api.NO_PENDING_PRICE_INCREASE,
+            })
             stale += 1
             continue
         try:
             result = api_call(client, pid)
         except HTTPError as err:
             if _is_stale_error(err):
-                print(
-                    "pending price increase no longer available — re-run "
-                    "vastai show pending-price-increases"
-                )
+                if not args.raw:
+                    print(
+                        "pending price increase no longer available — re-run "
+                        "vastai show pending-price-increases"
+                    )
+                results.append({
+                    "instance_id": iid,
+                    "pending_price_increase_id": pid,
+                    "status": "stale",
+                    "error": price_increase_api.NO_PENDING_PRICE_INCREASE,
+                })
                 stale += 1
                 continue
-            print(f"failed for instance {iid}: {err}", file=sys.stderr)
+            if not args.raw:
+                print(f"failed for instance {iid}: {err}", file=sys.stderr)
+            results.append({
+                "instance_id": iid,
+                "pending_price_increase_id": pid,
+                "status": "failed",
+                "error": str(err),
+            })
             failed += 1
             continue
-        print(
-            f"{past_tense} pending_id={result.get('pending_price_increase_id')} "
-            f"contract_id={result.get('contract_id')}"
-        )
-        accepted_ids.append(result.get("contract_id"))
+        if not args.raw:
+            print(
+                f"{past_tense} pending_id={result.get('pending_price_increase_id')} "
+                f"contract_id={result.get('contract_id')}"
+            )
+        results.append({
+            "instance_id": iid,
+            "pending_price_increase_id": result.get("pending_price_increase_id"),
+            "contract_id": result.get("contract_id"),
+            "status": past_tense.lower(),
+            "response": result,
+        })
+        acted_ids.append(result.get("contract_id"))
 
     total = len(instance_ids)
-    n_ok = len(accepted_ids)
+    n_ok = len(acted_ids)
+    if args.raw:
+        exit_code = 1 if failed else 2 if stale else 0
+        return {
+            "success": exit_code == 0,
+            "exit_code": exit_code,
+            "_exit_code": exit_code,
+            "requested": total,
+            "acted": n_ok,
+            "stale": stale,
+            "failed": failed,
+            "results": results,
+        }
+
     print(
         f"\n{past_tense} {n_ok} / Stale {stale} / Failed {failed} "
         f"of {total} requested."
     )
     if n_ok:
-        ids_str = ", ".join(str(cid) for cid in accepted_ids)
+        ids_str = ", ".join(str(cid) for cid in acted_ids)
         print(f"{past_tense} price increase for {n_ok} instance(s): {ids_str}")
         if cutover_note:
             print(cutover_note)
@@ -293,7 +363,7 @@ def _run_per_row(args, *, route_verb, api_call, present_imperative, past_tense, 
 )
 def accept__price_increase(args):
     """Per-row accept for pending price-increase challenges."""
-    _run_per_row(
+    return _run_per_row(
         args,
         route_verb="accept",
         api_call=price_increase_api.accept,
@@ -327,7 +397,7 @@ def accept__price_increase(args):
 )
 def reject__price_increase(args):
     """Per-row reject for pending price-increase challenges."""
-    _run_per_row(
+    return _run_per_row(
         args,
         route_verb="reject",
         api_call=price_increase_api.reject,

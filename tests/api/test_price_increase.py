@@ -7,7 +7,7 @@ Backend contract (source of truth: ``vast/web/views/instance.py:257-312``,
     PUT /instances/reject-price-increase/   body {"pending_price_increase_id": int}
 
 Both bodies are enforced by ``_Base.Config.extra='forbid'`` — any extra key
-returns HTTP 422, so we assert *exact* body equality.
+returns HTTP 400, so we assert *exact* body equality.
 """
 
 import pytest
@@ -65,7 +65,7 @@ class TestAccept:
         url = mock_client.put.call_args[0][0]
         body = mock_client.put.call_args[1]["json_data"]
         assert url == "/instances/accept-price-increase/"
-        # Exact equality matters: extra='forbid' on the backend returns 422
+        # Exact equality matters: extra='forbid' on the backend returns 400
         # for any additional key.
         assert body == {"pending_price_increase_id": 999}
         assert result["contract_id"] == 123

@@ -236,6 +236,20 @@ def _self_test_offer(**overrides):
     return offer
 
 
+def _run_self_test_until_create(parse_argv, monkeypatch, offer):
+    monkeypatch.delenv("VAST_SELF_TEST_IMAGE", raising=False)
+    monkeypatch.setattr(
+        "vastai.cli.commands.machines.offers_api.search_offers",
+        Mock(return_value=[offer]),
+    )
+    create = Mock(side_effect=RuntimeError("stop before live rental"))
+    monkeypatch.setattr("vastai.cli.commands.machines.instances_api.create_instance", create)
+
+    args = parse_argv(["self-test", "machine", "42", "--raw"])
+    result = args.func(args)
+    return result, create
+
+
 class TestSelfTestMachineDiagnostics:
     def test_no_offer_raw_returns_structured_failure(
         self, parse_argv, patch_get_client, monkeypatch, capsys
@@ -398,20 +412,51 @@ class TestSelfTestMachineDiagnostics:
         self, parse_argv, patch_get_client, monkeypatch
     ):
         offer = _self_test_offer(cuda_max_good=12.8, compute_cap=890)
-        monkeypatch.delenv("VAST_SELF_TEST_IMAGE", raising=False)
-        monkeypatch.setattr(
-            "vastai.cli.commands.machines.offers_api.search_offers",
-            Mock(return_value=[offer]),
-        )
-        create = Mock(side_effect=RuntimeError("stop before live rental"))
-        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.create_instance", create)
-
-        args = parse_argv(["self-test", "machine", "42", "--raw"])
-        result = args.func(args)
+        result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
 
         assert result["diagnostics"]["image"]["override"] is False
         assert create.call_args.kwargs["image"] == "vastai/test:self-test-cuda-12.8"
         assert create.call_args.kwargs["runtype"] == "ssh_direc ssh_proxy"
+
+    def test_cuda_mapping_selects_cuda_133_exact_match(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer(cuda_max_good=13.3, compute_cap=890)
+        result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
+
+        assert result["diagnostics"]["image"]["override"] is False
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cuda-13.3"
+        assert "exact match" in result["diagnostics"]["image"]["reason"]
+
+    def test_cuda_mapping_steps_down_to_newest_compatible_image(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer(cuda_max_good=13.2, compute_cap=890)
+        result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
+
+        assert result["diagnostics"]["image"]["override"] is False
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cuda-13.0"
+        assert "selected newest image <= host CUDA (13.0)" in result["diagnostics"]["image"]["reason"]
+
+    def test_cuda_mapping_uses_cuda_133_for_newer_cuda_hosts(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer(cuda_max_good=13.4, compute_cap=890)
+        result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
+
+        assert result["diagnostics"]["image"]["override"] is False
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cuda-13.3"
+        assert "selected newest image <= host CUDA (13.3)" in result["diagnostics"]["image"]["reason"]
+
+    def test_cuda_mapping_still_clamps_volta_to_cuda_128(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer(cuda_max_good=13.3, compute_cap=700)
+        result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
+
+        assert result["diagnostics"]["image"]["override"] is False
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cuda-12.8"
+        assert "clamped to 12.8" in result["diagnostics"]["image"]["reason"]
 
     def test_startup_status_msg_is_classified_in_raw_output(
         self, parse_argv, patch_get_client, monkeypatch

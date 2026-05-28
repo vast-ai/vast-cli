@@ -742,30 +742,31 @@ def self_test__machine(args):
                 "11.8": "cuda-11.8",
                 "12.8": "cuda-12.8",
                 "13.0": "cuda-13.0",
+                "13.3": "cuda-13.3",
             }
 
             cap_hint = f"compute_cap={compute_cap}" if compute_cap is not None else "compute_cap=unknown"
 
-            if cuda_version in docker_tag_map:
-                tag = docker_tag_map[cuda_version]
+            cuda_float = float(cuda_version)
+            compatible_versions = sorted(float(version) for version in docker_tag_map)
+            selected_version = max(
+                (version for version in compatible_versions if version <= cuda_float),
+                default=None,
+            )
+
+            if selected_version is not None:
+                selected_version_str = f"{selected_version:.1f}"
+                tag = docker_tag_map[selected_version_str]
                 if clamped_for_volta:
                     reason = f"{cap_hint} (Volta) + cuda_max_good={original_cuda} → clamped to {cuda_version} → {tag}"
-                else:
+                elif selected_version_str == cuda_version:
                     reason = f"{cap_hint}, cuda_max_good={cuda_version} → exact match → {tag}"
-                return f"{docker_repo}:self-test-{tag}", reason
-
-            cuda_float = float(cuda_version)
-            next_version = round(cuda_float - 0.1, 1)
-            while next_version >= min(float(v) for v in docker_tag_map.keys()):
-                next_version_str = str(next_version)
-                if next_version_str in docker_tag_map:
-                    tag = docker_tag_map[next_version_str]
+                else:
                     reason = (
                         f"{cap_hint}, cuda_max_good={original_cuda} → "
-                        f"stepped down to {next_version_str} → {tag}"
+                        f"selected newest image <= host CUDA ({selected_version_str}) → {tag}"
                     )
-                    return f"{docker_repo}:self-test-{tag}", reason
-                next_version = round(next_version - 0.1, 1)
+                return f"{docker_repo}:self-test-{tag}", reason
 
             raise KeyError(f"No CUDA version found for {cuda_version} or any lower version")
 

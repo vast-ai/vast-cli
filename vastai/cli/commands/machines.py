@@ -714,6 +714,11 @@ def self_test__machine(args):
         def cuda_map_to_image(cuda_version, compute_cap=None):
             """Return (image, reason). Reason explains why this image was picked."""
             docker_repo = "vastai/test"
+            image_tag_prefix = "self-test-v2-cuda"
+
+            def image_for(version):
+                return f"{docker_repo}:{image_tag_prefix}-{version}"
+
             if isinstance(cuda_version, float):
                 cuda_version = str(cuda_version)
             original_cuda = cuda_version
@@ -724,8 +729,8 @@ def self_test__machine(args):
             # legacy image.
             if compute_cap is not None and compute_cap < 700:
                 return (
-                    f"{docker_repo}:self-test-cuda-11.8",
-                    f"compute_cap={compute_cap} below sm_70 → forced cuda-11.8",
+                    image_for("11.8"),
+                    f"compute_cap={compute_cap} below sm_70 → forced {image_tag_prefix}-11.8",
                 )
 
             # Volta sm_70/sm_72 hosts: cuda-12.8 wheels include sm_70 but
@@ -739,10 +744,10 @@ def self_test__machine(args):
                     clamped_for_volta = True
 
             docker_tag_map = {
-                "11.8": "cuda-11.8",
-                "12.8": "cuda-12.8",
-                "13.0": "cuda-13.0",
-                "13.3": "cuda-13.3",
+                "11.8": image_for("11.8"),
+                "12.8": image_for("12.8"),
+                "13.0": image_for("13.0"),
+                "13.3": image_for("13.3"),
             }
 
             cap_hint = f"compute_cap={compute_cap}" if compute_cap is not None else "compute_cap=unknown"
@@ -756,17 +761,17 @@ def self_test__machine(args):
 
             if selected_version is not None:
                 selected_version_str = f"{selected_version:.1f}"
-                tag = docker_tag_map[selected_version_str]
+                image = docker_tag_map[selected_version_str]
                 if clamped_for_volta:
-                    reason = f"{cap_hint} (Volta) + cuda_max_good={original_cuda} → clamped to {cuda_version} → {tag}"
+                    reason = f"{cap_hint} (Volta) + cuda_max_good={original_cuda} → clamped to {cuda_version} → {image}"
                 elif selected_version_str == cuda_version:
-                    reason = f"{cap_hint}, cuda_max_good={cuda_version} → exact match → {tag}"
+                    reason = f"{cap_hint}, cuda_max_good={cuda_version} → exact match → {image}"
                 else:
                     reason = (
                         f"{cap_hint}, cuda_max_good={original_cuda} → "
-                        f"selected newest image <= host CUDA ({selected_version_str}) → {tag}"
+                        f"selected newest image <= host CUDA ({selected_version_str}) → {image}"
                     )
-                return f"{docker_repo}:self-test-{tag}", reason
+                return image, reason
 
             raise KeyError(f"No CUDA version found for {cuda_version} or any lower version")
 

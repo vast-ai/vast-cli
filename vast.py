@@ -5699,6 +5699,13 @@ def show__instance(args):
     r = http_get(args, req_url)
     r.raise_for_status()
     row = r.json()["instances"]
+    if row is None:
+        if getattr(args, "internal", False):
+            return None
+        if args.raw:
+            return {"instances": None}
+        print(f"Instance {args.id} not found or no longer exists.", file=sys.stderr)
+        return 1
     row['duration'] = time.time() - row['start_date']
     row['extra_env'] = {env_var[0]: env_var[1] for env_var in row['extra_env']}
     if args.raw:
@@ -5723,7 +5730,7 @@ def show__instances(args = {}, extra = {}):
     #r = http_get(req_url)
     r = http_get(args, req_url)
     r.raise_for_status()
-    rows = r.json()["instances"]
+    rows = r.json()["instances"] or []
     for row in rows:
         row = {k: strip_strings(v) for k, v in row.items()} 
         row['duration'] = time.time() - row['start_date']
@@ -8646,10 +8653,25 @@ def self_test__machine(args):
         # silently-leaked instance keeps billing the host.
         if instance_id:
             try:
-                if instance_exist(instance_id, api_key, destroy_args):
-                    progress_print(args, f"Destroying test instance {instance_id}...")
-                    destroy_instance_silent(instance_id, destroy_args)
-                    progress_print(args, f"Test instance {instance_id} destroyed.")
+                show_args = argparse.Namespace(
+                    id=instance_id,
+                    api_key=api_key,
+                    url=args.url,
+                    retry=args.retry,
+                    explain=False,
+                    raw=True,
+                    debugging=args.debugging,
+                    internal=True,
+                )
+                info = show__instance(show_args)
+                if not info:
+                    debug_print(args, f"Test instance {instance_id} is already gone.")
+                else:
+                    status = info.get('intended_status') or info.get('actual_status')
+                    if status not in ('destroyed', 'terminated', 'offline'):
+                        progress_print(args, f"Destroying test instance {instance_id} (status: {status})...")
+                        destroy_instance_silent(instance_id, destroy_args)
+                        progress_print(args, f"Test instance {instance_id} destroyed.")
             except KeyboardInterrupt:
                 progress_print(
                     args,
@@ -9177,7 +9199,8 @@ def instance_exist(instance_id, api_key, args):
         retry=args.retry,
         explain=False,
         raw=True,
-        debugging=args.debugging
+        debugging=args.debugging,
+        internal=True,
     )
     try:
         instance_info = show__instance(show_args)
@@ -9254,6 +9277,7 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
             retry=3,
             raw=True,
             debugging=args.debugging,
+            internal=True,
         )
         try:
             instance_info = show__instance(show_args)
@@ -9575,6 +9599,7 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
         url=args.url,
         retry=args.retry,
         debugging=args.debugging,
+        internal=True,
     )
     
     if args.debugging:

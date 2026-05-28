@@ -1,6 +1,7 @@
 """Instance CRUD operations."""
 import time
 import requests
+from typing import Optional
 from vastai.api.client import VastClient
 
 
@@ -28,7 +29,7 @@ def _strip_strings(value):
 def show_instances(client: VastClient) -> list:
     r = client.get("/instances", query_args={"owner": "me"})
     r.raise_for_status()
-    rows = r.json()["instances"]
+    rows = r.json()["instances"] or []
     for i, row in enumerate(rows):
         row = {k: _strip_strings(v) for k, v in row.items()}
         row['duration'] = time.time() - row['start_date']
@@ -59,10 +60,12 @@ def show_instance_filters(client: VastClient) -> list:
     return r.json().get("filters", [])
 
 
-def show_instance(client: VastClient, id: int) -> dict:
+def show_instance(client: VastClient, id: int) -> Optional[dict]:
     r = client.get(f"/instances/{id}/", query_args={"owner": "me"})
     r.raise_for_status()
     row = r.json()["instances"]
+    if row is None:
+        return None
     row['duration'] = time.time() - row['start_date']
     row['extra_env'] = {env_var[0]: env_var[1] for env_var in row['extra_env']}
     return row

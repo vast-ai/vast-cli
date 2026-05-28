@@ -1038,11 +1038,14 @@ def self_test__machine(args):
         if instance_id:
             try:
                 info = instances_api.show_instance(client, id=instance_id)
-                status = (info or {}).get('intended_status') or (info or {}).get('actual_status')
-                if status not in ('destroyed', 'terminated', 'offline'):
-                    progress_print(f"Destroying test instance {instance_id} (status: {status})...")
-                    instances_api.destroy_instance(client, id=instance_id)
-                    progress_print(f"Test instance {instance_id} destroyed.")
+                if not info:
+                    debug_print(f"Test instance {instance_id} is already gone.")
+                else:
+                    status = info.get('intended_status') or info.get('actual_status')
+                    if status not in ('destroyed', 'terminated', 'offline'):
+                        progress_print(f"Destroying test instance {instance_id} (status: {status})...")
+                        instances_api.destroy_instance(client, id=instance_id)
+                        progress_print(f"Test instance {instance_id} destroyed.")
             except KeyboardInterrupt:
                 progress_print(
                     f"\nSecond interrupt during cleanup — instance {instance_id} may still be running.\n"

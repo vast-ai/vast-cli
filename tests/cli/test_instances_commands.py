@@ -20,6 +20,14 @@ class TestShowInstances:
         assert "/instances" in call_args[0][0]
         assert isinstance(result, list)
 
+    def test_show_instances_raw_null_instances(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.get.return_value = mock_response(200, {"instances": None})
+        args = parse_argv(["show", "instances", "--raw"])
+
+        result = args.func(args)
+
+        assert result == []
+
     def test_show_instances_display(self, parse_argv, patch_get_client, mock_response, capsys):
         patch_get_client.get.return_value = mock_response(200, {
             "instances": [
@@ -43,6 +51,25 @@ class TestShowInstance:
         patch_get_client.get.assert_called_once()
         call_args = patch_get_client.get.call_args
         assert "123" in call_args[0][0]
+
+    def test_show_instance_raw_deleted_instance(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.get.return_value = mock_response(200, {"instances": None})
+        args = parse_argv(["show", "instance", "123", "--raw"])
+
+        result = args.func(args)
+
+        assert result == {"instances": None}
+
+    def test_show_instance_display_deleted_instance(self, parse_argv, patch_get_client, mock_response, capsys):
+        patch_get_client.get.return_value = mock_response(200, {"instances": None})
+        args = parse_argv(["show", "instance", "123"])
+
+        result = args.func(args)
+
+        assert result == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "Instance 123 not found or no longer exists." in captured.err
 
 
 class TestDestroyInstance:

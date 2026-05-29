@@ -34,6 +34,7 @@ NCCL_FAILED = "nccl_failed"
 STRESS_GPU_BURN_FAILED = "stress_gpu_burn_failed"
 INTERRUPTED = "interrupted"
 CLEANUP_FAILED = "cleanup_failed"
+PROGRESS_CONTAINER_PORT = "5000/tcp"
 
 
 RUNTIME_FAILURE_CODES = (
@@ -117,19 +118,27 @@ FAILURE_CATALOG: dict[str, FailureCatalogEntry] = {
         PROGRESS_PORT_NOT_MAPPED,
         "The runtime progress port was not mapped.",
         "Confirm port 5000/tcp is exposed and direct ports are available.",
-        ("Check instance port mappings.", "Verify the machine has enough direct ports."),
+        ("Check the available mapped ports in the diagnostic output.", "Verify the machine has enough direct ports."),
     ),
     PROGRESS_ENDPOINT_UNREACHABLE: FailureCatalogEntry(
         PROGRESS_ENDPOINT_UNREACHABLE,
         "The runtime progress endpoint was never reachable.",
-        "Check firewall, direct port mapping, and container startup.",
-        ("Confirm port 5000/tcp is mapped.", "Inspect docker logs for startup failures."),
+        "Check TCP firewall/NAT forwarding, direct port mapping, container startup, and NAT hairpinning.",
+        (
+            "Confirm the mapped public TCP port forwards to the host LAN IP.",
+            "Inspect docker logs to confirm the progress server bound port 5000/tcp.",
+            "If testing from the same LAN as the host, retry from an outside network to rule out NAT loopback/hairpinning.",
+        ),
     ),
     PROGRESS_ENDPOINT_LOST: FailureCatalogEntry(
         PROGRESS_ENDPOINT_LOST,
         "The runtime progress endpoint became unreachable after connecting.",
         "Look for container crashes, OOM, GPU errors, or host instability.",
-        ("Inspect docker logs.", "Check dmesg for Xid or GPU reset messages."),
+        (
+            "Inspect docker logs for a crash or missing progress server.",
+            "Check dmesg for Xid, GPU reset, OOM, or host stall messages.",
+            "Check for network loss between the CLI and host public endpoint.",
+        ),
     ),
     PROGRESS_EMPTY_TIMEOUT: FailureCatalogEntry(
         PROGRESS_EMPTY_TIMEOUT,
@@ -245,6 +254,56 @@ _STARTUP_RE = re.compile(
     re.IGNORECASE,
 )
 
+_API_KEY_RE = re.compile(r"([?&]api_key=)[^&\s]+")
+
+
+def redact_secret_text(value: object) -> str | None:
+    """Return a host-visible string with obvious API-key query values redacted."""
+    if value is None:
+        return None
+    return _API_KEY_RE.sub(r"\1REDACTED", str(value))
+
+
+def _mapped_port_names(mapped_ports) -> list[str]:
+    if not mapped_ports:
+        return []
+    if isinstance(mapped_ports, dict):
+        return sorted(str(key) for key in mapped_ports.keys())
+    return sorted(str(port) for port in mapped_ports)
+
+
+def make_progress_endpoint_diagnostic(
+    *,
+    url: str | None = None,
+    public_ip: str | None = None,
+    container_port: str = PROGRESS_CONTAINER_PORT,
+    host_port: str | int | None = None,
+    timeout_seconds: int | float | None = None,
+    attempt_count: int = 0,
+    first_connection_established: bool = False,
+    last_error_type: str | None = None,
+    last_error: object = None,
+    last_status_code: int | None = None,
+    mapped_ports=None,
+) -> dict[str, object]:
+    """Shape progress endpoint state for raw output and UI consumption."""
+    if url is None and public_ip and host_port:
+        url = f"https://{public_ip}:{host_port}/progress"
+    diagnostic: dict[str, object] = {
+        "url": url,
+        "public_ip": public_ip,
+        "container_port": container_port,
+        "host_port": str(host_port) if host_port is not None else None,
+        "timeout_seconds": timeout_seconds,
+        "attempt_count": int(attempt_count or 0),
+        "first_connection_established": bool(first_connection_established),
+        "last_error_type": last_error_type,
+        "last_error": redact_secret_text(last_error),
+        "last_status_code": last_status_code,
+        "mapped_ports": _mapped_port_names(mapped_ports),
+    }
+    return diagnostic
+
 
 def failure_catalog() -> dict[str, dict[str, object]]:
     """Return a JSON-serializable copy of the runtime failure catalog."""
@@ -277,6 +336,7 @@ def make_failure(
     remediation: str | None = None,
     suggested_steps: Iterable[str] | None = None,
     underlying_error: str | None = None,
+    progress_endpoint: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Build a raw-output-friendly diagnostic dictionary."""
     entry = get_failure_entry(code)
@@ -293,6 +353,8 @@ def make_failure(
         diagnostic["error"] = error
     if underlying_error:
         diagnostic["underlying_error"] = underlying_error
+    if progress_endpoint:
+        diagnostic["progress_endpoint"] = progress_endpoint
     return diagnostic
 
 
@@ -407,6 +469,7 @@ __all__ = [
     "NCCL_FAILED",
     "NVML_FAILED",
     "PROGRESS_EMPTY_TIMEOUT",
+    "PROGRESS_CONTAINER_PORT",
     "PROGRESS_ENDPOINT_LOST",
     "PROGRESS_ENDPOINT_UNREACHABLE",
     "PROGRESS_PORT_NOT_MAPPED",
@@ -425,6 +488,8 @@ __all__ = [
     "failure_catalog",
     "get_failure_entry",
     "make_failure",
+    "make_progress_endpoint_diagnostic",
     "parse_legacy_progress",
+    "redact_secret_text",
     "stage_from_progress_line",
 ]

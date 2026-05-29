@@ -12,11 +12,13 @@ def test_failure_catalog_contains_stable_runtime_codes():
 
 
 def test_make_failure_shapes_raw_output_dict():
+    endpoint = {"url": "https://1.2.3.4:41001/progress"}
     result = diag.make_failure(
         diag.INSTANCE_STATUS_ERROR,
         stage=diag.STAGE_STARTUP,
         error="Error: status failed",
         underlying_error="backend status_msg",
+        progress_endpoint=endpoint,
     )
 
     assert result["code"] == diag.INSTANCE_STATUS_ERROR
@@ -26,11 +28,37 @@ def test_make_failure_shapes_raw_output_dict():
     assert result["suggested_steps"]
     assert result["error"] == "Error: status failed"
     assert result["underlying_error"] == "backend status_msg"
+    assert result["progress_endpoint"] == endpoint
 
 
 def test_make_failure_rejects_unknown_code():
     with pytest.raises(ValueError, match="Unknown runtime failure code"):
         diag.make_failure("not_a_real_failure")
+
+
+def test_make_progress_endpoint_diagnostic_shapes_and_redacts():
+    result = diag.make_progress_endpoint_diagnostic(
+        public_ip="1.2.3.4",
+        host_port=41001,
+        timeout_seconds=10,
+        attempt_count=6,
+        first_connection_established=False,
+        last_error_type="ConnectTimeout",
+        last_error="GET https://console.vast.ai/?api_key=secret timed out",
+        mapped_ports={"5000/tcp": [{"HostPort": "41001"}], "22/tcp": [{"HostPort": "40022"}]},
+    )
+
+    assert result["url"] == "https://1.2.3.4:41001/progress"
+    assert result["public_ip"] == "1.2.3.4"
+    assert result["container_port"] == diag.PROGRESS_CONTAINER_PORT
+    assert result["host_port"] == "41001"
+    assert result["timeout_seconds"] == 10
+    assert result["attempt_count"] == 6
+    assert result["first_connection_established"] is False
+    assert result["last_error_type"] == "ConnectTimeout"
+    assert "api_key=secret" not in result["last_error"]
+    assert "api_key=REDACTED" in result["last_error"]
+    assert result["mapped_ports"] == ["22/tcp", "5000/tcp"]
 
 
 def test_legacy_parser_tracks_stage_and_classifies_nccl_error():

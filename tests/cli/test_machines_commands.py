@@ -236,6 +236,15 @@ def _self_test_offer(**overrides):
     return offer
 
 
+def _http_error(status_code, message=None):
+    response = Mock(status_code=status_code)
+    error = requests.exceptions.HTTPError(
+        message or f"{status_code} Client Error for url: https://console.vast.ai/api/v0/bundles/?api_key=secret"
+    )
+    error.response = response
+    return error
+
+
 def _run_self_test_until_create(parse_argv, monkeypatch, offer):
     monkeypatch.delenv("VAST_SELF_TEST_IMAGE", raising=False)
     monkeypatch.setattr(
@@ -269,7 +278,101 @@ class TestSelfTestMachineDiagnostics:
         assert result["machine_id"] == "42"
         assert result["checks"][0]["id"] == "offer.available"
         assert result["failure"]["likely_causes"]
+        assert result["failure"]["root_state"] == "offline_or_not_listed"
+        assert result["failure"]["confidence"] == "low"
         assert search.call_count == 2
+
+    def test_no_offer_with_visible_machine_reports_zero_active_offers(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        search = Mock(side_effect=[[], []])
+        monkeypatch.setattr("vastai.cli.commands.machines.offers_api.search_offers", search)
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.machines_api.show_machine",
+            Mock(return_value=[{"id": 42, "hostname": "host-42"}]),
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        assert result["failure_code"] == "no_offer"
+        assert result["failure"]["root_state"] == "zero_active_offers"
+        assert result["failure"]["confidence"] == "medium"
+        assert "Machine lookup returned a visible machine record." in result["failure"]["evidence"]
+        assert result["diagnostics"]["offer_search"]["machine_lookup"]["row_count"] == 1
+
+    def test_offer_search_permission_error_reports_api_permission_failed(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        search = Mock(side_effect=_http_error(401))
+        monkeypatch.setattr("vastai.cli.commands.machines.offers_api.search_offers", search)
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert result["failure_code"] == "api_permission_failed"
+        assert result["failure"]["root_state"] == "api_permission_failed"
+        assert result["failure"]["confidence"] == "high"
+        assert result["diagnostics"]["offer_search"]["search_error"]["status_code"] == 401
+        assert "api_key=secret" not in str(result)
+        assert search.call_count == 1
+
+    def test_machine_lookup_permission_error_reports_api_permission_failed(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        search = Mock(side_effect=[[], []])
+        monkeypatch.setattr("vastai.cli.commands.machines.offers_api.search_offers", search)
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.machines_api.show_machine",
+            Mock(side_effect=_http_error(403)),
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        assert result["failure_code"] == "api_permission_failed"
+        assert result["failure"]["root_state"] == "api_permission_failed"
+        assert result["diagnostics"]["offer_search"]["machine_lookup"]["status_code"] == 403
+
+    def test_no_rentable_offer_reports_currently_rented_state(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        broader_offer = _self_test_offer(rentable=False, rented=True)
+        search = Mock(side_effect=[[], [broader_offer]])
+        monkeypatch.setattr("vastai.cli.commands.machines.offers_api.search_offers", search)
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        assert result["failure_code"] == "no_rentable_offer"
+        assert result["failure"]["root_state"] == "currently_rented"
+        assert result["failure"]["confidence"] == "medium"
+        assert any("rented=true" in item for item in result["failure"]["evidence"])
+
+    def test_no_rentable_offer_reports_deverified_or_below_threshold(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        broader_offer = _self_test_offer(
+            rentable=False,
+            rented=False,
+            reliability=0.89,
+            vericode=8,
+            verified=False,
+            error_description="direct port verification failed",
+        )
+        search = Mock(side_effect=[[], [broader_offer]])
+        monkeypatch.setattr("vastai.cli.commands.machines.offers_api.search_offers", search)
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        assert result["failure_code"] == "no_rentable_offer"
+        assert result["failure"]["root_state"] == "deverified_or_below_threshold"
+        assert result["diagnostics"]["offer_search"]["broader_offers"][0]["vericode"] == 8
+        assert result["diagnostics"]["offer_search"]["broader_offers"][0]["verified"] is False
+        assert any("vericode=8" in item for item in result["failure"]["evidence"])
 
     def test_no_offer_non_raw_renders_once_without_stale_placeholders(
         self, parse_argv, patch_get_client, monkeypatch, capsys
@@ -288,6 +391,8 @@ class TestSelfTestMachineDiagnostics:
         assert "actual: 0 offers" in captured.out
         assert "required: >= 1 offers" in captured.out
         assert "vastai search offers 'machine_id=42 rentable=any rented=any'" in captured.out
+        assert "Root state: currently_rented" in captured.out
+        assert "Suggested steps:" in captured.out
         assert "{machine_id}" not in captured.out
         assert "--filter" not in captured.out
 
@@ -394,6 +499,116 @@ class TestSelfTestMachineDiagnostics:
         assert gpu_ram_check["status"] == "pass"
         assert gpu_ram_check["actual"] == 80
 
+    def test_preflight_direct_port_overage_is_advisory_not_gate(self):
+        from vastai.cli.self_test.machine_diagnostics import (
+            failed_checks,
+            informational_checks,
+            preflight_requirement_checks,
+        )
+
+        offer = _self_test_offer(
+            num_gpus=8,
+            gpu_ram=24 * 1024,
+            gpu_total_ram=8 * 24 * 1024,
+            cpu_ram=256 * 1024,
+            cpu_cores=32,
+            direct_port_count=1000,
+            inet_down=600,
+            inet_up=600,
+        )
+
+        checks = preflight_requirement_checks(offer)
+        direct_ports = next(check for check in checks if check["id"] == "network.direct_ports")
+        advisory = next(
+            check
+            for check in informational_checks(checks)
+            if check["id"] == "network.direct_ports.recommended_max"
+        )
+
+        assert direct_ports["status"] == "pass"
+        assert advisory["status"] == "info"
+        assert advisory["actual"] == 1000
+        assert advisory["required"] == 512
+        assert advisory["operator"] == "<="
+        assert "64 ports per listed GPU" in advisory["purpose"]
+        assert advisory not in failed_checks(checks)
+
+    def test_preflight_direct_port_overage_renders_advisory(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        offer = _self_test_offer(
+            num_gpus=8,
+            gpu_ram=24 * 1024,
+            gpu_total_ram=8 * 24 * 1024,
+            cpu_ram=256 * 1024,
+            cpu_cores=32,
+            direct_port_count=1000,
+            inet_down=600,
+            inet_up=600,
+            reliability=0.9,
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+
+        args = parse_argv(["self-test", "machine", "42"])
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 1
+        assert "Preflight advisory for machine 42:" in captured.out
+        assert "Direct port count advisory" in captured.out
+        assert "actual: 1000.0 ports" in captured.out
+        assert "recommended: <= 512 ports" in captured.out
+        assert "This is advisory only, not a self-test gate." in captured.out
+
+    def test_preflight_caps_system_ram_requirement_for_huge_vram_hosts(self):
+        from vastai.cli.self_test.machine_diagnostics import preflight_requirement_checks
+
+        offer = _self_test_offer(
+            gpu_name="B300 SXM6 AC",
+            num_gpus=8,
+            gpu_ram=275040,
+            gpu_total_ram=2200320,
+            cpu_ram=2063831,
+            cpu_cores=192,
+            direct_port_count=998,
+            inet_down=600,
+            inet_up=600,
+        )
+
+        checks = preflight_requirement_checks(offer)
+        system_ram = next(check for check in checks if check["id"] == "system.ram")
+
+        assert system_ram["status"] == "pass"
+        assert system_ram["actual"] == 2063831
+        assert system_ram["required"] == 2000000
+        assert "2 TB" in system_ram["purpose"]
+
+    def test_preflight_system_ram_cap_still_fails_below_two_tb(self):
+        from vastai.cli.self_test.machine_diagnostics import preflight_requirement_checks
+
+        offer = _self_test_offer(
+            gpu_name="B300 SXM6 AC",
+            num_gpus=8,
+            gpu_ram=275040,
+            gpu_total_ram=2200320,
+            cpu_ram=1900000,
+            cpu_cores=192,
+            direct_port_count=998,
+            inet_down=600,
+            inet_up=600,
+        )
+
+        checks = preflight_requirement_checks(offer)
+        system_ram = next(check for check in checks if check["id"] == "system.ram")
+
+        assert system_ram["status"] == "fail"
+        assert system_ram["actual"] == 1900000
+        assert system_ram["required"] == 2000000
+
     def test_ignore_requirements_includes_failed_checks_and_continues(
         self, parse_argv, patch_get_client, monkeypatch, capsys
     ):
@@ -414,6 +629,54 @@ class TestSelfTestMachineDiagnostics:
         assert "does not qualify this machine for verification" in captured.out
         create.assert_called_once()
         assert search.call_count == 1
+
+    def test_ignore_requirements_runtime_success_preserves_preflight_as_metadata(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        from vastai.cli.commands import machines
+
+        bad_offer = _self_test_offer(gpu_ram=6 * 1024, gpu_total_ram=6 * 1024, inet_up=98)
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"5000/tcp": [{"HostPort": "5000"}]},
+            "status_msg": "",
+        }
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[bad_offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            Mock(side_effect=[running_instance, running_instance, None]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.destroy_instance",
+            Mock(return_value={"success": True}),
+        )
+        monkeypatch.setattr(machines.requests, "get", lambda *_, **__: SimpleNamespace(status_code=200, text="DONE"))
+        monkeypatch.setattr(machines.time, "sleep", lambda *_: None)
+
+        args = parse_argv(["self-test", "machine", "42", "--ignore-requirements", "--raw"])
+        result = args.func(args)
+
+        assert result["success"] is True
+        assert result["failure_code"] is None
+        assert result["failure"] is None
+        assert result["warning"]
+        assert result["diagnostics"]["requirements_ignored"] is True
+        assert result["diagnostics"]["preflight_failure"]["code"] == "preflight_requirements_failed"
+        assert result["diagnostics"].get("runtime_failure") is None
+        assert {check["id"] for check in result["checks"] if check["status"] == "fail"} == {
+            "network.upload",
+            "gpu.ram",
+        }
 
     def test_test_image_option_overrides_default_mapping(
         self, parse_argv, patch_get_client, monkeypatch
@@ -642,3 +905,228 @@ class TestSelfTestMachineDiagnostics:
         assert exc_info.value.code == 1
         assert "api_key=secret" not in captured.out
         assert "api_key=REDACTED" in captured.out
+
+    def test_missing_progress_port_reports_available_ports(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer()
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"22/tcp": [{"HostPort": "40022"}]},
+            "status_msg": "",
+        }
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            Mock(return_value=running_instance),
+        )
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.destroy_instance", destroy)
+        monkeypatch.setattr("vastai.cli.commands.machines.time.sleep", lambda *_: None)
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        endpoint = result["diagnostics"]["progress_endpoint"]
+        assert result["failure_code"] == "progress_port_not_mapped"
+        assert endpoint["container_port"] == "5000/tcp"
+        assert endpoint["host_port"] is None
+        assert endpoint["mapped_ports"] == ["22/tcp"]
+        assert result["diagnostics"]["runtime_failure"]["progress_endpoint"] == endpoint
+        assert destroy.call_count >= 1
+
+    def test_progress_endpoint_never_reachable_records_endpoint_diagnostic(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer()
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"5000/tcp": [{"HostPort": "45000"}], "22/tcp": [{"HostPort": "40022"}]},
+            "status_msg": "",
+        }
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            Mock(return_value=running_instance),
+        )
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.destroy_instance", destroy)
+        monkeypatch.setattr("vastai.cli.commands.machines.time.sleep", lambda *_: None)
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.requests.get",
+            Mock(side_effect=requests.exceptions.ConnectTimeout("timed out for ?api_key=secret")),
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        endpoint = result["diagnostics"]["progress_endpoint"]
+        assert result["failure_code"] == "progress_endpoint_unreachable"
+        assert endpoint["url"] == "https://127.0.0.1:45000/progress"
+        assert endpoint["public_ip"] == "127.0.0.1"
+        assert endpoint["host_port"] == "45000"
+        assert endpoint["attempt_count"] >= 6
+        assert endpoint["first_connection_established"] is False
+        assert endpoint["last_error_type"] == "ConnectTimeout"
+        assert "api_key=secret" not in endpoint["last_error"]
+        assert "api_key=REDACTED" in endpoint["last_error"]
+        assert endpoint["mapped_ports"] == ["22/tcp", "5000/tcp"]
+        assert result["diagnostics"]["runtime_failure"]["progress_endpoint"] == endpoint
+        assert destroy.call_count >= 1
+
+    def test_progress_endpoint_lost_after_success_records_different_failure(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer()
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"5000/tcp": [{"HostPort": "45000"}]},
+            "status_msg": "",
+        }
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            Mock(return_value=running_instance),
+        )
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.destroy_instance", destroy)
+        monkeypatch.setattr("vastai.cli.commands.machines.time.sleep", lambda *_: None)
+        get = Mock(
+            side_effect=[
+                SimpleNamespace(status_code=200, text="Starting tests..."),
+                requests.exceptions.ConnectionError("connection refused"),
+                requests.exceptions.ConnectionError("connection refused"),
+                requests.exceptions.ConnectionError("connection refused"),
+                requests.exceptions.ConnectionError("connection refused"),
+                requests.exceptions.ConnectionError("connection refused"),
+                requests.exceptions.ConnectionError("connection refused"),
+            ]
+        )
+        monkeypatch.setattr("vastai.cli.commands.machines.requests.get", get)
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        endpoint = result["diagnostics"]["progress_endpoint"]
+        assert result["failure_code"] == "progress_endpoint_lost"
+        assert endpoint["first_connection_established"] is True
+        assert endpoint["last_error_type"] == "ConnectionError"
+        assert endpoint["attempt_count"] >= 7
+        assert result["diagnostics"]["runtime_failure"]["progress_endpoint"] == endpoint
+        assert destroy.call_count >= 1
+
+    def test_progress_endpoint_http_non_200_records_status_code(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer()
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"5000/tcp": [{"HostPort": "45000"}]},
+            "status_msg": "",
+        }
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            Mock(return_value=running_instance),
+        )
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.destroy_instance", destroy)
+        monkeypatch.setattr("vastai.cli.commands.machines.time.sleep", lambda *_: None)
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.requests.get",
+            Mock(return_value=SimpleNamespace(status_code=500, text="server error")),
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        endpoint = result["diagnostics"]["progress_endpoint"]
+        assert result["failure_code"] == "progress_endpoint_unreachable"
+        assert endpoint["last_status_code"] == 500
+        assert endpoint["last_error_type"] == "HTTPStatus"
+        assert endpoint["last_error"] == "HTTP 500 from progress endpoint"
+        assert result["diagnostics"]["runtime_failure"]["progress_endpoint"] == endpoint
+        assert destroy.call_count >= 1
+
+    def test_progress_endpoint_empty_200_records_empty_timeout(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer()
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"5000/tcp": [{"HostPort": "45000"}]},
+            "status_msg": "",
+        }
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            Mock(return_value=running_instance),
+        )
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.destroy_instance", destroy)
+        monkeypatch.setattr("vastai.cli.commands.machines.time.sleep", lambda *_: None)
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.requests.get",
+            Mock(return_value=SimpleNamespace(status_code=200, text="")),
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        endpoint = result["diagnostics"]["progress_endpoint"]
+        assert result["failure_code"] == "progress_empty_timeout"
+        assert endpoint["first_connection_established"] is True
+        assert endpoint["last_status_code"] == 200
+        assert endpoint["last_error_type"] is None
+        assert result["diagnostics"]["runtime_failure"]["progress_endpoint"] == endpoint
+        assert destroy.call_count >= 1

@@ -201,11 +201,11 @@ class TestSelfTestMachineIgnoreRequirements:
         monkeypatch.setattr(machines.offers_api, "search_offers", Mock(return_value=[]))
 
         args = parse_argv(["--raw", "self-test", "machine", "0", "--ignore-requirements"])
-        with pytest.raises(SystemExit) as exc_info:
-            args.func(args)
+        result = args.func(args)
 
-        assert exc_info.value.code == 0
-        raw = json.loads(capsys.readouterr().out)
+        assert result["success"] is False
+        assert capsys.readouterr().out == ""
+        raw = result
         assert raw["success"] is False
         assert "warning" in raw
         assert "Requirement checks are skipped as a pass/fail gate" in raw["warning"]
@@ -336,7 +336,7 @@ class TestSelfTestMachineDiagnostics:
     def test_preflight_normalizes_api_gpu_ram_units(
         self, parse_argv, patch_get_client, monkeypatch, capsys
     ):
-        bad_offer = _self_test_offer(gpu_ram=6 * 1024)
+        bad_offer = _self_test_offer(gpu_ram=6 * 1024, gpu_total_ram=0)
         search = Mock(return_value=[bad_offer])
         monkeypatch.setattr("vastai.cli.commands.machines.offers_api.search_offers", search)
 
@@ -349,6 +349,50 @@ class TestSelfTestMachineDiagnostics:
         assert "- GPU RAM" in captured.out
         assert "actual: 6.0 GiB" in captured.out
         assert "required: > 7 GiB" in captured.out
+
+    def test_preflight_uses_canonical_vram_for_b300(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        offer = _self_test_offer(
+            gpu_name="B300",
+            gpu_ram=288,
+            gpu_total_ram=288 * 1024,
+            num_gpus=1,
+            reliability=0.9,
+            cpu_ram=320 * 1024,
+        )
+        search = Mock(return_value=[offer])
+        monkeypatch.setattr("vastai.cli.commands.machines.offers_api.search_offers", search)
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        captured = capsys.readouterr()
+        gpu_ram_check = next(check for check in result["checks"] if check["id"] == "gpu.ram")
+        raw = json.dumps(result)
+        assert result["failure_code"] == "preflight_requirements_failed"
+        assert gpu_ram_check["status"] == "pass"
+        assert gpu_ram_check["actual"] == 288
+        assert "0.28" not in captured.out
+        assert "0.28125" not in captured.out
+        assert "0.28" not in raw
+        assert "0.28125" not in raw
+
+    def test_preflight_uses_canonical_total_ram_per_gpu(self):
+        from vastai.cli.self_test.machine_diagnostics import preflight_requirement_checks
+
+        offer = _self_test_offer(
+            gpu_ram=288,
+            gpu_total_ram=8 * 80 * 1024,
+            num_gpus=8,
+            cpu_ram=700 * 1024,
+            cpu_cores=24,
+        )
+
+        checks = preflight_requirement_checks(offer)
+        gpu_ram_check = next(check for check in checks if check["id"] == "gpu.ram")
+        assert gpu_ram_check["status"] == "pass"
+        assert gpu_ram_check["actual"] == 80
 
     def test_ignore_requirements_includes_failed_checks_and_continues(
         self, parse_argv, patch_get_client, monkeypatch, capsys

@@ -15,18 +15,17 @@ def safe_float(value):
         return 0.0
 
 
-def gpu_ram_gib(value):
-    """Normalize API GPU RAM values for display.
+def per_gpu_vram_gib(offer):
+    """Return per-GPU VRAM in GiB from canonical offer fields when possible."""
+    gpu_total_ram = safe_float(offer.get("gpu_total_ram"))
+    num_gpus = safe_float(offer.get("num_gpus"))
+    if gpu_total_ram > 0 and num_gpus > 0:
+        return gpu_total_ram / num_gpus / 1024
 
-    Search offer output historically displays `gpu_ram` after dividing by
-    1000, while tests and some call paths use a direct GiB-style value. Treat
-    large values as MiB so host-facing self-test output does not print
-    impossible values such as `32768 GB`.
-    """
-    raw = safe_float(value)
-    if raw > 256:
-        return raw / 1024
-    return raw
+    gpu_ram = safe_float(offer.get("gpu_ram"))
+    if gpu_ram >= 1024:
+        return gpu_ram / 1024
+    return gpu_ram
 
 
 def compact_offer_metadata(offer):
@@ -102,7 +101,7 @@ def _check(
 
 def preflight_requirement_checks(offer):
     gpu_total_ram = safe_float(offer.get("gpu_total_ram"))
-    per_gpu_ram_gib = gpu_ram_gib(offer.get("gpu_ram"))
+    per_gpu_ram_gib = per_gpu_vram_gib(offer)
     required_mbps = required_inet_mbps(gpu_total_ram)
     cpu_ram = safe_float(offer.get("cpu_ram"))
     cpu_cores = int(safe_float(offer.get("cpu_cores")))

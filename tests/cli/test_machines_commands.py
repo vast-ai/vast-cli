@@ -1,5 +1,6 @@
 """Integration tests for machine CLI commands with mocked HTTP."""
 
+import json
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -145,3 +146,66 @@ class TestListMachineEpilogDoesNotPromiseEmail:
 
     def test_list_machines_epilog_no_email(self, cli_parser):
         assert "email" not in self._epilog_lower(cli_parser, "list machines")
+
+
+class TestSelfTestMachineIgnoreRequirements:
+    def test_ignore_requirements_warns_on_success(self, parse_argv, monkeypatch, capsys):
+        from vastai.cli.commands import machines
+
+        offer = {
+            "id": 202,
+            "dlperf": 1.0,
+            "cuda_max_good": 13.0,
+            "compute_cap": 1200,
+            "reliability": 0.99,
+            "direct_port_count": 10,
+            "pcie_bw": 4.0,
+            "gpu_total_ram": 32 * 1024,
+            "inet_down": 200.0,
+            "inet_up": 200.0,
+            "gpu_ram": 32,
+            "cpu_ram": 64 * 1024,
+            "cpu_cores": 8,
+            "num_gpus": 1,
+        }
+        instance = {
+            "intended_status": "running",
+            "actual_status": "running",
+            "public_ipaddr": "203.0.113.10",
+            "ports": {"5000/tcp": [{"HostPort": "5000"}]},
+        }
+
+        monkeypatch.setattr(machines.offers_api, "search_offers", Mock(return_value=[offer]))
+        monkeypatch.setattr(machines.instances_api, "create_instance", Mock(return_value={"new_contract": 303}))
+        monkeypatch.setattr(machines.instances_api, "show_instance", Mock(return_value=instance))
+        monkeypatch.setattr(machines.instances_api, "destroy_instance", Mock(return_value={"success": True}))
+        monkeypatch.setattr(machines.requests, "get", lambda *_, **__: SimpleNamespace(status_code=200, text="DONE"))
+        monkeypatch.setattr(machines.time, "sleep", lambda *_: None)
+
+        args = parse_argv(["self-test", "machine", "123", "--ignore-requirements"])
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        assert exc_info.value.code == 0
+        out = capsys.readouterr().out
+        assert "WARNING: --ignore-requirements is set." in out
+        assert "Requirement checks are skipped as a pass/fail gate" in out
+        assert "does not qualify this machine for verification" in out
+        assert out.count("does not qualify this machine for verification") >= 2
+        assert "Test passed." in out
+
+    def test_ignore_requirements_warning_in_raw_summary(self, parse_argv, monkeypatch, capsys):
+        from vastai.cli.commands import machines
+
+        monkeypatch.setattr(machines.offers_api, "search_offers", Mock(return_value=[]))
+
+        args = parse_argv(["--raw", "self-test", "machine", "0", "--ignore-requirements"])
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        assert exc_info.value.code == 0
+        raw = json.loads(capsys.readouterr().out)
+        assert raw["success"] is False
+        assert "warning" in raw
+        assert "Requirement checks are skipped as a pass/fail gate" in raw["warning"]
+        assert "does not qualify this machine for verification" in raw["warning"]

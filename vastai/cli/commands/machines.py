@@ -551,9 +551,16 @@ def self_test__machine(args):
     """
     instance_id = None
     result = {"success": False, "reason": ""}
+    ignore_requirements_warning = (
+        "WARNING: --ignore-requirements is set. Requirement checks are skipped as a "
+        "pass/fail gate, and passing this self-test does not qualify this machine for verification."
+    )
 
     if not hasattr(args, 'debugging'):
         args.debugging = False
+
+    if args.ignore_requirements:
+        result["warning"] = ignore_requirements_warning
 
     def progress_print(*args_to_print):
         if not args.raw:
@@ -661,6 +668,8 @@ def self_test__machine(args):
             for reason in unmet_reasons:
                 progress_print(f"- {reason}")
             progress_print("Continuing despite unmet requirements because --ignore-requirements is set.")
+        if args.ignore_requirements:
+            progress_print(ignore_requirements_warning)
 
         # ----- CUDA version to docker image mapping -----
         def cuda_map_to_image(cuda_version, compute_cap=None):
@@ -1063,6 +1072,8 @@ def self_test__machine(args):
         print(json.dumps(result))
         sys.exit(0)
     else:
+        if result.get("warning"):
+            print(result["warning"])
         if result["success"]:
             print("Test completed successfully.")
             sys.exit(0)

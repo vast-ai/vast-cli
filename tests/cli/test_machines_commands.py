@@ -130,3 +130,18 @@ class TestSelfTestMachineCleanup:
         captured = capsys.readouterr()
         assert "Instance 123 destroyed successfully on attempt 1." in captured.out
         assert "WARNING: failed to destroy test instance 123" not in captured.out
+
+
+class TestListMachineEpilogDoesNotPromiseEmail:
+    """Regression: epilogs must not reference the email that no longer carries details."""
+
+    def _epilog_lower(self, cli_parser, command):
+        # The two-word command name keys into the registered subparser tree.
+        sp = cli_parser.subparsers().choices[command]
+        return (sp.epilog or "").lower()
+
+    def test_list_machine_epilog_no_email(self, cli_parser):
+        assert "email" not in self._epilog_lower(cli_parser, "list machine")
+
+    def test_list_machines_epilog_no_email(self, cli_parser):
+        assert "email" not in self._epilog_lower(cli_parser, "list machines")

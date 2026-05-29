@@ -214,10 +214,11 @@ def list_machine_impl(args, id):
         If your machine has an active client job and then goes offline, crashes, or has performance problems, this could permanently lower your reliability rating.
         We strongly recommend you test the machine first and only list when ready.
 
-        Raising --price_gpu above the current contract price is the supported way to
-        trigger a price-increase challenge: affected clients will receive an email
-        and can run `vastai accept price-increase <id>` (or --host <id>) to opt in
-        at the new rate. Until they accept, their auto-extend stops at the old price.
+        Raising any resource price above the current contract price writes a
+        pending row to `pending_price_increases` for each affected client.
+        Clients review and accept those rows via the console or
+        `vastai show pending-price-increases`; auto-extend stops at the old
+        price until they accept.
     """)
 )
 def list__machine(args):

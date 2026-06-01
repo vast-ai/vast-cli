@@ -80,15 +80,24 @@ def classify_new(name: str) -> str | None:
         return "Volumes"
     if "cluster" in name or "overlay" in name or name == "remove-machine-from-cluster":
         return "Host"
+    if name.startswith("metrics") or "gpu-trends" in name or "gpu-locations" in name:
+        # `metrics gpu`/`gpu-trends`/`gpu-locations` are [Host] GPU-market
+        # analytics — they live alongside the other host-facing commands.
+        return "Host"
     if name.startswith("search-"):
         return "Search & templates"
+    if "deployment" in name:
+        # show/start/stop/delete-deployment + show-deployment-versions all
+        # live with the serverless surface in docs.json.
+        return "Serverless"
     if "endpt" in name or "endpoint" in name or "workergroup" in name or "wrkgrp" in name:
         return "Serverless"
     if (
         "instance" in name
         or name == "take-snapshot"
         or name == "show-instance-filters"
-        or name == "accept-price-increase"
+        # accept/reject-price-increase + show-pending-price-increases
+        or "price-increase" in name
     ):
         return "Instances"
     return None

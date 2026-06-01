@@ -133,12 +133,15 @@ class CliCommand:
 
 def load_cli_parser():
     """Import the CLI and return its top-level apwrap parser fully wired."""
-    # Importing the commands triggers @parser.command decorator registration.
-    from vastai.cli.commands import (  # noqa: F401
-        instances, offers, machines, teams, keys, endpoints,
-        billing, storage, auth, misc, deployments,
-    )
+    # register_all_commands() imports every enabled command module, and the
+    # import itself triggers @parser.command decorator registration. Reusing
+    # the CLI's canonical registration helper (rather than a local copy of the
+    # import list) keeps the generator in lockstep with the real command set,
+    # so newly added command modules are documented automatically with no
+    # drift. main() in vastai/cli/main.py performs the same imports at runtime.
+    from vastai.cli.commands import register_all_commands
     from vastai.cli.main import parser
+    register_all_commands(parser)
     return parser
 
 

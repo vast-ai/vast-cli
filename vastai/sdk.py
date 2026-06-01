@@ -66,7 +66,7 @@ class VastAI:
         """Return distinct filterable values for instances."""
         return instances.show_instance_filters(self.client)
 
-    def show_instance(self, id: int) -> dict:
+    def show_instance(self, id: int) -> Optional[dict]:
         """Return details of a single instance."""
         return instances.show_instance(self.client, id)
 
@@ -106,24 +106,36 @@ class VastAI:
         """Change the bid price for an instance."""
         return instances.change_bid(self.client, id, price=price)
 
-    def accept_price_increase(
-        self,
-        id: Optional[int] = None,
-        instance_ids: Optional[List[int]] = None,
-        host_id: Optional[int] = None,
-    ) -> dict:
-        """Accept a host price increase on one or more rented instances.
+    def show_pending_price_increases(self) -> dict:
+        """Return the pending-price-increase envelope for the authenticated user.
 
-        Pass exactly one of ``id`` (single instance), ``instance_ids``
-        (batch of up to 64 IDs), or ``host_id`` (every pending challenge
-        for that host).
+        See ``vastai.api.price_increase.list_pending`` for the response shape.
         """
-        return instances.accept_price_increase(
-            self.client,
-            id=id,
-            instance_ids=instance_ids,
-            host_id=host_id,
-        )
+        from vastai.api import price_increase
+        return price_increase.list_pending(self.client)
+
+    def accept_price_increase(self, instance_id: int) -> dict:
+        """Accept the pending price increase on ``instance_id``.
+
+        Resolves the instance's pending row via the pending-list endpoint
+        and PUTs the per-row accept. The new prices and extended end date
+        apply only after the contract's current ``end_date``.
+
+        Raises ``LookupError`` when no pending row matches the instance id.
+        """
+        from vastai.api import price_increase
+        match = price_increase.resolve_instance_to_pending(self.client, instance_id)
+        return price_increase.accept(self.client, match["pending_price_increase_id"])
+
+    def reject_price_increase(self, instance_id: int) -> dict:
+        """Reject the pending price increase on ``instance_id``.
+
+        Tombstones the matching pending row on the backend; no cutover
+        follows. Raises ``LookupError`` when no pending row matches.
+        """
+        from vastai.api import price_increase
+        match = price_increase.resolve_instance_to_pending(self.client, instance_id)
+        return price_increase.reject(self.client, match["pending_price_increase_id"])
 
     def execute(self, id: int, command: str) -> dict:
         """Execute a command on an instance."""
@@ -144,6 +156,8 @@ class VastAI:
         inst = instances.show_instance(self.client, id)
         if isinstance(inst, list):
             inst = inst[0] if inst else {}
+        if not isinstance(inst, dict):
+            return ""
         port = inst.get("ssh_port") or (inst.get("ports") or {}).get("22/tcp", [{}])[0].get("HostPort")
         ip = inst.get("ssh_host") or inst.get("public_ipaddr")
         return f"ssh://root@{ip}:{port}" if port and ip else ""
@@ -153,6 +167,8 @@ class VastAI:
         inst = instances.show_instance(self.client, id)
         if isinstance(inst, list):
             inst = inst[0] if inst else {}
+        if not isinstance(inst, dict):
+            return ""
         port = inst.get("ssh_port") or (inst.get("ports") or {}).get("22/tcp", [{}])[0].get("HostPort")
         ip = inst.get("ssh_host") or inst.get("public_ipaddr")
         return f"scp://root@{ip}:{port}" if port and ip else ""

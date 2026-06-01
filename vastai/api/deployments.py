@@ -30,6 +30,18 @@ def delete_deployment(client: VastClient, id: int) -> dict:
     return r.json()
 
 
+def stop_deployment(client: VastClient, id: int) -> dict:
+    r = client.post(f"/deployment/{id}/stop/")
+    r.raise_for_status()
+    return r.json()
+
+
+def start_deployment(client: VastClient, id: int) -> dict:
+    r = client.post(f"/deployment/{id}/start/")
+    r.raise_for_status()
+    return r.json()
+
+
 def delete_deployment_by_name(client: VastClient, name: str, tag: str = None) -> dict:
     json_blob = {"name": name}
     if tag is not None:

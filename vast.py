@@ -5699,6 +5699,13 @@ def show__instance(args):
     r = http_get(args, req_url)
     r.raise_for_status()
     row = r.json()["instances"]
+    if row is None:
+        if getattr(args, "internal", False):
+            return None
+        if args.raw:
+            return {"instances": None}
+        print(f"Instance {args.id} not found or no longer exists.", file=sys.stderr)
+        return 1
     row['duration'] = time.time() - row['start_date']
     row['extra_env'] = {env_var[0]: env_var[1] for env_var in row['extra_env']}
     if args.raw:
@@ -5723,7 +5730,7 @@ def show__instances(args = {}, extra = {}):
     #r = http_get(req_url)
     r = http_get(args, req_url)
     r.raise_for_status()
-    rows = r.json()["instances"]
+    rows = r.json()["instances"] or []
     for row in rows:
         row = {k: strip_strings(v) for k, v in row.items()} 
         row['duration'] = time.time() - row['start_date']
@@ -8367,10 +8374,17 @@ def self_test__machine(args):
     """
     instance_id = None  # Store instance ID for cleanup if needed
     result = {"success": False, "reason": ""}
+    ignore_requirements_warning = (
+        "WARNING: --ignore-requirements is set. Requirement checks are skipped as a "
+        "pass/fail gate, and passing this self-test does not qualify this machine for verification."
+    )
     
     # Ensure debugging attribute exists in args
     if not hasattr(args, 'debugging'):
         args.debugging = False
+
+    if args.ignore_requirements:
+        result["warning"] = ignore_requirements_warning
     
     try:
         # Load API key
@@ -8410,8 +8424,9 @@ def self_test__machine(args):
             progress_print(args, f"Machine ID {args.machine_id} does not meet the following requirements:")
             for reason in unmet_reasons:
                 progress_print(args, f"- {reason}")
-                # If user did pass --ignore-requirements, warn and continue
-                progress_print(args, "Continuing despite unmet requirements because --ignore-requirements is set.")
+            progress_print(args, "Continuing despite unmet requirements because --ignore-requirements is set.")
+        if args.ignore_requirements:
+            progress_print(args, ignore_requirements_warning)
 
         def cuda_map_to_image(cuda_version, compute_cap=None):
             """
@@ -8646,10 +8661,25 @@ def self_test__machine(args):
         # silently-leaked instance keeps billing the host.
         if instance_id:
             try:
-                if instance_exist(instance_id, api_key, destroy_args):
-                    progress_print(args, f"Destroying test instance {instance_id}...")
-                    destroy_instance_silent(instance_id, destroy_args)
-                    progress_print(args, f"Test instance {instance_id} destroyed.")
+                show_args = argparse.Namespace(
+                    id=instance_id,
+                    api_key=api_key,
+                    url=args.url,
+                    retry=args.retry,
+                    explain=False,
+                    raw=True,
+                    debugging=args.debugging,
+                    internal=True,
+                )
+                info = show__instance(show_args)
+                if not info:
+                    debug_print(args, f"Test instance {instance_id} is already gone.")
+                else:
+                    status = info.get('intended_status') or info.get('actual_status')
+                    if status not in ('destroyed', 'terminated', 'offline'):
+                        progress_print(args, f"Destroying test instance {instance_id} (status: {status})...")
+                        destroy_instance_silent(instance_id, destroy_args)
+                        progress_print(args, f"Test instance {instance_id} destroyed.")
             except KeyboardInterrupt:
                 progress_print(
                     args,
@@ -8669,6 +8699,8 @@ def self_test__machine(args):
         print(json.dumps(result))
         sys.exit(0)
     else:
+        if result.get("warning"):
+            print(result["warning"])
         if result["success"]:
             print("Test completed successfully.")
             sys.exit(0)
@@ -9177,7 +9209,8 @@ def instance_exist(instance_id, api_key, args):
         retry=args.retry,
         explain=False,
         raw=True,
-        debugging=args.debugging
+        debugging=args.debugging,
+        internal=True,
     )
     try:
         instance_info = show__instance(show_args)
@@ -9254,6 +9287,7 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
             retry=3,
             raw=True,
             debugging=args.debugging,
+            internal=True,
         )
         try:
             instance_info = show__instance(show_args)
@@ -9575,6 +9609,7 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
         url=args.url,
         retry=args.retry,
         debugging=args.debugging,
+        internal=True,
     )
     
     if args.debugging:

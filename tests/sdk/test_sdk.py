@@ -126,6 +126,10 @@ class TestSshUrl:
         with patch("vastai.api.instances.show_instance", return_value={}):
             assert sdk.ssh_url(1) == ""
 
+    def test_empty_when_deleted(self, sdk):
+        with patch("vastai.api.instances.show_instance", return_value=None):
+            assert sdk.ssh_url(1) == ""
+
     def test_unwraps_list_response(self, sdk):
         with patch("vastai.api.instances.show_instance", return_value=[{"ssh_host": "1.2.3.4", "ssh_port": 22}]):
             assert sdk.ssh_url(1) == "ssh://root@1.2.3.4:22"
@@ -142,6 +146,10 @@ class TestScpUrl:
 
     def test_empty_when_missing(self, sdk):
         with patch("vastai.api.instances.show_instance", return_value={}):
+            assert sdk.scp_url(1) == ""
+
+    def test_empty_when_deleted(self, sdk):
+        with patch("vastai.api.instances.show_instance", return_value=None):
             assert sdk.scp_url(1) == ""
 
 

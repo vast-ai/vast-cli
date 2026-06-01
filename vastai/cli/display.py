@@ -267,6 +267,24 @@ audit_log_fields = (
 )
 
 
+# Backend writes per-second costs (web/price_increase_pending.py:_serialize_pending_row).
+# Display matches the frontend convention: GPU per hour, storage per month, bandwidth per
+# GB, platform fee as a percentage. Pre-format `old → new` strings in the command before
+# rendering so a null `new_*` collapses to "-" via the empty-row fallback in display_table.
+pending_price_increase_fields = (
+    ("pending_id", "Pending ID", "{}", None, True),
+    ("instance_id", "Instance", "{}", None, True),
+    ("host_id", "Host", "{}", None, True),
+    ("current_end", "Current End (UTC)", "{}", None, True),
+    ("new_end", "New End (UTC)", "{}", None, True),
+    ("gpu", "GPU ($/GPU/hr)", "{}", None, True),
+    ("storage", "Storage ($/GB/mo)", "{}", None, True),
+    ("bw_up", "BW Up ($/GB)", "{}", None, True),
+    ("bw_down", "BW Down ($/GB)", "{}", None, True),
+    ("fee", "Platform Fee (%)", "{}", None, True),
+)
+
+
 scheduled_jobs_fields = (
     ("id", "Scheduled Job ID", "{}", None, True),
     ("instance_id", "Instance ID", "{}", None, True),

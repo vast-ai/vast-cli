@@ -635,6 +635,9 @@ def self_test__machine(args):
         if endpoint:
             if endpoint.get("url"):
                 print(f"- tried: {endpoint['url']}")
+            external_port = endpoint.get("external_port") or endpoint.get("host_port")
+            if external_port:
+                print(f"- external port tested: {external_port}")
             last_bits = []
             if endpoint.get("last_status_code") is not None:
                 last_bits.append(f"HTTP {endpoint['last_status_code']}")
@@ -645,7 +648,7 @@ def self_test__machine(args):
             if last_bits:
                 print(f"- last result: {' - '.join(last_bits)}")
             if endpoint.get("mapped_ports"):
-                print(f"- mapped ports: {', '.join(endpoint['mapped_ports'])}")
+                print(f"- mapped container ports: {', '.join(endpoint['mapped_ports'])}")
         if diagnostic.get("remediation"):
             print(f"- remediation: {diagnostic['remediation']}")
         steps = diagnostic.get("suggested_steps") or []
@@ -1213,6 +1216,8 @@ def self_test__machine(args):
                                 if not first_connection_established:
                                     progress_print("No response for 120s — port was never reachable.")
                                     progress_print(f"Tried: {endpoint.get('url')}")
+                                    if endpoint.get("external_port"):
+                                        progress_print(f"External port tested: {endpoint.get('external_port')}")
                                     if endpoint.get("last_error_type") or endpoint.get("last_status_code") is not None:
                                         last_result = endpoint.get("last_error_type") or f"HTTP {endpoint.get('last_status_code')}"
                                         if endpoint.get("last_error"):
@@ -1233,6 +1238,8 @@ def self_test__machine(args):
                                 elif endpoint.get("last_status_code") == 200 and not endpoint.get("last_error_type"):
                                     progress_print("Progress endpoint was reachable but returned no output for 120s.")
                                     progress_print(f"Tried: {endpoint.get('url')}")
+                                    if endpoint.get("external_port"):
+                                        progress_print(f"External port tested: {endpoint.get('external_port')}")
                                     progress_print("Possible causes:")
                                     progress_print("  1. Runtime script stalled before writing progress")
                                     progress_print("  2. Container process is alive but the test worker is hung")
@@ -1247,6 +1254,8 @@ def self_test__machine(args):
                                 else:
                                     progress_print("Connection lost after initial success — instance may have crashed.")
                                     progress_print(f"Tried: {endpoint.get('url')}")
+                                    if endpoint.get("external_port"):
+                                        progress_print(f"External port tested: {endpoint.get('external_port')}")
                                     if endpoint.get("last_error_type") or endpoint.get("last_status_code") is not None:
                                         last_result = endpoint.get("last_error_type") or f"HTTP {endpoint.get('last_status_code')}"
                                         if endpoint.get("last_error"):

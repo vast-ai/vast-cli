@@ -293,6 +293,7 @@ def make_progress_endpoint_diagnostic(
         "url": url,
         "public_ip": public_ip,
         "container_port": container_port,
+        "external_port": str(host_port) if host_port is not None else None,
         "host_port": str(host_port) if host_port is not None else None,
         "timeout_seconds": timeout_seconds,
         "attempt_count": int(attempt_count or 0),

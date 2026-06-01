@@ -940,6 +940,7 @@ class TestSelfTestMachineDiagnostics:
         endpoint = result["diagnostics"]["progress_endpoint"]
         assert result["failure_code"] == "progress_port_not_mapped"
         assert endpoint["container_port"] == "5000/tcp"
+        assert endpoint["external_port"] is None
         assert endpoint["host_port"] is None
         assert endpoint["mapped_ports"] == ["22/tcp"]
         assert result["diagnostics"]["runtime_failure"]["progress_endpoint"] == endpoint
@@ -984,6 +985,7 @@ class TestSelfTestMachineDiagnostics:
         assert result["failure_code"] == "progress_endpoint_unreachable"
         assert endpoint["url"] == "https://127.0.0.1:45000/progress"
         assert endpoint["public_ip"] == "127.0.0.1"
+        assert endpoint["external_port"] == "45000"
         assert endpoint["host_port"] == "45000"
         assert endpoint["attempt_count"] >= 6
         assert endpoint["first_connection_established"] is False
@@ -993,6 +995,50 @@ class TestSelfTestMachineDiagnostics:
         assert endpoint["mapped_ports"] == ["22/tcp", "5000/tcp"]
         assert result["diagnostics"]["runtime_failure"]["progress_endpoint"] == endpoint
         assert destroy.call_count >= 1
+
+    def test_progress_endpoint_failure_prints_external_port(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        offer = _self_test_offer()
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"5000/tcp": [{"HostPort": "45000"}], "22/tcp": [{"HostPort": "40022"}]},
+            "status_msg": "",
+        }
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            Mock(return_value=running_instance),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.destroy_instance",
+            Mock(return_value={"success": True}),
+        )
+        monkeypatch.setattr("vastai.cli.commands.machines.time.sleep", lambda *_: None)
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.requests.get",
+            Mock(side_effect=requests.exceptions.ConnectTimeout("timed out")),
+        )
+
+        args = parse_argv(["self-test", "machine", "42"])
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 1
+        assert "External port tested: 45000" in captured.out
+        assert "- external port tested: 45000" in captured.out
+        assert "- mapped container ports: 22/tcp, 5000/tcp" in captured.out
 
     def test_progress_endpoint_lost_after_success_records_different_failure(
         self, parse_argv, patch_get_client, monkeypatch

@@ -51,6 +51,7 @@ def test_make_progress_endpoint_diagnostic_shapes_and_redacts():
     assert result["url"] == "https://1.2.3.4:41001/progress"
     assert result["public_ip"] == "1.2.3.4"
     assert result["container_port"] == diag.PROGRESS_CONTAINER_PORT
+    assert result["external_port"] == "41001"
     assert result["host_port"] == "41001"
     assert result["timeout_seconds"] == 10
     assert result["attempt_count"] == 6

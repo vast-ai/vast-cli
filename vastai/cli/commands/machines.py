@@ -62,6 +62,7 @@ from vastai.cli.self_test.support_bundle import (
 
 parser = _get_parser()
 SELF_TEST_INSTANCE_LABEL_PREFIX = "vast-self-test-machine"
+INSTANCE_LOG_TAIL_LINES = 1000
 
 
 # ---------------------------------------------------------------------------
@@ -564,22 +565,95 @@ def add__network_disk(args):
 # dump-logs
 # ---------------------------------------------------------------------------
 
+def _diagnostic_error(error):
+    return redact_secret_text(error) or ""
+
+
+def _artifact_text(value):
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, indent=2, sort_keys=True, default=str)
+
+
+def collect_instance_log_artifacts(client, instance_id):
+    files = {}
+    errors = []
+
+    try:
+        instance_info = instances_api.show_instance(client, id=instance_id)
+        files["instance/show-instance.json"] = _artifact_text(instance_info)
+    except Exception as e:
+        errors.append({
+            "artifact": "instance/show-instance.json",
+            "error": _diagnostic_error(e),
+        })
+
+    for archive_name, daemon_logs in (
+        ("instance/container.log", False),
+        ("instance/daemon.log", True),
+    ):
+        try:
+            logs = instances_api.logs(
+                client,
+                instance_id=instance_id,
+                tail=INSTANCE_LOG_TAIL_LINES,
+                daemon_logs=daemon_logs,
+            )
+            files[archive_name] = _artifact_text(logs)
+        except Exception as e:
+            errors.append({
+                "artifact": archive_name,
+                "error": _diagnostic_error(e),
+            })
+
+    return files, errors
+
+
 @parser.command(
     argument("machine_id", help="Machine ID", type=str),
+    argument("--instance-id", help="Instance ID to pull Vast instance logs from", type=int),
     argument("--output-dir", help="Directory for the diagnostic bundle (default: /tmp)", type=str),
-    usage="vastai dump-logs <machine_id> [--output-dir DIR]",
-    help="[Host] Bundle local host diagnostics for support",
+    argument(
+        "--include-local-host-artifacts",
+        action="store_true",
+        help="Include local OS/kaalia artifacts; only use when running on the actual Vast host",
+    ),
+    usage="vastai dump-logs <machine_id> [--instance-id INSTANCE_ID] [--output-dir DIR]",
+    help="[Host] Bundle self-test diagnostics for support",
     epilog=deindent("""
-        Creates a redacted local diagnostic tarball containing kaalia logs,
-        Docker/NVIDIA/system summaries, and other host artifacts support often
-        asks for after a self-test failure.
+        Creates a redacted diagnostic tarball containing CLI-visible self-test
+        evidence. If --instance-id is provided, the command also pulls container
+        and daemon logs from the Vast instance logs API.
+
+        Local OS/kaalia artifacts are only collected with
+        --include-local-host-artifacts. Use that option only when running this
+        command on the actual host machine; from a laptop, it would collect the
+        laptop's logs instead.
 
         Example:
-         vastai dump-logs 12345
+         vastai dump-logs 12345 --instance-id 67890
     """),
 )
 def dump_logs(args):
     run_started_at = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    cli_output = [f"Manual diagnostic bundle requested for machine {args.machine_id}."]
+    extra_files = {}
+    extra_errors = []
+    if args.instance_id:
+        client = get_client(args)
+        cli_output.append(f"Requested Vast instance logs for instance {args.instance_id}.")
+        instance_files, instance_errors = collect_instance_log_artifacts(client, args.instance_id)
+        extra_files.update(instance_files)
+        extra_errors.extend(instance_errors)
+    else:
+        cli_output.append("No --instance-id provided; Vast instance logs were not requested.")
+
+    if not args.include_local_host_artifacts:
+        cli_output.append(
+            "Local host OS/kaalia artifacts were not collected. Use "
+            "--include-local-host-artifacts only when running on the actual host."
+        )
+
     bundle = create_support_bundle(
         machine_id=args.machine_id,
         output_dir=args.output_dir,
@@ -587,12 +661,16 @@ def dump_logs(args):
             "machine_id": args.machine_id,
             "stage": "manual_dump_logs",
             "reason": "Manual diagnostic bundle requested with vastai dump-logs.",
+            "instance_id": args.instance_id,
+            "includes_local_host_artifacts": args.include_local_host_artifacts,
         },
-        cli_output=[f"Manual diagnostic bundle requested for machine {args.machine_id}."],
+        cli_output=cli_output,
+        extra_files=extra_files,
+        extra_errors=extra_errors,
         run_started_at=run_started_at,
         command=sys.argv,
         secrets=[getattr(args, "api_key", None), os.environ.get("VAST_API_KEY")],
-        include_host_logs=True,
+        include_local_host_artifacts=args.include_local_host_artifacts,
     )
     if getattr(args, "raw", False):
         return bundle
@@ -631,6 +709,9 @@ def self_test__machine(args):
     result = base_result(args.machine_id)
     run_started_at = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     cli_output = []
+    instance_log_files = {}
+    instance_log_errors = []
+    instance_log_collected = set()
     ignore_requirements_warning = (
         "WARNING: --ignore-requirements is set. Requirement checks are skipped as a "
         "pass/fail gate, and passing this self-test does not qualify this machine for verification."
@@ -662,6 +743,21 @@ def self_test__machine(args):
         if args.debugging and not args.raw:
             print(*args_to_print)
 
+    def collect_instance_logs(inst_id):
+        if args.no_support_bundle or not support_bundles_enabled():
+            return
+        if not inst_id or inst_id in instance_log_collected:
+            return
+        instance_log_collected.add(inst_id)
+        files, errors = collect_instance_log_artifacts(client, inst_id)
+        instance_log_files.update(files)
+        instance_log_errors.extend(errors)
+        result["diagnostics"]["instance_log_collection"] = {
+            "instance_id": inst_id,
+            "files": sorted(instance_log_files.keys()),
+            "collection_errors": instance_log_errors,
+        }
+
     def ensure_support_bundle():
         if result.get("success"):
             return None
@@ -669,15 +765,19 @@ def self_test__machine(args):
             return result["diagnostics"]["support_bundle"]
         if args.no_support_bundle or not support_bundles_enabled():
             return None
+        if instance_id:
+            collect_instance_logs(instance_id)
         bundle = create_support_bundle(
             machine_id=args.machine_id,
             output_dir=args.support_bundle_dir,
             result=result,
             cli_output=cli_output,
+            extra_files=instance_log_files,
+            extra_errors=instance_log_errors,
             run_started_at=run_started_at,
             command=sys.argv,
             secrets=[getattr(args, "api_key", None), os.environ.get("VAST_API_KEY")],
-            include_host_logs=True,
+            include_local_host_artifacts=False,
         )
         result["diagnostics"]["support_bundle"] = bundle
         return bundle
@@ -1064,7 +1164,9 @@ def self_test__machine(args):
                         return False
 
                 # ----- helper: destroy instance silently with retries -----
-                def destroy_instance_silent(inst_id):
+                def destroy_instance_silent(inst_id, collect_logs=False):
+                    if collect_logs:
+                        collect_instance_logs(inst_id)
                     max_retries = 10
                     for attempt in range(1, max_retries + 1):
                         try:
@@ -1126,7 +1228,7 @@ def self_test__machine(args):
                                 reason = f"Instance {inst_id} encountered an error: {status_msg_clean}"
                                 progress_print(reason)
                                 if instance_exist(inst_id):
-                                    destroy_instance_silent(inst_id)
+                                    destroy_instance_silent(inst_id, collect_logs=True)
                                     progress_print(f"Instance {inst_id} has been destroyed due to error.")
                                 else:
                                     progress_print(f"Instance {inst_id} could not be destroyed or does not exist.")
@@ -1139,7 +1241,7 @@ def self_test__machine(args):
                                 diagnostic = make_failure(INSTANCE_OFFLINE_BEFORE_TEST, stage="startup")
                                 progress_print(reason)
                                 if instance_exist(inst_id):
-                                    destroy_instance_silent(inst_id)
+                                    destroy_instance_silent(inst_id, collect_logs=True)
                                     progress_print(f"Instance {inst_id} has been destroyed due to being offline.")
                                 else:
                                     progress_print(f"Instance {inst_id} could not be destroyed or does not exist.")
@@ -1161,7 +1263,7 @@ def self_test__machine(args):
                                     )
                                 progress_print(reason)
                                 if instance_exist(inst_id):
-                                    destroy_instance_silent(inst_id)
+                                    destroy_instance_silent(inst_id, collect_logs=True)
                                     progress_print(f"Instance {inst_id} has been destroyed due to startup failure.")
                                 else:
                                     progress_print(f"Instance {inst_id} could not be destroyed or does not exist.")
@@ -1250,7 +1352,7 @@ def self_test__machine(args):
                             if status == 'offline':
                                 reason = "Instance offline during testing"
                                 progress_print(f"Instance {inst_id} went offline. {reason}")
-                                destroy_instance_silent(inst_id)
+                                destroy_instance_silent(inst_id, collect_logs=True)
                                 instance_destroyed = True
                                 return False, reason, make_failure(INSTANCE_OFFLINE_BEFORE_TEST, stage="runtime")
 
@@ -1295,7 +1397,7 @@ def self_test__machine(args):
                                     elif line.startswith('ERROR'):
                                         progress_print(line)
                                         progress_print(f"Test failed with error: {line}.")
-                                        destroy_instance_silent(inst_id)
+                                        destroy_instance_silent(inst_id, collect_logs=True)
                                         instance_destroyed = True
                                         return False, line, diagnostic
                                     else:
@@ -1367,7 +1469,7 @@ def self_test__machine(args):
                                         details=return_reason,
                                         progress_endpoint=endpoint,
                                     )
-                                destroy_instance_silent(inst_id)
+                                destroy_instance_silent(inst_id, collect_logs=True)
                                 instance_destroyed = True
                                 return False, return_reason, diagnostic
 
@@ -1381,7 +1483,7 @@ def self_test__machine(args):
                         )
                     finally:
                         if not instance_destroyed and inst_id and instance_exist(inst_id):
-                            destroy_instance_silent(inst_id)
+                            destroy_instance_silent(inst_id, collect_logs=True)
                         progress_print(f"Machine: {machine_id} Done with testing remote.py results {message}")
                         warnings.simplefilter('default')
 
@@ -1473,6 +1575,8 @@ def self_test__machine(args):
                     info = {}
                 status = (info or {}).get('intended_status') or (info or {}).get('actual_status')
                 if info and status not in ('destroyed', 'terminated', 'offline'):
+                    if not result.get("success"):
+                        collect_instance_logs(instance_id)
                     progress_print(f"Destroying test instance {instance_id} (status: {status})...")
                     instances_api.destroy_instance(client, id=instance_id)
                     progress_print(f"Test instance {instance_id} destroyed.")
@@ -1497,6 +1601,8 @@ def self_test__machine(args):
                 )
 
     if args.raw:
+        if not result.get("success"):
+            ensure_support_bundle()
         return result
     else:
         if result.get("warning"):

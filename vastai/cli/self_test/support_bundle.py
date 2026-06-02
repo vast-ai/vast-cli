@@ -191,12 +191,17 @@ def create_support_bundle(
     result: dict[str, Any] | None = None,
     cli_output: list[str] | None = None,
     extra_files: dict[str, str] | None = None,
+    extra_errors: list[dict[str, str]] | None = None,
     run_started_at: str | None = None,
     command: list[str] | None = None,
     secrets: list[str] | None = None,
-    include_host_logs: bool = True,
+    include_local_host_artifacts: bool = False,
+    include_host_logs: bool | None = None,
 ) -> dict[str, Any]:
-    """Create a redacted host/self-test support tarball and return metadata."""
+    """Create a redacted self-test support tarball and return metadata."""
+
+    if include_host_logs is not None:
+        include_local_host_artifacts = include_host_logs
 
     created_at = utc_timestamp()
     safe_id = _safe_machine_id(machine_id)
@@ -213,7 +218,9 @@ def create_support_bundle(
     if extra_files:
         for name, content in extra_files.items():
             files[name] = _redact_text(content, secrets)
-    if include_host_logs:
+    if extra_errors:
+        errors.extend(_redact_json(extra_errors, secrets))
+    if include_local_host_artifacts:
         host_files, host_errors = _collect_host_artifacts(secrets)
         files.update(host_files)
         errors.extend(host_errors)
@@ -226,9 +233,15 @@ def create_support_bundle(
         "command": _redact_json(command or [], secrets),
         "max_text_bytes_per_artifact": MAX_TEXT_BYTES,
         "max_log_bytes_per_artifact": MAX_LOG_BYTES,
+        "includes_local_host_artifacts": include_local_host_artifacts,
         "files": sorted(files.keys()) + ["manifest.json", "collection-errors.json"],
         "collection_errors": errors,
-        "note": "Review contents before sharing with Vast support.",
+        "note": (
+            "This bundle contains CLI-visible self-test evidence. Host OS artifacts "
+            "are included only when includes_local_host_artifacts=true; otherwise "
+            "host daemon/kaalia/system logs need host-side daemon/backend collection "
+            "or an explicit dump run on the actual host."
+        ),
     }
     files["manifest.json"] = json.dumps(manifest, indent=2, sort_keys=True)
     files["collection-errors.json"] = json.dumps(errors, indent=2, sort_keys=True)
@@ -262,7 +275,7 @@ def format_bundle_summary(bundle: dict[str, Any]) -> list[str]:
         lines.append(f"  - {name}")
     errors = bundle.get("collection_errors") or []
     if errors:
-        lines.append("Some host artifacts could not be collected:")
+        lines.append("Some artifacts could not be collected:")
         for item in errors[:10]:
             lines.append(f"  - {item.get('artifact')}: {item.get('error')}")
         if len(errors) > 10:

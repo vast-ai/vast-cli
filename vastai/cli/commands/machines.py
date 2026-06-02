@@ -2,7 +2,6 @@
 
 import json
 import os
-import re
 import sys
 import time
 import warnings
@@ -52,10 +51,12 @@ from vastai.cli.self_test.runtime_diagnostics import (
     classify_status_msg,
     make_progress_endpoint_diagnostic,
     make_failure,
+    redact_secret_text,
 )
 
 
 parser = _get_parser()
+SELF_TEST_INSTANCE_LABEL_PREFIX = "vast-self-test-machine"
 
 
 # ---------------------------------------------------------------------------
@@ -619,7 +620,7 @@ def self_test__machine(args):
         result["diagnostics"]["runtime_failure"] = diagnostic
 
     def safe_error(error):
-        return re.sub(r"([?&]api_key=)[^&\s]+", r"\1REDACTED", str(error))
+        return redact_secret_text(error) or ""
 
     def render_runtime_failure():
         diagnostic = result.get("diagnostics", {}).get("runtime_failure")
@@ -688,6 +689,14 @@ def self_test__machine(args):
                 return {
                     "status": status,
                     "status_code": status_code,
+                    "error": safe_error(e),
+                    "rows": [],
+                    "row_count": 0,
+                }
+            except requests.exceptions.RequestException as e:
+                return {
+                    "status": "lookup_error",
+                    "status_code": http_status_code(e),
                     "error": safe_error(e),
                     "rows": [],
                     "row_count": 0,
@@ -892,10 +901,12 @@ def self_test__machine(args):
                 from vastai.cli.util import parse_env
                 env = parse_env("-e TZ=PDT -e XNAME=XX4 -p 5000:5000 -p 1234:1234")
                 runtype = "ssh_direc ssh_proxy"
+                self_test_label = f"{SELF_TEST_INSTANCE_LABEL_PREFIX}-{args.machine_id}"
                 result["diagnostics"]["launch"] = {
                     "runtype": runtype,
                     "jupyter_lab": False,
                     "ports": ["5000/tcp", "1234/tcp"],
+                    "label": self_test_label,
                 }
 
                 progress_print(f"Starting test with {docker_image} ({image_reason})")
@@ -906,7 +917,7 @@ def self_test__machine(args):
                     disk=40,
                     env=env,
                     price=None,
-                    label=None,
+                    label=self_test_label,
                     extra=None,
                     onstart_cmd="/verification/remote.sh",
                     login=None,
@@ -1227,7 +1238,7 @@ def self_test__machine(args):
                                     progress_print("  1. TCP firewall/NAT forwarding is blocking the mapped public port")
                                     progress_print("  2. Container did not start or did not bind the progress server")
                                     progress_print("  3. NAT loopback/hairpinning may fail when testing from the same LAN as the host")
-                                    progress_print(f"  4. direct_port_count too low - check with: vastai search offers 'machine_id={machine_id} rentable=any rented=any'")
+                                    progress_print(f"  4. direct_port_count below the 3 ports/GPU minimum - check with: vastai search offers 'machine_id={machine_id} rentable=any rented=any'")
                                     return_reason = "Port never reachable within 120 seconds"
                                     diagnostic = make_failure(
                                         PROGRESS_ENDPOINT_UNREACHABLE,
@@ -1319,7 +1330,7 @@ def self_test__machine(args):
                             progress_print(f"Port 5000/tcp not found in mapped ports. Available ports: {list(all_ports.keys())}")
                             progress_print("Possible causes:")
                             progress_print("  1. The instance launch did not map the self-test progress port")
-                            progress_print(f"  2. direct_port_count too low - check with: vastai search offers 'machine_id={args.machine_id} rentable=any rented=any'")
+                            progress_print(f"  2. direct_port_count below the 3 ports/GPU minimum - check with: vastai search offers 'machine_id={args.machine_id} rentable=any rented=any'")
                             progress_print("  3. Container is not exposing port 5000/tcp")
                             set_runtime_failure(
                                 make_failure(

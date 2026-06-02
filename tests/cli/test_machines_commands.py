@@ -336,6 +336,31 @@ class TestSelfTestMachineDiagnostics:
         assert result["failure"]["root_state"] == "api_permission_failed"
         assert result["diagnostics"]["offer_search"]["machine_lookup"]["status_code"] == 403
 
+    def test_machine_lookup_transport_error_is_recorded_without_aborting(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        search = Mock(side_effect=[[], []])
+        monkeypatch.setattr("vastai.cli.commands.machines.offers_api.search_offers", search)
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.machines_api.show_machine",
+            Mock(
+                side_effect=requests.exceptions.Timeout(
+                    "timeout for url: https://console.vast.ai/api/v0/machines/42/?api_key=secret"
+                )
+            ),
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        lookup = result["diagnostics"]["offer_search"]["machine_lookup"]
+        assert result["failure_code"] == "no_offer"
+        assert result["failure"]["root_state"] == "offline_or_not_listed"
+        assert lookup["status"] == "lookup_error"
+        assert lookup["status_code"] is None
+        assert "api_key=REDACTED" in lookup["error"]
+        assert "api_key=secret" not in str(result)
+
     def test_no_rentable_offer_reports_currently_rented_state(
         self, parse_argv, patch_get_client, monkeypatch
     ):
@@ -533,6 +558,29 @@ class TestSelfTestMachineDiagnostics:
         assert "64 ports per listed GPU" in advisory["purpose"]
         assert advisory not in failed_checks(checks)
 
+    def test_preflight_direct_port_minimum_scales_by_gpu_count(self):
+        from vastai.cli.self_test.machine_diagnostics import preflight_requirement_checks
+
+        offer = _self_test_offer(
+            num_gpus=8,
+            gpu_ram=24 * 1024,
+            gpu_total_ram=8 * 24 * 1024,
+            cpu_ram=256 * 1024,
+            cpu_cores=32,
+            direct_port_count=20,
+            inet_down=600,
+            inet_up=600,
+        )
+
+        checks = preflight_requirement_checks(offer)
+        direct_ports = next(check for check in checks if check["id"] == "network.direct_ports")
+
+        assert direct_ports["status"] == "fail"
+        assert direct_ports["actual"] == 20
+        assert direct_ports["required"] == 24
+        assert direct_ports["operator"] == ">="
+        assert "3 directly mapped ports per listed GPU" in direct_ports["purpose"]
+
     def test_preflight_direct_port_overage_renders_advisory(
         self, parse_argv, patch_get_client, monkeypatch, capsys
     ):
@@ -724,6 +772,8 @@ class TestSelfTestMachineDiagnostics:
         assert result["diagnostics"]["image"]["override"] is False
         assert create.call_args.kwargs["image"] == "vastai/test:self-test-v2-cuda-12.8"
         assert create.call_args.kwargs["runtype"] == "ssh_direc ssh_proxy"
+        assert create.call_args.kwargs["label"] == "vast-self-test-machine-42"
+        assert result["diagnostics"]["launch"]["label"] == "vast-self-test-machine-42"
 
     def test_cuda_mapping_selects_cuda_133_exact_match(
         self, parse_argv, patch_get_client, monkeypatch

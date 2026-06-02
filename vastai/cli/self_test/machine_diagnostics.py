@@ -155,8 +155,10 @@ def preflight_requirement_checks(offer):
     cpu_ram = safe_float(offer.get("cpu_ram"))
     cpu_cores = int(safe_float(offer.get("cpu_cores")))
     num_gpus = int(safe_float(offer.get("num_gpus")))
+    listed_gpus = num_gpus if num_gpus > 0 else 1
     direct_port_count = safe_float(offer.get("direct_port_count"))
-    recommended_max_ports = 64 * num_gpus if num_gpus > 0 else 64
+    required_min_ports = 3 * listed_gpus
+    recommended_max_ports = 64 * listed_gpus
     uncapped_required_cpu_ram = 0.95 * gpu_total_ram
     required_cpu_ram = min(uncapped_required_cpu_ram, SYSTEM_RAM_REQUIREMENT_CAP_MIB)
     required_cpu_cores = 2 * num_gpus
@@ -189,12 +191,18 @@ def preflight_requirement_checks(offer):
             "network.direct_ports",
             "Direct port count",
             direct_port_count,
-            3,
-            ">",
+            required_min_ports,
+            ">=",
             "ports",
-            direct_port_count > 3,
-            "The tester needs enough directly mapped ports for remote progress and SSH checks.",
-            "Open additional direct ports or adjust host firewall/NAT settings, then rerun verification.",
+            direct_port_count >= required_min_ports,
+            (
+                "The tester needs at least 3 directly mapped ports per listed GPU for remote "
+                "progress, SSH checks, and runtime port allocation."
+            ),
+            (
+                f"Open at least {required_min_ports} direct ports for {listed_gpus} listed GPU(s), "
+                "check firewall/NAT forwarding, and make TCP/UDP forwarding symmetric where required."
+            ),
         ),
         _check(
             "pcie.bandwidth",
@@ -280,7 +288,7 @@ def preflight_requirement_checks(offer):
                 "ports",
                 (
                     f"Direct port count: actual {direct_port_count} ports, recommended <= "
-                    f"{recommended_max_ports} ports for {num_gpus or 1} GPU(s)"
+                    f"{recommended_max_ports} ports for {listed_gpus} GPU(s)"
                 ),
                 (
                     "Vast instances can use at most 64 open ports each. Mapping more than "

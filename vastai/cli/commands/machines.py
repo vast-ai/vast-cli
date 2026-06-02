@@ -53,6 +53,11 @@ from vastai.cli.self_test.runtime_diagnostics import (
     make_failure,
     redact_secret_text,
 )
+from vastai.cli.self_test.support_bundle import (
+    create_support_bundle,
+    format_bundle_summary,
+    support_bundles_enabled,
+)
 
 
 parser = _get_parser()
@@ -556,6 +561,46 @@ def add__network_disk(args):
 
 
 # ---------------------------------------------------------------------------
+# dump-logs
+# ---------------------------------------------------------------------------
+
+@parser.command(
+    argument("machine_id", help="Machine ID", type=str),
+    argument("--output-dir", help="Directory for the diagnostic bundle (default: /tmp)", type=str),
+    usage="vastai dump-logs <machine_id> [--output-dir DIR]",
+    help="[Host] Bundle local host diagnostics for support",
+    epilog=deindent("""
+        Creates a redacted local diagnostic tarball containing kaalia logs,
+        Docker/NVIDIA/system summaries, and other host artifacts support often
+        asks for after a self-test failure.
+
+        Example:
+         vastai dump-logs 12345
+    """),
+)
+def dump_logs(args):
+    run_started_at = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    bundle = create_support_bundle(
+        machine_id=args.machine_id,
+        output_dir=args.output_dir,
+        result={
+            "machine_id": args.machine_id,
+            "stage": "manual_dump_logs",
+            "reason": "Manual diagnostic bundle requested with vastai dump-logs.",
+        },
+        cli_output=[f"Manual diagnostic bundle requested for machine {args.machine_id}."],
+        run_started_at=run_started_at,
+        command=sys.argv,
+        secrets=[getattr(args, "api_key", None), os.environ.get("VAST_API_KEY")],
+        include_host_logs=True,
+    )
+    if getattr(args, "raw", False):
+        return bundle
+    for line in format_bundle_summary(bundle):
+        print(line)
+
+
+# ---------------------------------------------------------------------------
 # self-test machine
 # ---------------------------------------------------------------------------
 
@@ -564,6 +609,8 @@ def add__network_disk(args):
     argument("--debugging", action="store_true", help="Enable debugging output"),
     argument("--ignore-requirements", action="store_true", help="Ignore the minimum system requirements and run the self test regardless"),
     argument("--test-image", help="Use a custom self-test image for testing custom self-test images. Overrides VAST_SELF_TEST_IMAGE and CUDA mapping.", type=str),
+    argument("--support-bundle-dir", help="Directory for failure diagnostic bundles (default: /tmp)", type=str),
+    argument("--no-support-bundle", action="store_true", help="Do not create a diagnostic tarball when the self-test fails"),
     usage="vastai self-test machine <machine_id> [--debugging] [--ignore-requirements] [--test-image IMAGE]",
     help="[Host] Perform a self-test on the specified machine",
     epilog=deindent("""
@@ -582,6 +629,8 @@ def self_test__machine(args):
     """
     instance_id = None
     result = base_result(args.machine_id)
+    run_started_at = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    cli_output = []
     ignore_requirements_warning = (
         "WARNING: --ignore-requirements is set. Requirement checks are skipped as a "
         "pass/fail gate, and passing this self-test does not qualify this machine for verification."
@@ -591,24 +640,59 @@ def self_test__machine(args):
         args.debugging = False
     if not hasattr(args, 'test_image'):
         args.test_image = None
+    if not hasattr(args, 'support_bundle_dir'):
+        args.support_bundle_dir = None
+    if not hasattr(args, 'no_support_bundle'):
+        args.no_support_bundle = False
     if getattr(args, "ignore_requirements", False):
         result["warning"] = ignore_requirements_warning
         result["diagnostics"]["requirements_ignored"] = True
 
+    def output_line(*args_to_print):
+        return " ".join(str(item) for item in args_to_print)
+
     def progress_print(*args_to_print):
+        cli_output.append(output_line(*args_to_print))
         if not args.raw:
             print(*args_to_print)
 
     def debug_print(*args_to_print):
+        if args.debugging:
+            cli_output.append(f"DEBUG: {output_line(*args_to_print)}")
         if args.debugging and not args.raw:
             print(*args_to_print)
 
+    def ensure_support_bundle():
+        if result.get("success"):
+            return None
+        if result.get("diagnostics", {}).get("support_bundle"):
+            return result["diagnostics"]["support_bundle"]
+        if args.no_support_bundle or not support_bundles_enabled():
+            return None
+        bundle = create_support_bundle(
+            machine_id=args.machine_id,
+            output_dir=args.support_bundle_dir,
+            result=result,
+            cli_output=cli_output,
+            run_started_at=run_started_at,
+            command=sys.argv,
+            secrets=[getattr(args, "api_key", None), os.environ.get("VAST_API_KEY")],
+            include_host_logs=True,
+        )
+        result["diagnostics"]["support_bundle"] = bundle
+        return bundle
+
     def finish_failure():
         if args.raw:
+            ensure_support_bundle()
             return result
         if result.get("warning"):
             print(result["warning"])
         render_runtime_failure()
+        bundle = ensure_support_bundle()
+        if bundle:
+            for line in format_bundle_summary(bundle):
+                print(line)
         print(f"Test failed: {result['reason']}")
         sys.exit(1)
 
@@ -626,19 +710,19 @@ def self_test__machine(args):
         diagnostic = result.get("diagnostics", {}).get("runtime_failure")
         if not diagnostic:
             return
-        print("Runtime failure diagnostics:")
-        print(f"- code: {diagnostic.get('code')}")
+        progress_print("Runtime failure diagnostics:")
+        progress_print(f"- code: {diagnostic.get('code')}")
         if diagnostic.get("summary"):
-            print(f"- summary: {diagnostic['summary']}")
+            progress_print(f"- summary: {diagnostic['summary']}")
         if diagnostic.get("underlying_error"):
-            print(f"- underlying error: {diagnostic['underlying_error']}")
+            progress_print(f"- underlying error: {diagnostic['underlying_error']}")
         endpoint = diagnostic.get("progress_endpoint") or result.get("diagnostics", {}).get("progress_endpoint")
         if endpoint:
             if endpoint.get("url"):
-                print(f"- tried: {endpoint['url']}")
+                progress_print(f"- tried: {endpoint['url']}")
             external_port = endpoint.get("external_port") or endpoint.get("host_port")
             if external_port:
-                print(f"- external port tested: {external_port}")
+                progress_print(f"- external port tested: {external_port}")
             last_bits = []
             if endpoint.get("last_status_code") is not None:
                 last_bits.append(f"HTTP {endpoint['last_status_code']}")
@@ -647,16 +731,16 @@ def self_test__machine(args):
             if endpoint.get("last_error"):
                 last_bits.append(str(endpoint["last_error"]))
             if last_bits:
-                print(f"- last result: {' - '.join(last_bits)}")
+                progress_print(f"- last result: {' - '.join(last_bits)}")
             if endpoint.get("mapped_ports"):
-                print(f"- mapped container ports: {', '.join(endpoint['mapped_ports'])}")
+                progress_print(f"- mapped container ports: {', '.join(endpoint['mapped_ports'])}")
         if diagnostic.get("remediation"):
-            print(f"- remediation: {diagnostic['remediation']}")
+            progress_print(f"- remediation: {diagnostic['remediation']}")
         steps = diagnostic.get("suggested_steps") or []
         if steps:
-            print("- suggested steps:")
+            progress_print("- suggested steps:")
             for step in steps:
-                print(f"  - {step}")
+                progress_print(f"  - {step}")
 
     client = get_client(args)
 
@@ -1426,5 +1510,9 @@ def self_test__machine(args):
             sys.exit(0)
         else:
             render_runtime_failure()
+            bundle = ensure_support_bundle()
+            if bundle:
+                for line in format_bundle_summary(bundle):
+                    print(line)
             print(f"Test failed: {result['reason']}")
             sys.exit(1)

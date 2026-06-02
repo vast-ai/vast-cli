@@ -618,7 +618,10 @@ def collect_instance_log_artifacts(client, instance_id):
         action="store_true",
         help="Include local OS/kaalia artifacts; only use when running on the actual Vast host",
     ),
-    usage="vastai dump-logs <machine_id> [--instance-id INSTANCE_ID] [--output-dir DIR]",
+    usage=(
+        "vastai dump-logs <machine_id> [--instance-id INSTANCE_ID] "
+        "[--output-dir DIR] [--include-local-host-artifacts]"
+    ),
     help="[Host] Bundle self-test diagnostics for support",
     epilog=deindent("""
         Creates a redacted diagnostic tarball containing CLI-visible self-test
@@ -654,24 +657,35 @@ def dump_logs(args):
             "--include-local-host-artifacts only when running on the actual host."
         )
 
-    bundle = create_support_bundle(
-        machine_id=args.machine_id,
-        output_dir=args.output_dir,
-        result={
-            "machine_id": args.machine_id,
-            "stage": "manual_dump_logs",
-            "reason": "Manual diagnostic bundle requested with vastai dump-logs.",
-            "instance_id": args.instance_id,
-            "includes_local_host_artifacts": args.include_local_host_artifacts,
-        },
-        cli_output=cli_output,
-        extra_files=extra_files,
-        extra_errors=extra_errors,
-        run_started_at=run_started_at,
-        command=sys.argv,
-        secrets=[getattr(args, "api_key", None), os.environ.get("VAST_API_KEY")],
-        include_local_host_artifacts=args.include_local_host_artifacts,
-    )
+    try:
+        bundle = create_support_bundle(
+            machine_id=args.machine_id,
+            output_dir=args.output_dir,
+            result={
+                "machine_id": args.machine_id,
+                "stage": "manual_dump_logs",
+                "reason": "Manual diagnostic bundle requested with vastai dump-logs.",
+                "instance_id": args.instance_id,
+                "includes_local_host_artifacts": args.include_local_host_artifacts,
+            },
+            cli_output=cli_output,
+            extra_files=extra_files,
+            extra_errors=extra_errors,
+            run_started_at=run_started_at,
+            command=sys.argv,
+            secrets=[getattr(args, "api_key", None), os.environ.get("VAST_API_KEY")],
+            include_local_host_artifacts=args.include_local_host_artifacts,
+        )
+    except Exception as e:
+        error = _diagnostic_error(e)
+        if getattr(args, "raw", False):
+            return {
+                "success": False,
+                "machine_id": args.machine_id,
+                "error": f"Failed to create diagnostic bundle: {error}",
+            }
+        print(f"WARNING: failed to create diagnostic bundle: {error}")
+        sys.exit(1)
     if getattr(args, "raw", False):
         return bundle
     for line in format_bundle_summary(bundle):
@@ -767,18 +781,24 @@ def self_test__machine(args):
             return None
         if instance_id:
             collect_instance_logs(instance_id)
-        bundle = create_support_bundle(
-            machine_id=args.machine_id,
-            output_dir=args.support_bundle_dir,
-            result=result,
-            cli_output=cli_output,
-            extra_files=instance_log_files,
-            extra_errors=instance_log_errors,
-            run_started_at=run_started_at,
-            command=sys.argv,
-            secrets=[getattr(args, "api_key", None), os.environ.get("VAST_API_KEY")],
-            include_local_host_artifacts=False,
-        )
+        try:
+            bundle = create_support_bundle(
+                machine_id=args.machine_id,
+                output_dir=args.support_bundle_dir,
+                result=result,
+                cli_output=cli_output,
+                extra_files=instance_log_files,
+                extra_errors=instance_log_errors,
+                run_started_at=run_started_at,
+                command=sys.argv,
+                secrets=[getattr(args, "api_key", None), os.environ.get("VAST_API_KEY")],
+                include_local_host_artifacts=False,
+            )
+        except Exception as e:
+            error = redact_secret_text(e) or ""
+            result["diagnostics"]["support_bundle_error"] = error
+            progress_print(f"WARNING: failed to create self-test diagnostic bundle: {error}")
+            return None
         result["diagnostics"]["support_bundle"] = bundle
         return bundle
 
@@ -1013,7 +1033,7 @@ def self_test__machine(args):
             if compute_cap is not None and compute_cap < 700:
                 return (
                     image_for("11.8"),
-                    f"compute_cap={compute_cap} below sm_70 → forced {image_tag_prefix}-11.8",
+                    f"compute_cap={compute_cap} below sm_70 -> forced {image_tag_prefix}-11.8",
                 )
 
             # Volta sm_70/sm_72 hosts: cuda-12.8 wheels include sm_70 but
@@ -1046,13 +1066,13 @@ def self_test__machine(args):
                 selected_version_str = f"{selected_version:.1f}"
                 image = docker_tag_map[selected_version_str]
                 if clamped_for_volta:
-                    reason = f"{cap_hint} (Volta) + cuda_max_good={original_cuda} → clamped to {cuda_version} → {image}"
+                    reason = f"{cap_hint} (Volta) + cuda_max_good={original_cuda} -> clamped to {cuda_version} -> {image}"
                 elif selected_version_str == cuda_version:
-                    reason = f"{cap_hint}, cuda_max_good={cuda_version} → exact match → {image}"
+                    reason = f"{cap_hint}, cuda_max_good={cuda_version} -> exact match -> {image}"
                 else:
                     reason = (
-                        f"{cap_hint}, cuda_max_good={original_cuda} → "
-                        f"selected newest image <= host CUDA ({selected_version_str}) → {image}"
+                        f"{cap_hint}, cuda_max_good={original_cuda} -> "
+                        f"selected newest image <= host CUDA ({selected_version_str}) -> {image}"
                     )
                 return image, reason
 

@@ -41,6 +41,22 @@ def test_support_bundle_contains_redacted_result_and_cli_output(tmp_path):
     assert manifest["includes_local_host_artifacts"] is False
 
 
+def test_support_bundle_sanitizes_archive_names(tmp_path):
+    bundle = create_support_bundle(
+        machine_id="42",
+        output_dir=str(tmp_path),
+        extra_files={"../../evil.txt": "payload"},
+        include_local_host_artifacts=False,
+    )
+
+    with tarfile.open(bundle["path"], "r:gz") as tar:
+        names = set(tar.getnames())
+
+    assert "../../evil.txt" not in names
+    assert all(".." not in name for name in names)
+    assert "_/_/evil.txt" in names
+
+
 def test_self_test_failure_creates_support_bundle(
     parse_argv, patch_get_client, monkeypatch, tmp_path, capsys
 ):
@@ -92,6 +108,43 @@ def test_self_test_failure_creates_support_bundle(
     assert "Self-test diagnostic bundle saved to:" in captured.out
     assert "self-test-result.json" in captured.out
     assert "Review this tarball before sharing it with support." in captured.out
+
+
+def test_self_test_bundle_creation_error_preserves_original_failure(
+    parse_argv, patch_get_client, monkeypatch, tmp_path, capsys
+):
+    from vastai.cli.commands import machines
+
+    bad_offer = {
+        "id": 777,
+        "cuda_max_good": "11.7",
+        "compute_cap": 750,
+        "dlperf": 1,
+        "reliability": 0.99,
+        "direct_port_count": 1,
+        "pcie_bw": 1.0,
+        "gpu_total_ram": 6 * 1024,
+        "inet_down": 10,
+        "inet_up": 10,
+        "gpu_ram": 6 * 1024,
+        "cpu_ram": 1024,
+        "cpu_cores": 1,
+        "num_gpus": 1,
+        "machine_id": 42,
+    }
+
+    monkeypatch.setenv("VAST_SELF_TEST_SUPPORT_BUNDLE", "1")
+    monkeypatch.setattr(machines, "create_support_bundle", Mock(side_effect=OSError("disk full")))
+    monkeypatch.setattr(machines.offers_api, "search_offers", Mock(return_value=[bad_offer]))
+
+    args = parse_argv(["self-test", "machine", "42", "--support-bundle-dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        args.func(args)
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 1
+    assert "WARNING: failed to create self-test diagnostic bundle: disk full" in captured.out
+    assert "Test failed: 8 preflight requirement check(s) failed." in captured.out
 
 
 def test_self_test_runtime_failure_bundle_includes_instance_logs(
@@ -211,6 +264,20 @@ def test_dump_logs_command_creates_cli_visible_bundle(parse_argv, monkeypatch, t
     assert created["extra_errors"] == []
     assert created["result"]["stage"] == "manual_dump_logs"
     assert "No --instance-id provided" in "\n".join(created["cli_output"])
+
+
+def test_dump_logs_bundle_creation_error_is_friendly(parse_argv, monkeypatch, tmp_path, capsys):
+    from vastai.cli.commands import machines
+
+    monkeypatch.setattr(machines, "create_support_bundle", Mock(side_effect=OSError("read-only directory")))
+
+    args = parse_argv(["dump-logs", "42", "--output-dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        args.func(args)
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 1
+    assert "WARNING: failed to create diagnostic bundle: read-only directory" in captured.out
 
 
 def test_dump_logs_command_can_pull_instance_logs(

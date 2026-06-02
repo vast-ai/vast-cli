@@ -20,6 +20,7 @@ DEFAULT_BUNDLE_DIR = "/tmp"
 MAX_TEXT_BYTES = 256 * 1024
 MAX_LOG_BYTES = 256 * 1024
 MAX_COMMAND_SECONDS = 10
+JSON_ARTIFACT_RE = re.compile(r"(^|/)[^/]+\.json$")
 SENSITIVE_KEY_RE = re.compile(
     r"(api[_-]?key|token|secret|password|passwd|authorization|jupyter_token|instance_api_key|host_port_range)",
     re.IGNORECASE,
@@ -103,6 +104,10 @@ def _run_command(args: list[str], *, timeout: int = MAX_COMMAND_SECONDS) -> tupl
     if proc.returncode != 0:
         error = f"command exited {proc.returncode}: {' '.join(args)}"
     return output, error
+
+
+def _safe_archive_name(name: str) -> str:
+    return re.sub(r"(^/+|\.\.|\\)", "_", name)
 
 
 def _summarize_ss_output(text: str) -> str:
@@ -248,12 +253,14 @@ def create_support_bundle(
 
     with tarfile.open(bundle_path, "w:gz") as tar:
         for name, content in sorted(files.items()):
-            safe_name = re.sub(r"(^/|\\.\\.|\\\\)", "_", name)
-            data = _truncate_text(content, MAX_LOG_BYTES).encode("utf-8", errors="replace")
+            safe_name = _safe_archive_name(name)
+            artifact_text = content if JSON_ARTIFACT_RE.search(name) else _truncate_text(content, MAX_LOG_BYTES)
+            data = artifact_text.encode("utf-8", errors="replace")
             info = tarfile.TarInfo(safe_name)
             info.size = len(data)
             info.mtime = int(time.time())
             tar.addfile(info, fileobj=io.BytesIO(data))
+    os.chmod(bundle_path, 0o600)
 
     size_bytes = bundle_path.stat().st_size
     return {

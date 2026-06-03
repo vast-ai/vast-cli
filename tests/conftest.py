@@ -109,6 +109,12 @@ def _restore_serverless_logger_state():
     log.disabled = old_disabled
 
 
+@pytest.fixture(autouse=True)
+def _disable_self_test_support_bundle_by_default(monkeypatch):
+    """Avoid writing host diagnostic bundles from ordinary unit tests."""
+    monkeypatch.setenv("VAST_SELF_TEST_SUPPORT_BUNDLE", "0")
+
+
 # ---------------------------------------------------------------------------
 # Server Worker test helpers (mocks for generate_client_response etc.)
 # ---------------------------------------------------------------------------

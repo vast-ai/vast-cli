@@ -120,7 +120,7 @@ CACHE_FILE = os.path.join(DIRS['temp'], "gpu_names_cache.json")
 CACHE_DURATION = timedelta(hours=24)
 
 
-def _get_gpu_names() -> List[str]:
+def _get_gpu_names() -> Optional[List[str]]:
     """Returns a set of GPU names available on Vast.ai, with results cached for 24 hours."""
 
     def is_cache_valid() -> bool:
@@ -131,21 +131,32 @@ def _get_gpu_names() -> List[str]:
         return cache_age < CACHE_DURATION
 
     if is_cache_valid():
-        with open(CACHE_FILE, "r") as file:
-            gpu_names = json.load(file)
+        try:
+            with open(CACHE_FILE, "r") as file:
+                gpu_names = json.load(file)
+        except (OSError, json.JSONDecodeError):
+            gpu_names = None
     else:
         endpoint = "/api/v0/gpu_names/unique/"
         url = f"{server_url_default}{endpoint}"
-        r = requests.get(url, headers={})
-        r.raise_for_status()  # Will raise an exception for HTTP errors
-        gpu_names = r.json()
-        with open(CACHE_FILE, "w") as file:
-            json.dump(gpu_names, file)
+        try:
+            r = requests.get(url, headers={})
+            r.raise_for_status()
+            gpu_names = r.json()
+        except (requests.exceptions.RequestException, ValueError):
+            return None
+        try:
+            with open(CACHE_FILE, "w") as file:
+                json.dump(gpu_names, file)
+        except OSError:
+            pass
 
-    formatted_gpu_names = [
-        name.replace(" ", "_").replace("-", "_") for name in gpu_names['gpu_names']
-    ]
-    return formatted_gpu_names
+    try:
+        return [
+            name.replace(" ", "_").replace("-", "_") for name in gpu_names['gpu_names']
+        ]
+    except (TypeError, KeyError):
+        return None
 
 
 APIKEY_FILE = os.path.join(DIRS['config'], "vast_api_key")

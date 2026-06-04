@@ -831,8 +831,11 @@ def make_serverless_backend_healthcheck_attrs():
         start: bool = True,
         succeeded: bool = False,
     ) -> None:
+        event = asyncio.Event()
+        if start:
+            event.set()
         object.__setattr__(backend, "healthcheck_url", url)
-        object.__setattr__(backend, "_Backend__start_healthcheck", start)
+        object.__setattr__(backend, "_Backend__start_healthcheck", event)
         object.__setattr__(backend, "_Backend__healthcheck_succeeded", succeeded)
 
     return _apply

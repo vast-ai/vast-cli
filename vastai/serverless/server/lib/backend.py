@@ -360,7 +360,7 @@ class Backend:
         self._pubkey: Optional[RSA.RsaKey] = None
         self.__pubkey_fetch_complete: asyncio.Event = asyncio.Event()
         self.__pubkey_failed: bool = False
-        self.__start_healthcheck: bool = False
+        self.__start_healthcheck: asyncio.Event = asyncio.Event()
         self.__healthcheck_ready: asyncio.Event = asyncio.Event()
         self.__healthcheck_succeeded: bool = False
 
@@ -604,16 +604,12 @@ class Backend:
             log.debug("No healthcheck endpoint defined, skipping healthcheck")
             return
 
-        # Per-request timeout for healthchecks
+        await self.__start_healthcheck.wait()
+
         timeout = ClientTimeout(total=10)
 
         while True:
             try:
-                await sleep(10)
-
-                if not self.__start_healthcheck:
-                    continue
-
                 log.debug(f"Performing healthcheck on {health_check_url}")
 
                 async with self.session.get(
@@ -623,16 +619,15 @@ class Backend:
                     status = response.status
 
                     if status == 200:
-                        log.debug("Healthcheck successful")
                         if not self.__healthcheck_succeeded:
                             self.__healthcheck_succeeded = True
                             self.__healthcheck_ready.set()
                             log.debug("First healthcheck succeeded - model is ready")
+                        else:
+                            log.debug("Healthcheck successful")
                     else:
                         msg = f"Healthcheck failed with status: {status}"
                         log.debug(msg)
-                        # Only report error if we've already had a successful healthcheck
-                        # (i.e., model was working but now is broken)
                         if self.__healthcheck_succeeded:
                             self.backend_errored(msg)
 
@@ -642,10 +637,10 @@ class Backend:
 
             except Exception as e:
                 log.debug(f"Healthcheck failed with exception: {e}")
-                # Only report connection errors AFTER the first successful healthcheck
-                # During startup, connection failures are expected
                 if self.__healthcheck_succeeded:
                     self.backend_errored(str(e))
+
+            await sleep(10)
 
     async def _start_tracking(self) -> None:
         if self.lifecycle is not None:
@@ -680,7 +675,7 @@ class Backend:
             await self.lifecycle.__aenter__()
             try:
                 max_throughput = await self.__run_benchmark()
-                self.__start_healthcheck = True
+                self.__start_healthcheck.set()
 
                 if self.healthcheck_url:
                     log.debug("Lifecycle ready, waiting for healthcheck...")
@@ -877,7 +872,7 @@ class Backend:
                         )
                         try:
                             max_throughput = await self.__run_benchmark()
-                            self.__start_healthcheck = True
+                            self.__start_healthcheck.set()
 
                             # Wait for the first successful healthcheck before marking model as loaded
                             if self.healthcheck_url:

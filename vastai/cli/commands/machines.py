@@ -2,7 +2,6 @@
 
 import json
 import os
-import re
 import sys
 import time
 import warnings
@@ -30,6 +29,7 @@ from vastai.cli.self_test.machine_diagnostics import (
     failed_checks,
     no_offer_failure,
     preflight_requirement_checks,
+    render_preflight_advisories,
     render_preflight_failure,
     requirement_failure,
 )
@@ -42,16 +42,27 @@ from vastai.cli.self_test.runtime_diagnostics import (
     INTERRUPTED,
     LegacyProgressParser,
     MISSING_PUBLIC_IP,
+    PROGRESS_CONTAINER_PORT,
+    PROGRESS_EMPTY_TIMEOUT,
     PROGRESS_ENDPOINT_LOST,
     PROGRESS_ENDPOINT_UNREACHABLE,
     PROGRESS_PORT_NOT_MAPPED,
     RUNTIME_TEST_TIMEOUT,
     classify_status_msg,
+    make_progress_endpoint_diagnostic,
     make_failure,
+    redact_secret_text,
+)
+from vastai.cli.self_test.support_bundle import (
+    create_support_bundle,
+    format_bundle_summary,
+    support_bundles_enabled,
 )
 
 
 parser = _get_parser()
+SELF_TEST_INSTANCE_LABEL_PREFIX = "vast-self-test-machine"
+INSTANCE_LOG_TAIL_LINES = 1000
 
 
 # ---------------------------------------------------------------------------
@@ -551,6 +562,137 @@ def add__network_disk(args):
 
 
 # ---------------------------------------------------------------------------
+# dump-logs
+# ---------------------------------------------------------------------------
+
+def _diagnostic_error(error):
+    return redact_secret_text(error) or ""
+
+
+def _artifact_text(value):
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, indent=2, sort_keys=True, default=str)
+
+
+def collect_instance_log_artifacts(client, instance_id):
+    files = {}
+    errors = []
+
+    try:
+        instance_info = instances_api.show_instance(client, id=instance_id)
+        files["instance/show-instance.json"] = _artifact_text(instance_info)
+    except Exception as e:
+        errors.append({
+            "artifact": "instance/show-instance.json",
+            "error": _diagnostic_error(e),
+        })
+
+    for archive_name, daemon_logs in (
+        ("instance/container.log", False),
+        ("instance/daemon.log", True),
+    ):
+        try:
+            logs = instances_api.logs(
+                client,
+                instance_id=instance_id,
+                tail=INSTANCE_LOG_TAIL_LINES,
+                daemon_logs=daemon_logs,
+            )
+            files[archive_name] = _artifact_text(logs)
+        except Exception as e:
+            errors.append({
+                "artifact": archive_name,
+                "error": _diagnostic_error(e),
+            })
+
+    return files, errors
+
+
+@parser.command(
+    argument("machine_id", help="Machine ID", type=str),
+    argument("--instance-id", help="Instance ID to pull Vast instance logs from", type=int),
+    argument("--output-dir", help="Directory for the diagnostic bundle (default: /tmp)", type=str),
+    argument(
+        "--include-local-host-artifacts",
+        action="store_true",
+        help="Include local OS/kaalia artifacts; only use when running on the actual Vast host",
+    ),
+    usage=(
+        "vastai dump-logs <machine_id> [--instance-id INSTANCE_ID] "
+        "[--output-dir DIR] [--include-local-host-artifacts]"
+    ),
+    help="[Host] Bundle self-test diagnostics for support",
+    epilog=deindent("""
+        Creates a redacted diagnostic tarball containing CLI-visible self-test
+        evidence. If --instance-id is provided, the command also pulls container
+        and daemon logs from the Vast instance logs API.
+
+        Local OS/kaalia artifacts are only collected with
+        --include-local-host-artifacts. Use that option only when running this
+        command on the actual host machine; from a laptop, it would collect the
+        laptop's logs instead.
+
+        Example:
+         vastai dump-logs 12345 --instance-id 67890
+    """),
+)
+def dump_logs(args):
+    run_started_at = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    cli_output = [f"Manual diagnostic bundle requested for machine {args.machine_id}."]
+    extra_files = {}
+    extra_errors = []
+    if args.instance_id:
+        client = get_client(args)
+        cli_output.append(f"Requested Vast instance logs for instance {args.instance_id}.")
+        instance_files, instance_errors = collect_instance_log_artifacts(client, args.instance_id)
+        extra_files.update(instance_files)
+        extra_errors.extend(instance_errors)
+    else:
+        cli_output.append("No --instance-id provided; Vast instance logs were not requested.")
+
+    if not args.include_local_host_artifacts:
+        cli_output.append(
+            "Local host OS/kaalia artifacts were not collected. Use "
+            "--include-local-host-artifacts only when running on the actual host."
+        )
+
+    try:
+        bundle = create_support_bundle(
+            machine_id=args.machine_id,
+            output_dir=args.output_dir,
+            result={
+                "machine_id": args.machine_id,
+                "stage": "manual_dump_logs",
+                "reason": "Manual diagnostic bundle requested with vastai dump-logs.",
+                "instance_id": args.instance_id,
+                "includes_local_host_artifacts": args.include_local_host_artifacts,
+            },
+            cli_output=cli_output,
+            extra_files=extra_files,
+            extra_errors=extra_errors,
+            run_started_at=run_started_at,
+            command=sys.argv,
+            secrets=[getattr(args, "api_key", None), os.environ.get("VAST_API_KEY")],
+            include_local_host_artifacts=args.include_local_host_artifacts,
+        )
+    except Exception as e:
+        error = _diagnostic_error(e)
+        if getattr(args, "raw", False):
+            return {
+                "success": False,
+                "machine_id": args.machine_id,
+                "error": f"Failed to create diagnostic bundle: {error}",
+            }
+        print(f"WARNING: failed to create diagnostic bundle: {error}")
+        sys.exit(1)
+    if getattr(args, "raw", False):
+        return bundle
+    for line in format_bundle_summary(bundle):
+        print(line)
+
+
+# ---------------------------------------------------------------------------
 # self-test machine
 # ---------------------------------------------------------------------------
 
@@ -559,6 +701,8 @@ def add__network_disk(args):
     argument("--debugging", action="store_true", help="Enable debugging output"),
     argument("--ignore-requirements", action="store_true", help="Ignore the minimum system requirements and run the self test regardless"),
     argument("--test-image", help="Use a custom self-test image for testing custom self-test images. Overrides VAST_SELF_TEST_IMAGE and CUDA mapping.", type=str),
+    argument("--support-bundle-dir", help="Directory for failure diagnostic bundles (default: /tmp)", type=str),
+    argument("--no-support-bundle", action="store_true", help="Do not create a diagnostic tarball when the self-test fails"),
     usage="vastai self-test machine <machine_id> [--debugging] [--ignore-requirements] [--test-image IMAGE]",
     help="[Host] Perform a self-test on the specified machine",
     epilog=deindent("""
@@ -577,6 +721,11 @@ def self_test__machine(args):
     """
     instance_id = None
     result = base_result(args.machine_id)
+    run_started_at = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    cli_output = []
+    instance_log_files = {}
+    instance_log_errors = []
+    instance_log_collected = set()
     ignore_requirements_warning = (
         "WARNING: --ignore-requirements is set. Requirement checks are skipped as a "
         "pass/fail gate, and passing this self-test does not qualify this machine for verification."
@@ -586,23 +735,84 @@ def self_test__machine(args):
         args.debugging = False
     if not hasattr(args, 'test_image'):
         args.test_image = None
+    if not hasattr(args, 'support_bundle_dir'):
+        args.support_bundle_dir = None
+    if not hasattr(args, 'no_support_bundle'):
+        args.no_support_bundle = False
     if getattr(args, "ignore_requirements", False):
         result["warning"] = ignore_requirements_warning
+        result["diagnostics"]["requirements_ignored"] = True
+
+    def output_line(*args_to_print):
+        return " ".join(str(item) for item in args_to_print)
 
     def progress_print(*args_to_print):
+        cli_output.append(output_line(*args_to_print))
         if not args.raw:
             print(*args_to_print)
 
     def debug_print(*args_to_print):
+        if args.debugging:
+            cli_output.append(f"DEBUG: {output_line(*args_to_print)}")
         if args.debugging and not args.raw:
             print(*args_to_print)
 
+    def collect_instance_logs(inst_id):
+        if args.no_support_bundle or not support_bundles_enabled():
+            return
+        if not inst_id or inst_id in instance_log_collected:
+            return
+        instance_log_collected.add(inst_id)
+        files, errors = collect_instance_log_artifacts(client, inst_id)
+        instance_log_files.update(files)
+        instance_log_errors.extend(errors)
+        result["diagnostics"]["instance_log_collection"] = {
+            "instance_id": inst_id,
+            "files": sorted(instance_log_files.keys()),
+            "collection_errors": instance_log_errors,
+        }
+
+    def ensure_support_bundle():
+        if result.get("success"):
+            return None
+        if result.get("diagnostics", {}).get("support_bundle"):
+            return result["diagnostics"]["support_bundle"]
+        if args.no_support_bundle or not support_bundles_enabled():
+            return None
+        if instance_id:
+            collect_instance_logs(instance_id)
+        try:
+            bundle = create_support_bundle(
+                machine_id=args.machine_id,
+                output_dir=args.support_bundle_dir,
+                result=result,
+                cli_output=cli_output,
+                extra_files=instance_log_files,
+                extra_errors=instance_log_errors,
+                run_started_at=run_started_at,
+                command=sys.argv,
+                secrets=[getattr(args, "api_key", None), os.environ.get("VAST_API_KEY")],
+                include_local_host_artifacts=False,
+            )
+        except Exception as e:
+            error = redact_secret_text(e) or ""
+            result["diagnostics"]["support_bundle_error"] = error
+            progress_print(f"WARNING: failed to create self-test diagnostic bundle: {error}")
+            return None
+        result["diagnostics"]["support_bundle"] = bundle
+        return bundle
+
     def finish_failure():
         if args.raw:
+            ensure_support_bundle()
             return result
         if result.get("warning"):
             print(result["warning"])
         render_runtime_failure()
+        bundle = ensure_support_bundle()
+        if bundle:
+            for line in format_bundle_summary(bundle):
+                print(line)
         print(f"Test failed: {result['reason']}")
         sys.exit(1)
 
@@ -614,29 +824,98 @@ def self_test__machine(args):
         result["diagnostics"]["runtime_failure"] = diagnostic
 
     def safe_error(error):
-        return re.sub(r"([?&]api_key=)[^&\s]+", r"\1REDACTED", str(error))
+        return redact_secret_text(error) or ""
 
     def render_runtime_failure():
         diagnostic = result.get("diagnostics", {}).get("runtime_failure")
         if not diagnostic:
             return
-        print("Runtime failure diagnostics:")
-        print(f"- code: {diagnostic.get('code')}")
+        progress_print("Runtime failure diagnostics:")
+        progress_print(f"- code: {diagnostic.get('code')}")
         if diagnostic.get("summary"):
-            print(f"- summary: {diagnostic['summary']}")
+            progress_print(f"- summary: {diagnostic['summary']}")
         if diagnostic.get("underlying_error"):
-            print(f"- underlying error: {diagnostic['underlying_error']}")
+            progress_print(f"- underlying error: {diagnostic['underlying_error']}")
+        endpoint = diagnostic.get("progress_endpoint") or result.get("diagnostics", {}).get("progress_endpoint")
+        if endpoint:
+            if endpoint.get("url"):
+                progress_print(f"- tried: {endpoint['url']}")
+            external_port = endpoint.get("external_port") or endpoint.get("host_port")
+            if external_port:
+                progress_print(f"- external port tested: {external_port}")
+            last_bits = []
+            if endpoint.get("last_status_code") is not None:
+                last_bits.append(f"HTTP {endpoint['last_status_code']}")
+            if endpoint.get("last_error_type"):
+                last_bits.append(str(endpoint["last_error_type"]))
+            if endpoint.get("last_error"):
+                last_bits.append(str(endpoint["last_error"]))
+            if last_bits:
+                progress_print(f"- last result: {' - '.join(last_bits)}")
+            if endpoint.get("mapped_ports"):
+                progress_print(f"- mapped container ports: {', '.join(endpoint['mapped_ports'])}")
         if diagnostic.get("remediation"):
-            print(f"- remediation: {diagnostic['remediation']}")
+            progress_print(f"- remediation: {diagnostic['remediation']}")
         steps = diagnostic.get("suggested_steps") or []
         if steps:
-            print("- suggested steps:")
+            progress_print("- suggested steps:")
             for step in steps:
-                print(f"  - {step}")
+                progress_print(f"  - {step}")
 
     client = get_client(args)
 
     try:
+        def http_status_code(error):
+            response = getattr(error, "response", None)
+            return getattr(response, "status_code", None)
+
+        def offer_search_error_summary(error):
+            return {
+                "status_code": http_status_code(error),
+                "error": safe_error(error),
+            }
+
+        def lookup_machine_for_offer_failure(machine_id):
+            try:
+                rows = machines_api.show_machine(client, id=machine_id)
+                if isinstance(rows, dict):
+                    rows_for_status = [rows] if rows else []
+                else:
+                    rows_for_status = rows or []
+                return {
+                    "status": "visible" if rows_for_status else "empty",
+                    "rows": rows_for_status,
+                    "row_count": len(rows_for_status),
+                }
+            except requests.exceptions.HTTPError as e:
+                status_code = http_status_code(e)
+                status = "permission_denied" if status_code in (401, 403) else "not_found" if status_code == 404 else "error"
+                return {
+                    "status": status,
+                    "status_code": status_code,
+                    "error": safe_error(e),
+                    "rows": [],
+                    "row_count": 0,
+                }
+            except requests.exceptions.RequestException as e:
+                return {
+                    "status": "lookup_error",
+                    "status_code": http_status_code(e),
+                    "error": safe_error(e),
+                    "rows": [],
+                    "row_count": 0,
+                }
+
+        def compact_machine_lookup(machine_lookup):
+            if not machine_lookup:
+                return None
+            return {
+                "status": machine_lookup.get("status"),
+                "status_code": machine_lookup.get("status_code"),
+                "row_count": machine_lookup.get("row_count", len(machine_lookup.get("rows") or [])),
+                "error": machine_lookup.get("error"),
+            }
+
         def selected_offer_for_self_test(machine_id):
             strict_query = {
                 "machine_id": {"eq": machine_id},
@@ -644,16 +923,26 @@ def self_test__machine(args):
                 "rentable": {"eq": True},
                 "rented": {"eq": "any"},
             }
-            strict_offers = offers_api.search_offers(
-                client, query=strict_query, offer_type="on-demand",
-                order=[["score", "desc"]], storage=5.0, no_default=True,
-            )
-            debug_print("Captured strict offers from search_offers:", strict_offers)
             diagnostics = {
-                "strict_offer_count": len(strict_offers or []),
+                "strict_offer_count": None,
                 "broader_offer_count": None,
                 "broader_offers": [],
+                "search_error": None,
+                "machine_lookup": None,
             }
+            try:
+                strict_offers = offers_api.search_offers(
+                    client, query=strict_query, offer_type="on-demand",
+                    order=[["score", "desc"]], storage=5.0, no_default=True,
+                )
+            except requests.exceptions.HTTPError as e:
+                if http_status_code(e) in (401, 403):
+                    diagnostics["search_error"] = offer_search_error_summary(e)
+                    check, failure = no_offer_failure(machine_id, [], search_error=e)
+                    return None, (check, failure), diagnostics
+                raise
+            debug_print("Captured strict offers from search_offers:", strict_offers)
+            diagnostics["strict_offer_count"] = len(strict_offers or [])
             if strict_offers:
                 sorted_offers = sorted(strict_offers, key=lambda x: x.get("dlperf", 0), reverse=True)
                 selected = dict(sorted_offers[0])
@@ -667,16 +956,27 @@ def self_test__machine(args):
                 "rentable": {"eq": "any"},
                 "rented": {"eq": "any"},
             }
-            broader_offers = offers_api.search_offers(
-                client, query=broader_query, offer_type="on-demand",
-                order=[["score", "desc"]], storage=5.0, no_default=True,
-            )
+            try:
+                broader_offers = offers_api.search_offers(
+                    client, query=broader_query, offer_type="on-demand",
+                    order=[["score", "desc"]], storage=5.0, no_default=True,
+                )
+            except requests.exceptions.HTTPError as e:
+                if http_status_code(e) in (401, 403):
+                    diagnostics["search_error"] = offer_search_error_summary(e)
+                    check, failure = no_offer_failure(machine_id, [], search_error=e)
+                    return None, (check, failure), diagnostics
+                raise
             diagnostics["broader_offer_count"] = len(broader_offers or [])
             diagnostics["broader_offers"] = [
                 compact_offer_metadata(dict(offer, machine_id=offer.get("machine_id", machine_id)))
                 for offer in (broader_offers or [])[:5]
             ]
-            check, failure = no_offer_failure(machine_id, broader_offers)
+            machine_lookup = None
+            if not broader_offers:
+                machine_lookup = lookup_machine_for_offer_failure(machine_id)
+                diagnostics["machine_lookup"] = compact_machine_lookup(machine_lookup)
+            check, failure = no_offer_failure(machine_id, broader_offers, machine_lookup=machine_lookup)
             return None, (check, failure), diagnostics
 
         selected_offer, offer_failure, offer_diagnostics = selected_offer_for_self_test(args.machine_id)
@@ -697,16 +997,19 @@ def self_test__machine(args):
         unmet_checks = failed_checks(checks)
         if unmet_checks:
             failure = requirement_failure(checks)
-            result["failure"] = failure
-            result["failure_code"] = failure["code"]
-            result["stage"] = "preflight_requirements"
-            result["reason"] = failure["summary"]
+            result["diagnostics"]["preflight_failure"] = failure
             render_preflight_failure(args.machine_id, checks, failure, progress_print)
+            render_preflight_advisories(args.machine_id, checks, progress_print)
             if not args.ignore_requirements:
+                result["failure"] = failure
+                result["failure_code"] = failure["code"]
+                result["stage"] = "preflight_requirements"
+                result["reason"] = failure["summary"]
                 return finish_failure()
             progress_print("Continuing despite unmet requirements because --ignore-requirements is set.")
         else:
             progress_print(f"Machine ID {args.machine_id} meets all the requirements.")
+            render_preflight_advisories(args.machine_id, checks, progress_print)
         if args.ignore_requirements:
             progress_print(ignore_requirements_warning)
 
@@ -730,7 +1033,7 @@ def self_test__machine(args):
             if compute_cap is not None and compute_cap < 700:
                 return (
                     image_for("11.8"),
-                    f"compute_cap={compute_cap} below sm_70 → forced {image_tag_prefix}-11.8",
+                    f"compute_cap={compute_cap} below sm_70 -> forced {image_tag_prefix}-11.8",
                 )
 
             # Volta sm_70/sm_72 hosts: cuda-12.8 wheels include sm_70 but
@@ -763,13 +1066,13 @@ def self_test__machine(args):
                 selected_version_str = f"{selected_version:.1f}"
                 image = docker_tag_map[selected_version_str]
                 if clamped_for_volta:
-                    reason = f"{cap_hint} (Volta) + cuda_max_good={original_cuda} → clamped to {cuda_version} → {image}"
+                    reason = f"{cap_hint} (Volta) + cuda_max_good={original_cuda} -> clamped to {cuda_version} -> {image}"
                 elif selected_version_str == cuda_version:
-                    reason = f"{cap_hint}, cuda_max_good={cuda_version} → exact match → {image}"
+                    reason = f"{cap_hint}, cuda_max_good={cuda_version} -> exact match -> {image}"
                 else:
                     reason = (
-                        f"{cap_hint}, cuda_max_good={original_cuda} → "
-                        f"selected newest image <= host CUDA ({selected_version_str}) → {image}"
+                        f"{cap_hint}, cuda_max_good={original_cuda} -> "
+                        f"selected newest image <= host CUDA ({selected_version_str}) -> {image}"
                     )
                 return image, reason
 
@@ -802,10 +1105,12 @@ def self_test__machine(args):
                 from vastai.cli.util import parse_env
                 env = parse_env("-e TZ=PDT -e XNAME=XX4 -p 5000:5000 -p 1234:1234")
                 runtype = "ssh_direc ssh_proxy"
+                self_test_label = f"{SELF_TEST_INSTANCE_LABEL_PREFIX}-{args.machine_id}"
                 result["diagnostics"]["launch"] = {
                     "runtype": runtype,
                     "jupyter_lab": False,
                     "ports": ["5000/tcp", "1234/tcp"],
+                    "label": self_test_label,
                 }
 
                 progress_print(f"Starting test with {docker_image} ({image_reason})")
@@ -816,7 +1121,7 @@ def self_test__machine(args):
                     disk=40,
                     env=env,
                     price=None,
-                    label=None,
+                    label=self_test_label,
                     extra=None,
                     onstart_cmd="/verification/remote.sh",
                     login=None,
@@ -879,7 +1184,9 @@ def self_test__machine(args):
                         return False
 
                 # ----- helper: destroy instance silently with retries -----
-                def destroy_instance_silent(inst_id):
+                def destroy_instance_silent(inst_id, collect_logs=False):
+                    if collect_logs:
+                        collect_instance_logs(inst_id)
                     max_retries = 10
                     for attempt in range(1, max_retries + 1):
                         try:
@@ -941,7 +1248,7 @@ def self_test__machine(args):
                                 reason = f"Instance {inst_id} encountered an error: {status_msg_clean}"
                                 progress_print(reason)
                                 if instance_exist(inst_id):
-                                    destroy_instance_silent(inst_id)
+                                    destroy_instance_silent(inst_id, collect_logs=True)
                                     progress_print(f"Instance {inst_id} has been destroyed due to error.")
                                 else:
                                     progress_print(f"Instance {inst_id} could not be destroyed or does not exist.")
@@ -954,7 +1261,7 @@ def self_test__machine(args):
                                 diagnostic = make_failure(INSTANCE_OFFLINE_BEFORE_TEST, stage="startup")
                                 progress_print(reason)
                                 if instance_exist(inst_id):
-                                    destroy_instance_silent(inst_id)
+                                    destroy_instance_silent(inst_id, collect_logs=True)
                                     progress_print(f"Instance {inst_id} has been destroyed due to being offline.")
                                 else:
                                     progress_print(f"Instance {inst_id} could not be destroyed or does not exist.")
@@ -976,7 +1283,7 @@ def self_test__machine(args):
                                     )
                                 progress_print(reason)
                                 if instance_exist(inst_id):
-                                    destroy_instance_silent(inst_id)
+                                    destroy_instance_silent(inst_id, collect_logs=True)
                                     progress_print(f"Instance {inst_id} has been destroyed due to startup failure.")
                                 else:
                                     progress_print(f"Instance {inst_id} could not be destroyed or does not exist.")
@@ -1004,11 +1311,37 @@ def self_test__machine(args):
                     )
 
                 # ----- run machine tester -----
-                def run_machinetester(ip_address, port, inst_id, machine_id, delay):
+                def run_machinetester(ip_address, port, inst_id, machine_id, delay, mapped_ports=None):
                     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
                     delay = int(delay)
                     message = ''
                     legacy_parser = LegacyProgressParser()
+                    progress_url = f"https://{ip_address}:{port}/progress"
+                    request_timeout = 10
+                    attempt_count = 0
+                    last_error_type = None
+                    last_error = None
+                    last_status_code = None
+                    first_connection_established = False
+
+                    def update_progress_endpoint():
+                        endpoint = make_progress_endpoint_diagnostic(
+                            url=progress_url,
+                            public_ip=ip_address,
+                            container_port=PROGRESS_CONTAINER_PORT,
+                            host_port=port,
+                            timeout_seconds=request_timeout,
+                            attempt_count=attempt_count,
+                            first_connection_established=first_connection_established,
+                            last_error_type=last_error_type,
+                            last_error=last_error,
+                            last_status_code=last_status_code,
+                            mapped_ports=mapped_ports,
+                        )
+                        result["diagnostics"]["progress_endpoint"] = endpoint
+                        return endpoint
+
+                    update_progress_endpoint()
 
                     def is_instance(iid):
                         try:
@@ -1030,7 +1363,6 @@ def self_test__machine(args):
                     start_time = time.time()
                     no_response_seconds = 0
                     printed_lines = set()
-                    first_connection_established = False
                     instance_destroyed = False
                     try:
                         while time.time() - start_time < 600:
@@ -1040,23 +1372,36 @@ def self_test__machine(args):
                             if status == 'offline':
                                 reason = "Instance offline during testing"
                                 progress_print(f"Instance {inst_id} went offline. {reason}")
-                                destroy_instance_silent(inst_id)
+                                destroy_instance_silent(inst_id, collect_logs=True)
                                 instance_destroyed = True
                                 return False, reason, make_failure(INSTANCE_OFFLINE_BEFORE_TEST, stage="runtime")
 
                             try:
-                                debug_print(f"Sending GET request to https://{ip_address}:{port}/progress")
-                                response = requests.get(f'https://{ip_address}:{port}/progress', verify=False, timeout=10)
+                                debug_print(f"Sending GET request to {progress_url}")
+                                attempt_count += 1
+                                response = requests.get(progress_url, verify=False, timeout=request_timeout)
+                                last_status_code = response.status_code
+                                last_error_type = None
+                                last_error = None
 
                                 if response.status_code == 200 and not first_connection_established:
                                     progress_print("Successfully established HTTPS connection to the server.")
                                     first_connection_established = True
 
-                                message = response.text.strip()
+                                if response.status_code == 200:
+                                    message = response.text.strip()
+                                else:
+                                    last_error_type = "HTTPStatus"
+                                    last_error = f"HTTP {response.status_code} from progress endpoint"
+                                    message = ''
                                 debug_print(f"Received message: '{message}'")
                             except requests.exceptions.RequestException as e:
-                                debug_print(f"Error making HTTPS request: {safe_error(e)}")
+                                last_status_code = None
+                                last_error_type = e.__class__.__name__
+                                last_error = safe_error(e)
+                                debug_print(f"Error making HTTPS request: {last_error}")
                                 message = ''
+                            update_progress_endpoint()
 
                             if message:
                                 lines = message.split('\n')
@@ -1072,7 +1417,7 @@ def self_test__machine(args):
                                     elif line.startswith('ERROR'):
                                         progress_print(line)
                                         progress_print(f"Test failed with error: {line}.")
-                                        destroy_instance_silent(inst_id)
+                                        destroy_instance_silent(inst_id, collect_logs=True)
                                         instance_destroyed = True
                                         return False, line, diagnostic
                                     else:
@@ -1084,31 +1429,67 @@ def self_test__machine(args):
                                 debug_print(f"No message received. Incremented no_response_seconds to {no_response_seconds}.")
 
                             if status == 'running' and no_response_seconds >= 120:
+                                endpoint = update_progress_endpoint()
                                 if not first_connection_established:
                                     progress_print("No response for 120s — port was never reachable.")
+                                    progress_print(f"Tried: {endpoint.get('url')}")
+                                    if endpoint.get("external_port"):
+                                        progress_print(f"External port tested: {endpoint.get('external_port')}")
+                                    if endpoint.get("last_error_type") or endpoint.get("last_status_code") is not None:
+                                        last_result = endpoint.get("last_error_type") or f"HTTP {endpoint.get('last_status_code')}"
+                                        if endpoint.get("last_error"):
+                                            last_result = f"{last_result}: {endpoint.get('last_error')}"
+                                        progress_print(f"Last result: {last_result}")
                                     progress_print("Possible causes:")
-                                    progress_print("  1. Port not accessible from outside — check firewall and direct_port_count")
-                                    progress_print("  2. Container crashed on startup — check docker logs")
-                                    progress_print(f"  3. direct_port_count too low - check with: vastai search offers 'machine_id={machine_id} rentable=any rented=any'")
+                                    progress_print("  1. TCP firewall/NAT forwarding is blocking the mapped public port")
+                                    progress_print("  2. Container did not start or did not bind the progress server")
+                                    progress_print("  3. NAT loopback/hairpinning may fail when testing from the same LAN as the host")
+                                    progress_print(f"  4. direct_port_count below the 3 ports/GPU minimum - check with: vastai search offers 'machine_id={machine_id} rentable=any rented=any'")
                                     return_reason = "Port never reachable within 120 seconds"
                                     diagnostic = make_failure(
                                         PROGRESS_ENDPOINT_UNREACHABLE,
                                         stage="runtime_connect",
                                         details=return_reason,
+                                        progress_endpoint=endpoint,
+                                    )
+                                elif endpoint.get("last_status_code") == 200 and not endpoint.get("last_error_type"):
+                                    progress_print("Progress endpoint was reachable but returned no output for 120s.")
+                                    progress_print(f"Tried: {endpoint.get('url')}")
+                                    if endpoint.get("external_port"):
+                                        progress_print(f"External port tested: {endpoint.get('external_port')}")
+                                    progress_print("Possible causes:")
+                                    progress_print("  1. Runtime script stalled before writing progress")
+                                    progress_print("  2. Container process is alive but the test worker is hung")
+                                    progress_print("  3. Host stall, GPU hang, or slow I/O prevented progress updates")
+                                    return_reason = "Progress endpoint returned no output for 120 seconds"
+                                    diagnostic = make_failure(
+                                        PROGRESS_EMPTY_TIMEOUT,
+                                        stage="runtime_progress",
+                                        details=return_reason,
+                                        progress_endpoint=endpoint,
                                     )
                                 else:
                                     progress_print("Connection lost after initial success — instance may have crashed.")
+                                    progress_print(f"Tried: {endpoint.get('url')}")
+                                    if endpoint.get("external_port"):
+                                        progress_print(f"External port tested: {endpoint.get('external_port')}")
+                                    if endpoint.get("last_error_type") or endpoint.get("last_status_code") is not None:
+                                        last_result = endpoint.get("last_error_type") or f"HTTP {endpoint.get('last_status_code')}"
+                                        if endpoint.get("last_error"):
+                                            last_result = f"{last_result}: {endpoint.get('last_error')}"
+                                        progress_print(f"Last result: {last_result}")
                                     progress_print("Possible causes:")
-                                    progress_print("  1. Out of RAM/VRAM — check docker logs")
-                                    progress_print("  2. GPU errors — check dmesg for Xid errors")
-                                    progress_print("  3. Try running individual tests to isolate the failure")
+                                    progress_print("  1. Container crash, OOM, or runtime process exit — check docker logs")
+                                    progress_print("  2. GPU errors or reset — check dmesg for Xid errors")
+                                    progress_print("  3. Host stall or network loss after the progress server started")
                                     return_reason = "Connection lost after 120 seconds — possible crash during stress test"
                                     diagnostic = make_failure(
                                         PROGRESS_ENDPOINT_LOST,
                                         stage="runtime_connect",
                                         details=return_reason,
+                                        progress_endpoint=endpoint,
                                     )
-                                destroy_instance_silent(inst_id)
+                                destroy_instance_silent(inst_id, collect_logs=True)
                                 instance_destroyed = True
                                 return False, return_reason, diagnostic
 
@@ -1122,7 +1503,7 @@ def self_test__machine(args):
                         )
                     finally:
                         if not instance_destroyed and inst_id and instance_exist(inst_id):
-                            destroy_instance_silent(inst_id)
+                            destroy_instance_silent(inst_id, collect_logs=True)
                         progress_print(f"Machine: {machine_id} Done with testing remote.py results {message}")
                         warnings.simplefilter('default')
 
@@ -1144,16 +1525,25 @@ def self_test__machine(args):
                         port_mappings = all_ports.get("5000/tcp", [])
                         port = port_mappings[0].get("HostPort") if port_mappings else None
                         if not port:
+                            endpoint = make_progress_endpoint_diagnostic(
+                                public_ip=ip_address,
+                                container_port=PROGRESS_CONTAINER_PORT,
+                                host_port=None,
+                                timeout_seconds=10,
+                                mapped_ports=all_ports,
+                            )
+                            result["diagnostics"]["progress_endpoint"] = endpoint
                             progress_print(f"Port 5000/tcp not found in mapped ports. Available ports: {list(all_ports.keys())}")
                             progress_print("Possible causes:")
-                            progress_print("  1. Firewall blocking the port")
-                            progress_print(f"  2. direct_port_count too low - check with: vastai search offers 'machine_id={args.machine_id} rentable=any rented=any'")
-                            progress_print("  3. Container is not exposing port 5000")
+                            progress_print("  1. The instance launch did not map the self-test progress port")
+                            progress_print(f"  2. direct_port_count below the 3 ports/GPU minimum - check with: vastai search offers 'machine_id={args.machine_id} rentable=any rented=any'")
+                            progress_print("  3. Container is not exposing port 5000/tcp")
                             set_runtime_failure(
                                 make_failure(
                                     PROGRESS_PORT_NOT_MAPPED,
                                     stage="instance_network",
                                     details=f"Available ports: {list(all_ports.keys())}",
+                                    progress_endpoint=endpoint,
                                 ),
                                 "Failed to retrieve mapped port.",
                             )
@@ -1162,7 +1552,7 @@ def self_test__machine(args):
                             result["phase"] = "test"
                             result["stage"] = "run_machinetester"
                             success, reason, runtime_diagnostic = run_machinetester(
-                                ip_address, port, instance_id, args.machine_id, delay,
+                                ip_address, port, instance_id, args.machine_id, delay, mapped_ports=all_ports,
                             )
                             result["success"] = success
                             result["reason"] = reason
@@ -1205,6 +1595,8 @@ def self_test__machine(args):
                     info = {}
                 status = (info or {}).get('intended_status') or (info or {}).get('actual_status')
                 if info and status not in ('destroyed', 'terminated', 'offline'):
+                    if not result.get("success"):
+                        collect_instance_logs(instance_id)
                     progress_print(f"Destroying test instance {instance_id} (status: {status})...")
                     instances_api.destroy_instance(client, id=instance_id)
                     progress_print(f"Test instance {instance_id} destroyed.")
@@ -1229,14 +1621,24 @@ def self_test__machine(args):
                 )
 
     if args.raw:
+        if not result.get("success"):
+            ensure_support_bundle()
         return result
     else:
         if result.get("warning"):
             print(result["warning"])
         if result["success"]:
-            print("Test completed successfully.")
+            if result.get("diagnostics", {}).get("preflight_failure"):
+                print("Runtime checks passed, but minimum requirement checks were ignored.")
+                print("This run does not qualify the machine for verification.")
+            else:
+                print("Test completed successfully.")
             sys.exit(0)
         else:
             render_runtime_failure()
+            bundle = ensure_support_bundle()
+            if bundle:
+                for line in format_bundle_summary(bundle):
+                    print(line)
             print(f"Test failed: {result['reason']}")
             sys.exit(1)

@@ -3,6 +3,7 @@
 import argparse
 import pytest
 from datetime import datetime, timedelta
+from unittest.mock import Mock
 
 
 class TestParseEnv:
@@ -88,6 +89,32 @@ class TestValidateSeconds:
         from vastai.cli.util import validate_seconds
         with pytest.raises(argparse.ArgumentTypeError):
             validate_seconds("not_a_number")
+
+
+class TestGetGpuNames:
+    def test_returns_none_when_live_lookup_fails(self, monkeypatch, tmp_path):
+        from requests.exceptions import HTTPError
+        from vastai.cli import util
+
+        response = Mock()
+        response.raise_for_status.side_effect = HTTPError("403 Client Error")
+
+        monkeypatch.setattr(util, "CACHE_FILE", str(tmp_path / "missing-cache.json"))
+        monkeypatch.setattr(util.requests, "get", Mock(return_value=response))
+
+        assert util._get_gpu_names() is None
+
+    def test_formats_gpu_names_from_live_lookup(self, monkeypatch, tmp_path):
+        from vastai.cli import util
+
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"gpu_names": ["RTX 4090", "H100-SXM"]}
+
+        monkeypatch.setattr(util, "CACHE_FILE", str(tmp_path / "gpu-cache.json"))
+        monkeypatch.setattr(util.requests, "get", Mock(return_value=response))
+
+        assert util._get_gpu_names() == ["RTX_4090", "H100_SXM"]
 
 
 class TestSmartSplit:

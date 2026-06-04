@@ -79,6 +79,7 @@ def main():
         billing, storage, auth, misc, deployments, metrics,
         benchmarks,
         price_increase,
+        multiverse,
         # clusters,  # cluster/overlay commands disabled for now
     )
 

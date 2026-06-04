@@ -100,6 +100,7 @@ COMMAND_GROUPS = {
     'vastai.cli.commands.deployments':  'Serverless',
     'vastai.cli.commands.metrics':      'Metrics',
     'vastai.cli.commands.storage':      'Storage volumes',
+    'vastai.cli.commands.multiverse':   'Other',
     'vastai.cli.commands.misc':         'Other',
 }
 

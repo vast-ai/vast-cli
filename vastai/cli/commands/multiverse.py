@@ -33,7 +33,10 @@ def _find_legion_home(override=None):
 @parser.command(
     argument("--legion-home", type=str, default=None,
              help="Path to the legion repo (else $LEGION_HOME or ~/workspace/legion)"),
-    usage="vastai multiverse [--legion-home PATH]",
+    argument("--local", action="store_true",
+             help="Self-contained local mode: in-process node, local translate parsers, "
+                  "in-process function registration (no remote parse endpoint or deploy)"),
+    usage="vastai multiverse [--local] [--legion-home PATH]",
     help="Launch the Legion Multiverse TUI (English -> market dispatch -> result)",
 )
 def multiverse(args):
@@ -47,8 +50,11 @@ def multiverse(args):
     if not os.path.exists(py):
         print(f"No venv python at {py}; falling back to {sys.executable}.", file=sys.stderr)
         py = sys.executable
+    cmd = [py, "-m", "multiverse"]
+    if args.local:
+        cmd.append("--local")
     try:
         # Inherit stdin/stdout/stderr so Textual drives the real terminal.
-        return subprocess.run([py, "-m", "multiverse"], cwd=home).returncode
+        return subprocess.run(cmd, cwd=home).returncode
     except KeyboardInterrupt:
         return 0

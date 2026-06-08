@@ -1,6 +1,7 @@
 import aiohttp
 import ssl
 import os
+import json
 import tempfile
 import asyncio
 from typing import Any, Optional, Union
@@ -188,19 +189,36 @@ class AsyncClient(_BaseClient):
     # ── Instances ───────────────────────────────────────────────────────────
 
     async def show_instances(self) -> list[AsyncInstance]:
-        """Return all instances owned by the authenticated user."""
+        """Return all instances owned by the authenticated user.
+
+        The legacy v0 ``/instances`` list endpoint is deprecated; this pages
+        through the v1 ``/api/v1/instances/`` endpoint (omitting ``select_cols``
+        so the backend returns full instance rows) and accumulates every page.
+        """
         session = await self._get_session()
-        async with session.get(
-            self._url("/api/v0/instances/"),
-            params={"owner": "me"},
-            headers=self._headers(),
-        ) as resp:
-            resp.raise_for_status()
-            data = await resp.json(content_type=None)
+        instances = []
+        params = {
+            "select_filters": json.dumps({}),
+            "order_by": json.dumps([{"col": "id", "dir": "asc"}]),
+            "limit": 25,
+        }
+        while True:
+            async with session.get(
+                self._url("/api/v1/instances/"),
+                params=params,
+                headers=self._headers(),
+            ) as resp:
+                resp.raise_for_status()
+                data = await resp.json(content_type=None)
+            instances.extend(data.get("instances") or [])
+            next_token = data.get("next_token")
+            if not next_token:
+                break
+            params["after_token"] = next_token
 
         return [
             AsyncInstance(Instance.from_dict(i), self)
-            for i in data.get("instances", [])
+            for i in instances
         ]
 
     async def destroy_instance(self, instance_or_id: Union[AsyncInstance, int]) -> None:

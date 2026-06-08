@@ -4845,10 +4845,7 @@ def _ssh_url(args, protocol):
         port   = json_object["port"]
 
     if ipaddr is None or ipaddr.endswith('.vast.ai'):
-        req_url = apiurl(args, "/instances", {"owner": "me"})
-        r = http_get(args, req_url)
-        r.raise_for_status()
-        rows = r.json()["instances"]
+        rows = _fetch_all_instances_v1(args)
 
         if args.id:
             matches = [r for r in rows if r['id'] == args.id]
@@ -5714,6 +5711,33 @@ def show__instance(args):
         #print(row)
         display_table([row], instance_fields)
 
+def _fetch_all_instances_v1(args, select_filters=None):
+    """Fetch every instance for the user via the paginated v1 endpoint.
+
+    The legacy v0 ``/instances`` list endpoint is deprecated. This pages
+    through ``/api/v1/instances/`` with no ``select_cols`` (so the backend
+    returns full instance rows, matching the old v0 payload) and accumulates
+    all pages into a single list.
+    """
+    rows = []
+    params = {
+        "select_filters": select_filters or {},
+        "order_by": [{"col": "id", "dir": "asc"}],
+        "limit": 25,
+    }
+    while True:
+        url = apiurl(args, "/api/v1/instances/", query_args=params)
+        r = http_get(args, url)
+        r.raise_for_status()
+        data = r.json()
+        rows.extend(data.get("instances") or [])
+        next_token = data.get("next_token")
+        if not next_token:
+            break
+        params["after_token"] = next_token
+    return rows
+
+
 @parser.command(
     argument("-q", "--quiet", action="store_true", help="only display numeric ids"),
     usage="vastai show instances [OPTIONS] [--api-key API_KEY] [--raw]",
@@ -5726,11 +5750,7 @@ def show__instances(args = {}, extra = {}):
     :param argparse.Namespace args: should supply all the command-line options
     :rtype:
     """
-    req_url = apiurl(args, "/instances", {"owner": "me"});
-    #r = http_get(req_url)
-    r = http_get(args, req_url)
-    r.raise_for_status()
-    rows = r.json()["instances"] or []
+    rows = _fetch_all_instances_v1(args)
     for row in rows:
         row = {k: strip_strings(v) for k, v in row.items()} 
         row['duration'] = time.time() - row['start_date']

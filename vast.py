@@ -9459,8 +9459,9 @@ def check_requirements(machine_id, api_key, args):
     Validates whether a machine meets the specified hardware and performance requirements.
 
     This function queries the machine's offers and checks various criteria such as CUDA
-    version, reliability, port count, PCIe bandwidth, internet speeds, GPU RAM, system
-    RAM, and CPU cores relative to the number of GPUs. If any of these requirements are
+    version, reliability, port count, PCIe bandwidth, internet speeds, GPU RAM, and
+    system RAM. Physical CPU core capacity is validated by the self-test image at
+    runtime. If any of these requirements are
     not met, it records the reasons for the failure.
 
     Args:
@@ -9561,17 +9562,6 @@ def check_requirements(machine_id, api_key, args):
         if args.debugging:
             debug_print(args, f"CPU RAM: {cpu_ram} MB")
             debug_print(args, f"Total GPU RAM: {gpu_total_ram} MB")
-
-        # 9. CPU Cores vs. Number of GPUs
-        cpu_cores = int(safe_float(top_offer.get('cpu_cores')))
-        num_gpus = int(safe_float(top_offer.get('num_gpus')))
-        if cpu_cores < 2 * num_gpus:
-            unmet_reasons.append("Number of CPU cores is less than twice the number of GPUs.")
-
-        # Debugging Information for CPU Cores
-        if args.debugging:
-            debug_print(args, f"CPU Cores: {cpu_cores}")
-            debug_print(args, f"Number of GPUs: {num_gpus}")
 
         # Return True if all requirements are met, False otherwise
         if unmet_reasons:

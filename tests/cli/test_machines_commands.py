@@ -581,6 +581,28 @@ class TestSelfTestMachineDiagnostics:
         assert direct_ports["operator"] == ">="
         assert "3 directly mapped ports per listed GPU" in direct_ports["purpose"]
 
+    def test_preflight_does_not_gate_on_virtual_cpu_count(self):
+        from vastai.cli.self_test.machine_diagnostics import (
+            failed_checks,
+            preflight_requirement_checks,
+        )
+
+        offer = _self_test_offer(
+            num_gpus=8,
+            gpu_ram=24 * 1024,
+            gpu_total_ram=8 * 24 * 1024,
+            cpu_ram=256 * 1024,
+            cpu_cores=1,
+            direct_port_count=24,
+            inet_down=600,
+            inet_up=600,
+        )
+
+        checks = preflight_requirement_checks(offer)
+
+        assert "cpu.cores" not in {check["id"] for check in checks}
+        assert failed_checks(checks) == []
+
     def test_preflight_direct_port_overage_renders_advisory(
         self, parse_argv, patch_get_client, monkeypatch, capsys
     ):

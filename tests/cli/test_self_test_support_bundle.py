@@ -144,7 +144,7 @@ def test_self_test_bundle_creation_error_preserves_original_failure(
     captured = capsys.readouterr()
     assert exc_info.value.code == 1
     assert "WARNING: failed to create self-test diagnostic bundle: disk full" in captured.out
-    assert "Test failed: 8 preflight requirement check(s) failed." in captured.out
+    assert "Test failed: 7 preflight requirement check(s) failed." in captured.out
 
 
 def test_self_test_runtime_failure_bundle_includes_instance_logs(

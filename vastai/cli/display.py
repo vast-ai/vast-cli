@@ -149,6 +149,21 @@ nw_vol_displayable_fields = (
 
 )
 
+# These fields are displayed for 'search benchmarks' (benchmarks table, AUTO-1418 schema)
+benchmarks_displayable_fields = (
+    ("id", "ID", "{}", None, True),
+    ("machine_id", "mach_id", "{}", None, True),
+    ("gpu_name", "Model", "{}", None, True),
+    ("num_gpus", "N", "{}x", None, False),
+    ("value", "Value", "{:0.2f}", None, True),
+    ("type", "Type", "{}", None, True),
+    ("template_hash", "Template", "{}", None, True),
+    ("template_id", "Templ_ID", "{}", None, True),
+    ("contract_id", "contract", "{}", None, True),
+    ("image", "Image", "{}", None, True),
+    ("last_update", "Date", "{}", lambda x: datetime.fromtimestamp(x, timezone.utc).strftime("%Y-%m-%d %H:%M"), True),
+)
+
 # These fields are displayed when you do 'show instances'
 instance_fields = (
     ("id", "ID", "{}", None, True),

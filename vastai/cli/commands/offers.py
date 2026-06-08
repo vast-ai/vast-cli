@@ -4,7 +4,7 @@ import json
 import time
 
 from vastai.cli.parser import argument, hidden_aliases
-from vastai.cli.display import display_table, displayable_fields, displayable_fields_reserved, deindent
+from vastai.cli.display import display_table, displayable_fields, displayable_fields_reserved, benchmarks_displayable_fields, deindent
 from vastai.api import offers as offers_api
 
 
@@ -222,22 +222,25 @@ def search__offers(args):
 
         Examples:
 
-            # search for benchmarks with score > 100 for llama2_70B model on 2 specific machines
-            vastai search benchmarks 'score > 100.0  model=llama2_70B  machine_id in [302,402]'
+            # search for benchmarks with value > 100 on RTX 4090s for 2 specific machines
+            vastai search benchmarks 'value > 100.0  gpu_name=RTX_4090  machine_id in [302,402]'
 
         Available fields:
 
               Name                  Type       Description
 
             contract_id             int        ID of instance/contract reporting benchmark
+            gpu_name                string     GPU model benchmarked (e.g. RTX_4090)
             id                      int        benchmark unique ID
             image                   string     image used for benchmark
             last_update             float      date of benchmark
+            launch_args             string     launch args of the benchmarked worker
             machine_id              int        id of machine benchmarked
-            model                   string     name of model used in benchmark
-            name                    string     name of benchmark
             num_gpus                int        number of gpus used in benchmark
-            score                   float      benchmark score result
+            template_hash           string     hash of the template benchmarked (formerly 'name')
+            template_id             int        id of the template benchmarked
+            type                    string     benchmark type
+            value                   float      benchmark result (formerly 'score')
     """),
     aliases=hidden_aliases(["search benchmarks"]),
 )
@@ -260,7 +263,7 @@ def search__benchmarks(args):
     rows = offers_api.search_benchmarks(client, query=query)
     if args.raw:
         return rows
-    display_table(rows, displayable_fields)
+    display_table(rows, benchmarks_displayable_fields)
 
 
 # ---------------------------------------------------------------------------

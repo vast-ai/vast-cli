@@ -192,7 +192,11 @@ class TestFieldSets:
 
     def test_benchmarks_fields_not_empty(self):
         assert len(benchmarks_fields) > 0
-        assert "score" in benchmarks_fields
+        assert "value" in benchmarks_fields
+        assert "template_hash" in benchmarks_fields
+        # AUTO-1418 renamed these away; they must not linger as real columns.
+        assert "score" not in benchmarks_fields
+        assert "name" not in benchmarks_fields
 
     def test_templates_fields_not_empty(self):
         assert len(templates_fields) > 0

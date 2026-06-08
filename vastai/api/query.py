@@ -184,14 +184,17 @@ offers_mult = {
 
 benchmarks_fields = {
     "contract_id",#             int        ID of instance/contract reporting benchmark
+    "gpu_name",#                string     GPU model benchmarked (e.g. RTX_4090)
     "id",#                      int        benchmark unique ID
     "image",#                   string     image used for benchmark
     "last_update",#             float      date of benchmark
+    "launch_args",#             string     launch args of the benchmarked worker
     "machine_id",#              int        id of machine benchmarked
-    "model",#                   string     name of model used in benchmark
-    "name",#                    string     name of benchmark
     "num_gpus",#                int        number of gpus used in benchmark
-    "score"#                   float      benchmark score result
+    "template_hash",#           string     hash of the template benchmarked (formerly 'name')
+    "template_id",#             int        id of the template benchmarked
+    "type",#                    string     benchmark type
+    "value",#                   float      benchmark result (formerly 'score')
 }
 
 invoices_fields = {

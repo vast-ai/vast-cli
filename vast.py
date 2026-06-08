@@ -5751,10 +5751,11 @@ def show__instances(args = {}, extra = {}):
     :rtype:
     """
     rows = _fetch_all_instances_v1(args)
-    for row in rows:
-        row = {k: strip_strings(v) for k, v in row.items()} 
+    for i, row in enumerate(rows):
+        row = {k: strip_strings(v) for k, v in row.items()}
         row['duration'] = time.time() - row['start_date']
         row['extra_env'] = {env_var[0]: env_var[1] for env_var in row['extra_env']}
+        rows[i] = row
     if 'internal' in extra:
         return [str(row[extra['field']]) for row in rows]
     elif args.quiet:

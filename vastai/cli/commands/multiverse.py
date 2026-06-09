@@ -36,7 +36,10 @@ def _find_legion_home(override=None):
     argument("--local", action="store_true",
              help="Self-contained local mode: in-process node, local translate parsers, "
                   "in-process function registration (no remote parse endpoint or deploy)"),
-    usage="vastai multiverse [--local] [--legion-home PATH]",
+    argument("--serve", action="store_true",
+             help="Run the headless market server (HTTP on localhost) instead of the TUI"),
+    argument("--port", type=int, default=7171, help="Market server port (with --serve)"),
+    usage="vastai multiverse [--local] [--serve [--port N]] [--legion-home PATH]",
     help="Launch the Legion Multiverse TUI (English -> market dispatch -> result)",
 )
 def multiverse(args):
@@ -53,6 +56,8 @@ def multiverse(args):
     cmd = [py, "-m", "multiverse"]
     if args.local:
         cmd.append("--local")
+    if args.serve:
+        cmd += ["--serve", "--port", str(args.port)]
     try:
         # Inherit stdin/stdout/stderr so Textual drives the real terminal.
         return subprocess.run(cmd, cwd=home).returncode

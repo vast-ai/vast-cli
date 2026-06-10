@@ -39,7 +39,11 @@ def _find_legion_home(override=None):
     argument("--serve", action="store_true",
              help="Run the headless market server (HTTP on localhost) instead of the TUI"),
     argument("--port", type=int, default=7171, help="Market server port (with --serve)"),
-    usage="vastai multiverse [--local] [--serve [--port N]] [--legion-home PATH]",
+    argument("--run", type=str, default=None, metavar="SCRIPT",
+             help="Execute a pyEngrish script file against the local market node ('-' reads stdin)"),
+    argument("--exec", dest="exec_code", type=str, default=None, metavar="CODE",
+             help="Execute inline pyEngrish code against the local market node"),
+    usage="vastai multiverse [--local] [--serve [--port N]] [--run SCRIPT | --exec CODE] [--legion-home PATH]",
     help="Launch the Legion Multiverse TUI (English -> market dispatch -> result)",
 )
 def multiverse(args):
@@ -53,13 +57,34 @@ def multiverse(args):
     if not os.path.exists(py):
         print(f"No venv python at {py}; falling back to {sys.executable}.", file=sys.stderr)
         py = sys.executable
-    cmd = [py, "-m", "multiverse"]
-    if args.local:
-        cmd.append("--local")
-    if args.serve:
-        cmd += ["--serve", "--port", str(args.port)]
+    if args.exec_code is not None:
+        cmd = [py, "-m", "multiverse.run", "-c", args.exec_code]
+    elif args.run is not None:
+        cmd = [py, "-m", "multiverse.run"] + ([] if args.run == "-" else [args.run])
+    else:
+        cmd = [py, "-m", "multiverse"]
+        if args.local:
+            cmd.append("--local")
+        if args.serve:
+            cmd += ["--serve", "--port", str(args.port)]
     try:
         # Inherit stdin/stdout/stderr so Textual drives the real terminal.
         return subprocess.run(cmd, cwd=home).returncode
+    except KeyboardInterrupt:
+        return 0
+
+
+def dispatch_english(sentence):
+    """`vastai <english sentence>` — translate + market-dispatch on the local node."""
+    home = _find_legion_home(None)
+    if not home:
+        print("Could not locate the legion repo (looked for a `multiverse/` package). "
+              "Set $LEGION_HOME.", file=sys.stderr)
+        return 1
+    py = os.path.join(home, ".venv", "bin", "python")
+    if not os.path.exists(py):
+        py = sys.executable
+    try:
+        return subprocess.run([py, "-m", "multiverse.run", "--ask", sentence], cwd=home).returncode
     except KeyboardInterrupt:
         return 0

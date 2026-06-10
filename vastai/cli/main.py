@@ -123,6 +123,17 @@ def main():
     except ImportError:
         pass
 
+    # English fallback: `vastai find the smallest prime factor of 9991`.
+    # If the first token is neither a flag nor a known command word, treat the
+    # whole argv as an English sentence and dispatch it to the multiverse market
+    # (translate -> pyEngrish -> market dispatch on the local node).
+    raw = sys.argv[1:]
+    if raw and not raw[0].startswith("-"):
+        known = parser.verbs | parser.objs
+        if raw[0] not in known and raw[0].lower() not in known:
+            from vastai.cli.commands.multiverse import dispatch_english
+            sys.exit(dispatch_english(" ".join(raw)))
+
     args = parser.parse_args()
 
     # API key resolution

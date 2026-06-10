@@ -219,16 +219,22 @@ _FAKE_TEMPLATE = {"id": 99999, "hash_id": "x", "extra_filters": "{}"}
 
 def _run_cli(parse_argv, argv, *, create_resp=None, workers_seq=None,
              rental_dph=None, template=None, preflight_offers=1,
-             create_workergroup_raises=None):
+             create_workergroup_raises=None, benchmark_rows=None,
+             offer_dphs=None):
     """Parse argv and invoke the command with a mocked VastAI."""
     template = template if template is not None else _FAKE_TEMPLATE
-    fake_offer_list = [{"id": i} for i in range(preflight_offers)]
+    if offer_dphs is not None:
+        fake_offer_list = [{"id": i, "dph_total": d}
+                           for i, d in enumerate(offer_dphs)]
+    else:
+        fake_offer_list = [{"id": i} for i in range(preflight_offers)]
     instance_resp = {"dph_total": rental_dph} if rental_dph is not None else {}
 
     vast = MagicMock()
     vast.client = MagicMock(api_key="k")
     vast.search_templates.return_value = [template]
     vast.search_offers.return_value = fake_offer_list
+    vast.search_benchmarks.return_value = list(benchmark_rows or [])
     vast.show_instance.return_value = instance_resp
     vast.create_endpoint.return_value = {"success": True, "result": 11}
     vast.delete_endpoint.return_value = {}
@@ -331,3 +337,96 @@ class TestBenchmarkRunCLI:
             rc = args.func(args)
             assert rc == 1
             assert "not found" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# Cached-benchmark pre-flight
+# ---------------------------------------------------------------------------
+
+
+def _bench_row(value, *, template_hash="x", template_id=None, age_days=1):
+    import time
+    return {"type": "perf", "gpu_name": "RTX 3060", "num_gpus": 1,
+            "template_hash": template_hash, "template_id": template_id,
+            "value": value, "last_update": time.time() - age_days * 86400}
+
+
+class TestBenchmarkCache:
+    def test_cache_hit_skips_rental_and_uses_median(self, parse_argv):
+        rows, vast = _run_cli(
+            parse_argv,
+            ["run", "benchmarks", "--template_id", "99999",
+             "--gpus", "RTX_3060", "-y", "--raw"],
+            benchmark_rows=[_bench_row(10.0), _bench_row(30.0),
+                            _bench_row(20.0)],
+        )
+        assert rows[0]["status"] == "cached"
+        assert rows[0]["measured_perf"] == 20.0
+        vast.create_endpoint.assert_not_called()
+        vast.create_workergroup.assert_not_called()
+
+    def test_cached_price_is_current_market_median(self, parse_argv):
+        rows, _ = _run_cli(
+            parse_argv,
+            ["run", "benchmarks", "--template_id", "99999",
+             "--gpus", "RTX_3060", "-y", "--raw"],
+            benchmark_rows=[_bench_row(20.0)],
+            offer_dphs=[0.2, 0.6, 0.4],
+        )
+        assert rows[0]["rental_dph"] == 0.4
+        assert rows[0]["perf_per_dollar"] == 50.0
+
+    def test_fresh_bypasses_cache(self, parse_argv):
+        rows, vast = _run_cli(
+            parse_argv,
+            ["run", "benchmarks", "--template_id", "99999",
+             "--gpus", "RTX_3060", "--timeout", "60", "-y", "--raw",
+             "--fresh"],
+            benchmark_rows=[_bench_row(10.0)],
+            workers_seq=[[{"id": 1, "measured_perf": 5.0, "status": "idle"}]],
+            rental_dph=0.5,
+        )
+        vast.search_benchmarks.assert_not_called()
+        assert rows[0]["status"] == "ok"
+        assert rows[0]["measured_perf"] == 5.0
+
+    def test_other_template_rows_are_a_miss(self, parse_argv):
+        rows, vast = _run_cli(
+            parse_argv,
+            ["run", "benchmarks", "--template_id", "99999",
+             "--gpus", "RTX_3060", "--timeout", "60", "-y", "--raw"],
+            benchmark_rows=[_bench_row(10.0, template_hash="other")],
+            workers_seq=[[{"id": 1, "measured_perf": 5.0, "status": "idle"}]],
+            rental_dph=0.5,
+        )
+        assert rows[0]["status"] == "ok"
+        vast.create_workergroup.assert_called_once()
+
+    def test_row_matching_by_template_id_only(self, parse_argv):
+        # Autoscaler rows may carry only template_id (no hash) depending on
+        # how the workergroup was created.
+        rows, _ = _run_cli(
+            parse_argv,
+            ["run", "benchmarks", "--template_id", "99999",
+             "--gpus", "RTX_3060", "-y", "--raw"],
+            benchmark_rows=[_bench_row(7.0, template_hash=None,
+                                       template_id=99999)],
+        )
+        assert rows[0]["status"] == "cached"
+        assert rows[0]["measured_perf"] == 7.0
+
+    def test_cache_query_shape(self, parse_argv):
+        import time
+        _, vast = _run_cli(
+            parse_argv,
+            ["run", "benchmarks", "--template_id", "99999",
+             "--gpus", "RTX_3060", "--max_age", "7", "-y", "--raw"],
+            benchmark_rows=[_bench_row(20.0)],
+        )
+        query = vast.search_benchmarks.call_args.kwargs["query"]
+        assert query["type"] == {"eq": "perf"}
+        assert query["gpu_name"] == {"eq": "RTX 3060"}
+        assert query["num_gpus"] == {"eq": 1}
+        cutoff = query["last_update"]["gte"]
+        assert abs((time.time() - cutoff) - 7 * 86400) < 60
+

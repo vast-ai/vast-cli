@@ -101,6 +101,7 @@ COMMAND_GROUPS = {
     'vastai.cli.commands.metrics':      'Metrics',
     'vastai.cli.commands.storage':      'Storage volumes',
     'vastai.cli.commands.misc':         'Other',
+    'vastai.cli.commands.update':       'Other',
 }
 
 # Some misc.py commands belong with their target resource section, not Other.
@@ -287,7 +288,10 @@ class apwrap(object):
             argv = sys.argv[1:]
         argv_ = []
         for x in argv:
-            if argv_ and argv_[-1] in self.verbs:
+            # Merge "verb object" into one command token, but never swallow a
+            # flag: a verb that is also a bare command (e.g. `update`) must
+            # accept options (`vastai update --check`).
+            if argv_ and argv_[-1] in self.verbs and not x.startswith("-"):
                 argv_[-1] += " " + x
             else:
                 argv_.append(x)

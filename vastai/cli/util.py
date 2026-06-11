@@ -16,7 +16,6 @@ import time
 import math
 import subprocess
 import shutil
-import importlib.metadata
 import requests
 import getpass
 from pathlib import Path
@@ -26,6 +25,7 @@ from typing import Dict, List, Optional
 
 # Re-export string_to_unix_epoch so CLI command modules can import from here
 from vastai.api.query import string_to_unix_epoch  # noqa: F401
+from vastai.utils import VERSION, parse_version  # noqa: F401
 
 
 # Server URL default — canonical definition lives in api/client.py
@@ -36,45 +36,10 @@ api_key_guard = object()
 
 
 # ---------------------------------------------------------------------------
-# Version helpers (for --version output only)
-# ---------------------------------------------------------------------------
-
-def parse_version(version: str) -> tuple:
-    parts = version.split(".")
-
-    if len(parts) < 3:
-        print(f"Invalid version format: {version}", file=sys.stderr)
-
-    return tuple(int(part) for part in parts)
-
-
-def _get_git_version():
-    try:
-        result = subprocess.run(
-            ["git", "describe", "--tags", "--abbrev=0"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        tag = result.stdout.strip()
-        return tag[1:] if tag.startswith("v") else tag
-    except Exception:
-        return "0.0.0"
-
-
-def _get_local_version():
-    try:
-        return importlib.metadata.version("vastai")
-    except Exception:
-        return _get_git_version()
-
-
-# ---------------------------------------------------------------------------
 # App constants
 # ---------------------------------------------------------------------------
 
 APP_NAME = "vastai"
-VERSION = _get_local_version()
 
 # Define emoji support and fallbacks
 _HAS_EMOJI = sys.stdout.encoding and 'utf' in sys.stdout.encoding.lower()

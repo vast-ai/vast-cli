@@ -8,6 +8,8 @@ import sys
 import time
 import math
 import argparse
+import subprocess
+import importlib.metadata
 from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
 
@@ -23,6 +25,30 @@ def parse_version(version: str) -> tuple:
         print(f"Invalid version format: {version}", file=sys.stderr)
 
     return tuple(int(part) for part in parts)
+
+
+def _get_git_version():
+    try:
+        result = subprocess.run(
+            ["git", "describe", "--tags", "--abbrev=0"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        tag = result.stdout.strip()
+        return tag[1:] if tag.startswith("v") else tag
+    except Exception:
+        return "0.0.0"
+
+
+def _get_local_version():
+    try:
+        return importlib.metadata.version("vastai")
+    except Exception:
+        return _get_git_version()
+
+
+VERSION = _get_local_version()
 
 
 # ---------------------------------------------------------------------------

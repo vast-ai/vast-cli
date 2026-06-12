@@ -4,6 +4,7 @@ Generic helpers that are not specific to any single layer (CLI, API, SDK).
 """
 
 import re
+import os
 import sys
 import time
 import math
@@ -34,6 +35,7 @@ def _get_git_version():
             capture_output=True,
             text=True,
             check=True,
+            cwd=os.path.dirname(__file__),
         )
         tag = result.stdout.strip()
         return tag[1:] if tag.startswith("v") else tag

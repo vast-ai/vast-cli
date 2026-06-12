@@ -15,4 +15,5 @@ def get_client(args):
         retry=args.retry,
         explain=getattr(args, 'explain', False),
         curl=getattr(args, 'curl', False),
+        client_type="cli",
     )

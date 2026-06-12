@@ -5,6 +5,7 @@ import pytest
 import requests
 from unittest.mock import patch, MagicMock
 from vastai.api.client import VastClient
+from vastai.utils import VERSION
 
 
 class TestBuildUrl:
@@ -57,10 +58,20 @@ class TestBuildHeaders:
         h = c._build_headers()
         assert h["Authorization"] == "Bearer mykey"
 
-    def test_empty_when_no_key(self):
+    def test_no_auth_when_no_key(self):
         c = VastClient(api_key=None)
         h = c._build_headers()
-        assert h == {}
+        assert "Authorization" not in h
+
+    def test_user_agent_defaults_to_sdk(self):
+        c = VastClient(api_key=None)
+        h = c._build_headers()
+        assert h["User-Agent"] == f"vastai-sdk/{VERSION}"
+
+    def test_user_agent_client_type(self):
+        c = VastClient(api_key=None, client_type="cli")
+        h = c._build_headers()
+        assert h["User-Agent"] == f"vastai-cli/{VERSION}"
 
 
 class TestHttpMethods:

@@ -5,6 +5,8 @@ import random
 import json
 from typing import AsyncIterator, Dict, Optional, Any
 
+from vastai.utils import VERSION
+
 _JITTER_CAP_SECONDS = 5.0
 
 def _retryable(status: int) -> bool:
@@ -115,7 +117,7 @@ async def _make_request(
     params = {**(params or {})}
     params["api_key"] = api_key
 
-    headers = {"Authorization": f"Bearer {api_key}"}
+    headers = {"Authorization": f"Bearer {api_key}", "User-Agent": f"vastai-sdk/{VERSION}"}
 
     session = await client._get_session()
     ssl_context = await client.get_ssl_context() if client else None

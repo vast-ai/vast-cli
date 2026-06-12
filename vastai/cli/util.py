@@ -82,6 +82,7 @@ for key in DIRS.keys():
         os.makedirs(path)
 
 CACHE_FILE = os.path.join(DIRS['temp'], "gpu_names_cache.json")
+GPU_TYPES_CACHE_FILE = os.path.join(DIRS['temp'], "gpu_types_cache.json")
 CACHE_DURATION = timedelta(hours=24)
 
 
@@ -120,6 +121,47 @@ def _get_gpu_names() -> Optional[List[str]]:
         return [
             name.replace(" ", "_").replace("-", "_") for name in gpu_names['gpu_names']
         ]
+    except (TypeError, KeyError):
+        return None
+
+
+def _get_gpu_types() -> Optional[List[dict]]:
+    """Returns the GPU type catalog from /api/v0/gpu_types/, cached for 24 hours.
+
+    Source of truth for canonical GPU names and per-card VRAM. Returns None on
+    any error so callers fall back to the hardcoded constants (never empty).
+    """
+
+    def is_cache_valid() -> bool:
+        """Checks if the cache file exists and is less than 24 hours old."""
+        if not os.path.exists(GPU_TYPES_CACHE_FILE):
+            return False
+        cache_age = datetime.now() - datetime.fromtimestamp(os.path.getmtime(GPU_TYPES_CACHE_FILE))
+        return cache_age < CACHE_DURATION
+
+    if is_cache_valid():
+        try:
+            with open(GPU_TYPES_CACHE_FILE, "r") as file:
+                payload = json.load(file)
+        except (OSError, json.JSONDecodeError):
+            payload = None
+    else:
+        endpoint = "/api/v0/gpu_types/"
+        url = f"{server_url_default}{endpoint}"
+        try:
+            r = requests.get(url, headers={})
+            r.raise_for_status()
+            payload = r.json()
+        except (requests.exceptions.RequestException, ValueError):
+            return None
+        try:
+            with open(GPU_TYPES_CACHE_FILE, "w") as file:
+                json.dump(payload, file)
+        except OSError:
+            pass
+
+    try:
+        return payload['gpu_types']
     except (TypeError, KeyError):
         return None
 

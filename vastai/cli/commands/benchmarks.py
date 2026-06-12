@@ -5,6 +5,7 @@ template's pyworker benchmark.
 
 import argparse
 import atexit
+import functools
 import json
 import math
 import random
@@ -24,6 +25,7 @@ from vastai import VastAI
 from vastai.cli.parser import argument
 from vastai.cli.display import deindent
 from vastai.cli.utils import get_parser as _get_parser, get_client  # noqa: F401  (used by test conftest)
+from vastai.cli.util import _get_gpu_types
 from vastai.data.query import OP_TO_STR
 from vastai.data import query as _query_consts
 
@@ -31,7 +33,8 @@ from vastai.data import query as _query_consts
 parser = _get_parser()
 
 
-# Default GPUs (per-card VRAM in MB).
+# Default GPU sweep set + per-card VRAM fallback (MB). Catalog gpu_ram_mb
+# overrides these values when populated; the keys stay the editorial sweep set.
 _DEFAULT_GPUS = {
     "RTX 5090":  32607,
     "RTX 4090":  24564,
@@ -64,6 +67,45 @@ def _format_time_elapsed(seconds):
     return f"{m}:{s:02d}"
 
 
+@functools.lru_cache(maxsize=1)
+def _canonical_gpu_names():
+    """Map of lower-cased GPU name -> canonical name, for resolving user input
+    like "rtx_4090"/"RTX 4090" to the canonical "RTX 4090".
+
+    Union of the hardcoded query.py constants (fallback floor) with the
+    /api/v0/gpu_types/ catalog (picks up newly-onboarded SKUs). On a catalog
+    fetch failure the constants alone are used, so resolution never gets worse.
+    """
+    canonical = {
+        v.lower(): v for k, v in vars(_query_consts).items()
+        if isinstance(v, str) and not k.startswith("_")
+    }
+    for gpu_type in (_get_gpu_types() or []):
+        name = gpu_type.get("canonical_name")
+        if name:
+            canonical[name.lower()] = name
+    return canonical
+
+
+@functools.lru_cache(maxsize=1)
+def _catalog_vram_map():
+    """Map canonical_name -> gpu_ram_mb for entries the catalog has populated.
+    Empty when the catalog is unreachable or the column is unbackfilled.
+    """
+    return {
+        gpu_type["canonical_name"]: gpu_type["gpu_ram_mb"]
+        for gpu_type in (_get_gpu_types() or [])
+        if gpu_type.get("canonical_name") and gpu_type.get("gpu_ram_mb")
+    }
+
+
+def _per_card_vram_mb(gpu_name):
+    """Per-card VRAM in MB: catalog gpu_ram_mb if populated, else the hardcoded
+    _DEFAULT_GPUS value. None when neither source knows the GPU.
+    """
+    return _catalog_vram_map().get(gpu_name) or _DEFAULT_GPUS.get(gpu_name)
+
+
 def _parse_gpu_spec(token, default_num_gpus):
     """parses the gpu arg into (gpu_name, num_gpus)
     ex. "2x RTX_4090" -> ("RTX 4090", 2)
@@ -72,11 +114,8 @@ def _parse_gpu_spec(token, default_num_gpus):
     if no count per gpu isprovided, uses default num_gpus
     """
 
-    # so users can input "rtx_4090" or "RTX 4090" or "Rtx_4090" and all resolves to "RTX 4090" 
-    canonical = {
-        v.lower(): v for k, v in vars(_query_consts).items()
-        if isinstance(v, str) and not k.startswith("_")
-    }
+    # so users can input "rtx_4090" or "RTX 4090" or "Rtx_4090" and all resolves to "RTX 4090"
+    canonical = _canonical_gpu_names()
 
     token = token.strip()
     # converts "2x RTX_4090" to ("RTX 4090", 2)
@@ -258,7 +297,7 @@ def _pick_num_gpus(gpu_name, extra_filters):
     Falls back to 1 when the template has no such filter or one card
     already satisfies it.
     """
-    per_card = _DEFAULT_GPUS.get(gpu_name)
+    per_card = _per_card_vram_mb(gpu_name)
     if per_card is None:
         return 1
     ops = (extra_filters or {}).get("gpu_total_ram") or {}

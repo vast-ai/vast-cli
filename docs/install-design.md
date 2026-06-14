@@ -15,8 +15,9 @@ replace pip.
   common case.
 - Decouple the CLI from the user's Python environment (avoid PEP 668 refusals,
   venv confusion, pinned-dependency conflicts on `cryptography`/`pillow`).
-- Provide a real update story (`vastai update`) and a way to signal a minimum
-  supported version.
+- Provide a first-class `vastai update` so the CLI can ship — and users can
+  adopt — daily releases (pip already lets us release daily; the gap is that
+  users lag, so the fixes never land).
 
 ## 2. Core architecture: one-time install script + per-release manifest
 
@@ -28,9 +29,9 @@ The design splits the install into two layers:
   frequency*: per-release churn lives in the manifest, so the script is written
   once and rarely touched.
 - **`manifest.{json,env}` — regenerated every release.** Carries the latest
-  version, the CPython pin, per-platform `uv` URLs + sha256, and
-  `minimum_version`. `manifest.json` is for `vastai update`; flat `manifest.env`
-  is for `install.sh` (bare machines have no JSON parser).
+  version, the CPython pin, and per-platform `uv` URLs + sha256.
+  `manifest.json` is for `vastai update`; flat `manifest.env` is for
+  `install.sh` (bare machines have no JSON parser).
 
 ### Install bootstrap sequence
 
@@ -164,9 +165,8 @@ Not built in v1.
   once/day).
 - Suppressed under `--raw`, `CI`, non-TTY, or `VASTAI_NO_UPDATE_CHECK=1`.
 - **No telemetry** — the check is a GET of a static file.
-- Manifest `minimum_version` upgrades the nudge to a **warning** (never a hard
-  failure) for too-old clients. This is the only "force convergence" lever;
-  there is no remote-push channel by design.
+- The nudge only ever *suggests*; there is no minimum-version gate and no
+  remote-push channel — we never block or force an upgrade.
 
 Note: `latest` governs what gets **installed** (fresh installs + update checks),
 not what gets **run** (the active local install). A hotfix instantly fixes new

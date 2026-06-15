@@ -131,22 +131,22 @@ out_contains() { grep -q "$1" "$SB_OUT"; }
 # Scenarios
 # ---------------------------------------------------------------------------
 
-test_fresh_install() { # happy path: fixed env symlink, receipt, runnable CLI
+test_fresh_install() { # happy path: fixed env symlink, runnable CLI, managed layout
     new_sandbox fresh
     run_install || { cat "$SB_OUT"; return 1; }
     assert "vastai symlink -> env bin" \
         [ "$(readlink "$SB_ROOT/bin/vastai")" = "../env/bin/vastai" ] &&
     assert "installed CLI runs" [ "$("$SB_ROOT/bin/vastai" --version)" = "1.2.3" ] &&
-    assert "receipt says installer" grep -q '"method": "installer"' "$SB_ROOT/install-receipt.json" &&
+    assert "managed-install markers present (env/ + bin/uv)" \
+        [ -d "$SB_ROOT/env" ] && [ -x "$SB_ROOT/bin/uv" ] &&
     assert "local bin link exists" [ -L "$SB_HOME/.local/bin/vastai" ]
 }
 
-test_pinned_reinstall() { # VASTAI_VERSION pin replaces in place; receipt chains
+test_pinned_reinstall() { # VASTAI_VERSION pin replaces env in place, no retention
     new_sandbox reinstall
     run_install || { cat "$SB_OUT"; return 1; }
     run_install VASTAI_VERSION=0.9.9 || { cat "$SB_OUT"; return 1; }
     assert "pinned version live" [ "$("$SB_ROOT/bin/vastai" --version)" = "0.9.9" ] &&
-    assert "previous chained in receipt" grep -q '"previous_version": "1.2.3"' "$SB_ROOT/install-receipt.json" &&
     assert "single active install, no version retention" [ ! -e "$SB_ROOT/versions" ] &&
     assert "no leftover temp env" [ ! -e "$SB_ROOT/.env.new" ]
 }

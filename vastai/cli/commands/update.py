@@ -1,14 +1,9 @@
 """`vastai update` — self-update for managed (curl | bash installer) installs.
 
-NOT YET REGISTERED: intentionally absent from the command imports in
-``vastai.cli.main`` (and from the post-command nudge), so the command does not
-exist in the shipped CLI yet. Activation is a follow-up once the hosted
-manifests are live — see docs/install-design.md. Tests register it via
-tests/conftest.py.
-
-pip installs have no install receipt; for those this command only prints the
-correct pip upgrade instructions and exits non-zero — it never shells out to
-pip, since the CLI cannot know which pip/venv owns its environment.
+pip installs aren't managed by the installer; for those this command only
+prints the correct pip upgrade instructions and exits non-zero — it never
+shells out to pip, since the CLI cannot know which pip/venv owns its
+environment.
 """
 
 import sys
@@ -18,7 +13,7 @@ from vastai.cli.display import deindent
 from vastai.cli.util import VERSION
 from vastai.cli.selfupdate import (
     INSTALL_SH_HINT, PIP_UPGRADE_HINT, UpdateError,
-    fetch_manifest, is_newer, perform_update, read_receipt,
+    fetch_manifest, is_managed_install, is_newer, perform_update,
 )
 from vastai.cli.utils import get_parser as _get_parser
 
@@ -51,8 +46,7 @@ def update(args):
             print(f"vastai {VERSION} is up to date (latest: {latest})")
             return 0
 
-        receipt = read_receipt()
-        if not receipt or receipt.get("method") != "installer":
+        if not is_managed_install():
             print(
                 "This CLI was not installed with the managed installer, so it "
                 f"cannot self-update.\n  Installed via pip? Run: {PIP_UPGRADE_HINT}\n"
@@ -63,12 +57,12 @@ def update(args):
 
         manifest = fetch_manifest()
         target = args.target_version or manifest["latest"]
-        current = receipt.get("version") or VERSION
+        current = VERSION
         if target == current:
             print(f"vastai {current} is already installed.")
             return 0
         print(f"Updating vastai {current} -> {target} ...")
-        perform_update(target, manifest, receipt=receipt)
+        perform_update(target, manifest)
         print(f"Done. vastai is now {target} (roll back with `vastai update --version {current}`).")
         return 0
 

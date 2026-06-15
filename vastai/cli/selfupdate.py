@@ -2,9 +2,13 @@
 
 Layout (docs/install-design.md): everything under $VASTAI_INSTALL_DIR
 (default ~/.vastai) — a single active venv at env/, with bin/vastai a fixed
-symlink into it, and install-receipt.json recording how the CLI was installed.
-Updating rebuilds env/ in place (build temp → verify → swap); there is no
-version retention. No receipt means pip owns the install and we never touch it.
+symlink into it. Updating rebuilds env/ in place (build temp → verify → swap);
+there is no version retention.
+
+"Managed install?" is detected structurally (``is_managed_install``): a managed
+CLI runs from ~/.vastai/env with a sibling ~/.vastai/bin/uv. That's ground
+truth — no on-disk marker to drift or hand-copy. pip installs fail the check
+and the updater never touches them.
 
 The passive nudge is throttled to one manifest GET and one notice per 24h,
 capped at 1s, and swallows every failure — the CLI must never get slower or
@@ -18,7 +22,6 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
@@ -42,30 +45,28 @@ class UpdateError(Exception):
 
 
 # ---------------------------------------------------------------------------
-# Receipt / manifest / versions
+# Install detection / manifest / versions
 # ---------------------------------------------------------------------------
 
 def install_root() -> Path:
     return Path(os.environ.get("VASTAI_INSTALL_DIR") or Path.home() / ".vastai")
 
 
-def read_receipt():
-    """Install receipt dict, or None for non-managed (pip) installs."""
+def is_managed_install() -> bool:
+    """True iff this CLI was installed by the managed installer.
+
+    Detected from where the interpreter actually runs: a managed CLI lives in
+    ``<root>/env`` next to ``<root>/bin/uv``. Ground truth, no marker file.
+    pip installs run from elsewhere and fail the check.
+    """
     try:
-        with open(install_root() / "install-receipt.json") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else None
-    except (OSError, ValueError):
-        return None
-
-
-def write_receipt(receipt: dict) -> None:
-    path = install_root() / "install-receipt.json"
-    tmp = path.with_suffix(".tmp")
-    with open(tmp, "w") as f:
-        json.dump(receipt, f, indent=2)
-        f.write("\n")
-    os.replace(tmp, path)
+        root = install_root()
+        return (
+            Path(sys.prefix).resolve() == (root / "env").resolve()
+            and (root / "bin" / "uv").exists()
+        )
+    except Exception:
+        return False
 
 
 def fetch_manifest(timeout: float = 10.0) -> dict:
@@ -136,15 +137,15 @@ def _stderr_is_tty() -> bool:
         return False
 
 
-def maybe_notify_update(args=None) -> None:
+def notify_update(args=None) -> None:
     """Post-command, best-effort upgrade nudge. Must never raise or block."""
     try:
-        _maybe_notify_update(args)
+        _notify_update(args)
     except Exception:
         pass
 
 
-def _maybe_notify_update(args) -> None:
+def _notify_update(args) -> None:
     suppressed = (
         os.environ.get("VASTAI_NO_UPDATE_CHECK")
         or os.environ.get("CI")
@@ -172,8 +173,7 @@ def _maybe_notify_update(args) -> None:
     if now - state.get("notified_at", 0) <= CHECK_INTERVAL_S:
         return
 
-    receipt = read_receipt()
-    hint = "vastai update" if receipt and receipt.get("method") == "installer" else PIP_UPGRADE_HINT
+    hint = "vastai update" if is_managed_install() else PIP_UPGRADE_HINT
     arrow = "↑" if "utf" in (sys.stderr.encoding or "").lower() else "*"
     print(
         f"{arrow} vastai {latest} is available (you have {VERSION}). Run `{hint}`.",
@@ -212,7 +212,7 @@ def _link_binaries(root: Path) -> None:
         os.replace(tmp, link)
 
 
-def perform_update(target: str, manifest: dict, *, receipt: dict) -> None:
+def perform_update(target: str, manifest: dict) -> None:
     """Install ``target`` into a fresh env, verify it, then swap it in.
 
     Single active install (the deno model): the new env is built in a temp dir
@@ -235,8 +235,7 @@ def perform_update(target: str, manifest: dict, *, receipt: dict) -> None:
                   UV_PYTHON_INSTALL_DIR=str(root / "python"),
                   UV_PYTHON_PREFERENCE="only-managed")
     try:
-        # --relocatable: entry-point shebangs must not hardcode the build path,
-        # so the venv still works after .env.new is renamed into place.
+        # --relocatable: shebangs must not hardcode the build path (env is renamed into place).
         _run([uv, "venv", new_dir, "--python", python_pin, "--relocatable", "--quiet"], env=uv_env)
         _run([uv, "pip", "install", "--python", new_dir / "bin" / "python",
               "--quiet", f"vastai=={target}"], env=uv_env)
@@ -249,19 +248,10 @@ def perform_update(target: str, manifest: dict, *, receipt: dict) -> None:
         shutil.rmtree(new_dir, ignore_errors=True)
         raise
 
-    # Swap: the live env is only ever touched by these two renames (~instant);
-    # a crash mid-build dirties .env.new, never the running install.
+    # Swap via two renames (~instant); a crash mid-build only dirties .env.new.
     shutil.rmtree(old_dir, ignore_errors=True)
     if env_dir.exists():
         os.replace(env_dir, old_dir)
     os.replace(new_dir, env_dir)
     _link_binaries(root)
     shutil.rmtree(old_dir, ignore_errors=True)
-
-    receipt = dict(receipt)
-    receipt.update(
-        version=target,
-        previous_version=receipt.get("version"),
-        installed_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
-    )
-    write_receipt(receipt)

@@ -1,9 +1,8 @@
-"""Tests for the (dormant) `vastai update` command and self-update machinery.
+"""Tests for the `vastai update` command and self-update machinery.
 
-The command is not registered in vastai.cli.main yet; tests/conftest.py
-imports it onto the test parser. Coverage focuses on the core invariants:
-atomic swap/rollback safety, the pip-install refusal, exit-code contract,
-and the nudge's silence guarantees (offline, throttled, suppressed).
+Coverage focuses on the core invariants: atomic swap safety, structural
+managed-install detection, the pip-install refusal, exit-code contract, and
+the nudge's silence guarantees (offline, throttled, suppressed).
 """
 
 import os
@@ -16,8 +15,7 @@ import pytest
 
 from vastai.cli import selfupdate
 from vastai.cli.selfupdate import (
-    UpdateError, is_newer, version_key, read_receipt, write_receipt,
-    perform_update,
+    UpdateError, is_newer, version_key, is_managed_install, perform_update,
 )
 
 MANIFEST = {
@@ -54,13 +52,6 @@ def install_root(tmp_path, monkeypatch):
     return root
 
 
-@pytest.fixture
-def managed_receipt(install_root):
-    receipt = {"method": "installer", "version": "1.2.3", "previous_version": None}
-    write_receipt(receipt)
-    return receipt
-
-
 def _seed_env(root, version):
     """Create a live env/ with a runnable vastai (a prior install to replace)."""
     bindir = root / "env" / "bin"
@@ -70,12 +61,22 @@ def _seed_env(root, version):
     exe.chmod(exe.stat().st_mode | stat.S_IXUSR)
 
 
-def test_receipt_never_raises(install_root):
-    assert read_receipt() is None  # missing
-    (install_root / "install-receipt.json").write_text("{not json")
-    assert read_receipt() is None  # corrupt
-    write_receipt({"method": "installer", "version": "1.0.0"})
-    assert read_receipt() == {"method": "installer", "version": "1.0.0"}
+class TestIsManagedInstall:
+    def test_true_when_running_from_env_next_to_uv(self, install_root, monkeypatch):
+        (install_root / "env").mkdir()
+        (install_root / "bin" / "uv").write_text("")
+        monkeypatch.setattr(sys, "prefix", str(install_root / "env"))
+        assert is_managed_install() is True
+
+    def test_false_for_pip_install(self, install_root, monkeypatch):
+        # interpreter runs from somewhere else (a pip/venv install)
+        monkeypatch.setattr(sys, "prefix", str(install_root.parent / "some-venv"))
+        assert is_managed_install() is False
+
+    def test_false_when_uv_missing(self, install_root, monkeypatch):
+        (install_root / "env").mkdir()  # env present but no bin/uv
+        monkeypatch.setattr(sys, "prefix", str(install_root / "env"))
+        assert is_managed_install() is False
 
 
 # Fake uv: `uv venv DIR ...` and `uv pip install --python PY ... vastai==VER`
@@ -110,22 +111,18 @@ def fake_uv(install_root):
            "these tests execute shell-script fakes",
 )
 class TestPerformUpdate:
-    def test_success_swaps_in_new_env(self, install_root, managed_receipt, fake_uv):
+    def test_success_swaps_in_new_env(self, install_root, fake_uv):
         _seed_env(install_root, "1.2.3")
-        perform_update("1.3.0", MANIFEST, receipt=managed_receipt)
+        perform_update("1.3.0", MANIFEST)
 
-        # single fixed env, symlink points into it, no version retention
+        # single fixed env, symlink points into it, new version live, no retention
         assert "env/bin/vastai" in os.readlink(str(install_root / "bin" / "vastai"))
         assert (install_root / "env" / "bin" / "vastai").exists()
+        assert "1.3.0" in (install_root / "env" / "bin" / "vastai").read_text()
         assert not (install_root / ".env.new").exists()
         assert not (install_root / "versions").exists()
-        receipt = read_receipt()
-        assert receipt["version"] == "1.3.0"
-        assert receipt["previous_version"] == "1.2.3"
 
-    def test_failure_leaves_current_install_untouched(
-        self, install_root, managed_receipt
-    ):
+    def test_failure_leaves_current_install_untouched(self, install_root):
         _seed_env(install_root, "1.2.3")  # live install that must survive
         before = (install_root / "env" / "bin" / "vastai").read_text()
         uv = install_root / "bin" / "uv"
@@ -133,11 +130,10 @@ class TestPerformUpdate:
         uv.chmod(uv.stat().st_mode | stat.S_IXUSR)
 
         with pytest.raises(UpdateError):
-            perform_update("1.3.0", MANIFEST, receipt=managed_receipt)
+            perform_update("1.3.0", MANIFEST)
 
         assert (install_root / "env" / "bin" / "vastai").read_text() == before
         assert not (install_root / ".env.new").exists()
-        assert read_receipt()["version"] == "1.2.3"
 
 
 class TestUpdateCommand:
@@ -151,26 +147,29 @@ class TestUpdateCommand:
             assert args.func(args) == 10
         assert "Update available: 1.3.0" in capsys.readouterr().out
 
-    def test_pip_install_refused_with_hint(self, parse_argv, capsys, install_root):
-        args = parse_argv(["update"])  # no receipt under install_root
-        assert args.func(args) == 1
+    def test_pip_install_refused_with_hint(self, parse_argv, capsys):
+        # not a managed install (interpreter isn't under ~/.vastai/env)
+        args = parse_argv(["update"])
+        with patch("vastai.cli.commands.update.is_managed_install", return_value=False):
+            assert args.func(args) == 1
         assert "pip install --upgrade vastai" in capsys.readouterr().err
 
-    def test_version_flag_targets_specific_version(self, parse_argv, managed_receipt):
+    def test_version_flag_targets_specific_version(self, parse_argv):
         args = parse_argv(["update", "--version", "1.2.9"])
-        with patch("vastai.cli.commands.update.fetch_manifest", return_value=MANIFEST), \
+        with patch("vastai.cli.commands.update.is_managed_install", return_value=True), \
+             patch("vastai.cli.commands.update.fetch_manifest", return_value=MANIFEST), \
              patch("vastai.cli.commands.update.perform_update") as mock_update:
             assert args.func(args) == 0
-        mock_update.assert_called_once_with("1.2.9", MANIFEST, receipt=managed_receipt)
+        mock_update.assert_called_once_with("1.2.9", MANIFEST)
 
 
 @pytest.fixture
 def nudge_env(tmp_path, monkeypatch):
     """Environment where the nudge is allowed to fire: tty stderr, no CI,
-    empty install root (not the developer's real ~/.vastai)."""
+    not a managed install (so the hint defaults to pip)."""
     monkeypatch.delenv("CI", raising=False)
     monkeypatch.delenv("VASTAI_NO_UPDATE_CHECK", raising=False)
-    monkeypatch.setenv("VASTAI_INSTALL_DIR", str(tmp_path / "no-receipt-root"))
+    monkeypatch.setenv("VASTAI_INSTALL_DIR", str(tmp_path / "root"))
     monkeypatch.setattr(selfupdate, "UPDATE_CHECK_FILE", str(tmp_path / "check.json"))
     monkeypatch.setattr(selfupdate, "VERSION", "1.0.0")
     monkeypatch.setattr(selfupdate, "_stderr_is_tty", lambda: True)
@@ -178,22 +177,29 @@ def nudge_env(tmp_path, monkeypatch):
 
 
 class TestNudge:
-    def test_fires_when_stale_with_method_aware_hint(self, nudge_env, capsys):
+    def test_fires_when_stale_with_pip_hint_for_pip_install(self, nudge_env, capsys):
+        # not a managed install (real interpreter prefix) -> pip hint
         with patch.object(selfupdate, "fetch_manifest", return_value=MANIFEST):
-            selfupdate.maybe_notify_update(nudge_env)
+            selfupdate.notify_update(nudge_env)
         err = capsys.readouterr().err
         assert "1.3.0 is available" in err
-        assert "pip install --upgrade vastai" in err  # no receipt -> pip hint
+        assert "pip install --upgrade vastai" in err
+
+    def test_managed_install_gets_vastai_update_hint(self, nudge_env, capsys):
+        with patch.object(selfupdate, "fetch_manifest", return_value=MANIFEST), \
+             patch.object(selfupdate, "is_managed_install", return_value=True):
+            selfupdate.notify_update(nudge_env)
+        assert "Run `vastai update`" in capsys.readouterr().err
 
     def test_silent_on_fetch_failure(self, nudge_env, capsys):
         with patch.object(selfupdate, "fetch_manifest", side_effect=UpdateError("down")):
-            selfupdate.maybe_notify_update(nudge_env)
+            selfupdate.notify_update(nudge_env)
         assert capsys.readouterr().err == ""
 
     def test_one_check_and_one_notice_per_24h(self, nudge_env, capsys):
         with patch.object(selfupdate, "fetch_manifest", return_value=MANIFEST) as f:
-            selfupdate.maybe_notify_update(nudge_env)
-            selfupdate.maybe_notify_update(nudge_env)
+            selfupdate.notify_update(nudge_env)
+            selfupdate.notify_update(nudge_env)
         assert f.call_count == 1
         assert capsys.readouterr().err.count("is available") == 1
 
@@ -206,10 +212,10 @@ class TestNudge:
     def test_suppressed_makes_no_network_call(self, nudge_env, monkeypatch, capsys, mute):
         mute(monkeypatch, nudge_env)
         with patch.object(selfupdate, "fetch_manifest", return_value=MANIFEST) as f:
-            selfupdate.maybe_notify_update(nudge_env)
+            selfupdate.notify_update(nudge_env)
         assert f.call_count == 0
         assert capsys.readouterr().err == ""
 
     def test_never_raises(self, nudge_env):
         with patch.object(selfupdate, "_load_check_state", side_effect=RuntimeError("boom")):
-            selfupdate.maybe_notify_update(nudge_env)  # must not raise
+            selfupdate.notify_update(nudge_env)  # must not raise

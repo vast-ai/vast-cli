@@ -1,0 +1,213 @@
+#!/usr/bin/env bash
+# Hermetic tests for scripts/install.sh — drives the REAL installer against a
+# fake uv tarball and fake manifests served over 127.0.0.1. No external
+# network, runs in seconds. Each scenario gets a fresh sandbox (HOME +
+# install root) and asserts on exit code, filesystem state, and messages.
+#
+#   tests/installer/run_tests.sh                   # run everything
+#   tests/installer/run_tests.sh checksum_abort    # run a subset
+
+set -uo pipefail
+
+REPO="$(cd "$(dirname "$0")/../.." && pwd)"
+INSTALL_SH="$REPO/scripts/install.sh"
+TESTS_TMP="$(mktemp -d)"
+FIXTURES="$TESTS_TMP/fixtures"
+SERVER_PID=""
+PASS=0
+FAIL=0
+
+cleanup() {
+    [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null
+    rm -rf "$TESTS_TMP"
+}
+trap cleanup EXIT
+
+# Without setsid we can't guarantee a detached tty; force no-modify-path then.
+HAVE_SETSID=""
+command -v setsid >/dev/null 2>&1 && HAVE_SETSID=1
+
+sha256_of() {
+    if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
+    else shasum -a 256 "$1" | awk '{print $1}'; fi
+}
+
+# ---------------------------------------------------------------------------
+# Fixtures: fake uv tarball + manifest variants, served over localhost HTTP
+# ---------------------------------------------------------------------------
+
+build_fake_uv() {
+    local dir="$TESTS_TMP/uv-build/uv-test"
+    mkdir -p "$dir"
+    cat > "$dir/uv" <<'EOF'
+#!/bin/sh
+# Fake uv: handles `uv venv DIR ...` and `uv pip install --python PY ... SPEC`
+set -e
+if [ "$1" = "venv" ]; then
+    mkdir -p "$2/bin"
+    printf '#!/bin/sh\nexit 0\n' > "$2/bin/python"
+    chmod +x "$2/bin/python"
+elif [ "$1" = "pip" ]; then
+    py="" prev="" last=""
+    for a in "$@"; do
+        [ "$prev" = "--python" ] && py="$a"
+        prev="$a"; last="$a"
+    done
+    bindir="$(dirname "$py")"
+    for name in vastai serve-vast-deployment register-python-argcomplete; do
+        printf '#!/bin/sh\necho "%s"\n' "${last#vastai==}" > "$bindir/$name"
+        chmod +x "$bindir/$name"
+    done
+fi
+exit 0
+EOF
+    chmod +x "$dir/uv"
+    tar -czf "$FIXTURES/uv.tar.gz" -C "$TESTS_TMP/uv-build" uv-test
+    UV_SHA="$(sha256_of "$FIXTURES/uv.tar.gz")"
+}
+
+# write_manifest SUBDIR LATEST [SHA]
+write_manifest() {
+    local dir="$FIXTURES/$1" latest="$2" sha="${3:-$UV_SHA}" key
+    mkdir -p "$dir"
+    {
+        echo "SCHEMA=1"
+        echo "CHANNEL=stable"
+        echo "LATEST=$latest"
+        echo "PYTHON=3.12"
+        echo "UV_VERSION=0.0.0-test"
+        for key in LINUX_X86_64 LINUX_X86_64_MUSL LINUX_AARCH64 LINUX_AARCH64_MUSL DARWIN_ARM64 DARWIN_X86_64; do
+            echo "UV_URL_$key=$SERVER/uv.tar.gz"
+            echo "UV_SHA256_$key=$sha"
+        done
+    } > "$dir/manifest.env"
+}
+
+start_server() {
+    local port
+    port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
+    (cd "$FIXTURES" && exec python3 -m http.server "$port" --bind 127.0.0.1 >/dev/null 2>&1) &
+    SERVER_PID=$!
+    SERVER="http://127.0.0.1:$port"
+    for _ in $(seq 1 50); do
+        python3 -c "import urllib.request; urllib.request.urlopen('$SERVER/', timeout=1)" 2>/dev/null && return 0
+        sleep 0.1
+    done
+    echo "FATAL: fixture http server did not start" >&2
+    exit 1
+}
+
+# ---------------------------------------------------------------------------
+# Harness
+# ---------------------------------------------------------------------------
+
+new_sandbox() {
+    SB="$TESTS_TMP/sb-$1"
+    SB_HOME="$SB/home"
+    SB_ROOT="$SB/root"
+    SB_OUT="$SB/out.log"
+    mkdir -p "$SB_HOME"
+}
+
+# run_install [VAR=VAL ...] — real install.sh, detached from any tty
+run_install() {
+    local envs=("HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" "$@")
+    [ -z "$HAVE_SETSID" ] && envs+=("VASTAI_NO_MODIFY_PATH=1")
+    if [ -n "$HAVE_SETSID" ]; then
+        setsid -w env "${envs[@]}" bash "$INSTALL_SH" >"$SB_OUT" 2>&1 </dev/null
+    else
+        env "${envs[@]}" bash "$INSTALL_SH" >"$SB_OUT" 2>&1 </dev/null
+    fi
+}
+
+assert() { # assert DESC command...
+    local desc="$1"; shift
+    "$@" || { echo "    assert failed: $desc"; return 1; }
+}
+
+out_contains() { grep -q "$1" "$SB_OUT"; }
+
+# ---------------------------------------------------------------------------
+# Scenarios
+# ---------------------------------------------------------------------------
+
+test_fresh_install() { # happy path: fixed env symlink, receipt, runnable CLI
+    new_sandbox fresh
+    run_install || { cat "$SB_OUT"; return 1; }
+    assert "vastai symlink -> env bin" \
+        [ "$(readlink "$SB_ROOT/bin/vastai")" = "../env/bin/vastai" ] &&
+    assert "installed CLI runs" [ "$("$SB_ROOT/bin/vastai" --version)" = "1.2.3" ] &&
+    assert "receipt says installer" grep -q '"method": "installer"' "$SB_ROOT/install-receipt.json" &&
+    assert "local bin link exists" [ -L "$SB_HOME/.local/bin/vastai" ]
+}
+
+test_pinned_reinstall() { # VASTAI_VERSION pin replaces in place; receipt chains
+    new_sandbox reinstall
+    run_install || { cat "$SB_OUT"; return 1; }
+    run_install VASTAI_VERSION=0.9.9 || { cat "$SB_OUT"; return 1; }
+    assert "pinned version live" [ "$("$SB_ROOT/bin/vastai" --version)" = "0.9.9" ] &&
+    assert "previous chained in receipt" grep -q '"previous_version": "1.2.3"' "$SB_ROOT/install-receipt.json" &&
+    assert "single active install, no version retention" [ ! -e "$SB_ROOT/versions" ] &&
+    assert "no leftover temp env" [ ! -e "$SB_ROOT/.env.new" ]
+}
+
+test_checksum_abort() { # tampered artifact -> abort with zero residue
+    new_sandbox badsha
+    write_manifest badsha 1.2.3 "$(printf 'a%.0s' $(seq 64))"
+    run_install "VASTAI_CLI_BASE_URL=$SERVER/badsha" && { echo "    expected failure"; return 1; }
+    assert "names the mismatch" out_contains "checksum mismatch for uv" &&
+    assert "no install root created" [ ! -e "$SB_ROOT" ]
+}
+
+test_truncation_guard() { # partial download executes nothing (main()-last)
+    new_sandbox trunc
+    local size n
+    size="$(wc -c < "$INSTALL_SH")"
+    for n in 200 $((size * 2 / 5)) $((size * 19 / 20)); do
+        head -c "$n" "$INSTALL_SH" | env HOME="$SB_HOME" VASTAI_INSTALL_DIR="$SB_ROOT" \
+            VASTAI_CLI_BASE_URL="$SERVER/good" bash >"$SB_OUT" 2>&1 </dev/null
+        assert "cut at $n/$size bytes: no side effects" \
+            [ ! -e "$SB_ROOT" ] || return 1
+    done
+}
+
+test_rc_safety() { # never edits shell rc non-interactively; marker idempotent
+    new_sandbox rc
+    run_install VASTAI_NO_MODIFY_PATH=1 || { cat "$SB_OUT"; return 1; }
+    assert "prints rc instructions" out_contains "add this to your shell rc" &&
+    assert "no bashrc created" [ ! -e "$SB_HOME/.bashrc" ] || return 1
+
+    new_sandbox rc2
+    printf '# >>> vastai installer >>>\nexport PATH=x\n# <<< vastai installer <<<\n' > "$SB_HOME/.bashrc"
+    cp "$SB_HOME/.bashrc" "$SB/before"
+    run_install || { cat "$SB_OUT"; return 1; }
+    assert "rc untouched when marker present" cmp -s "$SB_HOME/.bashrc" "$SB/before"
+}
+
+# ---------------------------------------------------------------------------
+# Runner
+# ---------------------------------------------------------------------------
+
+ALL_TESTS=(fresh_install pinned_reinstall checksum_abort truncation_guard rc_safety)
+SELECTED=("${@:-${ALL_TESTS[@]}}")
+
+mkdir -p "$FIXTURES"
+start_server
+build_fake_uv
+write_manifest good 1.2.3
+
+echo "install.sh hermetic tests (fixtures at $SERVER)"
+for t in "${SELECTED[@]}"; do
+    if "test_$t"; then
+        echo "PASS $t"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL $t  (output below)"
+        sed 's/^/    | /' "$SB_OUT" 2>/dev/null
+        FAIL=$((FAIL + 1))
+    fi
+done
+
+echo
+echo "$PASS passed, $FAIL failed"
+[ "$FAIL" -eq 0 ] || exit 1

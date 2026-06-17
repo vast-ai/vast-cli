@@ -64,8 +64,7 @@ Everything lives under `~/.vastai` (`VASTAI_INSTALL_DIR` overrides):
 │   ├── vastai   → ../env/bin/vastai   (fixed symlink; target never changes)
 │   └── uv                              (pinned bootstrap engine, internal)
 ├── env/                                (the single active venv — see §6)
-├── python/                             (uv-managed CPython 3.12, shared)
-└── install-receipt.json
+└── python/                             (uv-managed CPython 3.12, shared)
 ```
 
 - The venv is built **relocatable** (`uv venv --relocatable`) so its
@@ -80,11 +79,15 @@ Everything lives under `~/.vastai` (`VASTAI_INSTALL_DIR` overrides):
 - Throwaway state lives in `~/.cache/vastai` (update-check throttle).
 - Uninstall: `rm -rf ~/.vastai ~/.local/bin/vastai`.
 
-### `install-receipt.json`
+### Detecting a managed install
 
-Ground truth that `vastai update` uses to know it owns the install. Records
-`method`, `version`, `previous_version`, `python`, `installed_at`. **pip
-installs have no receipt and are never touched by the updater.**
+`vastai update` decides "do I own this install?" **structurally**, not from a
+marker file: a managed CLI runs from `~/.vastai/env` with a sibling
+`~/.vastai/bin/uv`. That's ground truth — `sys.prefix` can't drift or be
+hand-copied the way a receipt file could. **pip installs run from elsewhere,
+fail the check, and are never touched by the updater.** Either misdetection
+fails safe (a wrong "managed" hits "no bin/uv" and aborts cleanly; a wrong
+"pip" just points you at pip), so no on-disk receipt is needed.
 
 ## 4. Hosting (decided)
 
@@ -114,7 +117,7 @@ breakage is possible from un-hosting.
 ## 5. Single channel (latest only)
 
 There is one channel: whatever `releases/latest` points at. No `stable`/`beta`/
-`canary` split, no per-channel manifests, no channel field in the receipt. If a
+`canary` split, no per-channel manifests, no channel tracking. If a
 staged-rollout lever is ever wanted, a second manifest file served at a
 different path is the natural seam — but it is explicitly **not** pursued now.
 
@@ -148,9 +151,9 @@ costs nothing extra on top of single-version (the mechanism already exists for
 pinning).
 
 ### Same-method discipline
-pip installs (no receipt) get the correct `pip install --upgrade vastai` hint
-and exit — **never shell out to a guessed pip.** Matches uv's behavior
-(self-update disabled when installed another way).
+pip installs (which fail the managed-install check) get the correct
+`pip install --upgrade vastai` hint and exit — **never shell out to a guessed
+pip.** Matches uv's behavior (self-update disabled when installed another way).
 
 ### Optional later: download cache
 A cache of the last few wheels at `~/.cache/vastai/` would make a re-pin/
@@ -159,6 +162,11 @@ oldest, a miss simply re-fetches, no "don't delete what's running" invariant.
 Not built in v1.
 
 ## 7. Passive update nudge
+
+> **Status: implemented but disabled.** The call is commented out in
+> `main.py` — updates are manual via `vastai update` for now. Re-enable the
+> two lines when we want the per-command check (the logic and tests below all
+> exist and pass).
 
 - After commands: at most **one manifest GET and one stderr line per 24h**, hard
   1s timeout, every failure silent with 24h backoff (offline machines pay ≤1s
@@ -233,11 +241,12 @@ until launch.
 1. **PR 1 (this PR):** installer scripts, manifest generator, hermetic tests,
    dormant `vastai update` implementation + unit tests, this doc. **No-op for
    the existing CLI** — `main.py` and workflows untouched.
-2. **PR 2 (activation):** register `update` + nudge in `main.py`; add the
-   `scripts/publish_release.py` orchestrator (§13) and the release-CI wiring
-   that calls it (attach `manifest.{json,env}` + `install.sh` to the GitHub
-   Release; post-publish install smoke test on clean ubuntu/macos runners;
-   shellcheck + hermetic-test job on PRs).
+2. **PR 2 (activation):** register the `update` command in `main.py` (the
+   passive nudge is wired but left **commented out** — manual `vastai update`
+   only for now, §7); add the `scripts/publish_release.py` orchestrator (§13)
+   and the release-CI wiring that calls it (attach `manifest.{json,env}` +
+   `install.sh` to the GitHub Release; post-publish install smoke test on a
+   clean ubuntu runner — macOS deferred; shellcheck + hermetic-test job on PRs).
 3. **Tag a release** so `releases/latest` assets exist.
 4. **Deploy the `vast_landing` redirects** — the activation point.
 5. **Internal testing:** TTY checklist (consent prompts, nudge UX, offline
@@ -246,10 +255,11 @@ until launch.
    update` and a `--version` downgrade.
 6. **Launch:** flip README to split install (CLI via installer, SDK via pip).
 
-## 13. Release runbook (manual until the activation PR automates it)
+## 13. Release runbook
 
-PyPI publishing stays automated (`python-publish.yml` on tag push). Manual for
-now is the installer side. ~10 min:
+A release is triggered by pushing a `vX.Y.Z` tag — `python-publish.yml` then
+publishes to PyPI and attaches the installer assets via `publish_release.py
+--ci`. The manual equivalent, for reference / break-glass (~10 min):
 
 ```bash
 git tag v1.0.14 && git push origin v1.0.14         # existing CI publishes to PyPI
@@ -276,19 +286,22 @@ Rules the automation must enforce (a human must remember for now):
 - **Upload `install.sh` from the tagged commit**, not a dirty working tree.
 - Once redirects are live, **the asset upload *is* the deploy** — verify immediately.
 
-### Planned: `scripts/publish_release.py` (one orchestrator, human + CI)
+### `scripts/publish_release.py` (one orchestrator, human + CI)
 
 The four rules above are exactly the things a human forgets, so the runbook
-collapses into a single script — built as **one orchestrator both a human and
-CI invoke**, so the dangerous steps have one implementation, not a local copy
-plus a divergent YAML copy. Slated for **PR 2 (activation)**, not this PR, since
-it is activation machinery (keeps this PR a no-op for the existing CLI).
+collapses into a single script — **one orchestrator both a human and CI invoke**,
+so the dangerous steps have one implementation, not a local copy plus a
+divergent YAML copy.
 
 ```bash
 scripts/publish_release.py 1.0.14            # local: tag → wait for PyPI → manifest → gh release → verify
 scripts/publish_release.py 1.0.14 --ci       # CI: hash dist/*.whl → manifest → attach (tag/poll skipped)
 scripts/publish_release.py 1.0.14 --dry-run  # print every action, touch nothing
 ```
+
+The version is always explicit (it's the tag the deployer chose). Computing the
+next version from the latest tag (`major|minor|patch`) is deliberately left out
+for now — pick the version when you tag.
 
 It wraps the existing `make_manifest.py` (no duplicated logic) and differs only
 by context:

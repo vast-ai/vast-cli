@@ -1,0 +1,49 @@
+name: Installer CI
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "scripts/install.sh"
+      - "scripts/dev-install.sh"
+      - "scripts/make_manifest.py"
+      - "scripts/publish_release.py"
+      - "tests/installer/**"
+      - ".github/workflows/installer-ci.yml"
+
+concurrency:
+  group: installer-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: bash syntax check
+        run: bash -n scripts/install.sh scripts/dev-install.sh tests/installer/run_tests.sh
+      - name: shellcheck
+        run: shellcheck -S style scripts/install.sh scripts/dev-install.sh tests/installer/run_tests.sh
+      - name: python syntax check
+        run: python3 -m py_compile scripts/make_manifest.py scripts/publish_release.py
+
+  hermetic-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: run install.sh hermetic scenarios (no external network)
+        run: tests/installer/run_tests.sh
+
+  release-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: make_manifest renders (validates uv pin + sha fetch)
+        run: |
+          touch dummy.whl
+          python3 scripts/make_manifest.py --version 0.0.0 --wheel dummy.whl --out /tmp/m
+          grep -q '^LATEST=0.0.0$' /tmp/m/manifest.env
+          python3 -c "import json; json.load(open('/tmp/m/manifest.json'))"
+      - name: publish_release dry-runs (local + ci)
+        run: |
+          python3 scripts/publish_release.py 0.0.0 --dry-run --yes
+          python3 scripts/publish_release.py 0.0.0 --ci --dry-run

@@ -104,8 +104,7 @@ detect_platform() {
     PLATFORM_KEY="${os}_${arch}${libc}"
 }
 
-# is_interactive — can we prompt the user? (stdin is the pipe under curl|bash,
-# and /dev/tty may exist yet be unopenable when there's no controlling terminal)
+# is_interactive — can we prompt? (/dev/tty may exist yet be unopenable)
 is_interactive() { ( : < /dev/tty > /dev/tty; ) 2>/dev/null; }
 
 # ask_yn PROMPT — returns 0 on yes
@@ -128,8 +127,9 @@ install_uv() {
     local url sha tarball
     url="$(manifest_get "UV_URL_$PLATFORM_KEY")"
     sha="$(manifest_get "UV_SHA256_$PLATFORM_KEY")"
-    [ -n "$url" ] && [ -n "$sha" ] \
-        || die "no build available for your platform ($PLATFORM_KEY) — install with pip instead: pip install vastai"
+    if [ -z "$url" ] || [ -z "$sha" ]; then
+        die "no build available for your platform ($PLATFORM_KEY) — install with pip instead: pip install vastai"
+    fi
 
     say "Downloading runtime bootstrap..."
     tarball="$WORKDIR/uv.tar.gz"
@@ -154,8 +154,7 @@ install_version() {
     rm -rf "$newdir"
     export UV_PYTHON_INSTALL_DIR="$ROOT/python"
     export UV_PYTHON_PREFERENCE="only-managed"
-    # --relocatable: entry-point shebangs must not hardcode the build path, so
-    # the venv still works after it's renamed from .env.new into place.
+    # --relocatable: shebangs must not hardcode the build path (env is renamed into place).
     if ! "$ROOT/bin/uv" venv "$newdir" --python "$python_pin" --relocatable --quiet; then
         rm -rf "$newdir"
         die "could not set up the Python $python_pin runtime"
@@ -168,8 +167,7 @@ install_version() {
     "$newdir/bin/vastai" --version >/dev/null \
         || { rm -rf "$newdir"; die "installed CLI failed its smoke test"; }
 
-    # Single active install: swap the freshly built env in. The live env is
-    # only touched by renames, so an interrupted build never breaks it.
+    # Swap built env in via renames; an interrupted build can't break the live env.
     rm -rf "$ROOT/.env.old"
     [ -d "$envdir" ] && mv "$envdir" "$ROOT/.env.old"
     mv "$newdir" "$envdir"
@@ -180,25 +178,6 @@ install_version() {
     for name in vastai serve-vast-deployment register-python-argcomplete; do
         [ -e "$envdir/bin/$name" ] && link_swap "../env/bin/$name" "$ROOT/bin/$name"
     done
-}
-
-write_receipt() {
-    local version="$1" python_pin="$2" previous="null"
-    if [ -f "$ROOT/install-receipt.json" ]; then
-        previous="$(sed -n 's/.*"version": *"\([^"]*\)".*/"\1"/p' "$ROOT/install-receipt.json" | head -n 1)"
-        [ -n "$previous" ] || previous="null"
-    fi
-    cat > "$ROOT/install-receipt.json" <<EOF
-{
-  "method": "installer",
-  "installer_version": "1",
-  "version": "$version",
-  "previous_version": $previous,
-  "python": "cpython-$python_pin",
-  "artifact": "pypi-wheel",
-  "installed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-}
-EOF
 }
 
 setup_path() {
@@ -265,12 +244,13 @@ main() {
     [ "$schema" = "1" ] || die "manifest schema '$schema' not understood by this installer; get the latest from https://vast.ai/install.sh"
     latest="$(manifest_get LATEST)"
     python_pin="$(manifest_get PYTHON)"
-    [ -n "$latest" ] && [ -n "$python_pin" ] || die "malformed release manifest"
+    if [ -z "$latest" ] || [ -z "$python_pin" ]; then
+        die "malformed release manifest"
+    fi
     version="${VASTAI_VERSION:-$latest}"
 
     install_uv
     install_version "$version" "$python_pin"
-    write_receipt "$version" "$python_pin"
     setup_path
     check_pip_coexistence
 

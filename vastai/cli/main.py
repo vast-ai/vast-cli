@@ -79,6 +79,7 @@ def main():
         billing, storage, auth, misc, deployments, metrics,
         benchmarks,
         price_increase,
+        update,
         # clusters,  # cluster/overlay commands disabled for now
     )
 
@@ -137,6 +138,10 @@ def main():
     while True:
         try:
             res = args.func(args)
+
+            # Passive upgrade nudge — disabled for now (manual `vastai update`).
+            # from vastai.cli.selfupdate import notify_update; notify_update(args)
+
             if args.raw and res is not None:
                 try:
                     print(json.dumps(res, indent=1, sort_keys=True))

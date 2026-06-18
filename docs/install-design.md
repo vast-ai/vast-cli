@@ -64,7 +64,8 @@ Everything lives under `~/.vastai` (`VASTAI_INSTALL_DIR` overrides):
 │   ├── vastai   → ../env/bin/vastai   (fixed symlink; target never changes)
 │   └── uv                              (pinned bootstrap engine, internal)
 ├── env/                                (the single active venv — see §6)
-└── python/                             (uv-managed CPython 3.12, shared)
+├── python/                             (uv-managed CPython 3.12, shared)
+└── state.json                          (advisory install info — see below)
 ```
 
 - The venv is built **relocatable** (`uv venv --relocatable`) so its
@@ -88,6 +89,24 @@ hand-copied the way a receipt file could. **pip installs run from elsewhere,
 fail the check, and are never touched by the updater.** Either misdetection
 fails safe (a wrong "managed" hits "no bin/uv" and aborts cleanly; a wrong
 "pip" just points you at pip), so no on-disk receipt is needed.
+
+### `state.json` (advisory)
+
+A small, schema-versioned file holding the bits that **can't** be derived
+structurally — currently the release channel, plus coordination context:
+
+```json
+{ "schema": 1, "channel": "stable", "version": "1.0.14", "installed_at": "2026-..." }
+```
+
+- Written by `install.sh` on a fresh install (always `channel: stable`) and
+  re-stamped by `vastai update` (merges in the new `version`/`channel`).
+- **Advisory only.** Managed-install detection stays structural (above) and
+  never consults `state.json`; a missing or corrupt file just falls back to
+  defaults (`channel = stable`), so it can't strand or mis-gate an install.
+- Lives in the install root (not `~/.config`/`~/.cache`): it's managed-install
+  scoped and removed by `rm -rf ~/.vastai`. It deliberately omits anything
+  derivable elsewhere (managed-ness, and version is also in importlib metadata).
 
 ## 4. Hosting (decided)
 
@@ -114,12 +133,24 @@ error, update nudges go silent, and **every already-installed CLI keeps
 working** (they run from the local install, not the redirect). No client-side
 breakage is possible from un-hosting.
 
-## 5. Single channel (latest only)
+## 5. Channels (client-ready, hosting deferred)
 
-There is one channel: whatever `releases/latest` points at. No `stable`/`beta`/
-`canary` split, no per-channel manifests, no channel tracking. If a
-staged-rollout lever is ever wanted, a second manifest file served at a
-different path is the natural seam — but it is explicitly **not** pursued now.
+The client supports channels as a thin seam over the manifest: a channel is
+just *which manifest URL* you read. `stable` → the default
+`https://vast.ai/cli/manifest.json`; any other channel `X` →
+`https://vast.ai/cli/manifest-X.json`. `vastai update --channel X` fetches that
+channel's manifest, and **only on a successful fetch** records the choice in
+`state.json` (§3) — so a typo or an unhosted channel errors cleanly and leaves
+you on your current channel rather than stranding you. Subsequent `vastai
+update` (and the nudge) follow the persisted channel.
+
+**Only `stable` is hosted today.** `beta`/`canary` are a deliberate
+infra decision still pending: GitHub's `releases/latest` maps naturally to
+`stable`, but a per-channel "latest" (e.g. publishing pre-releases and having
+CI write a `manifest-beta.json` asset behind a `vast.ai/cli/manifest-beta.json`
+redirect) needs a release-process convention. So the client is dark-ready —
+`--channel beta` works the moment that manifest exists — but no second channel
+is served yet.
 
 ## 6. Update + rollback model
 
@@ -335,7 +366,9 @@ reduces to `python scripts/publish_release.py "${GITHUB_REF_NAME#v}" --ci`.
 - **Update model: single active install, replace-in-place (build temp → verify →
   rename), rollback via `vastai update --version X`. Side-by-side versions /
   symlink tree / GC explicitly dropped.** Optional download cache later.
-- Single channel (latest only); no channel machinery.
+- Channels are a client-side manifest-URL seam (`--channel`, persisted in
+  `state.json`); only `stable` is hosted today, `beta`/`canary` deferred to an
+  infra/release-process decision (§5).
 - Update nudges are same-method only (pip users told pip); cross-promoting the
   installer to pip users deferred to post-launch.
 - Frozen binaries, a Windows installer, and manifest signing (minisign/Sigstore)

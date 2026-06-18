@@ -13,7 +13,8 @@ from vastai.cli.display import deindent
 from vastai.cli.util import VERSION
 from vastai.cli.selfupdate import (
     INSTALL_SH_HINT, PIP_UPGRADE_HINT, UpdateError,
-    fetch_manifest, is_managed_install, is_newer, perform_update,
+    current_channel, fetch_manifest, is_managed_install, is_newer,
+    perform_update, write_state,
 )
 from vastai.cli.utils import get_parser as _get_parser
 
@@ -25,7 +26,8 @@ EXIT_STALE = 10  # `update --check` exit code when a newer version exists
 @parser.command(
     argument("--check", action="store_true", help="only check for a newer version; exit 0 if current, 10 if an update is available"),
     argument("--version", dest="target_version", metavar="VERSION", help="install a specific version instead of the latest (also how you pin or roll back)"),
-    usage="vastai update [--check | --version VERSION]",
+    argument("--channel", metavar="CHANNEL", help="release channel to follow (e.g. stable, beta); defaults to the current channel"),
+    usage="vastai update [--check | --version VERSION] [--channel CHANNEL]",
     help="Update the CLI to the latest version",
     epilog=deindent("""
         Updates a CLI installed with the managed installer
@@ -37,9 +39,10 @@ EXIT_STALE = 10  # `update --check` exit code when a newer version exists
     """),
 )
 def update(args):
+    channel = args.channel or current_channel()
     try:
         if args.check:
-            latest = fetch_manifest()["latest"]
+            latest = fetch_manifest(channel)["latest"]
             if is_newer(latest, VERSION):
                 print(f"Update available: {latest} (you have {VERSION})")
                 return EXIT_STALE
@@ -55,7 +58,11 @@ def update(args):
             )
             return 1
 
-        manifest = fetch_manifest()
+        # Reaching the channel's manifest validates it; record the channel only
+        # then, so a typo/unhosted channel can't strand the install.
+        manifest = fetch_manifest(channel)
+        write_state({"channel": channel})
+
         target = args.target_version or manifest["latest"]
         current = VERSION
         if target == current:
@@ -63,6 +70,7 @@ def update(args):
             return 0
         print(f"Updating vastai {current} -> {target} ...")
         perform_update(target, manifest)
+        write_state({"version": target})
         print(f"Done. vastai is now {target} (roll back with `vastai update --version {current}`).")
         return 0
 

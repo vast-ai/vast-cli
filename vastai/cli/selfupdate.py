@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
@@ -69,8 +70,55 @@ def is_managed_install() -> bool:
         return False
 
 
-def fetch_manifest(timeout: float = 10.0) -> dict:
-    url = os.environ.get("VASTAI_MANIFEST_URL") or DEFAULT_MANIFEST_URL
+STATE_SCHEMA = 1
+
+
+def read_state() -> dict:
+    """Persisted install info (state.json), or {} if absent/unreadable.
+
+    Advisory only — channel selection and coordination context. Managed-install
+    detection stays structural (is_managed_install) and never relies on this.
+    """
+    try:
+        with open(install_root() / "state.json") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_state(updates: dict) -> None:
+    """Merge ``updates`` into state.json (stamping schema + installed_at)."""
+    state = read_state()
+    state.update(updates)
+    state["schema"] = STATE_SCHEMA
+    state["installed_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    path = install_root() / "state.json"
+    tmp = path.with_suffix(".json.tmp")
+    try:
+        with open(tmp, "w") as f:
+            json.dump(state, f, indent=2)
+            f.write("\n")
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def current_channel() -> str:
+    return read_state().get("channel") or "stable"
+
+
+def manifest_url(channel: str = "stable") -> str:
+    override = os.environ.get("VASTAI_MANIFEST_URL")
+    if override:
+        return override
+    if channel and channel != "stable":
+        return f"https://vast.ai/cli/manifest-{channel}.json"
+    return DEFAULT_MANIFEST_URL
+
+
+def fetch_manifest(channel: str = "stable", timeout: float = 10.0) -> dict:
+    url = manifest_url(channel)
     try:
         r = requests.get(url, timeout=timeout)
         r.raise_for_status()
@@ -162,7 +210,7 @@ def _notify_update(args) -> None:
     if now - state.get("checked_at", 0) > CHECK_INTERVAL_S:
         state["checked_at"] = now  # stamped even on failure, so errors back off too
         try:
-            state["latest"] = fetch_manifest(timeout=NUDGE_TIMEOUT_S).get("latest")
+            state["latest"] = fetch_manifest(current_channel(), timeout=NUDGE_TIMEOUT_S).get("latest")
         except UpdateError:
             pass
         _save_check_state(state)

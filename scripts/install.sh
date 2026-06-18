@@ -180,6 +180,21 @@ install_version() {
     done
 }
 
+# state.json — advisory install info for `vastai update` (channel + coordination
+# context). NOT used for managed-install detection (that's structural). A fresh
+# install always starts on the stable channel; switch with `vastai update --channel`.
+write_state() {
+    local version="$1"
+    cat > "$ROOT/state.json" <<EOF
+{
+  "schema": 1,
+  "channel": "stable",
+  "version": "$version",
+  "installed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
+}
+
 setup_path() {
     mkdir -p "$LOCAL_BIN"
     link_swap "$ROOT/bin/vastai" "$LOCAL_BIN/vastai"
@@ -251,6 +266,7 @@ main() {
 
     install_uv
     install_version "$version" "$python_pin"
+    write_state "$version"
     setup_path
     check_pip_coexistence
 

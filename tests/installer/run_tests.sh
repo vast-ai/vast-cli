@@ -139,6 +139,8 @@ test_fresh_install() { # happy path: fixed env symlink, runnable CLI, managed la
     assert "installed CLI runs" [ "$("$SB_ROOT/bin/vastai" --version)" = "1.2.3" ] &&
     assert "managed-install markers present (env/ + bin/uv)" \
         [ -d "$SB_ROOT/env" ] && [ -x "$SB_ROOT/bin/uv" ] &&
+    assert "state.json records stable channel" \
+        grep -q '"channel": "stable"' "$SB_ROOT/state.json" &&
     assert "local bin link exists" [ -L "$SB_HOME/.local/bin/vastai" ]
 }
 

@@ -16,6 +16,7 @@ import pytest
 from vastai.cli import selfupdate
 from vastai.cli.selfupdate import (
     UpdateError, is_newer, version_key, is_managed_install, perform_update,
+    read_state, write_state, current_channel, manifest_url, DEFAULT_MANIFEST_URL,
 )
 
 MANIFEST = {
@@ -79,6 +80,41 @@ class TestIsManagedInstall:
         assert is_managed_install() is False
 
 
+class TestState:
+    def test_default_channel_when_absent(self, install_root):
+        assert read_state() == {}
+        assert current_channel() == "stable"
+
+    def test_write_merges_and_stamps_schema(self, install_root):
+        write_state({"channel": "beta"})
+        write_state({"version": "1.2.3"})  # merge, must preserve channel
+        state = read_state()
+        assert state["channel"] == "beta"
+        assert state["version"] == "1.2.3"
+        assert state["schema"] == 1
+        assert "installed_at" in state
+        assert current_channel() == "beta"
+
+    def test_corrupt_state_falls_back(self, install_root):
+        (install_root / "state.json").write_text("{not json")
+        assert read_state() == {}
+        assert current_channel() == "stable"
+
+
+class TestChannelRouting:
+    def test_stable_is_default_url(self, monkeypatch):
+        monkeypatch.delenv("VASTAI_MANIFEST_URL", raising=False)
+        assert manifest_url("stable") == DEFAULT_MANIFEST_URL
+
+    def test_nonstable_channel_url(self, monkeypatch):
+        monkeypatch.delenv("VASTAI_MANIFEST_URL", raising=False)
+        assert manifest_url("beta") == "https://vast.ai/cli/manifest-beta.json"
+
+    def test_env_override_wins(self, monkeypatch):
+        monkeypatch.setenv("VASTAI_MANIFEST_URL", "http://127.0.0.1:9/m.json")
+        assert manifest_url("beta") == "http://127.0.0.1:9/m.json"
+
+
 # Fake uv: `uv venv DIR ...` and `uv pip install --python PY ... vastai==VER`
 FAKE_UV = """#!/bin/sh
 set -e
@@ -140,27 +176,50 @@ class TestUpdateCommand:
     """Argv-level tests: these also pin the parser verb-merge fix
     (`update` collides with the `update instance` verb)."""
 
-    def test_check_stale_exits_10(self, parse_argv, capsys):
+    def test_check_stale_exits_10(self, parse_argv, capsys, install_root):
         args = parse_argv(["update", "--check"])
         with patch("vastai.cli.commands.update.fetch_manifest", return_value=MANIFEST), \
              patch("vastai.cli.commands.update.VERSION", "1.2.0"):
             assert args.func(args) == 10
         assert "Update available: 1.3.0" in capsys.readouterr().out
 
-    def test_pip_install_refused_with_hint(self, parse_argv, capsys):
+    def test_pip_install_refused_with_hint(self, parse_argv, capsys, install_root):
         # not a managed install (interpreter isn't under ~/.vastai/env)
         args = parse_argv(["update"])
         with patch("vastai.cli.commands.update.is_managed_install", return_value=False):
             assert args.func(args) == 1
         assert "pip install --upgrade vastai" in capsys.readouterr().err
 
-    def test_version_flag_targets_specific_version(self, parse_argv):
+    def test_version_flag_targets_specific_version(self, parse_argv, install_root):
         args = parse_argv(["update", "--version", "1.2.9"])
         with patch("vastai.cli.commands.update.is_managed_install", return_value=True), \
              patch("vastai.cli.commands.update.fetch_manifest", return_value=MANIFEST), \
              patch("vastai.cli.commands.update.perform_update") as mock_update:
             assert args.func(args) == 0
         mock_update.assert_called_once_with("1.2.9", MANIFEST)
+        # state.json records the resulting version + (default) channel
+        state = read_state()
+        assert state["version"] == "1.2.9"
+        assert state["channel"] == "stable"
+
+    def test_channel_flag_persists_after_successful_fetch(self, parse_argv, install_root):
+        args = parse_argv(["update", "--channel", "beta", "--version", "9.9.9"])
+        with patch("vastai.cli.commands.update.is_managed_install", return_value=True), \
+             patch("vastai.cli.commands.update.fetch_manifest", return_value=MANIFEST) as mf, \
+             patch("vastai.cli.commands.update.perform_update"):
+            assert args.func(args) == 0
+        mf.assert_called_once_with("beta")          # fetched the beta manifest
+        assert read_state()["channel"] == "beta"    # channel now sticks
+
+    def test_channel_not_persisted_when_manifest_unreachable(self, parse_argv, install_root):
+        write_state({"channel": "stable"})
+        args = parse_argv(["update", "--channel", "beta"])
+        with patch("vastai.cli.commands.update.is_managed_install", return_value=True), \
+             patch("vastai.cli.commands.update.fetch_manifest",
+                   side_effect=UpdateError("404")):
+            assert args.func(args) == 1
+        # a typo / unhosted channel must not strand the install
+        assert read_state()["channel"] == "stable"
 
 
 @pytest.fixture

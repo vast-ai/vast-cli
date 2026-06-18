@@ -176,7 +176,7 @@ def attach_release(tag, manifest_dir, *, dry):
                             capture_output=True, text=True).returncode == 0
     if not exists:
         run(["gh", "release", "create", tag, "--title", tag,
-             "--notes", f"{PACKAGE} {tag.lstrip('v')}"], dry=dry)
+             "--notes", f"{PACKAGE} {tag.lstrip('v')}", "--generate-notes"], dry=dry)
     else:
         log(f"release {tag} exists — updating assets")
     run(["gh", "release", "upload", tag, "--clobber",

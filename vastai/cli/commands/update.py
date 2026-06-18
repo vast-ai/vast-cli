@@ -59,7 +59,11 @@ def update(args):
         target = args.target_version or manifest["latest"]
         current = VERSION
         if target == current:
-            print(f"vastai {current} is already installed.")
+            latest = manifest["latest"]
+            if args.target_version:
+                print(f"vastai {current} is already installed (latest available: {latest}).")
+            else:
+                print(f"vastai {current} is up to date (latest: {latest}).")
             return 0
         print(f"Updating vastai {current} -> {target} ...")
         perform_update(target, manifest)

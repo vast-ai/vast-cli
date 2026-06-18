@@ -524,7 +524,7 @@ def requirement_failure(checks):
         "code": "preflight_requirements_failed",
         "summary": summary,
         "failed_check_ids": [check["id"] for check in failures],
-        "remediation": "Resolve the failed checks below, or rerun with --ignore-requirements to dogfood anyway.",
+        "remediation": "Resolve the failed checks below, or rerun with --ignore-requirements to run the diagnostic anyway.",
     }
 
 

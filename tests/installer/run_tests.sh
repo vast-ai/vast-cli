@@ -184,11 +184,29 @@ test_rc_safety() { # never edits shell rc non-interactively; marker idempotent
     assert "rc untouched when marker present" cmp -s "$SB_HOME/.bashrc" "$SB/before"
 }
 
+test_completion_when_path_ok() { # PATH already set -> still wires completion, omits PATH export
+    new_sandbox pathok
+    run_install "PATH=$SB_HOME/.local/bin:$PATH" || { cat "$SB_OUT"; return 1; }
+    assert "still wires tab completion" out_contains "vastai-completion" &&
+    assert "omits redundant PATH export" [ "$(grep -c 'export PATH' "$SB_OUT")" -eq 0 ]
+}
+
+test_completion_files_generated() { # static completion scripts precomputed under share/
+    new_sandbox compgen
+    run_install || { cat "$SB_OUT"; return 1; }
+    assert "bash completion file present" [ -s "$SB_ROOT/share/vastai-completion.bash" ] &&
+    assert "zsh completion file present" [ -s "$SB_ROOT/share/vastai-completion.zsh" ] &&
+    assert "rc block sources the static file, not a per-startup eval" \
+        out_contains "source .*vastai-completion" &&
+    assert "no per-startup register-python-argcomplete eval" \
+        [ "$(grep -c 'eval.*register-python-argcomplete' "$SB_OUT")" -eq 0 ]
+}
+
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
-ALL_TESTS=(fresh_install pinned_reinstall checksum_abort truncation_guard rc_safety)
+ALL_TESTS=(fresh_install pinned_reinstall checksum_abort truncation_guard rc_safety completion_when_path_ok completion_files_generated)
 SELECTED=("${@:-${ALL_TESTS[@]}}")
 
 mkdir -p "$FIXTURES"

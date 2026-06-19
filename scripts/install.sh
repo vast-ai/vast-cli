@@ -5,7 +5,8 @@
 #
 # Installs a self-contained vastai CLI into ~/.vastai (no Python required on
 # the machine, no sudo, nothing outside ~/.vastai and ~/.local/bin is touched
-# except an optional, consent-gated PATH line in your shell rc).
+# except a PATH/completion block in your shell rc (enabled by default at a real
+# terminal; skip with --no-modify-path; never written non-interactively/CI).
 # Design: install-design.md in https://github.com/vast-ai/vast-cli
 #
 # Options (env vars, or flags after `bash -s --`):
@@ -25,6 +26,7 @@ ROOT="${VASTAI_INSTALL_DIR:-$HOME/.vastai}"
 LOCAL_BIN="$HOME/.local/bin"
 NO_MODIFY_PATH="${VASTAI_NO_MODIFY_PATH:-}"
 WORKDIR=""
+RC_UPDATED=""
 
 say()  { printf 'vastai-install: %s\n' "$*"; }
 warn() { printf 'vastai-install: warning: %s\n' "$*" >&2; }
@@ -37,15 +39,20 @@ need_cmd() {
     command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
 }
 
-# download URL DEST
+# download URL DEST [progress] — non-empty progress shows a bar (TTY only).
 download() {
+    local url="$1" dest="$2" progress="${3:-}"
     if command -v curl >/dev/null 2>&1; then
-        case "$1" in
-            https://*) curl --proto '=https' --tlsv1.2 -fsSL --retry 3 -o "$2" "$1" ;;
-            *)         curl -fsSL --retry 3 -o "$2" "$1" ;;
+        local vflags=(-fsS)
+        [ -n "$progress" ] && [ -t 2 ] && vflags=(-f --progress-bar)
+        case "$url" in
+            https://*) curl --proto '=https' --tlsv1.2 "${vflags[@]}" -L --retry 3 -o "$dest" "$url" ;;
+            *)         curl "${vflags[@]}" -L --retry 3 -o "$dest" "$url" ;;
         esac
     elif command -v wget >/dev/null 2>&1; then
-        wget -qO "$2" "$1"
+        local wflags=(-q)
+        [ -n "$progress" ] && [ -t 2 ] && wflags=(-q --show-progress)
+        wget "${wflags[@]}" -O "$dest" "$url"
     else
         die "need curl or wget to download files"
     fi
@@ -104,16 +111,8 @@ detect_platform() {
     PLATFORM_KEY="${os}_${arch}${libc}"
 }
 
-# is_interactive — can we prompt? (/dev/tty may exist yet be unopenable)
+# is_interactive — is there a real terminal? (/dev/tty may exist yet be unopenable)
 is_interactive() { ( : < /dev/tty > /dev/tty; ) 2>/dev/null; }
-
-# ask_yn PROMPT — returns 0 on yes
-ask_yn() {
-    local reply
-    printf '%s [y/N] ' "$1" > /dev/tty
-    read -r reply < /dev/tty || reply=""
-    case "$reply" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
-}
 
 rc_file_for_shell() {
     case "$(basename "${SHELL:-}")" in
@@ -133,7 +132,7 @@ install_uv() {
 
     say "Downloading runtime bootstrap..."
     tarball="$WORKDIR/uv.tar.gz"
-    download "$url" "$tarball"
+    download "$url" "$tarball" progress
     verify_sha "$tarball" "$sha" "uv"
 
     mkdir -p "$WORKDIR/uv-extract"
@@ -154,11 +153,15 @@ install_version() {
     rm -rf "$newdir"
     export UV_PYTHON_INSTALL_DIR="$ROOT/python"
     export UV_PYTHON_PREFERENCE="only-managed"
-    # --relocatable: shebangs must not hardcode the build path (env is renamed into place).
-    if ! "$ROOT/bin/uv" venv "$newdir" --python "$python_pin" --relocatable --quiet; then
+    # Show uv's progress at a TTY, quiet in CI. --relocatable: no hardcoded
+    # build path in shebangs (env/ is renamed into place).
+    local quiet=(--quiet)
+    [ -t 2 ] && quiet=()
+    if ! "$ROOT/bin/uv" venv "$newdir" --python "$python_pin" --relocatable "${quiet[@]}"; then
         rm -rf "$newdir"
         die "could not set up the Python $python_pin runtime"
     fi
+    # pip install stays quiet always — the per-package "+ pkg==ver" list is noise.
     local spec="${VASTAI_PIP_SPEC:-vastai==$version}"
     if ! "$ROOT/bin/uv" pip install --python "$newdir/bin/python" --quiet "$spec"; then
         rm -rf "$newdir"
@@ -180,6 +183,22 @@ install_version() {
     done
 }
 
+# generate_completions — precompute static completion scripts in $ROOT/share so
+# the rc just sources a file (no register-python-argcomplete spawn per shell).
+generate_completions() {
+    local rpa="$ROOT/bin/register-python-argcomplete" sh out
+    [ -x "$rpa" ] || return 0
+    mkdir -p "$ROOT/share"
+    for sh in bash zsh; do
+        out="$ROOT/share/vastai-completion.$sh"
+        if "$rpa" -s "$sh" vastai >"$out.tmp" 2>/dev/null && [ -s "$out.tmp" ]; then
+            mv -f "$out.tmp" "$out"
+        else
+            rm -f "$out.tmp"
+        fi
+    done
+}
+
 setup_path() {
     mkdir -p "$LOCAL_BIN"
     link_swap "$ROOT/bin/vastai" "$LOCAL_BIN/vastai"
@@ -188,24 +207,34 @@ setup_path() {
         *":$LOCAL_BIN:"*) PATH_OK=1 ;;
         *) PATH_OK="" ;;
     esac
-    [ -n "$PATH_OK" ] && return 0
 
-    local rc_file marker block
+    # rc block: completion always (sources the static script); PATH export only
+    # if $LOCAL_BIN isn't already on PATH — so we never skip completion on PATH_OK.
+    local rc_file shell_name marker completion comp_file path_line block
     rc_file="$(rc_file_for_shell)"
+    shell_name="$(basename "${SHELL:-}")"
     marker="# >>> vastai installer >>>"
+    comp_file="$ROOT/share/vastai-completion.$shell_name"
+    completion="[ -f \"$comp_file\" ] && source \"$comp_file\"  # vastai tab completion"
+    if [ -n "$PATH_OK" ]; then
+        path_line=""
+    else
+        path_line="export PATH=\"\$HOME/.local/bin:\$PATH\"
+"
+    fi
     block="$marker
-export PATH=\"\$HOME/.local/bin:\$PATH\"
-eval \"\$('$ROOT/bin/register-python-argcomplete' vastai 2>/dev/null)\" 2>/dev/null || true
+${path_line}${completion}
 # <<< vastai installer <<<"
 
     if [ -n "$rc_file" ] && [ -f "$rc_file" ] && grep -qF "$marker" "$rc_file"; then
         return 0  # already configured; takes effect in new shells
     fi
 
-    if [ -z "$NO_MODIFY_PATH" ] && [ -n "$rc_file" ] && is_interactive \
-        && ask_yn "Add $LOCAL_BIN to PATH and enable tab completion in $rc_file?"; then
+    # Default-on, no prompt — but never edit rc under --no-modify-path or
+    # without a TTY (CI/pipes); there we just print the block.
+    if [ -z "$NO_MODIFY_PATH" ] && [ -n "$rc_file" ] && is_interactive; then
         printf '\n%s\n' "$block" >> "$rc_file"
-        say "Updated $rc_file (takes effect in new shells)."
+        RC_UPDATED=1
     else
         say "To finish setup, add this to your shell rc file:"
         printf '\n%s\n\n' "$block"
@@ -251,6 +280,7 @@ main() {
 
     install_uv
     install_version "$version" "$python_pin"
+    generate_completions
     setup_path
     check_pip_coexistence
 
@@ -258,6 +288,9 @@ main() {
     say "vastai $version installed to $ROOT"
     say "  Get started:  vastai set api-key YOUR_API_KEY   (https://cloud.vast.ai/manage-keys/)"
     say "  Update later: vastai update"
+    if [ -n "$RC_UPDATED" ]; then
+        say "  Tab completion: start a new shell, then type 'vastai <TAB>'"
+    fi
 }
 
 main "$@"

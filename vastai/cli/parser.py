@@ -39,6 +39,48 @@ def complete_sshkeys(prefix=None, action=None, parser=None, parsed_args=None):
     return [str(m) for m in Path.home().joinpath('.ssh').glob('*.pub')]
 
 
+# ---------------------------------------------------------------------------
+# Two-stage (verb -> object) command-name completion
+#
+# Pure, unit-testable helpers that turn the flat "verb object" subparser names
+# into staged completion. The argcomplete adapter in cli/main.py calls them.
+# ---------------------------------------------------------------------------
+
+def build_command_maps(parser):
+    """Derive (verbs, verb_objs, singles) from a parser's subparser names."""
+    names = []
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            names = list(action.choices.keys())
+            break
+    verbs, verb_objs, singles = set(), {}, set()
+    for name in names:
+        verb, sep, obj = name.partition(" ")
+        if sep:
+            verbs.add(verb)
+            verb_objs.setdefault(verb, set()).add(obj)
+        else:
+            singles.add(verb)
+    return verbs, verb_objs, singles
+
+
+def two_stage_command_completions(comp_words, cword_prefix, verbs, verb_objs, singles):
+    """Stage command-name completion. Returns (candidates, merged): candidates is
+    the verb/object list, or None to delegate flag completion using merged."""
+    n = len(comp_words)
+    if n == 1:  # completing the verb / bare command
+        return sorted(c for c in (verbs | singles) if c.startswith(cword_prefix)), None
+    if n == 2 and comp_words[1] in verbs:  # completing the object for a verb
+        objs = verb_objs.get(comp_words[1], set())
+        return sorted(o for o in objs if o.startswith(cword_prefix)), None
+    # Past the command name: fuse "verb object" so the right subparser is found.
+    # Never fuse across a flag, mirroring apwrap.parse_args.
+    merged = comp_words
+    if n >= 3 and comp_words[1] in verbs and not comp_words[2].startswith("-"):
+        merged = [comp_words[0], comp_words[1] + " " + comp_words[2]] + list(comp_words[3:])
+    return None, merged
+
+
 def set_completers(instance_machine_fn=None, instance_fn=None):
     """
     Wire up the tab-completion functions.  Called once from the CLI

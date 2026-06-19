@@ -1,7 +1,10 @@
 """Tests for vastai/cli/parser.py — apwrap, command registration, parse_args."""
 
 import pytest
-from vastai.cli.parser import apwrap, argument, hidden_aliases, MyWideHelpFormatter
+from vastai.cli.parser import (
+    apwrap, argument, hidden_aliases, MyWideHelpFormatter,
+    build_command_maps, two_stage_command_completions,
+)
 
 
 class TestArgument:
@@ -148,3 +151,81 @@ class TestCliParserReadOnlyCommands:
     def test_parse_readonly_command(self, cli_parser, argv):
         args = cli_parser.parse_args(argv)
         assert callable(args.func)
+
+
+def _completion_parser():
+    p = apwrap()
+
+    @p.command(argument("--quiet", action="store_true"), help="show instances")
+    def show__instances(args):
+        pass
+
+    @p.command(help="show env vars")
+    def show__env_vars(args):
+        pass
+
+    @p.command(help="create an instance")
+    def create__instance(args):
+        pass
+
+    @p.command(argument("--check", action="store_true"), help="self update")
+    def update(args):
+        pass
+
+    return p
+
+
+class TestBuildCommandMaps:
+    def test_splits_verbs_objects_and_singles(self):
+        verbs, verb_objs, singles = build_command_maps(_completion_parser().parser)
+        assert {"show", "create"} <= verbs
+        assert verb_objs["show"] == {"instances", "env-vars"}
+        assert verb_objs["create"] == {"instance"}
+        # bare command + the auto-registered "help" land in singles, not verbs
+        assert "update" in singles and "update" not in verbs
+
+
+class TestTwoStageCompletions:
+    def setup_method(self):
+        self.maps = build_command_maps(_completion_parser().parser)
+
+    def _complete(self, comp_words, prefix):
+        return two_stage_command_completions(comp_words, prefix, *self.maps)
+
+    def test_first_word_offers_verbs_and_singles(self):
+        cands, merged = self._complete(["vastai"], "")
+        assert merged is None
+        assert {"show", "create", "update"} <= set(cands)
+
+    def test_first_word_narrows_by_prefix(self):
+        cands, _ = self._complete(["vastai"], "sh")
+        assert cands == ["show"]
+
+    def test_object_stage_lists_only_that_verbs_objects(self):
+        cands, merged = self._complete(["vastai", "show"], "")
+        assert merged is None
+        assert cands == ["env-vars", "instances"]  # sorted, no "create" leakage
+
+    def test_object_stage_has_no_escaped_space(self):
+        cands, _ = self._complete(["vastai", "show"], "")
+        assert all(" " not in c and "\\" not in c for c in cands)
+
+    def test_object_stage_narrows_by_prefix(self):
+        cands, _ = self._complete(["vastai", "show"], "env")
+        assert cands == ["env-vars"]
+
+    def test_bare_command_delegates_not_object_stage(self):
+        # "update" is a single command, not a verb -> delegate (no object list)
+        cands, merged = self._complete(["vastai", "update"], "--")
+        assert cands is None
+        assert merged == ["vastai", "update"]
+
+    def test_flag_stage_fuses_verb_object_into_one_token(self):
+        cands, merged = self._complete(["vastai", "show", "instances"], "--")
+        assert cands is None
+        assert merged == ["vastai", "show instances"]
+
+    def test_flag_stage_never_fuses_across_a_flag(self):
+        cands, merged = self._complete(["vastai", "show", "--help"], "")
+        assert cands is None
+        assert merged == ["vastai", "show", "--help"]  # unchanged

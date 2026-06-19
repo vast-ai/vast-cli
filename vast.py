@@ -8739,7 +8739,8 @@ def self_test__machine(args):
         if result.get("warning"):
             print(result["warning"])
         if result["success"]:
-            print("Test completed successfully.")
+            print("")
+            print(f"Machine ID {args.machine_id} passed the self-test.")
             sys.exit(0)
         else:
             print(f"Test failed: {result['reason']}")
@@ -9424,7 +9425,6 @@ def run_machinetester(ip_address, port, udp_port, instance_id, machine_id, delay
                         progress_print(args, "Test completed successfully.")
                         with open("Pass_testresults.log", "a") as f:
                             f.write(f"{machine_id}\n")
-                        progress_print(args, f"Test passed.")
                         destroy_instance_silent(instance_id, destroy_args)
                         instance_destroyed = True
                         return True, ""
@@ -9492,7 +9492,6 @@ def run_machinetester(ip_address, port, udp_port, instance_id, machine_id, delay
         # Ensure instance cleanup
         if not instance_destroyed and instance_id and instance_exist(instance_id, api_key, destroy_args):
            destroy_instance_silent(instance_id, destroy_args)
-        progress_print(args, f"Machine: {machine_id} Done with testing remote.py results {message}")
         warnings.simplefilter('default')
 
 def safe_float(value):

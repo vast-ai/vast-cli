@@ -216,7 +216,7 @@ class TestSelfTestMachineIgnoreRequirements:
         assert "Requirement checks are skipped as a pass/fail gate" in out
         assert "does not qualify this machine for verification" in out
         assert out.count("does not qualify this machine for verification") >= 2
-        assert "Test passed." in out
+        assert "Machine ID 123 passed the self-test." in out
 
     def test_ignore_requirements_warning_in_raw_summary(self, parse_argv, monkeypatch, capsys):
         from vastai.cli.commands import machines

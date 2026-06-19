@@ -1547,7 +1547,6 @@ def self_test__machine(args):
                                         if not udp_probe_completed:
                                             progress_print("WARNING: Test reached DONE before UDP probe completion was recorded.")
                                         progress_print("Test completed successfully.")
-                                        progress_print("Test passed.")
                                         destroy_instance_silent(inst_id)
                                         instance_destroyed = True
                                         return True, "", None
@@ -1641,7 +1640,6 @@ def self_test__machine(args):
                     finally:
                         if not instance_destroyed and inst_id and instance_exist(inst_id):
                             destroy_instance_silent(inst_id, collect_logs=True)
-                        progress_print(f"Machine: {machine_id} Done with testing remote.py results {message}")
                         warnings.simplefilter('default')
 
                 # ----- main orchestration: wait then test -----
@@ -1790,8 +1788,8 @@ def self_test__machine(args):
             if result.get("diagnostics", {}).get("preflight_failure"):
                 print("Runtime checks passed, but minimum requirement checks were ignored.")
                 print("This run does not qualify the machine for verification.")
-            else:
-                print("Test completed successfully.")
+            print("")
+            print(f"Machine ID {args.machine_id} passed the self-test.")
             sys.exit(0)
         else:
             render_runtime_failure()

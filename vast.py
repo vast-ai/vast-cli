@@ -9212,6 +9212,10 @@ def progress_print(args, *args_to_print):
     if not args.raw:
         print(*args_to_print)
 
+def progress_write(args, *args_to_print):
+    if not args.raw:
+        print(*args_to_print, end="", flush=True)
+
 def debug_print(args, *args_to_print):
     """
     Prints debug messages to the console based on the `debugging` and `raw` flags.
@@ -9638,7 +9642,7 @@ def check_requirements(machine_id, api_key, args):
         return False, [f"Unexpected error: {str(e)}"]
 
 
-def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, interval=10):
+def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, interval=15):
     """
     Waits for an instance to reach a running state and monitors its status for errors.
 
@@ -9648,6 +9652,7 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
         args.debugging = False
 
     start_time = time.time()
+    compact_wait_started = False
     show_args = argparse.Namespace(
         id=instance_id,
         quiet=False,
@@ -9662,6 +9667,12 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
     
     if args.debugging:
         debug_print(args, "Starting wait_for_instance with ID:", instance_id)
+
+    def finish_compact_wait(suffix=""):
+        nonlocal compact_wait_started
+        if compact_wait_started:
+            progress_write(args, suffix or "\n")
+            compact_wait_started = False
     
     while time.time() - start_time < timeout:
         try:
@@ -9669,6 +9680,7 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
             instance_info = show__instance(show_args)
             
             if not instance_info:
+                finish_compact_wait()
                 progress_print(args, f"No information returned for instance {instance_id}. Retrying...")
                 time.sleep(interval)
                 continue  # Retry
@@ -9676,6 +9688,7 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
             # Check for error in status_msg
             status_msg = instance_info.get('status_msg', '')
             if status_msg and 'Error' in status_msg:
+                finish_compact_wait()
                 reason = f"Instance {instance_id} encountered an error: {status_msg.strip()}"
                 progress_print(args, reason)
                 
@@ -9690,7 +9703,9 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
             
             # Check if instance went offline
             actual_status = instance_info.get('actual_status', 'unknown')
+            intended_status = instance_info.get('intended_status', 'unknown')
             if actual_status == 'offline':
+                finish_compact_wait()
                 reason = "Instance offline during testing"
                 progress_print(args, reason)
                 
@@ -9704,22 +9719,33 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
                 return False, reason
             
             # Check if instance is running
-            if instance_info.get('intended_status') == 'running' and actual_status == 'running':
+            if intended_status == 'running' and actual_status == 'running':
+                finish_compact_wait(" ready.\n")
                 if args.debugging:
                     debug_print(args, f"Instance {instance_id} is now running.")
                 return instance_info, None  # Return instance_info with None for reason
             
             # Print feedback about the current status
-            progress_print(args, f"Instance {instance_id} status: {actual_status}... waiting for 'running' status.")
+            if args.debugging:
+                progress_print(args, f"Instance {instance_id} status: {actual_status} / intended: {intended_status}; waiting for 'running' status.")
+                if status_msg:
+                    progress_print(args, f"status_msg: {status_msg.strip()}")
+            elif not compact_wait_started:
+                progress_write(args, f"Instance {instance_id} is loading; waiting for running status")
+                compact_wait_started = True
+            else:
+                progress_write(args, ".")
             time.sleep(interval)
         
         except Exception as e:
+            finish_compact_wait()
             progress_print(args, f"Error retrieving instance info for {instance_id}: {e}. Retrying...")
             if args.debugging:
                 debug_print(args, f"Exception details: {str(e)}")
             time.sleep(interval)
     
     # Timeout reached without instance running
+    finish_compact_wait()
     reason = f"Instance did not become running within {timeout} seconds. Verify network configuration. Use the self-test machine function in vast cli"
     progress_print(args, reason)
     return False, reason

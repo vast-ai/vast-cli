@@ -1143,6 +1143,99 @@ class TestSelfTestMachineDiagnostics:
         assert "- UDP tried: udp://127.0.0.1:45001" in captured.out
         assert destroy.call_count >= 1
 
+    def test_wait_for_instance_loading_status_is_compact_without_debugging(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        offer = _self_test_offer()
+        loading_instance = {
+            "id": 123,
+            "actual_status": "loading",
+            "intended_status": "running",
+            "status_msg": "ff81e2caff08: Verifying Checksum\nff81e2caff08: Download complete",
+        }
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"5000/tcp": [{"HostPort": "45000"}], "5001/udp": [{"HostPort": "45001"}]},
+            "status_msg": "",
+        }
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            Mock(side_effect=[loading_instance, loading_instance, running_instance, running_instance]),
+        )
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.destroy_instance", destroy)
+        monkeypatch.setattr("vastai.cli.commands.machines.requests.get", Mock(return_value=SimpleNamespace(status_code=200, text="DONE")))
+        monkeypatch.setattr("vastai.cli.commands.machines.time.sleep", lambda *_: None)
+
+        args = parse_argv(["self-test", "machine", "42"])
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 0
+        assert "Instance 123 is loading; waiting for running status. ready." in captured.out
+        assert "status: loading" not in captured.out
+        assert "status_msg:" not in captured.out
+        assert "Verifying Checksum" not in captured.out
+        assert destroy.call_count >= 1
+
+    def test_wait_for_instance_loading_status_is_verbose_with_debugging(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        offer = _self_test_offer()
+        loading_instance = {
+            "id": 123,
+            "actual_status": "loading",
+            "intended_status": "running",
+            "status_msg": "ff81e2caff08: Verifying Checksum\nff81e2caff08: Download complete",
+        }
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"5000/tcp": [{"HostPort": "45000"}], "5001/udp": [{"HostPort": "45001"}]},
+            "status_msg": "",
+        }
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            Mock(side_effect=[loading_instance, running_instance, running_instance]),
+        )
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.destroy_instance", destroy)
+        monkeypatch.setattr("vastai.cli.commands.machines.requests.get", Mock(return_value=SimpleNamespace(status_code=200, text="DONE")))
+        monkeypatch.setattr("vastai.cli.commands.machines.time.sleep", lambda *_: None)
+
+        args = parse_argv(["self-test", "machine", "42", "--debugging"])
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 0
+        assert "Instance 123 status: loading / intended: running; waiting for 'running' status." in captured.out
+        assert "status_msg: ff81e2caff08: Verifying Checksum" in captured.out
+        assert "Instance 123 is loading; waiting for running status" not in captured.out
+        assert destroy.call_count >= 1
+
     def test_progress_endpoint_never_reachable_records_endpoint_diagnostic(
         self, parse_argv, patch_get_client, monkeypatch
     ):

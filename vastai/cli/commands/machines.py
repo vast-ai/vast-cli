@@ -815,10 +815,6 @@ def self_test__machine(args):
         if not args.raw:
             print(*args_to_print)
 
-    def progress_write(*args_to_print):
-        if not args.raw:
-            print(*args_to_print, end="", flush=True)
-
     def debug_print(*args_to_print):
         if args.debugging:
             cli_output.append(f"DEBUG: {output_line(*args_to_print)}")
@@ -1298,20 +1294,13 @@ def self_test__machine(args):
                 # ----- wait for instance to start -----
                 def wait_for_instance(inst_id, timeout=900, interval=15):
                     start_time = time.time()
-                    compact_wait_started = False
+                    wait_started_at = None
                     debug_print("Starting wait_for_instance with ID:", inst_id)
-
-                    def finish_compact_wait(suffix=""):
-                        nonlocal compact_wait_started
-                        if compact_wait_started:
-                            progress_write(suffix or "\n")
-                            compact_wait_started = False
 
                     while time.time() - start_time < timeout:
                         try:
                             instance_info = instances_api.show_instance(client, id=inst_id)
                             if not instance_info:
-                                finish_compact_wait()
                                 progress_print(f"No information returned for instance {inst_id}. Retrying...")
                                 time.sleep(interval)
                                 continue
@@ -1332,7 +1321,6 @@ def self_test__machine(args):
                                 )
                             )
                             if status_msg_clean and status_msg_is_error:
-                                finish_compact_wait()
                                 diagnostic = classify_status_msg(status_msg_clean) or make_failure(
                                     DAEMON_STARTUP_FAILED,
                                     stage="startup",
@@ -1351,7 +1339,6 @@ def self_test__machine(args):
                             actual_status = instance_info.get('actual_status', 'unknown')
                             intended_status = instance_info.get('intended_status', 'unknown')
                             if actual_status == 'offline':
-                                finish_compact_wait()
                                 reason = "Instance offline during testing"
                                 diagnostic = make_failure(INSTANCE_OFFLINE_BEFORE_TEST, stage="startup")
                                 progress_print(reason)
@@ -1363,7 +1350,6 @@ def self_test__machine(args):
                                 return False, reason, diagnostic
 
                             if intended_status in ('stopped', 'exited') or actual_status in ('stopped', 'exited'):
-                                finish_compact_wait()
                                 reason = f"Instance {inst_id} stopped before reaching running status"
                                 if status_msg_clean:
                                     reason = f"{reason}: {status_msg_clean}"
@@ -1386,9 +1372,9 @@ def self_test__machine(args):
                                 return False, reason, diagnostic
 
                             if intended_status == 'running' and actual_status == 'running':
-                                was_compact_waiting = compact_wait_started
-                                finish_compact_wait(" ready.\n")
-                                if was_compact_waiting:
+                                if wait_started_at is not None:
+                                    elapsed = int(time.time() - wait_started_at)
+                                    progress_print(f"Instance {inst_id} is ready after {elapsed}s.")
                                     cli_output.append(f"Instance {inst_id} reached running status.")
                                 debug_print(f"Instance {inst_id} is now running.")
                                 return instance_info, None, None
@@ -1400,22 +1386,21 @@ def self_test__machine(args):
                                 )
                                 if status_msg_clean:
                                     progress_print(f"status_msg: {status_msg_clean}")
-                            elif not compact_wait_started:
+                            elif wait_started_at is None:
+                                wait_started_at = time.time()
                                 cli_output.append(f"Instance {inst_id} is loading; waiting for running status.")
-                                progress_write(f"Instance {inst_id} is loading; waiting for running status")
-                                compact_wait_started = True
+                                progress_print(f"Instance {inst_id} is loading; waiting for running status...")
                             else:
-                                progress_write(".")
+                                elapsed = int(time.time() - wait_started_at)
+                                progress_print(f"Still loading... {elapsed}s elapsed")
                             time.sleep(interval)
 
                         except Exception as e:
                             error = safe_error(e)
-                            finish_compact_wait()
                             progress_print(f"Error retrieving instance info for {inst_id}: {error}. Retrying...")
                             debug_print(f"Exception details: {error}")
                             time.sleep(interval)
 
-                    finish_compact_wait()
                     reason = f"Instance did not become running within {timeout} seconds. Verify network configuration. Use the self-test machine function in vast cli"
                     progress_print(reason)
                     return False, reason, make_failure(

@@ -1184,7 +1184,9 @@ class TestSelfTestMachineDiagnostics:
 
         captured = capsys.readouterr()
         assert exc_info.value.code == 0
-        assert "Instance 123 is loading; waiting for running status. ready." in captured.out
+        assert "Instance 123 is loading; waiting for running status..." in captured.out
+        assert "Still loading... 0s elapsed" in captured.out
+        assert "Instance 123 is ready after 0s." in captured.out
         assert "status: loading" not in captured.out
         assert "status_msg:" not in captured.out
         assert "Verifying Checksum" not in captured.out
@@ -1234,6 +1236,7 @@ class TestSelfTestMachineDiagnostics:
         assert "Instance 123 status: loading / intended: running; waiting for 'running' status." in captured.out
         assert "status_msg: ff81e2caff08: Verifying Checksum" in captured.out
         assert "Instance 123 is loading; waiting for running status" not in captured.out
+        assert "Still loading..." not in captured.out
         assert destroy.call_count >= 1
 
     def test_progress_endpoint_never_reachable_records_endpoint_diagnostic(

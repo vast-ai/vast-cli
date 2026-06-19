@@ -122,6 +122,21 @@ class TestPerformUpdate:
         assert not (install_root / ".env.new").exists()
         assert not (install_root / "versions").exists()
 
+    def test_build_failure_surfaces_real_error_not_a_fabricated_one(self, install_root):
+        # A uv that "succeeds" but never builds the env: the verify step then
+        # runs a non-existent .env.new/bin/vastai. The error must name the real
+        # missing path, not relabel it the misleading "Required tool not found".
+        _seed_env(install_root, "1.2.3")
+        uv = install_root / "bin" / "uv"
+        uv.write_text("#!/bin/sh\nexit 0\n")  # does nothing — no venv, no install
+        uv.chmod(uv.stat().st_mode | stat.S_IXUSR)
+
+        with pytest.raises(UpdateError) as exc:
+            perform_update("1.3.0", MANIFEST)
+        msg = str(exc.value)
+        assert "Required tool not found" not in msg
+        assert ".env.new/bin/vastai" in msg
+
     def test_failure_leaves_current_install_untouched(self, install_root):
         _seed_env(install_root, "1.2.3")  # live install that must survive
         before = (install_root / "env" / "bin" / "vastai").read_text()

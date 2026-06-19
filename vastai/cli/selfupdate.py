@@ -191,11 +191,15 @@ def _run(cmd, *, env=None):
     cmd = [str(c) for c in cmd]
     try:
         return subprocess.run(cmd, env=env, check=True, capture_output=True, text=True)
-    except FileNotFoundError:
-        raise UpdateError(f"Required tool not found: {cmd[0]}")
     except subprocess.CalledProcessError as e:
-        detail = (e.stderr or "").strip()
-        raise UpdateError(f"Command failed ({' '.join(cmd)})" + (f":\n{detail}" if detail else ""))
+        # Surface the tool's own stderr — that's the real error (e.g. uv's
+        # resolution failure), not a category we invent.
+        detail = (e.stderr or e.stdout or "").strip()
+        raise UpdateError(f"Command failed: {' '.join(cmd)}" + (f"\n{detail}" if detail else ""))
+    except OSError as e:
+        # Carry the actual OSError through (wrong path, missing binary, …)
+        # rather than relabeling everything "Required tool not found".
+        raise UpdateError(f"Could not run {' '.join(cmd)}: {e}")
 
 
 def _link_binaries(root: Path) -> None:

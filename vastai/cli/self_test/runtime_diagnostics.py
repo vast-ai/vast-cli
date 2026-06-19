@@ -23,6 +23,8 @@ PROGRESS_PORT_NOT_MAPPED = "progress_port_not_mapped"
 PROGRESS_ENDPOINT_UNREACHABLE = "progress_endpoint_unreachable"
 PROGRESS_ENDPOINT_LOST = "progress_endpoint_lost"
 PROGRESS_EMPTY_TIMEOUT = "progress_empty_timeout"
+UDP_PORT_NOT_MAPPED = "udp_port_not_mapped"
+UDP_PROBE_FAILED = "udp_probe_failed"
 RUNTIME_TEST_TIMEOUT = "runtime_test_timeout"
 LEGACY_PROGRESS_ERROR = "legacy_progress_error"
 DOCKER_PULL_FAILED = "docker_pull_failed"
@@ -35,6 +37,7 @@ STRESS_GPU_BURN_FAILED = "stress_gpu_burn_failed"
 INTERRUPTED = "interrupted"
 CLEANUP_FAILED = "cleanup_failed"
 PROGRESS_CONTAINER_PORT = "5000/tcp"
+UDP_CONTAINER_PORT = "5001/udp"
 
 
 RUNTIME_FAILURE_CODES = (
@@ -49,6 +52,8 @@ RUNTIME_FAILURE_CODES = (
     PROGRESS_ENDPOINT_UNREACHABLE,
     PROGRESS_ENDPOINT_LOST,
     PROGRESS_EMPTY_TIMEOUT,
+    UDP_PORT_NOT_MAPPED,
+    UDP_PROBE_FAILED,
     RUNTIME_TEST_TIMEOUT,
     LEGACY_PROGRESS_ERROR,
     DOCKER_PULL_FAILED,
@@ -145,6 +150,25 @@ FAILURE_CATALOG: dict[str, FailureCatalogEntry] = {
         "The progress endpoint returned no new output before timeout.",
         "Check whether the runtime script stalled or stopped writing progress.",
         ("Inspect runtime logs.", "Retry with debugging enabled."),
+    ),
+    UDP_PORT_NOT_MAPPED: FailureCatalogEntry(
+        UDP_PORT_NOT_MAPPED,
+        "The runtime UDP probe port was not mapped.",
+        "Confirm port 5001/udp is exposed and direct ports are available.",
+        (
+            "Check the available mapped ports in the diagnostic output.",
+            "Verify the self-test instance launch included 5001/udp.",
+        ),
+    ),
+    UDP_PROBE_FAILED: FailureCatalogEntry(
+        UDP_PROBE_FAILED,
+        "The runtime UDP probe did not receive an echo response.",
+        "Check UDP firewall/NAT forwarding separately from TCP forwarding.",
+        (
+            "Confirm UDP forwarding is configured for the mapped public port.",
+            "If TCP worked, check router/provider rules that allow TCP but block UDP.",
+            "Retry from outside the host LAN to rule out NAT hairpinning behavior.",
+        ),
     ),
     RUNTIME_TEST_TIMEOUT: FailureCatalogEntry(
         RUNTIME_TEST_TIMEOUT,
@@ -306,6 +330,35 @@ def make_progress_endpoint_diagnostic(
     return diagnostic
 
 
+def make_udp_probe_diagnostic(
+    *,
+    public_ip: str | None = None,
+    container_port: str = UDP_CONTAINER_PORT,
+    host_port: str | int | None = None,
+    timeout_seconds: int | float | None = None,
+    attempt_count: int = 0,
+    response_received: bool = False,
+    last_error_type: str | None = None,
+    last_error: object = None,
+    mapped_ports=None,
+) -> dict[str, object]:
+    """Shape UDP probe state for raw output and UI consumption."""
+    url = f"udp://{public_ip}:{host_port}" if public_ip and host_port else None
+    return {
+        "url": url,
+        "public_ip": public_ip,
+        "container_port": container_port,
+        "external_port": str(host_port) if host_port is not None else None,
+        "host_port": str(host_port) if host_port is not None else None,
+        "timeout_seconds": timeout_seconds,
+        "attempt_count": int(attempt_count or 0),
+        "response_received": bool(response_received),
+        "last_error_type": last_error_type,
+        "last_error": redact_secret_text(last_error),
+        "mapped_ports": _mapped_port_names(mapped_ports),
+    }
+
+
 def failure_catalog() -> dict[str, dict[str, object]]:
     """Return a JSON-serializable copy of the runtime failure catalog."""
     return {
@@ -338,6 +391,7 @@ def make_failure(
     suggested_steps: Iterable[str] | None = None,
     underlying_error: str | None = None,
     progress_endpoint: dict[str, object] | None = None,
+    udp_probe: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Build a raw-output-friendly diagnostic dictionary."""
     entry = get_failure_entry(code)
@@ -356,6 +410,8 @@ def make_failure(
         diagnostic["underlying_error"] = underlying_error
     if progress_endpoint:
         diagnostic["progress_endpoint"] = progress_endpoint
+    if udp_probe:
+        diagnostic["udp_probe"] = udp_probe
     return diagnostic
 
 
@@ -484,12 +540,16 @@ __all__ = [
     "STAGE_STRESS_GPU_BURN",
     "STAGE_SYSTEM_REQUIREMENTS",
     "STRESS_GPU_BURN_FAILED",
+    "UDP_CONTAINER_PORT",
+    "UDP_PORT_NOT_MAPPED",
+    "UDP_PROBE_FAILED",
     "classify_legacy_error_line",
     "classify_status_msg",
     "failure_catalog",
     "get_failure_entry",
     "make_failure",
     "make_progress_endpoint_diagnostic",
+    "make_udp_probe_diagnostic",
     "parse_legacy_progress",
     "redact_secret_text",
     "stage_from_progress_line",

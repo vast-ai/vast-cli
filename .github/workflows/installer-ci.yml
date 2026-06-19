@@ -8,6 +8,7 @@ on:
       - "scripts/make_manifest.py"
       - "scripts/publish_release.py"
       - "tests/installer/**"
+      - "pyproject.toml"
       - ".github/workflows/installer-ci.yml"
 
 concurrency:
@@ -47,3 +48,70 @@ jobs:
         run: |
           python3 scripts/publish_release.py 0.0.0 --dry-run --yes
           python3 scripts/publish_release.py 0.0.0 --ci --dry-run
+
+  # Builds THIS PR's wheel so the OS matrix exercises the PR's install.sh AND
+  # its dependency closure (a dep without wheels for a target — e.g. musl —
+  # fails here, the way psutil<7 did).
+  build-wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # dynamic-versioning needs history
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: build wheel
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          poetry self add "poetry-dynamic-versioning[plugin]"
+          poetry build --format wheel
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr-wheel
+          path: dist/vastai-*.whl
+
+  # Real end-to-end install across the OS matrix — the prebuilt-runtime promise.
+  # The release manifest (uv pin, CPython) comes from the published Release;
+  # VASTAI_PIP_SPEC overrides the wheel to this PR's build. Linux variants run in
+  # containers on the ubuntu host (checkout stays on the host, repo is mounted —
+  # avoids the actions/checkout-on-musl node problem); macOS runs natively.
+  os-matrix:
+    needs: build-wheel
+    # Non-blocking canary until proven green across a few runs; then delete this
+    # line to make the matrix gate PRs.
+    continue-on-error: true
+    name: install (${{ matrix.name }})
+    runs-on: ${{ matrix.os || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: alpine-musl, image: "alpine:latest",      prep: "apk add --no-cache bash curl" }
+          - { name: debian-slim, image: "debian:stable-slim", prep: "apt-get update -qq && apt-get install -y -qq curl ca-certificates" }
+          - { name: glibc-floor, image: "ubuntu:20.04",       prep: "apt-get update -qq && apt-get install -y -qq curl ca-certificates" }
+          - { name: macos,       os: "macos-latest" }
+    env:
+      VASTAI_CLI_BASE_URL: https://github.com/vast-ai/vast-cli/releases/latest/download
+      VASTAI_NO_MODIFY_PATH: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: pr-wheel
+          path: dist
+      - name: install in Linux container
+        if: ${{ matrix.image }}
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            -e VASTAI_CLI_BASE_URL -e VASTAI_NO_MODIFY_PATH \
+            "${{ matrix.image }}" sh -c '
+              ${{ matrix.prep }}
+              VASTAI_PIP_SPEC="$(ls dist/vastai-*.whl)" bash scripts/install.sh
+              "$HOME/.vastai/bin/vastai" --version
+            '
+      - name: install natively (macOS)
+        if: ${{ !matrix.image }}
+        run: |
+          VASTAI_PIP_SPEC="$(ls dist/vastai-*.whl)" bash scripts/install.sh
+          "$HOME/.vastai/bin/vastai" --version

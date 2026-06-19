@@ -34,7 +34,7 @@ dependencies = [
   "aiodns>=3.6.0",
   "pycares==4.11.0",
   "anyio~=4.4",
-  "psutil~=6.0",
+  "psutil~=7.0",
   "pycryptodome~=3.20",
   "argcomplete>=2.0",
   "curlify>=2.2",

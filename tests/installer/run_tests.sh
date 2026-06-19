@@ -171,6 +171,17 @@ test_truncation_guard() { # partial download executes nothing (main()-last)
     done
 }
 
+test_glibc_floor() { # below the glibc floor -> clean abort to pip, zero residue
+    new_sandbox glibc_floor
+    # The gate only applies to glibc; musl/Darwin skip it. On a glibc host, an
+    # impossibly high floor forces the bail without needing an ancient distro.
+    if ls /lib/ld-musl-* >/dev/null 2>&1; then echo "    (skipped: musl host)"; return 0; fi
+    run_install VASTAI_GLIBC_FLOOR=99.0 && { echo "    expected failure below floor"; return 1; }
+    assert "names the required floor" out_contains "older than the required 99.0" &&
+    assert "points at pip" out_contains "pip install vastai" &&
+    assert "no install root created" [ ! -e "$SB_ROOT" ]
+}
+
 test_rc_safety() { # never edits shell rc non-interactively; marker idempotent
     new_sandbox rc
     run_install VASTAI_NO_MODIFY_PATH=1 || { cat "$SB_OUT"; return 1; }
@@ -206,7 +217,7 @@ test_completion_files_generated() { # static completion scripts precomputed unde
 # Runner
 # ---------------------------------------------------------------------------
 
-ALL_TESTS=(fresh_install pinned_reinstall checksum_abort truncation_guard rc_safety completion_when_path_ok completion_files_generated)
+ALL_TESTS=(fresh_install pinned_reinstall checksum_abort truncation_guard glibc_floor rc_safety completion_when_path_ok completion_files_generated)
 SELECTED=("${@:-${ALL_TESTS[@]}}")
 
 mkdir -p "$FIXTURES"

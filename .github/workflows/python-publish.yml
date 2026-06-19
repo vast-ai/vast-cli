@@ -83,7 +83,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]  # add macos-latest once we want Darwin coverage
+        os: [ubuntu-latest, macos-latest]  # Darwin coverage against real published artifacts
     runs-on: ${{ matrix.os }}
     steps:
       - name: install from the published Release and verify

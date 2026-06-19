@@ -9735,6 +9735,11 @@ except:
 
 def main():
     global ARGS
+    print(
+        "WARNING: You are running a deprecated version of the Vast.ai CLI (vast.py).\n"
+        "         Please run `pip install vastai` to install the latest version.\n",
+        file=sys.stderr,
+    )
     parser.add_argument("--url", help="Server REST API URL", default=server_url_default)
     parser.add_argument("--retry", help="Retry limit", default=3)
     parser.add_argument("--explain", action="store_true", help="Output verbose explanation of mapping of CLI calls to HTTPS API endpoints")

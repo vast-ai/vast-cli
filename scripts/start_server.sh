@@ -68,9 +68,9 @@ function install_vastai_sdk() {
         if [ -n "${SDK_VERSION:-}" ]; then
             echo "WARNING: Both SDK_BRANCH and SDK_VERSION are set; using SDK_BRANCH=${SDK_BRANCH}"
         fi
-        echo "Installing vastai from https://github.com/cemalgnlts/vast-cli/ @ ${SDK_BRANCH}"
-        if ! uv pip install "${uv_flags[@]}" "vastai @ git+https://github.com/cemalgnlts/vast-cli.git@${SDK_BRANCH}"; then
-            report_error_and_exit "Failed to install vastai from cemalgnlts/vast-cli@${SDK_BRANCH}"
+        echo "Installing vastai from https://github.com/vast-ai/vast-cli/ @ ${SDK_BRANCH}"
+        if ! uv pip install "${uv_flags[@]}" "vastai @ git+https://github.com/vast-ai/vast-cli.git@${SDK_BRANCH}"; then
+            report_error_and_exit "Failed to install vastai from vast-ai/vast-cli@${SDK_BRANCH}"
         fi
         return 0
     fi

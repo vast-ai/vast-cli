@@ -111,9 +111,27 @@ def main():
     # Tab completion
     try:
         import argcomplete
+        import argparse
 
         from typing import List, Optional
+        from vastai.cli.parser import build_command_maps, two_stage_command_completions
         class MyAutocomplete(argcomplete.CompletionFinder):
+            # Two-stage (verb -> object) completion over the flat "verb object"
+            # subparser names. Logic in parser.py (pure + unit-tested).
+            def _command_maps(self):
+                cached = getattr(self, "_cmd_maps", None)
+                if cached is None:
+                    cached = self._cmd_maps = build_command_maps(self._parser)
+                return cached
+
+            def _get_completions(self, comp_words, cword_prefix, cword_prequote, last_wordbreak_pos):
+                verbs, verb_objs, singles = self._command_maps()
+                cands, merged = two_stage_command_completions(
+                    comp_words, cword_prefix, verbs, verb_objs, singles)
+                if cands is not None:
+                    return cands
+                return super()._get_completions(merged, cword_prefix, cword_prequote, last_wordbreak_pos)
+
             def quote_completions(self, completions: List[str], cword_prequote: str, last_wordbreak_pos: Optional[int]) -> List[str]:
                 pre = super().quote_completions(completions, cword_prequote, last_wordbreak_pos)
                 return sorted(pre, key=lambda x: x.startswith('-'))

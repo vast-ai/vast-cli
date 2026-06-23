@@ -51,8 +51,8 @@ The design splits the install into two layers:
 - Runs as root without complaint (no shared prefix — everything lands in the
   invoking user's `$HOME/.vastai`), since fresh VMs/containers are commonly root.
 - Unsupported platform or bad hash → exits cleanly pointing at pip.
-- PATH/completion edits only with consent at a real TTY; skippable via
-  `--no-modify-path`.
+- PATH/completion edits default-on at a real TTY (no prompt, like uv/rustup);
+  skippable via `--no-modify-path`, never written non-interactively.
 
 ## 3. On-disk layout
 

@@ -318,7 +318,7 @@ main() {
 
     say ""
     say "vastai $version installed to $ROOT"
-    say "  Get started:  vastai set api-key YOUR_API_KEY   (https://cloud.vast.ai/manage-keys/)"
+    say "  Get started:  vastai set api-key YOUR_API_KEY   (https://cloud.vast.ai/manage-keys/?tab=api-keys)"
     say "  Update later: vastai update"
     if [ -n "$RC_UPDATED" ]; then
         say "  Tab completion: start a new shell, then type 'vastai <TAB>'"

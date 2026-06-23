@@ -86,21 +86,32 @@ jobs:
         os: [ubuntu-latest, macos-latest]  # Darwin coverage against real published artifacts
     runs-on: ${{ matrix.os }}
     steps:
+      # Gate on the surface uv actually resolves against: the *simple index*.
+      # poetry publish returns before PyPI propagation is consistent, and the
+      # JSON API can go green while the simple index / file CDN still lag on a
+      # given edge — that race is what flaked the macOS install. Poll a cheap
+      # GET until the version is resolvable, then install exactly once below.
+      - name: wait for PyPI propagation (simple index)
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          for attempt in $(seq 1 40); do  # ~10 min ceiling, cheap GETs
+            if curl -fsSL https://pypi.org/simple/vastai/ \
+                | grep -qE "vastai-${VERSION}-.*\.whl|vastai-${VERSION}\.tar"; then
+              echo "vastai==$VERSION resolvable on the simple index"
+              exit 0
+            fi
+            echo "not propagated yet (attempt $attempt), sleeping 15s..."
+            sleep 15
+          done
+          echo "timed out waiting for vastai==$VERSION on the PyPI simple index"
+          exit 1
       - name: install from the published Release and verify
         env:
           VASTAI_CLI_BASE_URL: https://github.com/vast-ai/vast-cli/releases/latest/download
           VASTAI_NO_MODIFY_PATH: "1"
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          # Retry: PyPI + Release-asset propagation can lag a few seconds.
-          for attempt in 1 2 3 4 5; do
-            if curl -fsSL "$VASTAI_CLI_BASE_URL/install.sh" -o /tmp/install.sh \
-                && bash /tmp/install.sh; then
-              break
-            fi
-            [ "$attempt" = 5 ] && { echo "install failed after retries"; exit 1; }
-            echo "attempt $attempt failed (propagation?), retrying in 30s..."
-            sleep 30
-          done
+          curl -fsSL "$VASTAI_CLI_BASE_URL/install.sh" -o /tmp/install.sh
+          bash /tmp/install.sh
           "$HOME/.vastai/bin/vastai" --version
           "$HOME/.vastai/bin/vastai" --version | grep -q "$VERSION"

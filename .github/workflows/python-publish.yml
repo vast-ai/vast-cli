@@ -70,44 +70,30 @@ jobs:
           poetry config pypi-token.pypi "$PYPI_API_TOKEN_SDK"
           poetry publish --build
 
-  # Prove a fresh machine can install the release we just published — the whole
-  # promise of the installer. Pulls install.sh + manifest from the Release
-  # assets (vast.ai redirects aren't required), so it works during dark launch.
-  installer_smoke_test:
-    name: Installer smoke test (${{ matrix.os }})
+  # Verify the deploy landed. publish_release.py attaches install.sh +
+  # manifest.{json,env} to the Release — and once the vast.ai redirects are live,
+  # that attach IS the deploy. The PR-time installer-ci OS matrix already proves
+  # install.sh + the wheel install on a clean machine across platforms, so this
+  # no longer re-installs (which only re-tested that, while racing PyPI
+  # propagation). It just confirms the just-attached assets are fetchable, parse,
+  # and point at this version — deterministic plain GETs, no PyPI resolve, no wait.
+  verify_release_assets:
+    name: Verify release assets
     needs: build_and_publish_vastai
-    # Non-blocking canary: PyPI + assets are already published by the time this
-    # runs, so a red/flaky smoke shouldn't mark the release failed. Drop once
-    # the installer is launched and we want it gating.
+    # Non-blocking canary until proven; drop this once the installer is launched
+    # and we want a bad deploy to gate.
     continue-on-error: true
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]  # Darwin coverage against real published artifacts
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
-      # Poll the simple index (what uv resolves against) until the version propagates — poetry publish returns before PyPI is consistent.
-      - name: wait for PyPI propagation (simple index)
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          for attempt in $(seq 1 40); do  # ~10 min ceiling, cheap GETs
-            if curl -fsSL https://pypi.org/simple/vastai/ \
-                | grep -qE "vastai-${VERSION}-.*\.whl|vastai-${VERSION}\.tar"; then
-              echo "vastai==$VERSION resolvable on the simple index"
-              exit 0
-            fi
-            echo "not propagated yet (attempt $attempt), sleeping 15s..."
-            sleep 15
-          done
-          echo "timed out waiting for vastai==$VERSION on the PyPI simple index"
-          exit 1
-      - name: install from the published Release and verify
+      - name: release assets attached, parse, and match this version
         env:
-          VASTAI_CLI_BASE_URL: https://github.com/vast-ai/vast-cli/releases/latest/download
-          VASTAI_NO_MODIFY_PATH: "1"
+          BASE: https://github.com/vast-ai/vast-cli/releases/latest/download
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          curl -fsSL "$VASTAI_CLI_BASE_URL/install.sh" -o /tmp/install.sh
-          bash /tmp/install.sh
-          "$HOME/.vastai/bin/vastai" --version
-          "$HOME/.vastai/bin/vastai" --version | grep -q "$VERSION"
+          curl -fsSL --retry 3 "$BASE/install.sh"    -o /tmp/install.sh
+          curl -fsSL --retry 3 "$BASE/manifest.env"  -o /tmp/manifest.env
+          curl -fsSL --retry 3 "$BASE/manifest.json" -o /tmp/manifest.json
+          grep -q 'Vast.ai CLI installer' /tmp/install.sh
+          grep -qx "LATEST=$VERSION" /tmp/manifest.env
+          python3 -c "import json; d=json.load(open('/tmp/manifest.json')); assert d['latest']=='$VERSION', d['latest']"
+          echo "release assets for $VERSION are attached, parse, and match"

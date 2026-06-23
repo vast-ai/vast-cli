@@ -169,6 +169,26 @@ class TestUpdateCommand:
             assert args.func(args) == 1
         assert "pip install --upgrade vastai" in capsys.readouterr().err
 
+    def test_up_to_date_reports_latest_version(self, parse_argv, capsys):
+        # already on the latest: don't update, but surface what latest is
+        args = parse_argv(["update"])
+        with patch("vastai.cli.commands.update.is_managed_install", return_value=True), \
+             patch("vastai.cli.commands.update.fetch_manifest", return_value=MANIFEST), \
+             patch("vastai.cli.commands.update.VERSION", "1.3.0"):
+            assert args.func(args) == 0
+        out = capsys.readouterr().out
+        assert "up to date" in out and "1.3.0" in out
+
+    def test_pinned_version_already_installed_reports_latest(self, parse_argv, capsys):
+        # pinned to the version already running: note it, plus what latest is
+        args = parse_argv(["update", "--version", "1.2.0"])
+        with patch("vastai.cli.commands.update.is_managed_install", return_value=True), \
+             patch("vastai.cli.commands.update.fetch_manifest", return_value=MANIFEST), \
+             patch("vastai.cli.commands.update.VERSION", "1.2.0"):
+            assert args.func(args) == 0
+        out = capsys.readouterr().out
+        assert "already installed" in out and "latest available: 1.3.0" in out
+
     def test_version_flag_targets_specific_version(self, parse_argv):
         args = parse_argv(["update", "--version", "1.2.9"])
         with patch("vastai.cli.commands.update.is_managed_install", return_value=True), \

@@ -105,9 +105,9 @@ def test_self_test_failure_creates_support_bundle(
 
     captured = capsys.readouterr()
     assert exc_info.value.code == 1
-    assert "Self-test diagnostic bundle saved to:" in captured.out
-    assert "self-test-result.json" in captured.out
-    assert "Review this tarball before sharing it with support." in captured.out
+    assert f"Support bundle: {tmp_path / 'vast_selftest_42_20260602T100000Z.tar.gz'}" in captured.out
+    assert "self-test-result.json" not in captured.out
+    assert "Next: inspect the support bundle or rerun with --log-level debug" in captured.out
 
 
 def test_self_test_bundle_creation_error_preserves_original_failure(
@@ -144,11 +144,11 @@ def test_self_test_bundle_creation_error_preserves_original_failure(
     captured = capsys.readouterr()
     assert exc_info.value.code == 1
     assert "WARNING: failed to create self-test diagnostic bundle: disk full" in captured.out
-    assert "Test failed: 8 preflight requirement check(s) failed." in captured.out
+    assert "Reason: 8 preflight requirement check(s) failed." in captured.out
 
 
 def test_self_test_runtime_failure_bundle_includes_instance_logs(
-    parse_argv, patch_get_client, monkeypatch, tmp_path
+    parse_argv, patch_get_client, monkeypatch, tmp_path, capsys
 ):
     from vastai.cli.commands import machines
 
@@ -198,7 +198,10 @@ def test_self_test_runtime_failure_bundle_includes_instance_logs(
             "id": id,
             "actual_status": "created",
             "intended_status": "running",
-            "status_msg": "docker_build() error writing dockerfile",
+            "status_msg": (
+                "#6 [3/6] RUN export DEBIAN_FRONTEND=noninteractive; "
+                "apt-get update || echo 'V220614a: error during apt-get update!';"
+            ),
             "label": "vast-self-test-machine-42",
         }
 
@@ -207,7 +210,16 @@ def test_self_test_runtime_failure_bundle_includes_instance_logs(
         assert instance_id == 123
         assert tail == machines.INSTANCE_LOG_TAIL_LINES
         assert filter is None
-        return "daemon startup failure" if daemon_logs else "container startup failure"
+        if daemon_logs:
+            return "\n".join(
+                [
+                    "#6 [3/6] RUN export DEBIAN_FRONTEND=noninteractive; apt-get update || echo 'V220614a: error during apt-get update!';",
+                    "#6 2.268 Fetched 49.3 MB in 2s (26.6 MB/s)",
+                    "#6 DONE 3.3s",
+                    "Error response from daemon: failed to inject CDI devices: unresolvable CDI devices D.host/gpu=0, D.host/gpu=1: unknown",
+                ]
+            )
+        return "container startup failure"
 
     def fake_destroy_instance(client, id):
         assert client is patch_get_client
@@ -222,18 +234,37 @@ def test_self_test_runtime_failure_bundle_includes_instance_logs(
     monkeypatch.setattr(machines.instances_api, "logs", fake_logs)
     monkeypatch.setattr(machines.instances_api, "destroy_instance", fake_destroy_instance)
 
-    args = parse_argv(["self-test", "machine", "42", "--support-bundle-dir", str(tmp_path)])
+    args = parse_argv([
+        "self-test",
+        "machine",
+        "42",
+        "--support-bundle-dir",
+        str(tmp_path),
+        "--log-level",
+        "debug",
+    ])
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
 
     assert exc_info.value.code == 1
+    captured = capsys.readouterr()
     assert 123 in destroyed
     assert created["include_local_host_artifacts"] is False
     assert created["result"]["failure_code"] == "daemon_startup_failed"
+    assert created["result"]["failure"]["summary"] == "Docker/NVIDIA runtime failed before the self-test container could start."
+    assert created["result"]["failure"]["startup_evidence"]["apt_update"]["status"] == "completed"
     assert created["extra_files"]["instance/container.log"] == "container startup failure"
-    assert created["extra_files"]["instance/daemon.log"] == "daemon startup failure"
+    assert "failed to inject CDI devices" in created["extra_files"]["instance/daemon.log"]
     assert '"label": "vast-self-test-machine-42"' in created["extra_files"]["instance/show-instance.json"]
     assert created["extra_errors"] == []
+    assert "Runtime failure diagnostics" in captured.out
+    assert "  Result:" in captured.out
+    assert "  What happened:" in captured.out
+    assert "Vast startup wrapper apt-get update completed successfully." in captured.out
+    assert "Docker/NVIDIA runtime failed to inject CDI GPU devices for GPUs 0, 1." in captured.out
+    assert "  Where to read next:" in captured.out
+    assert "instance/daemon.log in the diagnostic bundle" in captured.out
+    assert "Reason: Docker/NVIDIA runtime failed before the self-test container could start." in captured.out
 
 
 def test_dump_logs_command_creates_cli_visible_bundle(parse_argv, monkeypatch, tmp_path):

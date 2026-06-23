@@ -50,7 +50,9 @@ The design splits the install into two layers:
   unpacking. (Wheel integrity is delegated to uv: TLS + PyPI hashes.)
 - Runs as root without complaint (no shared prefix — everything lands in the
   invoking user's `$HOME/.vastai`), since fresh VMs/containers are commonly root.
-- Unsupported platform or bad hash → exits cleanly pointing at pip.
+- Unsupported platform, **glibc older than the floor** (2.31 — Ubuntu 20.04+/
+  Debian 11+), or bad hash → exits cleanly pointing at pip, before anything
+  lands in `$ROOT`.
 - PATH/completion edits default-on at a real TTY (no prompt, like uv/rustup);
   skippable via `--no-modify-path`, never written non-interactively.
 
@@ -215,6 +217,7 @@ is.
 - `VASTAI_INSTALL_DIR` — override `~/.vastai`.
 - `VASTAI_CLI_BASE_URL` — manifest origin (dev/release verification).
 - `VASTAI_PIP_SPEC` — dev/CI: install from a local wheel path/URL.
+- `VASTAI_GLIBC_FLOOR` — override the minimum-glibc gate (default 2.31).
 - `VASTAI_NO_UPDATE_CHECK=1` — suppress the nudge.
 - `--no-modify-path` — skip PATH/completion edits.
 
@@ -345,3 +348,14 @@ reduces to `python scripts/publish_release.py "${GITHUB_REF_NAME#v}" --ci`.
 - Release orchestration is one script (`scripts/publish_release.py`, §13) shared
   by humans and CI — not a local helper plus a separate CI YAML copy. Lands in
   PR 2 to keep PR 1 a no-op.
+- **Platform support floor: glibc ≥ 2.31** (Ubuntu 20.04+/Debian 11+). Older
+  systems (18.04 = 2.27, CentOS 7 = 2.17) lack wheels for some deps under the
+  pinned CPython, so `install.sh` detects glibc and bails cleanly to pip rather
+  than failing mid-build. Override with `VASTAI_GLIBC_FLOOR` (also a test seam).
+- **musl/Alpine is supported, and that constrains deps.** musl detection keys off
+  the `ld-musl-*` loader, not `ldd --version` (musl's `ldd` exits non-zero, which
+  `set -o pipefail` turned into a silent mis-detect → glibc uv on musl). Support
+  is real only because every native dep ships musllinux wheels — which is why
+  `psutil` is pinned `~=7.0` (6.x had no musl wheels). New native deps must have
+  musl wheels or alpine breaks; the `installer-ci` OS matrix (incl. `alpine:latest`)
+  gates this, triggered on `pyproject.toml` changes.

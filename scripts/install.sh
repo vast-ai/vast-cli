@@ -16,6 +16,7 @@
 #   VASTAI_NO_MODIFY_PATH=1    never edit shell rc files  (flag: --no-modify-path)
 #   VASTAI_PIP_SPEC=...        what to install instead of vastai==VERSION
 #                              (dev/CI only: e.g. a local wheel path)
+#   VASTAI_GLIBC_FLOOR=2.31    minimum glibc; below this, bail to pip
 #
 # Uninstall:  rm -rf ~/.vastai ~/.local/bin/vastai
 
@@ -90,6 +91,34 @@ link_swap() {
     mv -f "$tmp" "$2"
 }
 
+# Minimum glibc for the managed runtime. Ubuntu 20.04 / Debian 11 (2.31) work;
+# older (18.04 = 2.27, CentOS 7 = 2.17) lack wheels for some deps under the
+# pinned CPython, so those users are sent to pip rather than failing mid-build.
+GLIBC_FLOOR="${VASTAI_GLIBC_FLOOR:-2.31}"
+
+# is_musl — true on a musl libc system. Checks the ld-musl loader directly:
+# musl's `ldd` exits non-zero on `--version`, so `set -o pipefail` would discard
+# a successful grep (the loader check has no such hazard; ldd is a guarded fallback).
+is_musl() {
+    local f
+    for f in /lib/ld-musl-*; do [ -e "$f" ] && return 0; done
+    { ldd --version 2>&1 || true; } | grep -qi musl
+}
+
+# require_min_glibc — on glibc Linux, abort cleanly (point at pip) below the floor.
+require_min_glibc() {
+    local v smallest
+    # Guard each probe with `|| true`: a missing getconf or a no-match grep must
+    # leave $v empty (→ undetectable, don't block), never trip `set -e`/pipefail.
+    v="$({ getconf GNU_LIBC_VERSION 2>/dev/null || true; } | awk '{print $NF}')"
+    [ -n "$v" ] || v="$({ ldd --version 2>/dev/null || true; } | head -1 | grep -oE '[0-9]+\.[0-9]+' | tail -1 || true)"
+    [ -n "$v" ] || return 0  # undetectable — don't block
+    smallest="$(printf '%s\n%s\n' "$GLIBC_FLOOR" "$v" | sort -V | head -1)"
+    if [ "$smallest" = "$v" ] && [ "$v" != "$GLIBC_FLOOR" ]; then
+        die "glibc $v is older than the required $GLIBC_FLOOR (Ubuntu 20.04+/Debian 11+) — install with pip instead: pip install vastai"
+    fi
+}
+
 detect_platform() {
     local os arch libc=""
     os="$(uname -s)"
@@ -104,9 +133,12 @@ detect_platform() {
         aarch64|arm64) [ "$os" = "DARWIN" ] && arch="ARM64" || arch="AARCH64" ;;
         *) die "unsupported architecture: $arch — install with pip instead: pip install vastai" ;;
     esac
-    if [ "$os" = "LINUX" ] && command -v ldd >/dev/null 2>&1 \
-        && ldd --version 2>&1 | grep -qi musl; then
-        libc="_MUSL"
+    if [ "$os" = "LINUX" ]; then
+        if is_musl; then
+            libc="_MUSL"
+        else
+            require_min_glibc
+        fi
     fi
     PLATFORM_KEY="${os}_${arch}${libc}"
 }

@@ -9,14 +9,14 @@ description = "Test suite and dependencies for Vast SDK"
 package-mode = false
 
 [tool.poetry.dependencies]
-# Matches CI Python 3.12; root ``vastai-sdk`` allows a wider range—use 3.12 locally for this env.
+# Matches CI Python 3.12; root ``vastai`` allows a wider range—use 3.12 locally for this env.
 python = ">=3.12,<3.13"
 pytest = "^8.0.0"
 pytest-asyncio = "^0.24.0"
 pytest-cov = "^6.0.0"
 cryptography = ">=41.0"
 pyOpenSSL = ">=23.0"
-vastai-sdk = { path = "..", develop = true }
+vastai = { path = "..", develop = true }
 rich = ">=13.0"
 
 [tool.pytest.ini_options]

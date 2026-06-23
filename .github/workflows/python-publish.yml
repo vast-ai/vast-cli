@@ -86,11 +86,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]  # Darwin coverage against real published artifacts
     runs-on: ${{ matrix.os }}
     steps:
-      # Gate on the surface uv actually resolves against: the *simple index*.
-      # poetry publish returns before PyPI propagation is consistent, and the
-      # JSON API can go green while the simple index / file CDN still lag on a
-      # given edge — that race is what flaked the macOS install. Poll a cheap
-      # GET until the version is resolvable, then install exactly once below.
+      # Poll the simple index (what uv resolves against) until the version propagates — poetry publish returns before PyPI is consistent.
       - name: wait for PyPI propagation (simple index)
         run: |
           VERSION="${GITHUB_REF_NAME#v}"

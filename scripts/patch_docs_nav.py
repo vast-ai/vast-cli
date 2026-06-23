@@ -53,18 +53,26 @@ PRESERVE = {
 # group as managed.
 MANAGED_GROUP_THRESHOLD = 0.7
 
+# Fallback nav group for pages that ``classify_new`` can't categorize.
+# Such pages still land in the nav (visible, never silently orphaned);
+# the patcher emits a WARNING so editorial can add a precise rule later.
+# "Instances" is the most general group and exists for both prefixes.
+DEFAULT_GROUP = "Instances"
+
 
 def classify_new(name: str) -> str | None:
     """Return the group name a new page should be placed into.
 
     ``name`` is the bare filename stem (no prefix, no extension), e.g.
     ``tfa-activate`` or ``add-network-disk``.  Returns ``None`` when no
-    rule matches — caller should warn and skip placement so editorial
-    can categorize manually.
+    rule matches — the caller then places the page in ``DEFAULT_GROUP``
+    (so it is always visible in the nav) and warns so editorial can add a
+    precise rule here later.
 
-    Rules are ordered most-specific-first.  When adding new commands
-    that don't fit, extend this function rather than papering over with
-    a default bucket.
+    Rules are ordered most-specific-first.  When adding new commands that
+    don't fit, prefer extending this function with a precise rule over
+    leaning on the default bucket — the default keeps pages visible but
+    may land them in a less-than-ideal category.
     """
     if name.startswith("tfa-"):
         return "Accounts"
@@ -83,6 +91,9 @@ def classify_new(name: str) -> str | None:
     if name.startswith("metrics") or "gpu-trends" in name or "gpu-locations" in name:
         # `metrics gpu`/`gpu-trends`/`gpu-locations` are [Host] GPU-market
         # analytics — they live alongside the other host-facing commands.
+        return "Host"
+    if name == "dump-logs" or "self-test" in name:
+        # Machine diagnostic commands (machines.py) — host-facing.
         return "Host"
     if name.startswith("search-"):
         return "Search & templates"
@@ -171,8 +182,17 @@ def patch_docs_nav(docs: dict, manifest: dict) -> dict:
     groups_by_key: dict[tuple[str, str], dict] = {
         (g["group"], prefix): g for g, prefix in managed
     }
+    def fallback_group(prefix: str) -> dict | None:
+        """Deterministic managed group for ``prefix`` when the intended
+        group is unavailable — first by group name."""
+        candidates = sorted(
+            (g for (gname, p), g in groups_by_key.items() if p == prefix),
+            key=lambda g: g["group"],
+        )
+        return candidates[0] if candidates else None
+
     added: list[str] = []
-    uncategorized: list[str] = []
+    uncategorized: list[str] = []  # placed in default/fallback group; want a precise rule
     for full in sorted(manifest_all):
         if full in existing_loc:
             continue
@@ -180,11 +200,15 @@ def patch_docs_nav(docs: dict, manifest: dict) -> dict:
         prefix = CLI_PREFIX if full.startswith(CLI_PREFIX) else SDK_PREFIX
         group_name = classify_new(name)
         if group_name is None:
+            # No precise rule — place in DEFAULT_GROUP so the page is never
+            # silently orphaned, and flag it so a rule can be added later.
             uncategorized.append(full)
-            continue
-        grp = groups_by_key.get((group_name, prefix))
+            group_name = DEFAULT_GROUP
+        grp = groups_by_key.get((group_name, prefix)) or fallback_group(prefix)
         if grp is None:
-            uncategorized.append(full)
+            # No managed group exists for this prefix at all — can't place.
+            if full not in uncategorized:
+                uncategorized.append(full)
             continue
         grp["pages"].append(full)
         added.append(full)
@@ -217,8 +241,10 @@ def patch_docs_nav(docs: dict, manifest: dict) -> dict:
 
     missing = (gen_cli - final_cli) | (gen_sdk - final_sdk)
     unexpected = ((final_cli | final_sdk) - manifest_all) - PRESERVE
-    # Uncategorized pages aren't in nav by design (they were skipped) —
-    # don't flag those as "missing"
+    # Uncategorized pages are placed in the default/fallback group, so they
+    # normally land in nav.  Only in the degenerate case where no managed
+    # group exists for a prefix can one stay unplaced — the WARNING still
+    # surfaces it, so don't double-report it as "missing".
     missing -= set(uncategorized)
 
     return {
@@ -260,11 +286,12 @@ def main() -> int:
             print(f"  - {p}")
     if summary["uncategorized"]:
         print(f"WARNING: {len(summary['uncategorized'])} new pages had no "
-              "classify rule and were NOT placed in nav:")
+              f"classify rule and were placed in the default group "
+              f"({DEFAULT_GROUP!r}):")
         for p in summary["uncategorized"]:
             print(f"  ? {p}")
-        print("  → extend classify_new() in this script, or place "
-              "manually in docs.json.")
+        print("  → add a precise rule in classify_new() so they land in "
+              "the right group.")
     if summary["missing_from_nav"]:
         print(f"ERROR: {len(summary['missing_from_nav'])} manifest pages "
               "missing from nav after patch:")

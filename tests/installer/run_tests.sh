@@ -175,6 +175,7 @@ test_glibc_floor() { # below the glibc floor -> clean abort to pip, zero residue
     new_sandbox glibc_floor
     # The gate only applies to glibc; musl/Darwin skip it. On a glibc host, an
     # impossibly high floor forces the bail without needing an ancient distro.
+    case "$(uname -s)" in Darwin*) echo "    (skipped: Darwin host)"; return 0 ;; esac
     if ls /lib/ld-musl-* >/dev/null 2>&1; then echo "    (skipped: musl host)"; return 0; fi
     run_install VASTAI_GLIBC_FLOOR=99.0 && { echo "    expected failure below floor"; return 1; }
     assert "names the required floor" out_contains "older than the required 99.0" &&

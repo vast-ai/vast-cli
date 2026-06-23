@@ -89,7 +89,10 @@ jobs:
         include:
           - { name: alpine-musl, image: "alpine:latest",      prep: "apk add --no-cache bash curl" }
           - { name: debian-slim, image: "debian:stable-slim", prep: "apt-get update -qq && apt-get install -y -qq curl ca-certificates" }
-          - { name: glibc-floor, image: "ubuntu:20.04",       prep: "apt-get update -qq && apt-get install -y -qq curl ca-certificates" }
+          # ubuntu:20.04 == the floor (glibc 2.31): proves install works AT the
+          # minimum supported glibc. The sub-floor bail is covered by the hermetic
+          # test_glibc_floor (VASTAI_GLIBC_FLOOR=99.0), not by a matrix image.
+          - { name: glibc-floor-min, image: "ubuntu:20.04",   prep: "apt-get update -qq && apt-get install -y -qq curl ca-certificates" }
           - { name: macos,       os: "macos-latest" }
     env:
       VASTAI_CLI_BASE_URL: https://github.com/vast-ai/vast-cli/releases/latest/download

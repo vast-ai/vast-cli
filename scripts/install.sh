@@ -108,8 +108,10 @@ is_musl() {
 # require_min_glibc — on glibc Linux, abort cleanly (point at pip) below the floor.
 require_min_glibc() {
     local v smallest
-    v="$(getconf GNU_LIBC_VERSION 2>/dev/null | awk '{print $NF}')"
-    [ -n "$v" ] || v="$({ ldd --version 2>/dev/null || true; } | head -1 | grep -oE '[0-9]+\.[0-9]+' | tail -1)"
+    # Guard each probe with `|| true`: a missing getconf or a no-match grep must
+    # leave $v empty (→ undetectable, don't block), never trip `set -e`/pipefail.
+    v="$({ getconf GNU_LIBC_VERSION 2>/dev/null || true; } | awk '{print $NF}')"
+    [ -n "$v" ] || v="$({ ldd --version 2>/dev/null || true; } | head -1 | grep -oE '[0-9]+\.[0-9]+' | tail -1 || true)"
     [ -n "$v" ] || return 0  # undetectable — don't block
     smallest="$(printf '%s\n%s\n' "$GLIBC_FLOOR" "$v" | sort -V | head -1)"
     if [ "$smallest" = "$v" ] && [ "$v" != "$GLIBC_FLOOR" ]; then

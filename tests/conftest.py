@@ -831,8 +831,11 @@ def make_serverless_backend_healthcheck_attrs():
         start: bool = True,
         succeeded: bool = False,
     ) -> None:
+        event = asyncio.Event()
+        if start:
+            event.set()
         object.__setattr__(backend, "healthcheck_url", url)
-        object.__setattr__(backend, "_Backend__start_healthcheck", start)
+        object.__setattr__(backend, "_Backend__start_healthcheck", event)
         object.__setattr__(backend, "_Backend__healthcheck_succeeded", succeeded)
 
     return _apply
@@ -1785,6 +1788,7 @@ def cli_parser():
         billing, storage, clusters, auth, misc, deployments,
         benchmarks,
         price_increase,
+        update,
     )
     from vastai.cli.util import server_url_default, api_key_guard
     parser.add_argument("--url", help="Server REST API URL", default=server_url_default)

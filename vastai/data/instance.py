@@ -51,7 +51,7 @@ class CreateInstanceResponse:
 
 @dataclass
 class Instance:
-    """Instance entity as returned by GET /api/v0/instances/."""
+    """Instance entity as returned by GET /api/v1/instances/."""
     id: int
     machine_id: Optional[int]
     actual_status: Optional[str]

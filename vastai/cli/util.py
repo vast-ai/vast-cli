@@ -16,7 +16,6 @@ import time
 import math
 import subprocess
 import shutil
-import importlib.metadata
 import requests
 import getpass
 from pathlib import Path
@@ -26,6 +25,7 @@ from typing import Dict, List, Optional
 
 # Re-export string_to_unix_epoch so CLI command modules can import from here
 from vastai.api.query import string_to_unix_epoch  # noqa: F401
+from vastai.utils import VERSION, parse_version  # noqa: F401
 
 
 # Server URL default — canonical definition lives in api/client.py
@@ -36,45 +36,10 @@ api_key_guard = object()
 
 
 # ---------------------------------------------------------------------------
-# Version helpers (for --version output only)
-# ---------------------------------------------------------------------------
-
-def parse_version(version: str) -> tuple:
-    parts = version.split(".")
-
-    if len(parts) < 3:
-        print(f"Invalid version format: {version}", file=sys.stderr)
-
-    return tuple(int(part) for part in parts)
-
-
-def _get_git_version():
-    try:
-        result = subprocess.run(
-            ["git", "describe", "--tags", "--abbrev=0"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        tag = result.stdout.strip()
-        return tag[1:] if tag.startswith("v") else tag
-    except Exception:
-        return "0.0.0"
-
-
-def _get_local_version():
-    try:
-        return importlib.metadata.version("vastai")
-    except Exception:
-        return _get_git_version()
-
-
-# ---------------------------------------------------------------------------
 # App constants
 # ---------------------------------------------------------------------------
 
 APP_NAME = "vastai"
-VERSION = _get_local_version()
 
 # Define emoji support and fallbacks
 _HAS_EMOJI = sys.stdout.encoding and 'utf' in sys.stdout.encoding.lower()
@@ -117,6 +82,7 @@ for key in DIRS.keys():
         os.makedirs(path)
 
 CACHE_FILE = os.path.join(DIRS['temp'], "gpu_names_cache.json")
+GPU_TYPES_CACHE_FILE = os.path.join(DIRS['temp'], "gpu_types_cache.json")
 CACHE_DURATION = timedelta(hours=24)
 
 
@@ -155,6 +121,47 @@ def _get_gpu_names() -> Optional[List[str]]:
         return [
             name.replace(" ", "_").replace("-", "_") for name in gpu_names['gpu_names']
         ]
+    except (TypeError, KeyError):
+        return None
+
+
+def _get_gpu_types() -> Optional[List[dict]]:
+    """Returns the GPU type catalog from /api/v0/gpu_types/, cached for 24 hours.
+
+    Source of truth for canonical GPU names and per-card VRAM. Returns None on
+    any error so callers fall back to the hardcoded constants (never empty).
+    """
+
+    def is_cache_valid() -> bool:
+        """Checks if the cache file exists and is less than 24 hours old."""
+        if not os.path.exists(GPU_TYPES_CACHE_FILE):
+            return False
+        cache_age = datetime.now() - datetime.fromtimestamp(os.path.getmtime(GPU_TYPES_CACHE_FILE))
+        return cache_age < CACHE_DURATION
+
+    if is_cache_valid():
+        try:
+            with open(GPU_TYPES_CACHE_FILE, "r") as file:
+                payload = json.load(file)
+        except (OSError, json.JSONDecodeError):
+            payload = None
+    else:
+        endpoint = "/api/v0/gpu_types/"
+        url = f"{server_url_default}{endpoint}"
+        try:
+            r = requests.get(url, headers={})
+            r.raise_for_status()
+            payload = r.json()
+        except (requests.exceptions.RequestException, ValueError):
+            return None
+        try:
+            with open(GPU_TYPES_CACHE_FILE, "w") as file:
+                json.dump(payload, file)
+        except OSError:
+            pass
+
+    try:
+        return payload['gpu_types']
     except (TypeError, KeyError):
         return None
 

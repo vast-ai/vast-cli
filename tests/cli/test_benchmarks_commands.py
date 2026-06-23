@@ -14,6 +14,19 @@ import pytest
 from vastai.cli.commands import benchmarks as bench
 
 
+@pytest.fixture(autouse=True)
+def _stub_gpu_catalog():
+    """Force the catalog fetch in _parse_gpu_spec to fall back to the hardcoded
+    constants so no live HTTP call leaks into these tests.
+    """
+    bench._canonical_gpu_names.cache_clear()
+    bench._catalog_vram_map.cache_clear()
+    with patch.object(bench, "_get_gpu_types", return_value=None):
+        yield
+    bench._canonical_gpu_names.cache_clear()
+    bench._catalog_vram_map.cache_clear()
+
+
 # ---------------------------------------------------------------------------
 # _benchmark_gpu — cleanup invariant
 # ---------------------------------------------------------------------------

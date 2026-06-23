@@ -7,6 +7,8 @@ jobs:
   build_and_publish_vastai:
     name: Publish vastai
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # publish_release.py creates/updates the GitHub Release
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -28,6 +30,15 @@ jobs:
         run: |
           poetry config pypi-token.pypi "$PYPI_API_TOKEN"
           poetry publish --build
+      # Installer side: hash the just-built dist/ wheel, render the manifest,
+      # and attach manifest.{json,env} + install.sh to the GitHub Release. The
+      # vast.ai redirects serve releases/latest/download/*, so this is the deploy.
+      - name: publish installer manifest + release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          python3 scripts/publish_release.py "$VERSION" --ci --yes --skip-verify
 
   build_and_publish_vastai_sdk:
     name: Publish vastai-sdk
@@ -58,3 +69,38 @@ jobs:
         run: |
           poetry config pypi-token.pypi "$PYPI_API_TOKEN_SDK"
           poetry publish --build
+
+  # Prove a fresh machine can install the release we just published — the whole
+  # promise of the installer. Pulls install.sh + manifest from the Release
+  # assets (vast.ai redirects aren't required), so it works during dark launch.
+  installer_smoke_test:
+    name: Installer smoke test (${{ matrix.os }})
+    needs: build_and_publish_vastai
+    # Non-blocking canary: PyPI + assets are already published by the time this
+    # runs, so a red/flaky smoke shouldn't mark the release failed. Drop once
+    # the installer is launched and we want it gating.
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]  # Darwin coverage against real published artifacts
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: install from the published Release and verify
+        env:
+          VASTAI_CLI_BASE_URL: https://github.com/vast-ai/vast-cli/releases/latest/download
+          VASTAI_NO_MODIFY_PATH: "1"
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Retry: PyPI + Release-asset propagation can lag a few seconds.
+          for attempt in 1 2 3 4 5; do
+            if curl -fsSL "$VASTAI_CLI_BASE_URL/install.sh" -o /tmp/install.sh \
+                && bash /tmp/install.sh; then
+              break
+            fi
+            [ "$attempt" = 5 ] && { echo "install failed after retries"; exit 1; }
+            echo "attempt $attempt failed (propagation?), retrying in 30s..."
+            sleep 30
+          done
+          "$HOME/.vastai/bin/vastai" --version
+          "$HOME/.vastai/bin/vastai" --version | grep -q "$VERSION"

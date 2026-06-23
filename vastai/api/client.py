@@ -9,6 +9,8 @@ import requests
 from urllib.parse import quote_plus
 from typing import Dict, Optional
 
+from vastai.utils import VERSION
+
 try:
     import curlify
 except ImportError:
@@ -42,13 +44,14 @@ class VastClient:
     """HTTP client for Vast.ai API requests."""
 
     def __init__(self, api_key=None, server_url=None, retry=3, explain=False, curl=False,
-                 timeout=_DEFAULT_TIMEOUT_SECONDS):
+                 timeout=_DEFAULT_TIMEOUT_SECONDS, client_type="sdk"):
         self.api_key = api_key
         self.server_url = server_url or server_url_default
         self.retry = retry
         self.explain = explain
         self.curl = curl
         self.timeout = timeout
+        self.user_agent = f"vastai-{client_type}/{VERSION}"
 
     def _build_url(self, subpath: str, query_args: Optional[Dict] = None) -> str:
         """Build full API URL from subpath and optional query args."""
@@ -79,7 +82,7 @@ class VastClient:
 
     def _build_headers(self) -> Dict:
         """Build request headers with auth."""
-        result = {}
+        result = {"User-Agent": self.user_agent}
         if self.api_key is not None:
             result["Authorization"] = "Bearer " + self.api_key
         return result

@@ -27,14 +27,32 @@ def _strip_strings(value):
 
 
 def show_instances(client: VastClient) -> list:
-    r = client.get("/instances", query_args={"owner": "me"})
-    r.raise_for_status()
-    rows = r.json()["instances"] or []
-    for i, row in enumerate(rows):
-        row = {k: _strip_strings(v) for k, v in row.items()}
-        row['duration'] = time.time() - row['start_date']
-        row['extra_env'] = {env_var[0]: env_var[1] for env_var in row['extra_env']}
-        rows[i] = row
+    """Return all of the user's instances as a flat list.
+
+    The legacy v0 ``/instances`` list endpoint is deprecated, so this pages
+    through the v1 ``/api/v1/instances/`` endpoint instead. ``select_cols`` is
+    omitted on purpose: the backend then returns full instance rows (the same
+    shape the v0 payload produced), so existing callers keep working. v1 caps
+    each page at 25 rows, so we follow ``next_token`` until it is exhausted.
+    """
+    rows = []
+    params = {
+        "select_filters": {},
+        "order_by": [{"col": "id", "dir": "asc"}],
+        "limit": 25,
+    }
+    while True:
+        data = show_instances_v1(client, params)
+        page = data.get("instances") or []
+        for row in page:
+            row = {k: _strip_strings(v) for k, v in row.items()}
+            row['duration'] = time.time() - row['start_date']
+            row['extra_env'] = {env_var[0]: env_var[1] for env_var in row['extra_env']}
+            rows.append(row)
+        next_token = data.get("next_token")
+        if not next_token:
+            break
+        params["after_token"] = next_token
     return rows
 
 

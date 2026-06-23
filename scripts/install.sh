@@ -1,0 +1,328 @@
+#!/usr/bin/env bash
+# Vast.ai CLI installer.
+#
+#   curl -fsSL https://vast.ai/install.sh | bash
+#
+# Installs a self-contained vastai CLI into ~/.vastai (no Python required on
+# the machine, no sudo, nothing outside ~/.vastai and ~/.local/bin is touched
+# except a PATH/completion block in your shell rc (enabled by default at a real
+# terminal; skip with --no-modify-path; never written non-interactively/CI).
+# Design: install-design.md in https://github.com/vast-ai/vast-cli
+#
+# Options (env vars, or flags after `bash -s --`):
+#   VASTAI_VERSION=1.2.3       install a specific version (default: latest)
+#   VASTAI_INSTALL_DIR=DIR     install root (default: ~/.vastai)
+#   VASTAI_CLI_BASE_URL=URL    manifest base (default: https://vast.ai/cli)
+#   VASTAI_NO_MODIFY_PATH=1    never edit shell rc files  (flag: --no-modify-path)
+#   VASTAI_PIP_SPEC=...        what to install instead of vastai==VERSION
+#                              (dev/CI only: e.g. a local wheel path)
+#   VASTAI_GLIBC_FLOOR=2.31    minimum glibc; below this, bail to pip
+#
+# Uninstall:  rm -rf ~/.vastai ~/.local/bin/vastai
+
+set -euo pipefail
+
+BASE_URL="${VASTAI_CLI_BASE_URL:-https://vast.ai/cli}"
+ROOT="${VASTAI_INSTALL_DIR:-$HOME/.vastai}"
+LOCAL_BIN="$HOME/.local/bin"
+NO_MODIFY_PATH="${VASTAI_NO_MODIFY_PATH:-}"
+WORKDIR=""
+RC_UPDATED=""
+
+say()  { printf 'vastai-install: %s\n' "$*"; }
+warn() { printf 'vastai-install: warning: %s\n' "$*" >&2; }
+die()  { printf 'vastai-install: error: %s\n' "$*" >&2; exit 1; }
+
+cleanup() { [ -n "$WORKDIR" ] && rm -rf "$WORKDIR"; }
+trap cleanup EXIT
+
+need_cmd() {
+    command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
+}
+
+# download URL DEST [progress] — non-empty progress shows a bar (TTY only).
+download() {
+    local url="$1" dest="$2" progress="${3:-}"
+    if command -v curl >/dev/null 2>&1; then
+        local vflags=(-fsS)
+        [ -n "$progress" ] && [ -t 2 ] && vflags=(-f --progress-bar)
+        case "$url" in
+            https://*) curl --proto '=https' --tlsv1.2 "${vflags[@]}" -L --retry 3 -o "$dest" "$url" ;;
+            *)         curl "${vflags[@]}" -L --retry 3 -o "$dest" "$url" ;;
+        esac
+    elif command -v wget >/dev/null 2>&1; then
+        local wflags=(-q)
+        [ -n "$progress" ] && [ -t 2 ] && wflags=(-q --show-progress)
+        wget "${wflags[@]}" -O "$dest" "$url"
+    else
+        die "need curl or wget to download files"
+    fi
+}
+
+# sha256_of FILE
+sha256_of() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" | awk '{print $1}'
+    else
+        die "need sha256sum or shasum to verify downloads"
+    fi
+}
+
+# verify_sha FILE EXPECTED LABEL
+verify_sha() {
+    local actual
+    actual="$(sha256_of "$1")"
+    [ "$actual" = "$2" ] || die "checksum mismatch for $3 (expected $2, got $actual) — aborting, nothing was installed"
+}
+
+# manifest_get KEY  (from $WORKDIR/manifest.env; empty if absent)
+manifest_get() {
+    sed -n "s/^$1=//p" "$WORKDIR/manifest.env" | head -n 1 | tr -d '\r'
+}
+
+# link_swap TARGET LINK — atomic-replace a symlink
+link_swap() {
+    local tmp
+    tmp="$(dirname "$2")/.$(basename "$2").tmp"
+    rm -f "$tmp"
+    ln -s "$1" "$tmp"
+    mv -f "$tmp" "$2"
+}
+
+# Minimum glibc for the managed runtime. Ubuntu 20.04 / Debian 11 (2.31) work;
+# older (18.04 = 2.27, CentOS 7 = 2.17) lack wheels for some deps under the
+# pinned CPython, so those users are sent to pip rather than failing mid-build.
+GLIBC_FLOOR="${VASTAI_GLIBC_FLOOR:-2.31}"
+
+# is_musl — true on a musl libc system. Checks the ld-musl loader directly:
+# musl's `ldd` exits non-zero on `--version`, so `set -o pipefail` would discard
+# a successful grep (the loader check has no such hazard; ldd is a guarded fallback).
+is_musl() {
+    local f
+    for f in /lib/ld-musl-*; do [ -e "$f" ] && return 0; done
+    { ldd --version 2>&1 || true; } | grep -qi musl
+}
+
+# require_min_glibc — on glibc Linux, abort cleanly (point at pip) below the floor.
+require_min_glibc() {
+    local v smallest
+    # Guard each probe with `|| true`: a missing getconf or a no-match grep must
+    # leave $v empty (→ undetectable, don't block), never trip `set -e`/pipefail.
+    v="$({ getconf GNU_LIBC_VERSION 2>/dev/null || true; } | awk '{print $NF}')"
+    [ -n "$v" ] || v="$({ ldd --version 2>/dev/null || true; } | head -1 | grep -oE '[0-9]+\.[0-9]+' | tail -1 || true)"
+    [ -n "$v" ] || return 0  # undetectable — don't block
+    smallest="$(printf '%s\n%s\n' "$GLIBC_FLOOR" "$v" | sort -V | head -1)"
+    if [ "$smallest" = "$v" ] && [ "$v" != "$GLIBC_FLOOR" ]; then
+        die "glibc $v is older than the required $GLIBC_FLOOR (Ubuntu 20.04+/Debian 11+) — install with pip instead: pip install vastai"
+    fi
+}
+
+detect_platform() {
+    local os arch libc=""
+    os="$(uname -s)"
+    arch="$(uname -m)"
+    case "$os" in
+        Linux)  os="LINUX" ;;
+        Darwin) os="DARWIN" ;;
+        *) die "unsupported OS: $os — install with pip instead: pip install vastai" ;;
+    esac
+    case "$arch" in
+        x86_64|amd64)  arch="X86_64" ;;
+        aarch64|arm64) [ "$os" = "DARWIN" ] && arch="ARM64" || arch="AARCH64" ;;
+        *) die "unsupported architecture: $arch — install with pip instead: pip install vastai" ;;
+    esac
+    if [ "$os" = "LINUX" ]; then
+        if is_musl; then
+            libc="_MUSL"
+        else
+            require_min_glibc
+        fi
+    fi
+    PLATFORM_KEY="${os}_${arch}${libc}"
+}
+
+# is_interactive — is there a real terminal? (/dev/tty may exist yet be unopenable)
+is_interactive() { ( : < /dev/tty > /dev/tty; ) 2>/dev/null; }
+
+rc_file_for_shell() {
+    case "$(basename "${SHELL:-}")" in
+        zsh)  printf '%s\n' "$HOME/.zshrc" ;;
+        bash) printf '%s\n' "$HOME/.bashrc" ;;
+        *)    printf '%s\n' "" ;;
+    esac
+}
+
+install_uv() {
+    local url sha tarball
+    url="$(manifest_get "UV_URL_$PLATFORM_KEY")"
+    sha="$(manifest_get "UV_SHA256_$PLATFORM_KEY")"
+    if [ -z "$url" ] || [ -z "$sha" ]; then
+        die "no build available for your platform ($PLATFORM_KEY) — install with pip instead: pip install vastai"
+    fi
+
+    say "Downloading runtime bootstrap..."
+    tarball="$WORKDIR/uv.tar.gz"
+    download "$url" "$tarball" progress
+    verify_sha "$tarball" "$sha" "uv"
+
+    mkdir -p "$WORKDIR/uv-extract"
+    tar -xzf "$tarball" -C "$WORKDIR/uv-extract"
+    local uv_bin
+    uv_bin="$(find "$WORKDIR/uv-extract" -type f -name uv | head -n 1)"
+    [ -n "$uv_bin" ] || die "uv binary not found in downloaded archive"
+    chmod +x "$uv_bin"
+    # Nothing lands in $ROOT until the download has been verified.
+    mkdir -p "$ROOT/bin"
+    mv -f "$uv_bin" "$ROOT/bin/uv"
+}
+
+install_version() {
+    local version="$1" python_pin="$2" envdir="$ROOT/env" newdir="$ROOT/.env.new"
+
+    say "Installing vastai $version (Python $python_pin, isolated in $ROOT)..."
+    rm -rf "$newdir"
+    export UV_PYTHON_INSTALL_DIR="$ROOT/python"
+    export UV_PYTHON_PREFERENCE="only-managed"
+    # Show uv's progress at a TTY, quiet in CI. --relocatable: no hardcoded
+    # build path in shebangs (env/ is renamed into place).
+    local quiet=(--quiet)
+    [ -t 2 ] && quiet=()
+    if ! "$ROOT/bin/uv" venv "$newdir" --python "$python_pin" --relocatable "${quiet[@]}"; then
+        rm -rf "$newdir"
+        die "could not set up the Python $python_pin runtime"
+    fi
+    # pip install stays quiet always — the per-package "+ pkg==ver" list is noise.
+    local spec="${VASTAI_PIP_SPEC:-vastai==$version}"
+    if ! "$ROOT/bin/uv" pip install --python "$newdir/bin/python" --quiet "$spec"; then
+        rm -rf "$newdir"
+        die "could not install $spec (is the version correct?)"
+    fi
+    "$newdir/bin/vastai" --version >/dev/null \
+        || { rm -rf "$newdir"; die "installed CLI failed its smoke test"; }
+
+    # Swap built env in via renames; an interrupted build can't break the live env.
+    rm -rf "$ROOT/.env.old"
+    [ -d "$envdir" ] && mv "$envdir" "$ROOT/.env.old"
+    mv "$newdir" "$envdir"
+    rm -rf "$ROOT/.env.old"
+
+    # Fixed-target symlinks (env/ path is constant); never retargeted on update.
+    local name
+    for name in vastai serve-vast-deployment register-python-argcomplete; do
+        [ -e "$envdir/bin/$name" ] && link_swap "../env/bin/$name" "$ROOT/bin/$name"
+    done
+}
+
+# generate_completions — precompute static completion scripts in $ROOT/share so
+# the rc just sources a file (no register-python-argcomplete spawn per shell).
+generate_completions() {
+    local rpa="$ROOT/bin/register-python-argcomplete" sh out
+    [ -x "$rpa" ] || return 0
+    mkdir -p "$ROOT/share"
+    for sh in bash zsh; do
+        out="$ROOT/share/vastai-completion.$sh"
+        if "$rpa" -s "$sh" vastai >"$out.tmp" 2>/dev/null && [ -s "$out.tmp" ]; then
+            mv -f "$out.tmp" "$out"
+        else
+            rm -f "$out.tmp"
+        fi
+    done
+}
+
+setup_path() {
+    mkdir -p "$LOCAL_BIN"
+    link_swap "$ROOT/bin/vastai" "$LOCAL_BIN/vastai"
+
+    case ":$PATH:" in
+        *":$LOCAL_BIN:"*) PATH_OK=1 ;;
+        *) PATH_OK="" ;;
+    esac
+
+    # rc block: completion always (sources the static script); PATH export only
+    # if $LOCAL_BIN isn't already on PATH — so we never skip completion on PATH_OK.
+    local rc_file shell_name marker completion comp_file path_line block
+    rc_file="$(rc_file_for_shell)"
+    shell_name="$(basename "${SHELL:-}")"
+    marker="# >>> vastai installer >>>"
+    comp_file="$ROOT/share/vastai-completion.$shell_name"
+    completion="[ -f \"$comp_file\" ] && source \"$comp_file\"  # vastai tab completion"
+    if [ -n "$PATH_OK" ]; then
+        path_line=""
+    else
+        path_line="export PATH=\"\$HOME/.local/bin:\$PATH\"
+"
+    fi
+    block="$marker
+${path_line}${completion}
+# <<< vastai installer <<<"
+
+    if [ -n "$rc_file" ] && [ -f "$rc_file" ] && grep -qF "$marker" "$rc_file"; then
+        return 0  # already configured; takes effect in new shells
+    fi
+
+    # Default-on, no prompt — but never edit rc under --no-modify-path or
+    # without a TTY (CI/pipes); there we just print the block.
+    if [ -z "$NO_MODIFY_PATH" ] && [ -n "$rc_file" ] && is_interactive; then
+        printf '\n%s\n' "$block" >> "$rc_file"
+        RC_UPDATED=1
+    else
+        say "To finish setup, add this to your shell rc file:"
+        printf '\n%s\n\n' "$block"
+    fi
+}
+
+check_pip_coexistence() {
+    local existing
+    existing="$(command -v vastai 2>/dev/null || true)"
+    case "$existing" in
+        ""|"$LOCAL_BIN/vastai"|"$ROOT/bin/vastai") return 0 ;;
+    esac
+    warn "another vastai is on your PATH at $existing (likely a pip install)."
+    warn "whichever comes first in PATH wins; remove the old one with: pip uninstall vastai"
+}
+
+main() {
+    for arg in "$@"; do
+        case "$arg" in
+            --no-modify-path) NO_MODIFY_PATH=1 ;;
+            --version) die "pass a version with VASTAI_VERSION=x.y.z instead" ;;
+            *) die "unknown option: $arg" ;;
+        esac
+    done
+
+    need_cmd uname
+    need_cmd tar
+    need_cmd mktemp
+    detect_platform
+    WORKDIR="$(mktemp -d)"
+
+    download "$BASE_URL/manifest.env" "$WORKDIR/manifest.env" \
+        || die "could not fetch release manifest from $BASE_URL/manifest.env"
+    local schema latest python_pin version
+    schema="$(manifest_get SCHEMA)"
+    [ "$schema" = "1" ] || die "manifest schema '$schema' not understood by this installer; get the latest from https://vast.ai/install.sh"
+    latest="$(manifest_get LATEST)"
+    python_pin="$(manifest_get PYTHON)"
+    if [ -z "$latest" ] || [ -z "$python_pin" ]; then
+        die "malformed release manifest"
+    fi
+    version="${VASTAI_VERSION:-$latest}"
+
+    install_uv
+    install_version "$version" "$python_pin"
+    generate_completions
+    setup_path
+    check_pip_coexistence
+
+    say ""
+    say "vastai $version installed to $ROOT"
+    say "  Get started:  vastai set api-key YOUR_API_KEY   (https://cloud.vast.ai/manage-keys/)"
+    say "  Update later: vastai update"
+    if [ -n "$RC_UPDATED" ]; then
+        say "  Tab completion: start a new shell, then type 'vastai <TAB>'"
+    fi
+}
+
+main "$@"

@@ -70,37 +70,23 @@ jobs:
           poetry config pypi-token.pypi "$PYPI_API_TOKEN_SDK"
           poetry publish --build
 
-  # Prove a fresh machine can install the release we just published — the whole
-  # promise of the installer. Pulls install.sh + manifest from the Release
-  # assets (vast.ai redirects aren't required), so it works during dark launch.
-  installer_smoke_test:
-    name: Installer smoke test (${{ matrix.os }})
+  # Confirm the just-attached Release assets are fetchable, parse, and match the
+  # tag. Install coverage lives in the PR-time installer-ci OS matrix.
+  verify_release_assets:
+    name: Verify release assets
     needs: build_and_publish_vastai
-    # Non-blocking canary: PyPI + assets are already published by the time this
-    # runs, so a red/flaky smoke shouldn't mark the release failed. Drop once
-    # the installer is launched and we want it gating.
-    continue-on-error: true
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]  # Darwin coverage against real published artifacts
-    runs-on: ${{ matrix.os }}
+    continue-on-error: true  # non-blocking canary until proven
+    runs-on: ubuntu-latest
     steps:
-      - name: install from the published Release and verify
+      - name: release assets attached, parse, and match this version
         env:
-          VASTAI_CLI_BASE_URL: https://github.com/vast-ai/vast-cli/releases/latest/download
-          VASTAI_NO_MODIFY_PATH: "1"
+          BASE: https://github.com/vast-ai/vast-cli/releases/latest/download
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          # Retry: PyPI + Release-asset propagation can lag a few seconds.
-          for attempt in 1 2 3 4 5; do
-            if curl -fsSL "$VASTAI_CLI_BASE_URL/install.sh" -o /tmp/install.sh \
-                && bash /tmp/install.sh; then
-              break
-            fi
-            [ "$attempt" = 5 ] && { echo "install failed after retries"; exit 1; }
-            echo "attempt $attempt failed (propagation?), retrying in 30s..."
-            sleep 30
-          done
-          "$HOME/.vastai/bin/vastai" --version
-          "$HOME/.vastai/bin/vastai" --version | grep -q "$VERSION"
+          curl -fsSL --retry 3 "$BASE/install.sh"    -o /tmp/install.sh
+          curl -fsSL --retry 3 "$BASE/manifest.env"  -o /tmp/manifest.env
+          curl -fsSL --retry 3 "$BASE/manifest.json" -o /tmp/manifest.json
+          grep -q 'Vast.ai CLI installer' /tmp/install.sh
+          grep -qx "LATEST=$VERSION" /tmp/manifest.env
+          python3 -c "import json; d=json.load(open('/tmp/manifest.json')); assert d['latest']=='$VERSION', d['latest']"
+          echo "release assets for $VERSION are attached, parse, and match"

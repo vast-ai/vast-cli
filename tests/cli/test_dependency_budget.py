@@ -6,15 +6,27 @@ transitive deps (numpy, tokenizers, hf-xet, ...) into every install. This test
 fails the instant any of that re-enters `poetry.lock` — the full *transitive*
 closure, since that's where the weight hides.
 
-This is the cheap, deterministic, platform-agnostic guard (Layer 1). The
-installed-size ratchet in installer-ci.yml (Layer 2) is the complementary
-backstop for an existing dep ballooning without a new name appearing.
+Lives under tests/cli/ so the `pytest cli api sdk` invocation in
+vast-sdk-testing.yml actually collects it. This is the cheap, deterministic,
+platform-agnostic guard (Layer 1); the installed-size ratchet in
+installer-ci.yml (Layer 2) is the complementary backstop for an existing dep
+ballooning without a new package name appearing.
 """
 
 import pathlib
 import tomllib
 
-LOCK = pathlib.Path(__file__).resolve().parent.parent / "poetry.lock"
+
+def _find_lock() -> pathlib.Path:
+    """Walk up from this file to the repo's poetry.lock (robust to test location)."""
+    for parent in pathlib.Path(__file__).resolve().parents:
+        candidate = parent / "poetry.lock"
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError("poetry.lock not found in any parent directory")
+
+
+LOCK = _find_lock()
 
 # Packages that must never appear in the CLI's resolved dependency closure.
 # Add here (with intent) if one ever becomes genuinely required.
@@ -35,7 +47,7 @@ FORBIDDEN = {
 
 
 def _closure_names():
-    data = tomllib.loads(LOCK.read_text())
+    data = tomllib.loads(LOCK.read_text(encoding="utf-8"))
     return {pkg["name"].lower() for pkg in data["package"]}
 
 

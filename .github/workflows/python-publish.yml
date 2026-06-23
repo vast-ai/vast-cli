@@ -70,19 +70,12 @@ jobs:
           poetry config pypi-token.pypi "$PYPI_API_TOKEN_SDK"
           poetry publish --build
 
-  # Verify the deploy landed. publish_release.py attaches install.sh +
-  # manifest.{json,env} to the Release — and once the vast.ai redirects are live,
-  # that attach IS the deploy. The PR-time installer-ci OS matrix already proves
-  # install.sh + the wheel install on a clean machine across platforms, so this
-  # no longer re-installs (which only re-tested that, while racing PyPI
-  # propagation). It just confirms the just-attached assets are fetchable, parse,
-  # and point at this version — deterministic plain GETs, no PyPI resolve, no wait.
+  # Confirm the just-attached Release assets are fetchable, parse, and match the
+  # tag. Install coverage lives in the PR-time installer-ci OS matrix.
   verify_release_assets:
     name: Verify release assets
     needs: build_and_publish_vastai
-    # Non-blocking canary until proven; drop this once the installer is launched
-    # and we want a bad deploy to gate.
-    continue-on-error: true
+    continue-on-error: true  # non-blocking canary until proven
     runs-on: ubuntu-latest
     steps:
       - name: release assets attached, parse, and match this version

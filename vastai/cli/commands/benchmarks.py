@@ -272,19 +272,15 @@ def _pick_num_gpus(gpu_name, extra_filters):
     return _get_gpu_chunk_size(raw_min)
 
 
-# ------------------------------------------------------------------------------------
-# cached-benchmark pre-flight
-# every run reports its measured perf to the benchmarks table (autoscaler PUT
-# /benchmarks, type="perf"), so the table doubles as a cross-user cache: specs
-# benchmarked recently can be served from it instead of rented again
-# ------------------------------------------------------------------------------------
+# Cache pre-flight: runs report measured perf to the benchmarks table, so a
+# recent matching row lets us serve this spec instead of renting it again.
 
 _DEFAULT_CACHE_MAX_AGE_DAYS = 30
 
 
 def _lookup_cached_benchmark(vast, *, gpu_name, num_gpus, template_hash,
                              template_id, max_age_days):
-    """Median of recent reported benchmarks for this exact spec, or None.
+    """Recent reported benchmarks for this exact spec (median + spread), or None.
 
     Template is matched client-side: rows carry template_hash or template_id
     depending on how the benchmarked workergroup was created.
@@ -307,24 +303,15 @@ def _lookup_cached_benchmark(vast, *, gpu_name, num_gpus, template_hash,
     ]
     if not matched:
         return None
+    values = [r["value"] for r in matched]
     newest = max((r.get("last_update") or 0) for r in matched)
     return {
-        "median": statistics.median(r["value"] for r in matched),
+        "median": statistics.median(values),
+        "low": min(values),
+        "high": max(values),
         "n": len(matched),
         "age_days": max(0.0, (time.time() - newest) / 86400),
     }
-
-
-def _current_median_dph(vast, *, gpu_name, num_gpus, extra_filters):
-    """Median $/hr of the offers a run would rent from today. Cached rows
-    carry no price of their own; perf/$ should reflect renting now."""
-    query = dict(extra_filters or {})
-    query["gpu_name"] = {"eq": gpu_name}
-    query["num_gpus"] = {"eq": num_gpus}
-    offers = vast.search_offers(query=query, limit=100)
-    prices = [o.get("dph_total") for o in (offers or []) if isinstance(o, dict)]
-    prices = [p for p in prices if isinstance(p, (int, float)) and p > 0]
-    return statistics.median(prices) if prices else None
 
 
 def _update_worker_states(worker_states, current_workers, gpu_name):
@@ -620,10 +607,8 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
              help="GPUs per instance for tokens without an Nx prefix (default 1); overridden by inline Nx in --gpus"),
     argument("--timeout", type=int, default=_DEFAULT_BENCHMARK_TIMEOUT,
              help=f"max seconds to wait for a benchmark before giving up (default {_DEFAULT_BENCHMARK_TIMEOUT})"),
-    argument("--fresh", action="store_true",
-             help="re-measure even when cached benchmark results exist"),
-    argument("--max_age", type=float, default=_DEFAULT_CACHE_MAX_AGE_DAYS,
-             help=f"reuse cached benchmark results up to this many days old (default {_DEFAULT_CACHE_MAX_AGE_DAYS}); ignored with --fresh"),
+    argument("--no-cache", dest="no_cache", action="store_true",
+             help="re-measure instead of reusing recent cached benchmark results"),
     argument("-y", "--yes", action="store_true",
              help="Skip confirmation prompt"),
     argument("--auto_instance", type=str, default=None, help=argparse.SUPPRESS),
@@ -634,10 +619,9 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
         Rents one instance per GPU in parallel, measures perf, tears down.
         Each rental runs for up to --timeout seconds and costs real money.
 
-        Specs already benchmarked within the last --max_age days (same
-        template, GPU, and count, by any user) are served from the benchmarks
-        table instead of rented; their $/hr is the current market median.
-        Pass --fresh to re-measure.
+        Specs benchmarked recently (same template, GPU, and count, by any
+        user) are served from the benchmarks table as an estimated perf
+        instead of being rented again. Pass --no-cache to re-measure.
 
         Examples:
             # auto-sweep the default GPUs against TGI
@@ -656,7 +640,7 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
             vastai run benchmarks --template_hash 393fa8572e6c73c927c8275fe4dffd53 --timeout 1800 -y
 
             # ignore cached results and re-measure everything
-            vastai run benchmarks --template_hash 79ebdd2ebfb9d42cedf7a221c42d37a5 --fresh
+            vastai run benchmarks --template_hash 79ebdd2ebfb9d42cedf7a221c42d37a5 --no-cache
 
             # raw JSON output for piping into another tool
             vastai run benchmarks --template_hash 40ef49becc953aa910ee05bd4653b9b3 --raw
@@ -720,30 +704,36 @@ def run__benchmarks(args):
         deduped.append((g, n))
     gpu_specs = deduped
 
-    # Pre-flight: serve specs from cached benchmark results unless --fresh,
+    # Pre-flight: serve specs from cached benchmark results unless --no-cache,
     # then skip specs that have 0 matching offers before prompting,
     # so the user sees skip reasons before approving the rentals.
     compatible_specs = []
     skipped_results = []
     cached_results = []
     for g, n in gpu_specs:
-        if not args.fresh:
+        if not args.no_cache:
             hit = _lookup_cached_benchmark(
                 vast, gpu_name=g, num_gpus=n,
                 template_hash=template.get("hash_id"),
                 template_id=template.get("id"),
-                max_age_days=args.max_age,
+                max_age_days=_DEFAULT_CACHE_MAX_AGE_DAYS,
             )
             if hit:
-                dph = _current_median_dph(vast, gpu_name=g, num_gpus=n,
-                                          extra_filters=extra_filters)
+                # Perf only: a cached row's $/hr would come from a different machine than the one benchmarked.
+                rentable = _has_matching_offer(
+                    vast, gpu_name=g, num_gpus=n, extra_filters=extra_filters)
                 age = (f"{hit['age_days']:.0f}d" if hit["age_days"] >= 1
                        else "<1d")
-                console.print(
-                    f"[green][{n}x {g}] cached:[/green] median perf "
-                    f"{hit['median']:.1f} (n={hit['n']}, newest {age} ago); "
-                    f"pass --fresh to re-measure", highlight=False)
-                cached_results.append((g, n, "cached", hit["median"], None, dph))
+                note = None if rentable else "no offers available to rent right now"
+                msg = (f"[green][{n}x {g}] cached:[/green] median perf "
+                       f"{hit['median']:.1f} "
+                       f"(n={hit['n']}, range {hit['low']:.1f}-{hit['high']:.1f}, "
+                       f"newest {age} ago)")
+                if note:
+                    msg += f"; [yellow]{note}[/yellow]"
+                console.print(msg + "; pass --no-cache to re-measure",
+                              highlight=False)
+                cached_results.append((g, n, "cached", hit["median"], note, None))
                 continue
         if not _has_matching_offer(
             vast, gpu_name=g, num_gpus=n,

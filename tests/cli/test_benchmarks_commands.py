@@ -219,15 +219,10 @@ _FAKE_TEMPLATE = {"id": 99999, "hash_id": "x", "extra_filters": "{}"}
 
 def _run_cli(parse_argv, argv, *, create_resp=None, workers_seq=None,
              rental_dph=None, template=None, preflight_offers=1,
-             create_workergroup_raises=None, benchmark_rows=None,
-             offer_dphs=None):
+             create_workergroup_raises=None, benchmark_rows=None):
     """Parse argv and invoke the command with a mocked VastAI."""
     template = template if template is not None else _FAKE_TEMPLATE
-    if offer_dphs is not None:
-        fake_offer_list = [{"id": i, "dph_total": d}
-                           for i, d in enumerate(offer_dphs)]
-    else:
-        fake_offer_list = [{"id": i} for i in range(preflight_offers)]
+    fake_offer_list = [{"id": i} for i in range(preflight_offers)]
     instance_resp = {"dph_total": rental_dph} if rental_dph is not None else {}
 
     vast = MagicMock()
@@ -365,23 +360,38 @@ class TestBenchmarkCache:
         vast.create_endpoint.assert_not_called()
         vast.create_workergroup.assert_not_called()
 
-    def test_cached_price_is_current_market_median(self, parse_argv):
+    def test_cached_rows_have_no_price(self, parse_argv):
+        # Cached rows report perf only; $/hr would come from a different
+        # machine than the one benchmarked, so it is omitted.
         rows, _ = _run_cli(
             parse_argv,
             ["run", "benchmarks", "--template_id", "99999",
              "--gpus", "RTX_3060", "-y", "--raw"],
             benchmark_rows=[_bench_row(20.0)],
-            offer_dphs=[0.2, 0.6, 0.4],
         )
-        assert rows[0]["rental_dph"] == 0.4
-        assert rows[0]["perf_per_dollar"] == 50.0
+        assert rows[0]["rental_dph"] is None
+        assert rows[0]["perf_per_dollar"] is None
 
-    def test_fresh_bypasses_cache(self, parse_argv):
+    def test_cached_unrentable_is_flagged(self, parse_argv, capsys):
+        rows, vast = _run_cli(
+            parse_argv,
+            ["run", "benchmarks", "--template_id", "99999",
+             "--gpus", "RTX_3060", "-y", "--raw"],
+            benchmark_rows=[_bench_row(10.0)],
+            preflight_offers=0,
+        )
+        assert rows[0]["status"] == "cached"
+        assert rows[0]["measured_perf"] == 10.0
+        vast.create_endpoint.assert_not_called()
+        err = " ".join(capsys.readouterr().err.split())  # rich may wrap lines
+        assert "no offers available to rent" in err.lower()
+
+    def test_no_cache_bypasses_cache(self, parse_argv):
         rows, vast = _run_cli(
             parse_argv,
             ["run", "benchmarks", "--template_id", "99999",
              "--gpus", "RTX_3060", "--timeout", "60", "-y", "--raw",
-             "--fresh"],
+             "--no-cache"],
             benchmark_rows=[_bench_row(10.0)],
             workers_seq=[[{"id": 1, "measured_perf": 5.0, "status": "idle"}]],
             rental_dph=0.5,
@@ -417,10 +427,11 @@ class TestBenchmarkCache:
 
     def test_cache_query_shape(self, parse_argv):
         import time
+        from vastai.cli.commands.benchmarks import _DEFAULT_CACHE_MAX_AGE_DAYS
         _, vast = _run_cli(
             parse_argv,
             ["run", "benchmarks", "--template_id", "99999",
-             "--gpus", "RTX_3060", "--max_age", "7", "-y", "--raw"],
+             "--gpus", "RTX_3060", "-y", "--raw"],
             benchmark_rows=[_bench_row(20.0)],
         )
         query = vast.search_benchmarks.call_args.kwargs["query"]
@@ -428,5 +439,6 @@ class TestBenchmarkCache:
         assert query["gpu_name"] == {"eq": "RTX 3060"}
         assert query["num_gpus"] == {"eq": 1}
         cutoff = query["last_update"]["gte"]
-        assert abs((time.time() - cutoff) - 7 * 86400) < 60
+        assert abs((time.time() - cutoff)
+                   - _DEFAULT_CACHE_MAX_AGE_DAYS * 86400) < 60
 

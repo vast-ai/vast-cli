@@ -251,7 +251,7 @@ def logs(client: VastClient, instance_id: int, tail=None, filter=None, daemon_lo
 
 
 def update_instance(client: VastClient, id: int, template_id=None, template_hash_id=None,
-                    image=None, args=None, env=None, onstart=None) -> dict:
+                    image=None, args=None, env=None, onstart=None, disk=None) -> dict:
     json_blob = {"id": id}
     if template_id is not None:
         json_blob["template_id"] = template_id
@@ -265,6 +265,8 @@ def update_instance(client: VastClient, id: int, template_id=None, template_hash
         json_blob["env"] = env
     if onstart is not None:
         json_blob["onstart"] = onstart
+    if disk is not None:
+        json_blob["disk"] = disk
     r = client.put(f"/instances/update_template/{id}/", json_data=json_blob)
     r.raise_for_status()
     return r.json()

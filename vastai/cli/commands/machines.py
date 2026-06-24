@@ -878,6 +878,8 @@ def self_test__machine(args):
             for line in format_bundle_summary(bundle):
                 print(line)
         print(f"Test failed: {result['reason']}")
+        if bundle and bundle.get("path"):
+            print(f"Support bundle: {bundle.get('path')}")
         sys.exit(1)
 
     def set_runtime_failure(diagnostic, fallback_reason=None):
@@ -1798,4 +1800,6 @@ def self_test__machine(args):
                 for line in format_bundle_summary(bundle):
                     print(line)
             print(f"Test failed: {result['reason']}")
+            if bundle and bundle.get("path"):
+                print(f"Support bundle: {bundle.get('path')}")
             sys.exit(1)

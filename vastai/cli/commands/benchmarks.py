@@ -11,6 +11,7 @@ import math
 import random
 import re
 import signal
+import statistics
 import sys
 import threading
 import time
@@ -310,6 +311,48 @@ def _pick_num_gpus(gpu_name, extra_filters):
     return _get_gpu_chunk_size(raw_min)
 
 
+# Cache pre-flight: runs report measured perf to the benchmarks table, so a
+# recent matching row lets us serve this spec instead of renting it again.
+
+_DEFAULT_CACHE_MAX_AGE_DAYS = 30
+
+
+def _lookup_cached_benchmark(vast, *, gpu_name, num_gpus, template_hash,
+                             template_id, max_age_days):
+    """Recent reported benchmarks for this exact spec (median + spread), or None.
+
+    Template is matched client-side: rows carry template_hash or template_id
+    depending on how the benchmarked workergroup was created.
+    """
+    query = {
+        "type": {"eq": "perf"},
+        "gpu_name": {"eq": gpu_name},
+        "num_gpus": {"eq": num_gpus},
+        "last_update": {"gte": time.time() - max_age_days * 86400},
+    }
+    rows = vast.search_benchmarks(query=query)
+    if not isinstance(rows, list):
+        return None
+    matched = [
+        r for r in rows
+        if isinstance(r, dict)
+        and ((template_hash and r.get("template_hash") == template_hash)
+             or (template_id and r.get("template_id") == template_id))
+        and isinstance(r.get("value"), (int, float)) and r["value"] > 0
+    ]
+    if not matched:
+        return None
+    values = [r["value"] for r in matched]
+    newest = max((r.get("last_update") or 0) for r in matched)
+    return {
+        "median": statistics.median(values),
+        "low": min(values),
+        "high": max(values),
+        "n": len(matched),
+        "age_days": max(0.0, (time.time() - newest) / 86400),
+    }
+
+
 def _update_worker_states(worker_states, current_workers, gpu_name):
     """Update worker_states with current poll, and print only on worker
     rotation (the live rich table already shows current status / elapsed).
@@ -367,7 +410,7 @@ def _update_row(class_states, row_id, **fields):
     new_status = fields.get("status")
     now_ts = time.monotonic()
     if new_status and new_status != cur.get("status"):
-        if "run_started" not in cur and new_status != "queued":
+        if "run_started" not in cur and new_status not in ("queued", "cached"):
             cur["run_started"] = now_ts
         if new_status in _TERMINAL_STATUSES:
             cur["run_ended"] = now_ts
@@ -603,6 +646,8 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
              help="GPUs per instance for tokens without an Nx prefix (default 1); overridden by inline Nx in --gpus"),
     argument("--timeout", type=int, default=_DEFAULT_BENCHMARK_TIMEOUT,
              help=f"max seconds to wait for a benchmark before giving up (default {_DEFAULT_BENCHMARK_TIMEOUT})"),
+    argument("--no-cache", dest="no_cache", action="store_true",
+             help="re-measure instead of reusing recent cached benchmark results"),
     argument("-y", "--yes", action="store_true",
              help="Skip confirmation prompt"),
     argument("--auto_instance", type=str, default=None, help=argparse.SUPPRESS),
@@ -612,6 +657,10 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
     epilog=deindent("""
         Rents one instance per GPU in parallel, measures perf, tears down.
         Each rental runs for up to --timeout seconds and costs real money.
+
+        Specs benchmarked recently (same template, GPU, and count, by any
+        user) are served from the benchmarks table as an estimated perf
+        instead of being rented again. Pass --no-cache to re-measure.
 
         Examples:
             # auto-sweep the default GPUs against TGI
@@ -628,6 +677,9 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
 
             # shorter timeout (30 min), skipping the cost prompt
             vastai run benchmarks --template_hash 393fa8572e6c73c927c8275fe4dffd53 --timeout 1800 -y
+
+            # ignore cached results and re-measure everything
+            vastai run benchmarks --template_hash 79ebdd2ebfb9d42cedf7a221c42d37a5 --no-cache
 
             # raw JSON output for piping into another tool
             vastai run benchmarks --template_hash 40ef49becc953aa910ee05bd4653b9b3 --raw
@@ -691,11 +743,37 @@ def run__benchmarks(args):
         deduped.append((g, n))
     gpu_specs = deduped
 
-    # Pre-flight: skip GPU specs that have 0 matching offers before prompting,
+    # Pre-flight: serve specs from cached benchmark results unless --no-cache,
+    # then skip specs that have 0 matching offers before prompting,
     # so the user sees skip reasons before approving the rentals.
     compatible_specs = []
     skipped_results = []
+    cached_results = []
     for g, n in gpu_specs:
+        if not args.no_cache:
+            hit = _lookup_cached_benchmark(
+                vast, gpu_name=g, num_gpus=n,
+                template_hash=template.get("hash_id"),
+                template_id=template.get("id"),
+                max_age_days=_DEFAULT_CACHE_MAX_AGE_DAYS,
+            )
+            if hit:
+                # Perf only: a cached row's $/hr would come from a different machine than the one benchmarked.
+                rentable = _has_matching_offer(
+                    vast, gpu_name=g, num_gpus=n, extra_filters=extra_filters)
+                age = (f"{hit['age_days']:.0f}d" if hit["age_days"] >= 1
+                       else "<1d")
+                note = None if rentable else "no offers available to rent right now"
+                msg = (f"[green][{n}x {g}] cached:[/green] median perf "
+                       f"{hit['median']:.1f} "
+                       f"(n={hit['n']}, range {hit['low']:.1f}-{hit['high']:.1f}, "
+                       f"newest {age} ago)")
+                if note:
+                    msg += f"; [yellow]{note}[/yellow]"
+                console.print(msg + "; pass --no-cache to re-measure",
+                              highlight=False)
+                cached_results.append((g, n, "cached", hit["median"], note, None))
+                continue
         if not _has_matching_offer(
             vast, gpu_name=g, num_gpus=n,
             extra_filters=extra_filters,
@@ -710,13 +788,27 @@ def run__benchmarks(args):
         else:
             compatible_specs.append((g, n))
 
+    # Live-table state. Pre-populate every GPU so the table is complete.
+    class_states = {}
+    for g, n in compatible_specs:
+        _update_row(class_states, f"{n}x {g}", status="queued")
+    for sr in skipped_results:
+        _update_row(class_states, f"{sr[1]}x {sr[0]}", status="skipped")
+    for cr in cached_results:
+        _update_row(class_states, f"{cr[1]}x {cr[0]}", status="cached",
+                    perf=cr[3], dph=cr[5])
+
     timeout_minutes = args.timeout / 60.0
     n = len(compatible_specs)
     if n == 0:
-        console.print(
-            "\nNo compatible GPUs to benchmark for this template.",
-            style="bold red")
-        return _print_results(args, skipped_results)
+        if cached_results:
+            console.print()
+            console.print(_render_table(class_states))
+        else:
+            console.print(
+                "\nNo compatible GPUs to benchmark for this template.",
+                style="bold red")
+        return _print_results(args, skipped_results + cached_results)
 
     spec_strs = [f"{cnt}x {gpu}" for gpu, cnt in compatible_specs]
     spec_summary = ", ".join(spec_strs)
@@ -765,13 +857,6 @@ def run__benchmarks(args):
                 except (ValueError, OSError):
                     pass
     atexit.register(_cleanup)
-
-    # Live-table state. Pre-populate every GPU so the table is complete.
-    class_states = {}
-    for g, n in compatible_specs:
-        _update_row(class_states, f"{n}x {g}", status="queued")
-    for sr in skipped_results:
-        _update_row(class_states, f"{sr[1]}x {sr[0]}", status="skipped")
 
     def _run_one_gpu(g, n):
         try:
@@ -842,7 +927,7 @@ def run__benchmarks(args):
         executor.shutdown(wait=True)
         _cleanup()
 
-    results = skipped_results + run_results
+    results = skipped_results + cached_results + run_results
     return _print_results(args, results)
 
 
@@ -864,4 +949,6 @@ def _print_results(args, results):
         return rows
 
     n_ok = sum(1 for r in rows if r["status"] == "ok")
-    print(f"\nBenchmark complete: {n_ok}/{len(rows)} GPUs measured.")
+    n_cached = sum(1 for r in rows if r["status"] == "cached")
+    line = f"\nBenchmark complete: {n_ok + n_cached}/{len(rows)} GPUs measured"
+    print(line + (f" ({n_cached} from cache)." if n_cached else "."))

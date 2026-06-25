@@ -2,6 +2,7 @@
 
 import json
 import os
+import socket
 import sys
 import time
 import warnings
@@ -34,11 +35,13 @@ from vastai.cli.self_test.machine_diagnostics import (
     requirement_failure,
 )
 from vastai.cli.self_test.runtime_diagnostics import (
+    CLEANUP_FAILED,
     DAEMON_STARTUP_FAILED,
     INSTANCE_CREATE_FAILED,
     INSTANCE_CREATE_MISSING_CONTRACT,
     INSTANCE_OFFLINE_BEFORE_TEST,
     INSTANCE_START_TIMEOUT,
+    INSTANCE_STATUS_POLL_FAILED,
     INTERRUPTED,
     LegacyProgressParser,
     MISSING_PUBLIC_IP,
@@ -48,9 +51,14 @@ from vastai.cli.self_test.runtime_diagnostics import (
     PROGRESS_ENDPOINT_UNREACHABLE,
     PROGRESS_PORT_NOT_MAPPED,
     RUNTIME_TEST_TIMEOUT,
+    UDP_CONTAINER_PORT,
+    UDP_PORT_NOT_MAPPED,
+    UDP_PROBE_FAILED,
+    UNEXPECTED_ERROR,
     classify_status_msg,
     make_progress_endpoint_diagnostic,
     make_failure,
+    make_udp_probe_diagnostic,
     redact_secret_text,
 )
 from vastai.cli.self_test.support_bundle import (
@@ -63,6 +71,65 @@ from vastai.cli.self_test.support_bundle import (
 parser = _get_parser()
 SELF_TEST_INSTANCE_LABEL_PREFIX = "vast-self-test-machine"
 INSTANCE_LOG_TAIL_LINES = 1000
+UDP_PROBE_PAYLOAD = b"vast-self-test-udp-probe"
+UDP_PROBE_RESPONSE_PREFIX = b"vast-self-test-udp-ok:"
+
+
+def _first_host_port(mapped_ports, container_port):
+    port_rows = (mapped_ports or {}).get(container_port) or []
+    return str(port_rows[0].get("HostPort")) if port_rows else None
+
+
+def probe_udp_echo(public_ip, host_port, *, mapped_ports=None, attempts=3, timeout_seconds=2):
+    """Send a UDP datagram to the mapped self-test port and wait for the image echo."""
+    attempt_count = 0
+    last_error_type = None
+    last_error = None
+    try:
+        target_port = int(host_port)
+    except (TypeError, ValueError) as exc:
+        diagnostic = make_udp_probe_diagnostic(
+            public_ip=public_ip,
+            host_port=host_port,
+            timeout_seconds=timeout_seconds,
+            attempt_count=0,
+            last_error_type=exc.__class__.__name__,
+            last_error=exc,
+            mapped_ports=mapped_ports,
+        )
+        return False, diagnostic
+
+    for attempt_count in range(1, attempts + 1):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.settimeout(timeout_seconds)
+                sock.sendto(UDP_PROBE_PAYLOAD, (public_ip, target_port))
+                response, _addr = sock.recvfrom(4096)
+            if response == UDP_PROBE_RESPONSE_PREFIX + UDP_PROBE_PAYLOAD:
+                return True, make_udp_probe_diagnostic(
+                    public_ip=public_ip,
+                    host_port=host_port,
+                    timeout_seconds=timeout_seconds,
+                    attempt_count=attempt_count,
+                    response_received=True,
+                    mapped_ports=mapped_ports,
+                )
+            last_error_type = "UnexpectedResponse"
+            last_error = f"Unexpected UDP response: {response!r}"
+        except OSError as exc:
+            last_error_type = exc.__class__.__name__
+            last_error = exc
+
+    diagnostic = make_udp_probe_diagnostic(
+        public_ip=public_ip,
+        host_port=host_port,
+        timeout_seconds=timeout_seconds,
+        attempt_count=attempt_count,
+        last_error_type=last_error_type,
+        last_error=last_error,
+        mapped_ports=mapped_ports,
+    )
+    return False, diagnostic
 
 
 # ---------------------------------------------------------------------------
@@ -814,6 +881,8 @@ def self_test__machine(args):
             for line in format_bundle_summary(bundle):
                 print(line)
         print(f"Test failed: {result['reason']}")
+        if bundle and bundle.get("path"):
+            print(f"Support bundle: {bundle.get('path')}")
         sys.exit(1)
 
     def set_runtime_failure(diagnostic, fallback_reason=None):
@@ -854,6 +923,23 @@ def self_test__machine(args):
                 progress_print(f"- last result: {' - '.join(last_bits)}")
             if endpoint.get("mapped_ports"):
                 progress_print(f"- mapped container ports: {', '.join(endpoint['mapped_ports'])}")
+        udp_probe = diagnostic.get("udp_probe") or result.get("diagnostics", {}).get("udp_probe")
+        if udp_probe:
+            if udp_probe.get("url"):
+                progress_print(f"- UDP tried: {udp_probe['url']}")
+            udp_port = udp_probe.get("external_port") or udp_probe.get("host_port")
+            if udp_port:
+                progress_print(f"- external UDP port tested: {udp_port}")
+            progress_print(f"- UDP response received: {udp_probe.get('response_received')}")
+            udp_bits = []
+            if udp_probe.get("last_error_type"):
+                udp_bits.append(str(udp_probe["last_error_type"]))
+            if udp_probe.get("last_error"):
+                udp_bits.append(str(udp_probe["last_error"]))
+            if udp_bits:
+                progress_print(f"- UDP last result: {' - '.join(udp_bits)}")
+            if udp_probe.get("mapped_ports"):
+                progress_print(f"- mapped container ports: {', '.join(udp_probe['mapped_ports'])}")
         if diagnostic.get("remediation"):
             progress_print(f"- remediation: {diagnostic['remediation']}")
         steps = diagnostic.get("suggested_steps") or []
@@ -992,6 +1078,7 @@ def self_test__machine(args):
             return finish_failure()
 
         result["offer"] = compact_offer_metadata(selected_offer)
+        result["stage"] = "preflight_checks"
         checks = preflight_requirement_checks(selected_offer)
         result["checks"] = checks
         unmet_checks = failed_checks(checks)
@@ -1103,13 +1190,13 @@ def self_test__machine(args):
                 result["phase"] = "rental"
                 result["stage"] = "create_instance"
                 from vastai.cli.util import parse_env
-                env = parse_env("-e TZ=PDT -e XNAME=XX4 -p 5000:5000 -p 1234:1234")
+                env = parse_env("-e TZ=PDT -e XNAME=XX4 -p 5000:5000 -p 1234:1234 -p 5001:5001/udp")
                 runtype = "ssh_direc ssh_proxy"
                 self_test_label = f"{SELF_TEST_INSTANCE_LABEL_PREFIX}-{args.machine_id}"
                 result["diagnostics"]["launch"] = {
                     "runtype": runtype,
                     "jupyter_lab": False,
-                    "ports": ["5000/tcp", "1234/tcp"],
+                    "ports": ["5000/tcp", "1234/tcp", UDP_CONTAINER_PORT],
                     "label": self_test_label,
                 }
 
@@ -1211,13 +1298,18 @@ def self_test__machine(args):
                             return {"success": False, "error": "Max retries exceeded"}
 
                 # ----- wait for instance to start -----
-                def wait_for_instance(inst_id, timeout=900, interval=10):
+                def wait_for_instance(inst_id, timeout=900, interval=15):
                     start_time = time.time()
+                    wait_started_at = None
+                    successful_status_poll = False
+                    last_poll_error = None
+                    last_poll_error_type = None
                     debug_print("Starting wait_for_instance with ID:", inst_id)
 
                     while time.time() - start_time < timeout:
                         try:
                             instance_info = instances_api.show_instance(client, id=inst_id)
+                            successful_status_poll = True
                             if not instance_info:
                                 progress_print(f"No information returned for instance {inst_id}. Retrying...")
                                 time.sleep(interval)
@@ -1290,28 +1382,61 @@ def self_test__machine(args):
                                 return False, reason, diagnostic
 
                             if intended_status == 'running' and actual_status == 'running':
+                                if wait_started_at is not None:
+                                    elapsed = int(time.time() - wait_started_at)
+                                    progress_print(f"Instance {inst_id} is ready after {elapsed}s.")
+                                    cli_output.append(f"Instance {inst_id} reached running status.")
                                 debug_print(f"Instance {inst_id} is now running.")
                                 return instance_info, None, None
 
-                            progress_print(f"Instance {inst_id} status: {actual_status}... waiting for 'running' status.")
+                            if args.debugging:
+                                progress_print(
+                                    f"Instance {inst_id} status: {actual_status} / intended: {intended_status}; "
+                                    "waiting for 'running' status."
+                                )
+                                if status_msg_clean:
+                                    progress_print(f"status_msg: {status_msg_clean}")
+                            elif wait_started_at is None:
+                                wait_started_at = time.time()
+                                cli_output.append(f"Instance {inst_id} is loading; waiting for running status.")
+                                progress_print(f"Instance {inst_id} is loading; waiting for running status...")
+                            else:
+                                elapsed = int(time.time() - wait_started_at)
+                                progress_print(f"Still loading... {elapsed}s elapsed")
                             time.sleep(interval)
 
                         except Exception as e:
                             error = safe_error(e)
+                            last_poll_error = error
+                            last_poll_error_type = e.__class__.__name__
                             progress_print(f"Error retrieving instance info for {inst_id}: {error}. Retrying...")
                             debug_print(f"Exception details: {error}")
                             time.sleep(interval)
 
-                    reason = f"Instance did not become running within {timeout} seconds. Verify network configuration. Use the self-test machine function in vast cli"
+                    if not successful_status_poll and last_poll_error:
+                        reason = f"Could not poll instance status within {timeout} seconds: {last_poll_error}"
+                        diagnostic = make_failure(
+                            INSTANCE_STATUS_POLL_FAILED,
+                            stage="startup",
+                            details=reason,
+                            error=last_poll_error,
+                            underlying_error=f"{last_poll_error_type}: {last_poll_error}",
+                        )
+                    else:
+                        reason = (
+                            f"Instance did not become running within {timeout} seconds. "
+                            "Check host capacity, Docker/container startup, and network or port configuration."
+                        )
+                        diagnostic = make_failure(
+                            INSTANCE_START_TIMEOUT,
+                            stage="startup",
+                            details=reason,
+                        )
                     progress_print(reason)
-                    return False, reason, make_failure(
-                        INSTANCE_START_TIMEOUT,
-                        stage="startup",
-                        details=reason,
-                    )
+                    return False, reason, diagnostic
 
                 # ----- run machine tester -----
-                def run_machinetester(ip_address, port, inst_id, machine_id, delay, mapped_ports=None):
+                def run_machinetester(ip_address, port, udp_port, inst_id, machine_id, delay, mapped_ports=None):
                     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
                     delay = int(delay)
                     message = ''
@@ -1323,6 +1448,7 @@ def self_test__machine(args):
                     last_error = None
                     last_status_code = None
                     first_connection_established = False
+                    udp_probe_completed = False
 
                     def update_progress_endpoint():
                         endpoint = make_progress_endpoint_diagnostic(
@@ -1372,8 +1498,8 @@ def self_test__machine(args):
                             if status == 'offline':
                                 reason = "Instance offline during testing"
                                 progress_print(f"Instance {inst_id} went offline. {reason}")
-                                destroy_instance_silent(inst_id, collect_logs=True)
-                                instance_destroyed = True
+                                cleanup = destroy_instance_silent(inst_id, collect_logs=True)
+                                instance_destroyed = bool(cleanup.get("success"))
                                 return False, reason, make_failure(INSTANCE_OFFLINE_BEFORE_TEST, stage="runtime")
 
                             try:
@@ -1387,6 +1513,41 @@ def self_test__machine(args):
                                 if response.status_code == 200 and not first_connection_established:
                                     progress_print("Successfully established HTTPS connection to the server.")
                                     first_connection_established = True
+                                    udp_ok, udp_diagnostic = probe_udp_echo(
+                                        ip_address,
+                                        udp_port,
+                                        mapped_ports=mapped_ports,
+                                    )
+                                    result["diagnostics"]["udp_probe"] = udp_diagnostic
+                                    if udp_ok:
+                                        progress_print(
+                                            "Successfully verified UDP echo "
+                                            f"on external port {udp_diagnostic.get('external_port')}."
+                                        )
+                                        udp_probe_completed = True
+                                    else:
+                                        progress_print("UDP self-test probe failed after TCP progress endpoint was reachable.")
+                                        progress_print(f"Tried: {udp_diagnostic.get('url')}")
+                                        if udp_diagnostic.get("external_port"):
+                                            progress_print(f"External UDP port tested: {udp_diagnostic.get('external_port')}")
+                                        if udp_diagnostic.get("last_error_type") or udp_diagnostic.get("last_error"):
+                                            last_udp_result = udp_diagnostic.get("last_error_type") or ""
+                                            if udp_diagnostic.get("last_error"):
+                                                last_udp_result = f"{last_udp_result}: {udp_diagnostic.get('last_error')}".strip(": ")
+                                            progress_print(f"Last UDP result: {last_udp_result}")
+                                        progress_print("Possible causes:")
+                                        progress_print("  1. UDP firewall/NAT forwarding is blocking the mapped public port")
+                                        progress_print("  2. TCP forwarding works, but UDP forwarding was not configured symmetrically")
+                                        progress_print("  3. Router/provider rules, CGNAT, or NAT hairpinning are blocking UDP")
+                                        cleanup = destroy_instance_silent(inst_id, collect_logs=True)
+                                        instance_destroyed = bool(cleanup.get("success"))
+                                        return_reason = "TCP progress endpoint was reachable, but UDP echo probe failed"
+                                        return False, return_reason, make_failure(
+                                            UDP_PROBE_FAILED,
+                                            stage="runtime_network",
+                                            details=return_reason,
+                                            udp_probe=udp_diagnostic,
+                                        )
 
                                 if response.status_code == 200:
                                     message = response.text.strip()
@@ -1409,16 +1570,25 @@ def self_test__machine(args):
                                 for line in new_lines:
                                     diagnostic = legacy_parser.process_line(line)
                                     if line == 'DONE':
+                                        if not udp_probe_completed:
+                                            progress_print("WARNING: Test reached DONE before UDP probe completion was recorded.")
                                         progress_print("Test completed successfully.")
-                                        progress_print("Test passed.")
-                                        destroy_instance_silent(inst_id)
-                                        instance_destroyed = True
+                                        cleanup = destroy_instance_silent(inst_id)
+                                        instance_destroyed = bool(cleanup.get("success"))
+                                        if not instance_destroyed:
+                                            reason = f"Test completed, but failed to destroy test instance {inst_id}."
+                                            return False, reason, make_failure(
+                                                CLEANUP_FAILED,
+                                                stage="cleanup",
+                                                details=reason,
+                                                error=cleanup.get("error"),
+                                            )
                                         return True, "", None
                                     elif line.startswith('ERROR'):
                                         progress_print(line)
                                         progress_print(f"Test failed with error: {line}.")
-                                        destroy_instance_silent(inst_id, collect_logs=True)
-                                        instance_destroyed = True
+                                        cleanup = destroy_instance_silent(inst_id, collect_logs=True)
+                                        instance_destroyed = bool(cleanup.get("success"))
                                         return False, line, diagnostic
                                     else:
                                         progress_print(line)
@@ -1489,8 +1659,8 @@ def self_test__machine(args):
                                         details=return_reason,
                                         progress_endpoint=endpoint,
                                     )
-                                destroy_instance_silent(inst_id, collect_logs=True)
-                                instance_destroyed = True
+                                cleanup = destroy_instance_silent(inst_id, collect_logs=True)
+                                instance_destroyed = bool(cleanup.get("success"))
                                 return False, return_reason, diagnostic
 
                             debug_print("Waiting for 20 seconds before the next check.")
@@ -1504,7 +1674,6 @@ def self_test__machine(args):
                     finally:
                         if not instance_destroyed and inst_id and instance_exist(inst_id):
                             destroy_instance_silent(inst_id, collect_logs=True)
-                        progress_print(f"Machine: {machine_id} Done with testing remote.py results {message}")
                         warnings.simplefilter('default')
 
                 # ----- main orchestration: wait then test -----
@@ -1522,8 +1691,8 @@ def self_test__machine(args):
                         )
                     else:
                         all_ports = instance_info.get("ports", {})
-                        port_mappings = all_ports.get("5000/tcp", [])
-                        port = port_mappings[0].get("HostPort") if port_mappings else None
+                        port = _first_host_port(all_ports, PROGRESS_CONTAINER_PORT)
+                        udp_port = _first_host_port(all_ports, UDP_CONTAINER_PORT)
                         if not port:
                             endpoint = make_progress_endpoint_diagnostic(
                                 public_ip=ip_address,
@@ -1547,12 +1716,34 @@ def self_test__machine(args):
                                 ),
                                 "Failed to retrieve mapped port.",
                             )
+                        elif not udp_port:
+                            udp_diagnostic = make_udp_probe_diagnostic(
+                                public_ip=ip_address,
+                                host_port=None,
+                                timeout_seconds=2,
+                                mapped_ports=all_ports,
+                            )
+                            result["diagnostics"]["udp_probe"] = udp_diagnostic
+                            progress_print(f"Port {UDP_CONTAINER_PORT} not found in mapped ports. Available ports: {list(all_ports.keys())}")
+                            progress_print("Possible causes:")
+                            progress_print("  1. The instance launch did not map the self-test UDP probe port")
+                            progress_print(f"  2. direct_port_count below the 3 ports/GPU minimum - check with: vastai search offers 'machine_id={args.machine_id} rentable=any rented=any'")
+                            progress_print("  3. Container is not exposing port 5001/udp")
+                            set_runtime_failure(
+                                make_failure(
+                                    UDP_PORT_NOT_MAPPED,
+                                    stage="instance_network",
+                                    details=f"Available ports: {list(all_ports.keys())}",
+                                    udp_probe=udp_diagnostic,
+                                ),
+                                "Failed to retrieve mapped UDP probe port.",
+                            )
                         else:
                             delay = "15"
                             result["phase"] = "test"
                             result["stage"] = "run_machinetester"
                             success, reason, runtime_diagnostic = run_machinetester(
-                                ip_address, port, instance_id, args.machine_id, delay, mapped_ports=all_ports,
+                                ip_address, port, udp_port, instance_id, args.machine_id, delay, mapped_ports=all_ports,
                             )
                             result["success"] = success
                             result["reason"] = reason
@@ -1573,13 +1764,16 @@ def self_test__machine(args):
     except Exception as e:
         error = safe_error(e)
         result["success"] = False
-        result["reason"] = error
-        result["failure_code"] = "unexpected_error"
-        result["failure"] = {
-            "code": "unexpected_error",
-            "summary": error,
-            "remediation": "Retry with --debugging and inspect the error details.",
-        }
+        set_runtime_failure(
+            make_failure(
+                UNEXPECTED_ERROR,
+                stage=result.get("stage"),
+                details=error,
+                error=error,
+                underlying_error=error,
+            ),
+            error,
+        )
         result["error"] = error
 
     finally:
@@ -1631,8 +1825,8 @@ def self_test__machine(args):
             if result.get("diagnostics", {}).get("preflight_failure"):
                 print("Runtime checks passed, but minimum requirement checks were ignored.")
                 print("This run does not qualify the machine for verification.")
-            else:
-                print("Test completed successfully.")
+            print("")
+            print(f"Machine ID {args.machine_id} passed the self-test.")
             sys.exit(0)
         else:
             render_runtime_failure()
@@ -1641,4 +1835,6 @@ def self_test__machine(args):
                 for line in format_bundle_summary(bundle):
                     print(line)
             print(f"Test failed: {result['reason']}")
+            if bundle and bundle.get("path"):
+                print(f"Support bundle: {bundle.get('path')}")
             sys.exit(1)

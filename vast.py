@@ -11,6 +11,7 @@ import json
 import sys
 import argparse
 import os
+import socket
 import time
 from typing import Dict, List, Tuple, Optional
 from datetime import date, datetime, timedelta, timezone
@@ -33,6 +34,31 @@ import logging
 import textwrap
 from pathlib import Path
 import warnings
+
+UDP_PROBE_PAYLOAD = b"vast-self-test-udp-probe"
+UDP_PROBE_RESPONSE_PREFIX = b"vast-self-test-udp-ok:"
+
+
+def probe_udp_echo(public_ip, host_port, attempts=3, timeout_seconds=2):
+    """Send a UDP datagram to the mapped self-test port and wait for the image echo."""
+    try:
+        target_port = int(host_port)
+    except (TypeError, ValueError) as exc:
+        return False, f"{exc.__class__.__name__}: invalid UDP port {host_port!r}"
+
+    last_error = ""
+    for _ in range(attempts):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.settimeout(timeout_seconds)
+                sock.sendto(UDP_PROBE_PAYLOAD, (public_ip, target_port))
+                response, _addr = sock.recvfrom(4096)
+            if response == UDP_PROBE_RESPONSE_PREFIX + UDP_PROBE_PAYLOAD:
+                return True, ""
+            last_error = f"Unexpected UDP response: {response!r}"
+        except OSError as exc:
+            last_error = f"{exc.__class__.__name__}: {exc}"
+    return False, last_error
 import importlib.metadata
 
 
@@ -8589,7 +8615,7 @@ def self_test__machine(args):
                 lang_utf8=False,
                 python_utf8=False,
                 extra=None,
-                env="-e TZ=PDT -e XNAME=XX4 -p 5000:5000 -p 1234:1234",
+                env="-e TZ=PDT -e XNAME=XX4 -p 5000:5000 -p 1234:1234 -p 5001:5001/udp",
                 args=None,
                 force=False,
                 cancel_unavail=False,
@@ -8647,10 +8673,12 @@ def self_test__machine(args):
                     if not ip_address:
                         result["reason"] = "Failed to retrieve public IP address."
                     else:
-                        port_mappings = instance_info.get("ports", {}).get("5000/tcp", [])
+                        all_ports = instance_info.get("ports", {})
+                        port_mappings = all_ports.get("5000/tcp", [])
                         port = port_mappings[0].get("HostPort") if port_mappings else None
+                        udp_port_mappings = all_ports.get("5001/udp", [])
+                        udp_port = udp_port_mappings[0].get("HostPort") if udp_port_mappings else None
                         if not port:
-                            all_ports = instance_info.get("ports", {})
                             progress_print(args, f"Port 5000/tcp not found in instance port mappings.")
                             progress_print(args, f"All mapped ports on instance: {all_ports if all_ports else 'none'}")
                             progress_print(args, f"Possible causes:")
@@ -8659,10 +8687,19 @@ def self_test__machine(args):
                             progress_print(args, f"  - The container failed to expose the port correctly.")
                             progress_print(args, f"Check direct_port_count: vastai search offers 'machine_id={args.machine_id} rentable=any verified=any'")
                             result["reason"] = f"Port 5000/tcp not mapped. Available ports: {all_ports}"
+                        elif not udp_port:
+                            progress_print(args, f"Port 5001/udp not found in instance port mappings.")
+                            progress_print(args, f"All mapped ports on instance: {all_ports if all_ports else 'none'}")
+                            progress_print(args, f"Possible causes:")
+                            progress_print(args, f"  - The self-test launch did not map the UDP probe port.")
+                            progress_print(args, f"  - direct_port_count is too low on this machine (must be at least 3 per GPU).")
+                            progress_print(args, f"  - The container failed to expose the UDP probe port correctly.")
+                            progress_print(args, f"Check direct_port_count: vastai search offers 'machine_id={args.machine_id} rentable=any verified=any'")
+                            result["reason"] = f"Port 5001/udp not mapped. Available ports: {all_ports}"
                         else:
                             delay = "15"
                             success, reason = run_machinetester(
-                                ip_address, port, str(instance_id), args.machine_id, delay, args, api_key=api_key
+                                ip_address, port, udp_port, str(instance_id), args.machine_id, delay, args, api_key=api_key
                             )
                             result["success"] = success
                             result["reason"] = reason
@@ -8723,7 +8760,8 @@ def self_test__machine(args):
         if result.get("warning"):
             print(result["warning"])
         if result["success"]:
-            print("Test completed successfully.")
+            print("")
+            print(f"Machine ID {args.machine_id} passed the self-test.")
             sys.exit(0)
         else:
             print(f"Test failed: {result['reason']}")
@@ -9260,7 +9298,7 @@ def instance_exist(instance_id, api_key, args):
             debug_print(args, f"No instance found or Unexpected error checking instance existence: {e}")
         return False
     
-def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, api_key=None):
+def run_machinetester(ip_address, port, udp_port, instance_id, machine_id, delay, args, api_key=None):
     """
     Executes machine testing by connecting to the specified IP and port, monitoring
     the instance's status, and handling test completion or failures.
@@ -9343,6 +9381,7 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
     no_response_seconds = 0
     printed_lines = set()
     first_connection_established = False  # Flag to track first successful connection
+    udp_probe_completed = False
     instance_destroyed = False  # Track whether the instance has been destroyed
     try:
         while time.time() - start_time < 600:
@@ -9369,6 +9408,24 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
                 if response.status_code == 200 and not first_connection_established:
                     progress_print(args, "Successfully established HTTPS connection to the server.")
                     first_connection_established = True
+                    udp_ok, udp_error = probe_udp_echo(ip_address, udp_port)
+                    if udp_ok:
+                        progress_print(args, f"Successfully verified UDP echo on external port {udp_port}.")
+                        udp_probe_completed = True
+                    else:
+                        reason = "TCP progress endpoint was reachable, but UDP echo probe failed"
+                        progress_print(args, "UDP self-test probe failed after TCP progress endpoint was reachable.")
+                        progress_print(args, f"Tried: udp://{ip_address}:{udp_port}")
+                        progress_print(args, f"Last UDP result: {udp_error}")
+                        progress_print(args, "Possible causes:")
+                        progress_print(args, "  - UDP firewall/NAT forwarding is blocking the mapped public port.")
+                        progress_print(args, "  - TCP forwarding works, but UDP forwarding was not configured symmetrically.")
+                        progress_print(args, "  - Router/provider rules, CGNAT, or NAT hairpinning are blocking UDP.")
+                        with open("Error_testresults.log", "a") as f:
+                            f.write(f"{machine_id}:{instance_id} {reason} (udp_port={udp_port}, ip={ip_address}, error={udp_error})\n")
+                        destroy_instance_silent(instance_id, destroy_args)
+                        instance_destroyed = True
+                        return False, reason
 
                 message = response.text.strip()
                 if args.debugging:
@@ -9384,10 +9441,11 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
                 new_lines = [line for line in lines if line not in printed_lines]
                 for line in new_lines:
                     if line == 'DONE':
+                        if not udp_probe_completed:
+                            progress_print(args, "WARNING: Test reached DONE before UDP probe completion was recorded.")
                         progress_print(args, "Test completed successfully.")
                         with open("Pass_testresults.log", "a") as f:
                             f.write(f"{machine_id}\n")
-                        progress_print(args, f"Test passed.")
                         destroy_instance_silent(instance_id, destroy_args)
                         instance_destroyed = True
                         return True, ""
@@ -9455,7 +9513,6 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
         # Ensure instance cleanup
         if not instance_destroyed and instance_id and instance_exist(instance_id, api_key, destroy_args):
            destroy_instance_silent(instance_id, destroy_args)
-        progress_print(args, f"Machine: {machine_id} Done with testing remote.py results {message}")
         warnings.simplefilter('default')
 
 def safe_float(value):
@@ -9480,8 +9537,9 @@ def check_requirements(machine_id, api_key, args):
     Validates whether a machine meets the specified hardware and performance requirements.
 
     This function queries the machine's offers and checks various criteria such as CUDA
-    version, reliability, port count, PCIe bandwidth, internet speeds, GPU RAM, system
-    RAM, and CPU cores relative to the number of GPUs. If any of these requirements are
+    version, reliability, port count, PCIe bandwidth, internet speeds, GPU RAM, and
+    system RAM. Physical CPU core capacity is validated by the self-test image at
+    runtime. If any of these requirements are
     not met, it records the reasons for the failure.
 
     Args:
@@ -9583,17 +9641,6 @@ def check_requirements(machine_id, api_key, args):
             debug_print(args, f"CPU RAM: {cpu_ram} MB")
             debug_print(args, f"Total GPU RAM: {gpu_total_ram} MB")
 
-        # 9. CPU Cores vs. Number of GPUs
-        cpu_cores = int(safe_float(top_offer.get('cpu_cores')))
-        num_gpus = int(safe_float(top_offer.get('num_gpus')))
-        if cpu_cores < 2 * num_gpus:
-            unmet_reasons.append("Number of CPU cores is less than twice the number of GPUs.")
-
-        # Debugging Information for CPU Cores
-        if args.debugging:
-            debug_print(args, f"CPU Cores: {cpu_cores}")
-            debug_print(args, f"Number of GPUs: {num_gpus}")
-
         # Return True if all requirements are met, False otherwise
         if unmet_reasons:
             progress_print(args, f"Machine ID {machine_id} does not meet the requirements:")
@@ -9611,7 +9658,7 @@ def check_requirements(machine_id, api_key, args):
         return False, [f"Unexpected error: {str(e)}"]
 
 
-def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, interval=10):
+def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, interval=15):
     """
     Waits for an instance to reach a running state and monitors its status for errors.
 
@@ -9621,6 +9668,7 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
         args.debugging = False
 
     start_time = time.time()
+    wait_started_at = None
     show_args = argparse.Namespace(
         id=instance_id,
         quiet=False,
@@ -9663,6 +9711,7 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
             
             # Check if instance went offline
             actual_status = instance_info.get('actual_status', 'unknown')
+            intended_status = instance_info.get('intended_status', 'unknown')
             if actual_status == 'offline':
                 reason = "Instance offline during testing"
                 progress_print(args, reason)
@@ -9677,13 +9726,25 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
                 return False, reason
             
             # Check if instance is running
-            if instance_info.get('intended_status') == 'running' and actual_status == 'running':
+            if intended_status == 'running' and actual_status == 'running':
+                if wait_started_at is not None:
+                    elapsed = int(time.time() - wait_started_at)
+                    progress_print(args, f"Instance {instance_id} is ready after {elapsed}s.")
                 if args.debugging:
                     debug_print(args, f"Instance {instance_id} is now running.")
                 return instance_info, None  # Return instance_info with None for reason
             
             # Print feedback about the current status
-            progress_print(args, f"Instance {instance_id} status: {actual_status}... waiting for 'running' status.")
+            if args.debugging:
+                progress_print(args, f"Instance {instance_id} status: {actual_status} / intended: {intended_status}; waiting for 'running' status.")
+                if status_msg:
+                    progress_print(args, f"status_msg: {status_msg.strip()}")
+            elif wait_started_at is None:
+                wait_started_at = time.time()
+                progress_print(args, f"Instance {instance_id} is loading; waiting for running status...")
+            else:
+                elapsed = int(time.time() - wait_started_at)
+                progress_print(args, f"Still loading... {elapsed}s elapsed")
             time.sleep(interval)
         
         except Exception as e:

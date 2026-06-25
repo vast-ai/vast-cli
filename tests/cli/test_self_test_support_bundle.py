@@ -62,6 +62,8 @@ def test_self_test_failure_creates_support_bundle(
 ):
     from vastai.cli.commands import machines
 
+    bundle_path = str(tmp_path / "vast_selftest_42_20260602T100000Z.tar.gz")
+
     def fake_bundle(**kwargs):
         assert kwargs["machine_id"] == "42"
         assert kwargs["output_dir"] == str(tmp_path)
@@ -71,7 +73,7 @@ def test_self_test_failure_creates_support_bundle(
         assert kwargs["result"]["failure_code"] == "preflight_requirements_failed"
         assert any("Preflight diagnostics for machine 42 failed:" in line for line in kwargs["cli_output"])
         return {
-            "path": str(tmp_path / "vast_selftest_42_20260602T100000Z.tar.gz"),
+            "path": bundle_path,
             "created_at_utc": "20260602T100000Z",
             "size_bytes": 123,
             "files": ["manifest.json", "self-test-result.json", "self-test-output.log"],
@@ -108,6 +110,8 @@ def test_self_test_failure_creates_support_bundle(
     assert "Self-test diagnostic bundle saved to:" in captured.out
     assert "self-test-result.json" in captured.out
     assert "Review this tarball before sharing it with support." in captured.out
+    assert f"Support bundle: {bundle_path}" in captured.out
+    assert captured.out.rfind("Test failed:") < captured.out.rfind("Support bundle:")
 
 
 def test_self_test_bundle_creation_error_preserves_original_failure(
@@ -144,7 +148,7 @@ def test_self_test_bundle_creation_error_preserves_original_failure(
     captured = capsys.readouterr()
     assert exc_info.value.code == 1
     assert "WARNING: failed to create self-test diagnostic bundle: disk full" in captured.out
-    assert "Test failed: 8 preflight requirement check(s) failed." in captured.out
+    assert "Test failed: 7 preflight requirement check(s) failed." in captured.out
 
 
 def test_self_test_runtime_failure_bundle_includes_instance_logs(

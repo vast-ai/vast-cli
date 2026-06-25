@@ -153,7 +153,6 @@ def preflight_requirement_checks(offer):
     per_gpu_ram_gib = per_gpu_vram_gib(offer)
     required_mbps = required_inet_mbps(gpu_total_ram)
     cpu_ram = safe_float(offer.get("cpu_ram"))
-    cpu_cores = int(safe_float(offer.get("cpu_cores")))
     num_gpus = int(safe_float(offer.get("num_gpus")))
     listed_gpus = num_gpus if num_gpus > 0 else 1
     direct_port_count = safe_float(offer.get("direct_port_count"))
@@ -161,7 +160,6 @@ def preflight_requirement_checks(offer):
     recommended_max_ports = 64 * listed_gpus
     uncapped_required_cpu_ram = 0.95 * gpu_total_ram
     required_cpu_ram = min(uncapped_required_cpu_ram, SYSTEM_RAM_REQUIREMENT_CAP_MIB)
-    required_cpu_cores = 2 * num_gpus
 
     checks = [
         _check(
@@ -264,17 +262,6 @@ def preflight_requirement_checks(offer):
                 "Add system RAM or reduce the listed GPU set so system RAM is at least 95% of "
                 "total VRAM, up to the 2 TB cap."
             ),
-        ),
-        _check(
-            "cpu.cores",
-            "CPU cores",
-            cpu_cores,
-            required_cpu_cores,
-            ">=",
-            "cores",
-            cpu_cores >= required_cpu_cores,
-            "The tester expects at least two CPU cores per GPU for stable orchestration.",
-            "Expose more CPU cores to the host or reduce the GPU count for this offer.",
         ),
     ]
     if direct_port_count > recommended_max_ports:
@@ -537,7 +524,7 @@ def requirement_failure(checks):
         "code": "preflight_requirements_failed",
         "summary": summary,
         "failed_check_ids": [check["id"] for check in failures],
-        "remediation": "Resolve the failed checks below, or rerun with --ignore-requirements to dogfood anyway.",
+        "remediation": "Resolve the failed checks below, or rerun with --ignore-requirements to run the diagnostic anyway.",
     }
 
 

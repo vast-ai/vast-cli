@@ -8,6 +8,29 @@ import pytest
 import requests
 
 
+@pytest.fixture(autouse=True)
+def _self_test_udp_probe_success(monkeypatch):
+    """Default self-test machine tests to a successful external UDP echo probe."""
+    from vastai.cli.commands import machines
+
+    def _probe(public_ip, host_port, *, mapped_ports=None, attempts=3, timeout_seconds=2):
+        return True, {
+            "url": f"udp://{public_ip}:{host_port}",
+            "public_ip": public_ip,
+            "container_port": "5001/udp",
+            "external_port": str(host_port),
+            "host_port": str(host_port),
+            "timeout_seconds": timeout_seconds,
+            "attempt_count": 1,
+            "response_received": True,
+            "last_error_type": None,
+            "last_error": None,
+            "mapped_ports": sorted((mapped_ports or {}).keys()),
+        }
+
+    monkeypatch.setattr(machines, "probe_udp_echo", _probe)
+
+
 class TestShowMachines:
     def test_show_machines_raw(self, parse_argv, patch_get_client, mock_response):
         patch_get_client.get.return_value = mock_response(200, {
@@ -107,7 +130,7 @@ class TestSelfTestMachineCleanup:
             "actual_status": "running",
             "intended_status": "running",
             "public_ipaddr": "127.0.0.1",
-            "ports": {"5000/tcp": [{"HostPort": "5000"}]},
+            "ports": {"5000/tcp": [{"HostPort": "5000"}], "5001/udp": [{"HostPort": "5001"}]},
             "status_msg": "",
         }
 
@@ -132,6 +155,38 @@ class TestSelfTestMachineCleanup:
         captured = capsys.readouterr()
         assert "Instance 123 destroyed successfully on attempt 1." in captured.out
         assert "WARNING: failed to destroy test instance 123" not in captured.out
+
+    def test_successful_runtime_reports_cleanup_failure_when_destroy_fails(
+        self, parse_argv, monkeypatch
+    ):
+        from vastai.cli.commands import machines
+
+        offer = _self_test_offer()
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"5000/tcp": [{"HostPort": "5000"}], "5001/udp": [{"HostPort": "5001"}]},
+            "status_msg": "",
+        }
+
+        monkeypatch.setattr(machines.offers_api, "search_offers", Mock(return_value=[offer]))
+        monkeypatch.setattr(machines.instances_api, "create_instance", Mock(return_value={"new_contract": 123}))
+        monkeypatch.setattr(machines.instances_api, "show_instance", Mock(return_value=running_instance))
+        destroy_instance = Mock(side_effect=RuntimeError("api destroy failed"))
+        monkeypatch.setattr(machines.instances_api, "destroy_instance", destroy_instance)
+        monkeypatch.setattr(machines.requests, "get", lambda *_, **__: SimpleNamespace(status_code=200, text="DONE"))
+        monkeypatch.setattr(machines.time, "sleep", lambda *_: None)
+
+        args = parse_argv(["self-test", "machine", "46368", "--raw"])
+        result = args.func(args)
+
+        assert result["success"] is False
+        assert result["failure_code"] == "cleanup_failed"
+        assert result["stage"] == "cleanup"
+        assert "failed to destroy test instance 123" in result["reason"]
+        assert destroy_instance.call_count >= 10
 
 
 class TestListMachineEpilogDoesNotPromiseEmail:
@@ -173,7 +228,7 @@ class TestSelfTestMachineIgnoreRequirements:
             "intended_status": "running",
             "actual_status": "running",
             "public_ipaddr": "203.0.113.10",
-            "ports": {"5000/tcp": [{"HostPort": "5000"}]},
+            "ports": {"5000/tcp": [{"HostPort": "5000"}], "5001/udp": [{"HostPort": "5001"}]},
         }
 
         monkeypatch.setattr(machines.offers_api, "search_offers", Mock(return_value=[offer]))
@@ -193,7 +248,7 @@ class TestSelfTestMachineIgnoreRequirements:
         assert "Requirement checks are skipped as a pass/fail gate" in out
         assert "does not qualify this machine for verification" in out
         assert out.count("does not qualify this machine for verification") >= 2
-        assert "Test passed." in out
+        assert "Machine ID 123 passed the self-test." in out
 
     def test_ignore_requirements_warning_in_raw_summary(self, parse_argv, monkeypatch, capsys):
         from vastai.cli.commands import machines
@@ -581,6 +636,28 @@ class TestSelfTestMachineDiagnostics:
         assert direct_ports["operator"] == ">="
         assert "3 directly mapped ports per listed GPU" in direct_ports["purpose"]
 
+    def test_preflight_does_not_gate_on_virtual_cpu_count(self):
+        from vastai.cli.self_test.machine_diagnostics import (
+            failed_checks,
+            preflight_requirement_checks,
+        )
+
+        offer = _self_test_offer(
+            num_gpus=8,
+            gpu_ram=24 * 1024,
+            gpu_total_ram=8 * 24 * 1024,
+            cpu_ram=256 * 1024,
+            cpu_cores=1,
+            direct_port_count=24,
+            inet_down=600,
+            inet_up=600,
+        )
+
+        checks = preflight_requirement_checks(offer)
+
+        assert "cpu.cores" not in {check["id"] for check in checks}
+        assert failed_checks(checks) == []
+
     def test_preflight_direct_port_overage_renders_advisory(
         self, parse_argv, patch_get_client, monkeypatch, capsys
     ):
@@ -689,7 +766,7 @@ class TestSelfTestMachineDiagnostics:
             "actual_status": "running",
             "intended_status": "running",
             "public_ipaddr": "127.0.0.1",
-            "ports": {"5000/tcp": [{"HostPort": "5000"}]},
+            "ports": {"5000/tcp": [{"HostPort": "5000"}], "5001/udp": [{"HostPort": "5001"}]},
             "status_msg": "",
         }
         monkeypatch.setattr(
@@ -763,6 +840,67 @@ class TestSelfTestMachineDiagnostics:
         assert create.call_args.kwargs["image"] == "vastai/test:p3-env"
         assert create.call_args.kwargs["runtype"] == "ssh_direc ssh_proxy"
 
+    def test_status_poll_timeout_reports_status_poll_failure(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer()
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        show = Mock(
+            side_effect=[
+                RuntimeError("status API unavailable"),
+                {"id": 123, "actual_status": "running", "intended_status": "running"},
+            ]
+        )
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.show_instance", show)
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.destroy_instance", destroy)
+        monkeypatch.setattr("vastai.cli.commands.machines.time.sleep", lambda *_: None)
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.time.time",
+            Mock(side_effect=[0, 0, 901]),
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        assert result["success"] is False
+        assert result["failure_code"] == "instance_status_poll_failed"
+        assert result["stage"] == "startup"
+        assert "status API unavailable" in result["reason"]
+        assert result["failure"]["underlying_error"] == "RuntimeError: status API unavailable"
+        destroy.assert_called_once()
+
+    def test_unexpected_self_test_exception_is_structured_and_redacted(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer()
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.preflight_requirement_checks",
+            Mock(side_effect=RuntimeError("boom https://console.vast.ai/?api_key=secret")),
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        assert result["success"] is False
+        assert result["failure_code"] == "unexpected_error"
+        assert result["failure"]["code"] == "unexpected_error"
+        assert result["diagnostics"]["runtime_failure"]["code"] == "unexpected_error"
+        assert result["failure"]["stage"] == "preflight_checks"
+        assert "api_key=secret" not in result["reason"]
+        assert "api_key=REDACTED" in result["reason"]
+
     def test_default_cuda_mapping_still_selects_official_image(
         self, parse_argv, patch_get_client, monkeypatch
     ):
@@ -774,6 +912,7 @@ class TestSelfTestMachineDiagnostics:
         assert create.call_args.kwargs["runtype"] == "ssh_direc ssh_proxy"
         assert create.call_args.kwargs["label"] == "vast-self-test-machine-42"
         assert result["diagnostics"]["launch"]["label"] == "vast-self-test-machine-42"
+        assert result["diagnostics"]["launch"]["ports"] == ["5000/tcp", "1234/tcp", "5001/udp"]
 
     def test_cuda_mapping_selects_cuda_133_exact_match(
         self, parse_argv, patch_get_client, monkeypatch
@@ -996,7 +1135,7 @@ class TestSelfTestMachineDiagnostics:
         assert result["diagnostics"]["runtime_failure"]["progress_endpoint"] == endpoint
         assert destroy.call_count >= 1
 
-    def test_progress_endpoint_never_reachable_records_endpoint_diagnostic(
+    def test_missing_udp_port_reports_available_ports(
         self, parse_argv, patch_get_client, monkeypatch
     ):
         offer = _self_test_offer()
@@ -1006,6 +1145,203 @@ class TestSelfTestMachineDiagnostics:
             "intended_status": "running",
             "public_ipaddr": "127.0.0.1",
             "ports": {"5000/tcp": [{"HostPort": "45000"}], "22/tcp": [{"HostPort": "40022"}]},
+            "status_msg": "",
+        }
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            Mock(return_value=running_instance),
+        )
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.destroy_instance", destroy)
+        monkeypatch.setattr("vastai.cli.commands.machines.time.sleep", lambda *_: None)
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        udp_probe = result["diagnostics"]["udp_probe"]
+        assert result["failure_code"] == "udp_port_not_mapped"
+        assert udp_probe["container_port"] == "5001/udp"
+        assert udp_probe["external_port"] is None
+        assert udp_probe["mapped_ports"] == ["22/tcp", "5000/tcp"]
+        assert result["diagnostics"]["runtime_failure"]["udp_probe"] == udp_probe
+        assert destroy.call_count >= 1
+
+    def test_udp_probe_failure_after_tcp_success_is_distinct(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        offer = _self_test_offer()
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"5000/tcp": [{"HostPort": "45000"}], "5001/udp": [{"HostPort": "45001"}]},
+            "status_msg": "",
+        }
+        udp_diagnostic = {
+            "url": "udp://127.0.0.1:45001",
+            "public_ip": "127.0.0.1",
+            "container_port": "5001/udp",
+            "external_port": "45001",
+            "host_port": "45001",
+            "timeout_seconds": 2,
+            "attempt_count": 3,
+            "response_received": False,
+            "last_error_type": "TimeoutError",
+            "last_error": "timed out",
+            "mapped_ports": ["5000/tcp", "5001/udp"],
+        }
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            Mock(return_value=running_instance),
+        )
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.destroy_instance", destroy)
+        monkeypatch.setattr("vastai.cli.commands.machines.time.sleep", lambda *_: None)
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.requests.get",
+            Mock(return_value=SimpleNamespace(status_code=200, text="Starting tests...")),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.probe_udp_echo",
+            Mock(return_value=(False, udp_diagnostic)),
+        )
+
+        args = parse_argv(["self-test", "machine", "42"])
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 1
+        assert "Successfully established HTTPS connection to the server." in captured.out
+        assert "UDP self-test probe failed after TCP progress endpoint was reachable." in captured.out
+        assert "External UDP port tested: 45001" in captured.out
+        assert "- code: udp_probe_failed" in captured.out
+        assert "- UDP tried: udp://127.0.0.1:45001" in captured.out
+        assert destroy.call_count >= 1
+
+    def test_wait_for_instance_loading_status_is_compact_without_debugging(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        offer = _self_test_offer()
+        loading_instance = {
+            "id": 123,
+            "actual_status": "loading",
+            "intended_status": "running",
+            "status_msg": "ff81e2caff08: Verifying Checksum\nff81e2caff08: Download complete",
+        }
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"5000/tcp": [{"HostPort": "45000"}], "5001/udp": [{"HostPort": "45001"}]},
+            "status_msg": "",
+        }
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            Mock(side_effect=[loading_instance, loading_instance, running_instance, running_instance]),
+        )
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.destroy_instance", destroy)
+        monkeypatch.setattr("vastai.cli.commands.machines.requests.get", Mock(return_value=SimpleNamespace(status_code=200, text="DONE")))
+        monkeypatch.setattr("vastai.cli.commands.machines.time.sleep", lambda *_: None)
+
+        args = parse_argv(["self-test", "machine", "42"])
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 0
+        assert "Instance 123 is loading; waiting for running status..." in captured.out
+        assert "Still loading... 0s elapsed" in captured.out
+        assert "Instance 123 is ready after 0s." in captured.out
+        assert "status: loading" not in captured.out
+        assert "status_msg:" not in captured.out
+        assert "Verifying Checksum" not in captured.out
+        assert destroy.call_count >= 1
+
+    def test_wait_for_instance_loading_status_is_verbose_with_debugging(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        offer = _self_test_offer()
+        loading_instance = {
+            "id": 123,
+            "actual_status": "loading",
+            "intended_status": "running",
+            "status_msg": "ff81e2caff08: Verifying Checksum\nff81e2caff08: Download complete",
+        }
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"5000/tcp": [{"HostPort": "45000"}], "5001/udp": [{"HostPort": "45001"}]},
+            "status_msg": "",
+        }
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            Mock(side_effect=[loading_instance, running_instance, running_instance]),
+        )
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.destroy_instance", destroy)
+        monkeypatch.setattr("vastai.cli.commands.machines.requests.get", Mock(return_value=SimpleNamespace(status_code=200, text="DONE")))
+        monkeypatch.setattr("vastai.cli.commands.machines.time.sleep", lambda *_: None)
+
+        args = parse_argv(["self-test", "machine", "42", "--debugging"])
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 0
+        assert "Instance 123 status: loading / intended: running; waiting for 'running' status." in captured.out
+        assert "status_msg: ff81e2caff08: Verifying Checksum" in captured.out
+        assert "Instance 123 is loading; waiting for running status" not in captured.out
+        assert "Still loading..." not in captured.out
+        assert destroy.call_count >= 1
+
+    def test_progress_endpoint_never_reachable_records_endpoint_diagnostic(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer()
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"5000/tcp": [{"HostPort": "45000"}], "22/tcp": [{"HostPort": "40022"}], "5001/udp": [{"HostPort": "45001"}]},
             "status_msg": "",
         }
         monkeypatch.setattr(
@@ -1042,7 +1378,7 @@ class TestSelfTestMachineDiagnostics:
         assert endpoint["last_error_type"] == "ConnectTimeout"
         assert "api_key=secret" not in endpoint["last_error"]
         assert "api_key=REDACTED" in endpoint["last_error"]
-        assert endpoint["mapped_ports"] == ["22/tcp", "5000/tcp"]
+        assert endpoint["mapped_ports"] == ["22/tcp", "5000/tcp", "5001/udp"]
         assert result["diagnostics"]["runtime_failure"]["progress_endpoint"] == endpoint
         assert destroy.call_count >= 1
 
@@ -1055,7 +1391,7 @@ class TestSelfTestMachineDiagnostics:
             "actual_status": "running",
             "intended_status": "running",
             "public_ipaddr": "127.0.0.1",
-            "ports": {"5000/tcp": [{"HostPort": "45000"}], "22/tcp": [{"HostPort": "40022"}]},
+            "ports": {"5000/tcp": [{"HostPort": "45000"}], "22/tcp": [{"HostPort": "40022"}], "5001/udp": [{"HostPort": "45001"}]},
             "status_msg": "",
         }
         monkeypatch.setattr(
@@ -1088,7 +1424,7 @@ class TestSelfTestMachineDiagnostics:
         assert exc_info.value.code == 1
         assert "External port tested: 45000" in captured.out
         assert "- external port tested: 45000" in captured.out
-        assert "- mapped container ports: 22/tcp, 5000/tcp" in captured.out
+        assert "- mapped container ports: 22/tcp, 5000/tcp, 5001/udp" in captured.out
 
     def test_progress_endpoint_lost_after_success_records_different_failure(
         self, parse_argv, patch_get_client, monkeypatch
@@ -1099,7 +1435,7 @@ class TestSelfTestMachineDiagnostics:
             "actual_status": "running",
             "intended_status": "running",
             "public_ipaddr": "127.0.0.1",
-            "ports": {"5000/tcp": [{"HostPort": "45000"}]},
+            "ports": {"5000/tcp": [{"HostPort": "45000"}], "5001/udp": [{"HostPort": "45001"}]},
             "status_msg": "",
         }
         monkeypatch.setattr(
@@ -1150,7 +1486,7 @@ class TestSelfTestMachineDiagnostics:
             "actual_status": "running",
             "intended_status": "running",
             "public_ipaddr": "127.0.0.1",
-            "ports": {"5000/tcp": [{"HostPort": "45000"}]},
+            "ports": {"5000/tcp": [{"HostPort": "45000"}], "5001/udp": [{"HostPort": "45001"}]},
             "status_msg": "",
         }
         monkeypatch.setattr(
@@ -1193,7 +1529,7 @@ class TestSelfTestMachineDiagnostics:
             "actual_status": "running",
             "intended_status": "running",
             "public_ipaddr": "127.0.0.1",
-            "ports": {"5000/tcp": [{"HostPort": "45000"}]},
+            "ports": {"5000/tcp": [{"HostPort": "45000"}], "5001/udp": [{"HostPort": "45001"}]},
             "status_msg": "",
         }
         monkeypatch.setattr(

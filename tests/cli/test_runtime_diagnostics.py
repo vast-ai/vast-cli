@@ -74,6 +74,26 @@ def test_legacy_parser_tracks_stage_and_classifies_nccl_error():
     assert result["underlying_error"] == "ERROR: NCCL unhandled system error during allreduce"
 
 
+@pytest.mark.parametrize(
+    ("line", "stage"),
+    [
+        ("Running ResNet18 test on all GPUs...", diag.STAGE_RESNET),
+        ("Running ECC test on all GPUs...", diag.STAGE_ECC),
+        ("Running NCCL distributed test with 2 GPUs...", diag.STAGE_NCCL),
+        (
+            "Running stress-ng and gpu-burn tests simultaneously for 60 seconds...",
+            diag.STAGE_STRESS_GPU_BURN,
+        ),
+    ],
+)
+def test_legacy_parser_tracks_current_self_test_image_stage_lines(line, stage):
+    parser = diag.LegacyProgressParser()
+
+    assert parser.process_line(line) is None
+
+    assert parser.stage == stage
+
+
 def test_legacy_parser_classifies_unknown_error_as_legacy_progress_error():
     result = diag.parse_legacy_progress(
         "\n".join(

@@ -156,6 +156,38 @@ class TestSelfTestMachineCleanup:
         assert "Instance 123 destroyed successfully on attempt 1." in captured.out
         assert "WARNING: failed to destroy test instance 123" not in captured.out
 
+    def test_successful_runtime_reports_cleanup_failure_when_destroy_fails(
+        self, parse_argv, monkeypatch
+    ):
+        from vastai.cli.commands import machines
+
+        offer = _self_test_offer()
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"5000/tcp": [{"HostPort": "5000"}], "5001/udp": [{"HostPort": "5001"}]},
+            "status_msg": "",
+        }
+
+        monkeypatch.setattr(machines.offers_api, "search_offers", Mock(return_value=[offer]))
+        monkeypatch.setattr(machines.instances_api, "create_instance", Mock(return_value={"new_contract": 123}))
+        monkeypatch.setattr(machines.instances_api, "show_instance", Mock(return_value=running_instance))
+        destroy_instance = Mock(side_effect=RuntimeError("api destroy failed"))
+        monkeypatch.setattr(machines.instances_api, "destroy_instance", destroy_instance)
+        monkeypatch.setattr(machines.requests, "get", lambda *_, **__: SimpleNamespace(status_code=200, text="DONE"))
+        monkeypatch.setattr(machines.time, "sleep", lambda *_: None)
+
+        args = parse_argv(["self-test", "machine", "46368", "--raw"])
+        result = args.func(args)
+
+        assert result["success"] is False
+        assert result["failure_code"] == "cleanup_failed"
+        assert result["stage"] == "cleanup"
+        assert "failed to destroy test instance 123" in result["reason"]
+        assert destroy_instance.call_count >= 10
+
 
 class TestListMachineEpilogDoesNotPromiseEmail:
     """Regression: epilogs must not reference the email that no longer carries details."""
@@ -807,6 +839,67 @@ class TestSelfTestMachineDiagnostics:
         assert result["diagnostics"]["image"]["override"] is True
         assert create.call_args.kwargs["image"] == "vastai/test:p3-env"
         assert create.call_args.kwargs["runtype"] == "ssh_direc ssh_proxy"
+
+    def test_status_poll_timeout_reports_status_poll_failure(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer()
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        show = Mock(
+            side_effect=[
+                RuntimeError("status API unavailable"),
+                {"id": 123, "actual_status": "running", "intended_status": "running"},
+            ]
+        )
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.show_instance", show)
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.destroy_instance", destroy)
+        monkeypatch.setattr("vastai.cli.commands.machines.time.sleep", lambda *_: None)
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.time.time",
+            Mock(side_effect=[0, 0, 901]),
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        assert result["success"] is False
+        assert result["failure_code"] == "instance_status_poll_failed"
+        assert result["stage"] == "startup"
+        assert "status API unavailable" in result["reason"]
+        assert result["failure"]["underlying_error"] == "RuntimeError: status API unavailable"
+        destroy.assert_called_once()
+
+    def test_unexpected_self_test_exception_is_structured_and_redacted(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer()
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.preflight_requirement_checks",
+            Mock(side_effect=RuntimeError("boom https://console.vast.ai/?api_key=secret")),
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        assert result["success"] is False
+        assert result["failure_code"] == "unexpected_error"
+        assert result["failure"]["code"] == "unexpected_error"
+        assert result["diagnostics"]["runtime_failure"]["code"] == "unexpected_error"
+        assert result["failure"]["stage"] == "preflight_checks"
+        assert "api_key=secret" not in result["reason"]
+        assert "api_key=REDACTED" in result["reason"]
 
     def test_default_cuda_mapping_still_selects_official_image(
         self, parse_argv, patch_get_client, monkeypatch

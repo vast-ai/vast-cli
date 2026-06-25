@@ -35,11 +35,13 @@ from vastai.cli.self_test.machine_diagnostics import (
     requirement_failure,
 )
 from vastai.cli.self_test.runtime_diagnostics import (
+    CLEANUP_FAILED,
     DAEMON_STARTUP_FAILED,
     INSTANCE_CREATE_FAILED,
     INSTANCE_CREATE_MISSING_CONTRACT,
     INSTANCE_OFFLINE_BEFORE_TEST,
     INSTANCE_START_TIMEOUT,
+    INSTANCE_STATUS_POLL_FAILED,
     INTERRUPTED,
     LegacyProgressParser,
     MISSING_PUBLIC_IP,
@@ -52,6 +54,7 @@ from vastai.cli.self_test.runtime_diagnostics import (
     UDP_CONTAINER_PORT,
     UDP_PORT_NOT_MAPPED,
     UDP_PROBE_FAILED,
+    UNEXPECTED_ERROR,
     classify_status_msg,
     make_progress_endpoint_diagnostic,
     make_failure,
@@ -1075,6 +1078,7 @@ def self_test__machine(args):
             return finish_failure()
 
         result["offer"] = compact_offer_metadata(selected_offer)
+        result["stage"] = "preflight_checks"
         checks = preflight_requirement_checks(selected_offer)
         result["checks"] = checks
         unmet_checks = failed_checks(checks)
@@ -1297,11 +1301,15 @@ def self_test__machine(args):
                 def wait_for_instance(inst_id, timeout=900, interval=15):
                     start_time = time.time()
                     wait_started_at = None
+                    successful_status_poll = False
+                    last_poll_error = None
+                    last_poll_error_type = None
                     debug_print("Starting wait_for_instance with ID:", inst_id)
 
                     while time.time() - start_time < timeout:
                         try:
                             instance_info = instances_api.show_instance(client, id=inst_id)
+                            successful_status_poll = True
                             if not instance_info:
                                 progress_print(f"No information returned for instance {inst_id}. Retrying...")
                                 time.sleep(interval)
@@ -1399,17 +1407,33 @@ def self_test__machine(args):
 
                         except Exception as e:
                             error = safe_error(e)
+                            last_poll_error = error
+                            last_poll_error_type = e.__class__.__name__
                             progress_print(f"Error retrieving instance info for {inst_id}: {error}. Retrying...")
                             debug_print(f"Exception details: {error}")
                             time.sleep(interval)
 
-                    reason = f"Instance did not become running within {timeout} seconds. Verify network configuration. Use the self-test machine function in vast cli"
+                    if not successful_status_poll and last_poll_error:
+                        reason = f"Could not poll instance status within {timeout} seconds: {last_poll_error}"
+                        diagnostic = make_failure(
+                            INSTANCE_STATUS_POLL_FAILED,
+                            stage="startup",
+                            details=reason,
+                            error=last_poll_error,
+                            underlying_error=f"{last_poll_error_type}: {last_poll_error}",
+                        )
+                    else:
+                        reason = (
+                            f"Instance did not become running within {timeout} seconds. "
+                            "Check host capacity, Docker/container startup, and network or port configuration."
+                        )
+                        diagnostic = make_failure(
+                            INSTANCE_START_TIMEOUT,
+                            stage="startup",
+                            details=reason,
+                        )
                     progress_print(reason)
-                    return False, reason, make_failure(
-                        INSTANCE_START_TIMEOUT,
-                        stage="startup",
-                        details=reason,
-                    )
+                    return False, reason, diagnostic
 
                 # ----- run machine tester -----
                 def run_machinetester(ip_address, port, udp_port, inst_id, machine_id, delay, mapped_ports=None):
@@ -1474,8 +1498,8 @@ def self_test__machine(args):
                             if status == 'offline':
                                 reason = "Instance offline during testing"
                                 progress_print(f"Instance {inst_id} went offline. {reason}")
-                                destroy_instance_silent(inst_id, collect_logs=True)
-                                instance_destroyed = True
+                                cleanup = destroy_instance_silent(inst_id, collect_logs=True)
+                                instance_destroyed = bool(cleanup.get("success"))
                                 return False, reason, make_failure(INSTANCE_OFFLINE_BEFORE_TEST, stage="runtime")
 
                             try:
@@ -1515,8 +1539,8 @@ def self_test__machine(args):
                                         progress_print("  1. UDP firewall/NAT forwarding is blocking the mapped public port")
                                         progress_print("  2. TCP forwarding works, but UDP forwarding was not configured symmetrically")
                                         progress_print("  3. Router/provider rules, CGNAT, or NAT hairpinning are blocking UDP")
-                                        destroy_instance_silent(inst_id, collect_logs=True)
-                                        instance_destroyed = True
+                                        cleanup = destroy_instance_silent(inst_id, collect_logs=True)
+                                        instance_destroyed = bool(cleanup.get("success"))
                                         return_reason = "TCP progress endpoint was reachable, but UDP echo probe failed"
                                         return False, return_reason, make_failure(
                                             UDP_PROBE_FAILED,
@@ -1549,14 +1573,22 @@ def self_test__machine(args):
                                         if not udp_probe_completed:
                                             progress_print("WARNING: Test reached DONE before UDP probe completion was recorded.")
                                         progress_print("Test completed successfully.")
-                                        destroy_instance_silent(inst_id)
-                                        instance_destroyed = True
+                                        cleanup = destroy_instance_silent(inst_id)
+                                        instance_destroyed = bool(cleanup.get("success"))
+                                        if not instance_destroyed:
+                                            reason = f"Test completed, but failed to destroy test instance {inst_id}."
+                                            return False, reason, make_failure(
+                                                CLEANUP_FAILED,
+                                                stage="cleanup",
+                                                details=reason,
+                                                error=cleanup.get("error"),
+                                            )
                                         return True, "", None
                                     elif line.startswith('ERROR'):
                                         progress_print(line)
                                         progress_print(f"Test failed with error: {line}.")
-                                        destroy_instance_silent(inst_id, collect_logs=True)
-                                        instance_destroyed = True
+                                        cleanup = destroy_instance_silent(inst_id, collect_logs=True)
+                                        instance_destroyed = bool(cleanup.get("success"))
                                         return False, line, diagnostic
                                     else:
                                         progress_print(line)
@@ -1627,8 +1659,8 @@ def self_test__machine(args):
                                         details=return_reason,
                                         progress_endpoint=endpoint,
                                     )
-                                destroy_instance_silent(inst_id, collect_logs=True)
-                                instance_destroyed = True
+                                cleanup = destroy_instance_silent(inst_id, collect_logs=True)
+                                instance_destroyed = bool(cleanup.get("success"))
                                 return False, return_reason, diagnostic
 
                             debug_print("Waiting for 20 seconds before the next check.")
@@ -1732,13 +1764,16 @@ def self_test__machine(args):
     except Exception as e:
         error = safe_error(e)
         result["success"] = False
-        result["reason"] = error
-        result["failure_code"] = "unexpected_error"
-        result["failure"] = {
-            "code": "unexpected_error",
-            "summary": error,
-            "remediation": "Retry with --debugging and inspect the error details.",
-        }
+        set_runtime_failure(
+            make_failure(
+                UNEXPECTED_ERROR,
+                stage=result.get("stage"),
+                details=error,
+                error=error,
+                underlying_error=error,
+            ),
+            error,
+        )
         result["error"] = error
 
     finally:

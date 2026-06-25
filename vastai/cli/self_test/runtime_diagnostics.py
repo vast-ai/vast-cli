@@ -36,6 +36,7 @@ NCCL_FAILED = "nccl_failed"
 STRESS_GPU_BURN_FAILED = "stress_gpu_burn_failed"
 INTERRUPTED = "interrupted"
 CLEANUP_FAILED = "cleanup_failed"
+UNEXPECTED_ERROR = "unexpected_error"
 PROGRESS_CONTAINER_PORT = "5000/tcp"
 UDP_CONTAINER_PORT = "5001/udp"
 
@@ -65,6 +66,7 @@ RUNTIME_FAILURE_CODES = (
     STRESS_GPU_BURN_FAILED,
     INTERRUPTED,
     CLEANUP_FAILED,
+    UNEXPECTED_ERROR,
 )
 
 
@@ -109,7 +111,7 @@ FAILURE_CATALOG: dict[str, FailureCatalogEntry] = {
     ),
     INSTANCE_OFFLINE_BEFORE_TEST: FailureCatalogEntry(
         INSTANCE_OFFLINE_BEFORE_TEST,
-        "The instance went offline before the runtime test could run.",
+        "The instance went offline before or during the runtime test.",
         "Investigate host availability and instance lifecycle events.",
         ("Check machine status.", "Review host daemon and container logs."),
     ),
@@ -236,6 +238,12 @@ FAILURE_CATALOG: dict[str, FailureCatalogEntry] = {
         "Destroy the temporary test instance manually to avoid continued billing.",
         ("Run destroy instance for the temporary contract.", "Retry cleanup after checking API connectivity."),
     ),
+    UNEXPECTED_ERROR: FailureCatalogEntry(
+        UNEXPECTED_ERROR,
+        "The self-test command hit an unexpected CLI error.",
+        "Retry with --debugging and inspect the support bundle or terminal output.",
+        ("Retry with --debugging enabled.", "Share the support bundle with Vast support if the error repeats."),
+    ),
 }
 
 
@@ -249,10 +257,10 @@ STAGE_STARTUP = "startup"
 
 _STAGE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"^\s*Running system requirements test\.\.\.\s*$", re.IGNORECASE), STAGE_SYSTEM_REQUIREMENTS),
-    (re.compile(r"^\s*Running ResNet50/ResNet18 test\.\.\.\s*$", re.IGNORECASE), STAGE_RESNET),
-    (re.compile(r"^\s*Running ECC test\.\.\.\s*$", re.IGNORECASE), STAGE_ECC),
-    (re.compile(r"^\s*Running NCCL distributed test\.\.\.\s*$", re.IGNORECASE), STAGE_NCCL),
-    (re.compile(r"^\s*Running stress-ng and gpu-burn\.\.\.\s*$", re.IGNORECASE), STAGE_STRESS_GPU_BURN),
+    (re.compile(r"^\s*Running ResNet(?:50/ResNet18|18)(?: test(?: on all GPUs)?)?\.\.\.\s*$", re.IGNORECASE), STAGE_RESNET),
+    (re.compile(r"^\s*Running ECC test(?: on all GPUs)?\.\.\.\s*$", re.IGNORECASE), STAGE_ECC),
+    (re.compile(r"^\s*Running NCCL distributed test(?: with \d+ GPUs)?\.\.\.\s*$", re.IGNORECASE), STAGE_NCCL),
+    (re.compile(r"^\s*Running stress-ng and gpu-burn(?: tests simultaneously for \d+ seconds)?\.\.\.\s*$", re.IGNORECASE), STAGE_STRESS_GPU_BURN),
 )
 
 _NVML_RE = re.compile(
@@ -543,6 +551,7 @@ __all__ = [
     "UDP_CONTAINER_PORT",
     "UDP_PORT_NOT_MAPPED",
     "UDP_PROBE_FAILED",
+    "UNEXPECTED_ERROR",
     "classify_legacy_error_line",
     "classify_status_msg",
     "failure_catalog",

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from aiohttp import web, ClientResponse
 import logging
 import json
+import math
 import random
 import inspect
 import logging
@@ -29,6 +30,10 @@ ClientResponseGenerator = Callable[
     [web.Request, ClientResponse], Awaitable[Union[web.Response, web.StreamResponse]]
 ]
 WorkloadCalculator = Callable[[Dict[str, Any]], float]
+
+log = logging.getLogger(__name__)
+
+DEFAULT_WORKLOAD = 100.0
 
 
 @dataclass
@@ -172,11 +177,26 @@ class EndpointHandlerFactory:
                     return cls(input=input)
 
                 def count_workload(self) -> float:
-                    # Use custom workload calculator if provided
-                    if user_workload_calculator:
-                        return user_workload_calculator(self.input)
-                    # Default to 100 unless overridden
-                    return 100.0
+                    if not user_workload_calculator:
+                        return DEFAULT_WORKLOAD
+                    # Fall back rather than let a bad calculator 500 requests or
+                    # poison the autoscaler's load sums.
+                    try:
+                        workload = float(user_workload_calculator(self.input))
+                    except Exception:
+                        log.warning(
+                            f'workload_calculator for "{route_path}" raised; '
+                            f"falling back to {DEFAULT_WORKLOAD}",
+                            exc_info=True,
+                        )
+                        return DEFAULT_WORKLOAD
+                    if not math.isfinite(workload) or workload < 0:
+                        log.warning(
+                            f'workload_calculator for "{route_path}" returned '
+                            f"{workload!r}; falling back to {DEFAULT_WORKLOAD}"
+                        )
+                        return DEFAULT_WORKLOAD
+                    return workload
 
                 @classmethod
                 def from_json_msg(cls, json_msg: Dict[str, Any]) -> "GenericApiPayload":

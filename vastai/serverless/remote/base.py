@@ -197,6 +197,7 @@ class Deployment_(ABC):
         benchmark_dataset: list[dict] | None = None,
         benchmark_generator: Callable[[], dict] | None = None,
         benchmark_runs: int = 10,
+        workload_calculator: Callable[..., float] | None = None,
     ) -> (
         Callable[P, Awaitable[Any]]
         | Callable[[Callable[P, Awaitable[Any]]], Callable[P, Awaitable[Any]]]

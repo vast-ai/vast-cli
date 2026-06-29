@@ -29,6 +29,7 @@ class RemoteFunc:
     benchmark_dataset: Optional[list[dict[str, Any]]]
     benchmark_generator: Optional[Callable[[], dict[str, Any]]]
     benchmark_runs: int
+    workload_calculator: Optional[Callable[..., float]]
 
 
 T = TypeVar("T")
@@ -106,6 +107,31 @@ class Deployment(Deployment_, AsyncContextManager):
 
         return wrapper
 
+    def _wrap_workload_calculator(
+        self,
+        root_module: str,
+        user_calc: Callable[..., float],
+        func_globals: dict,
+    ) -> Callable[[dict], float]:
+        """Deserialize the request payload and score it with the user's calculator.
+
+        Runs synchronously inside count_workload and returns a plain float,
+        unlike the async, result-serializing remote-function wrapper.
+        """
+
+        def calculator(payload: dict) -> float:
+            deserialized_args = [
+                deserialize(a, root_module, func_globals)
+                for a in payload.get("args", [])
+            ]
+            deserialized_kwargs = {
+                k: deserialize(v, root_module, func_globals)
+                for k, v in payload.get("kwargs", {}).items()
+            }
+            return float(user_calc(*deserialized_args, **deserialized_kwargs))
+
+        return calculator
+
     def into_worker(self) -> Worker:
         handlers: list[HandlerConfig] = []
         if isinstance(self.root_module, str):
@@ -153,6 +179,12 @@ class Deployment(Deployment_, AsyncContextManager):
                     self.root_module, entry.func, entry.globals
                 )
 
+                workload_calculator = None
+                if entry.workload_calculator is not None:
+                    workload_calculator = self._wrap_workload_calculator(
+                        self.root_module, entry.workload_calculator, entry.globals
+                    )
+
                 handlers.append(
                     HandlerConfig(
                         route=route,
@@ -160,6 +192,7 @@ class Deployment(Deployment_, AsyncContextManager):
                         allow_parallel_requests=entry.allow_parallel_requests,
                         benchmark_config=benchmark_config,
                         max_queue_time=entry.max_queue_time,
+                        workload_calculator=workload_calculator,
                     )
                 )
 
@@ -179,6 +212,7 @@ class Deployment(Deployment_, AsyncContextManager):
         benchmark_dataset: list[dict] | None = None,
         benchmark_generator: Callable[[], dict] | None = None,
         benchmark_runs: int = 10,
+        workload_calculator: Callable[..., float] | None = None,
     ) -> (
         Callable[P, Awaitable[Any]]
         | Callable[[Callable[P, Awaitable[Any]]], Callable[P, Awaitable[Any]]]
@@ -193,6 +227,7 @@ class Deployment(Deployment_, AsyncContextManager):
                 benchmark_dataset=benchmark_dataset,
                 benchmark_generator=benchmark_generator,
                 benchmark_runs=benchmark_runs,
+                workload_calculator=workload_calculator,
             )
             return f
 

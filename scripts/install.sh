@@ -29,9 +29,9 @@ NO_MODIFY_PATH="${VASTAI_NO_MODIFY_PATH:-}"
 WORKDIR=""
 RC_UPDATED=""
 
-say()  { printf 'vastai-install: %s\n' "$*"; }
-warn() { printf 'vastai-install: warning: %s\n' "$*" >&2; }
-die()  { printf 'vastai-install: error: %s\n' "$*" >&2; exit 1; }
+say()  { printf '  %s\n' "$*"; }
+warn() { printf '  warning: %s\n' "$*" >&2; }
+die()  { printf '  error: %s\n' "$*" >&2; exit 1; }
 
 cleanup() { [ -n "$WORKDIR" ] && rm -rf "$WORKDIR"; }
 trap cleanup EXIT
@@ -162,15 +162,21 @@ install_uv() {
         die "no build available for your platform ($PLATFORM_KEY) — install with pip instead: pip install vastai"
     fi
 
-    say "Downloading runtime bootstrap..."
+    say "Downloading runtime..."
     tarball="$WORKDIR/uv.tar.gz"
     download "$url" "$tarball" progress
     verify_sha "$tarball" "$sha" "uv"
 
     mkdir -p "$WORKDIR/uv-extract"
-    tar -xzf "$tarball" -C "$WORKDIR/uv-extract"
-    local uv_bin
-    uv_bin="$(find "$WORKDIR/uv-extract" -type f -name uv | head -n 1)"
+    tar -xzf "$tarball" -C "$WORKDIR/uv-extract" \
+        || die "could not unpack the runtime — tar+gzip required; install them or use pip: pip install vastai"
+    # Locate the uv binary without depending on `find` (absent on minimal images
+    # like amazonlinux:2023): the tarball is either uv-extract/uv or, more
+    # commonly, uv-extract/<target-triple>/uv.
+    local uv_bin="" cand
+    for cand in "$WORKDIR"/uv-extract/uv "$WORKDIR"/uv-extract/*/uv; do
+        [ -f "$cand" ] && { uv_bin="$cand"; break; }
+    done
     [ -n "$uv_bin" ] || die "uv binary not found in downloaded archive"
     chmod +x "$uv_bin"
     # Nothing lands in $ROOT until the download has been verified.
@@ -181,15 +187,23 @@ install_uv() {
 install_version() {
     local version="$1" python_pin="$2" envdir="$ROOT/env" newdir="$ROOT/.env.new"
 
-    say "Installing vastai $version (Python $python_pin, isolated in $ROOT)..."
+    say "Installing vastai $version (Python $python_pin) → $ROOT"
     rm -rf "$newdir"
     export UV_PYTHON_INSTALL_DIR="$ROOT/python"
     export UV_PYTHON_PREFERENCE="only-managed"
-    # Show uv's progress at a TTY, quiet in CI. --relocatable: no hardcoded
-    # build path in shebangs (env/ is renamed into place).
-    local quiet=(--quiet)
-    [ -t 2 ] && quiet=()
-    if ! "$ROOT/bin/uv" venv "$newdir" --python "$python_pin" --relocatable "${quiet[@]}"; then
+    # Provision the managed CPython first — the slow, download-heavy step, so show
+    # its progress at a TTY (quiet in CI). The venv build is then always quiet:
+    # uv venv's own "Activate with: source .../.env.new/..." line is misleading
+    # here — .env.new is renamed to env/ below, and vastai is a symlinked CLI you
+    # run, never a venv you "activate".
+    local pyquiet=(--quiet)
+    [ -t 2 ] && pyquiet=()
+    if ! "$ROOT/bin/uv" python install "$python_pin" "${pyquiet[@]}"; then
+        rm -rf "$newdir"
+        die "could not provision the Python $python_pin runtime"
+    fi
+    # --relocatable: no hardcoded build path in shebangs (env/ is renamed into place).
+    if ! "$ROOT/bin/uv" venv "$newdir" --python "$python_pin" --relocatable --quiet; then
         rm -rf "$newdir"
         die "could not set up the Python $python_pin runtime"
     fi
@@ -316,7 +330,7 @@ main() {
     setup_path
     check_pip_coexistence
 
-    say ""
+    printf '\n'
     say "vastai $version installed to $ROOT"
     say "  Get started:  vastai set api-key YOUR_API_KEY   (https://cloud.vast.ai/manage-keys/?tab=api-keys)"
     say "  Update later: vastai update"

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import warnings
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from vastai._base import _resolve_api_key, _APIKEY_SENTINEL
 from vastai.api.client import VastClient
@@ -276,7 +276,7 @@ class VastAI:
         """Search for templates."""
         return offers.search_templates(self.client, query=query)
 
-    def search_benchmarks(self, query: Optional[str] = None) -> list[dict]:
+    def search_benchmarks(self, query: Optional[Union[str, dict]] = None) -> list[dict]:
         """Search for benchmarks."""
         return offers.search_benchmarks(self.client, query=query)
 

@@ -1,6 +1,8 @@
-"""vastai run benchmarks: benchmark a template against one or more GPUs.
-Each GPU is rented in parallel; the per-GPU measured perf comes from the
-template's pyworker benchmark.
+"""
+A CLI command to benchmark a template against multiple GPUs in parallel.
+The template's pyworker benchmark determines the measured perf (ex. tokens/$).
+
+vastai run benchmarks
 """
 
 import argparse
@@ -10,6 +12,7 @@ import math
 import random
 import re
 import signal
+import statistics
 import sys
 import threading
 import time
@@ -31,48 +34,48 @@ from vastai.data import query as _query_consts
 parser = _get_parser()
 
 
-# Default GPUs (per-card VRAM in MB).
-_DEFAULT_GPUS = {
+# Maps GPU name to per-card VRAM (MiB); used when --gpus is not provided.
+DEFAULT_GPUS = {
     "RTX 5090":  32607,
     "RTX 4090":  24564,
     "RTX 3090":  24576,
     "RTX A6000": 49140,
 }
 
-_ENDPOINT_CONFIG = {"cold_workers": 1, "max_workers": 1, "min_load": 1.0}
+# One worker per GPU, kept alive while idle so we can read its measured perf.
+ENDPOINT_CONFIG = {"cold_workers": 1, "max_workers": 1, "min_load": 1.0}
 
-_WORKER_POLL_INTERVAL = 10.0
-_DEFAULT_BENCHMARK_TIMEOUT = 60 * 60  # seconds to wait for a benchmark to complete before giving up 
-_RENTAL_TIMEOUT = 120  # fail fast if the autoscaler hasn't rented anything by then
-_MAX_ABANDONS = 3  # bail after this many workers get abandoned without one reaching idle 
-_PARALLEL_SUBMIT_DELAY = 4.0  # spacing between parallel submits 
+# Timing knobs, in the order they fire during a run.
+RENTAL_TIMEOUT = 120                 # give up if the autoscaler hasn't rented a worker by now
+DEFAULT_BENCHMARK_TIMEOUT = 30 * 60  # default --timeout: max wait for a measured result
+WORKER_POLL_INTERVAL = 10.0          # base seconds between worker-status polls (jitter added at call site)
+PARALLEL_SUBMIT_DELAY = 4.0          # spacing between parallel endpoint submits
+MAX_ABANDONS = 3                     # bail after this many workers vanish without one reaching idle
 
-# Worker states the autoscaler does NOT recover from. 
-# these will timeout if they persist for >_TERMINAL_GRACE_SECONDS without any worker reaching idle
-# `error` is excluded since the autoscaler retries with error -> rebooting -> model_loading.
-_TERMINAL_STATES = {"stopped", "destroying", "unavail"}
-_TERMINAL_GRACE_SECONDS = 30  # how long a worker can sit in a terminal state before we give up on it
-# statuses to use for the live table
-_TERMINAL_STATUSES = {"done", "skipped", "timeout", "failed", "no_worker"}
+# Worker states the autoscaler does NOT recover from; a run fails if every worker
+# sits in one for >TERMINAL_GRACE_SECONDS without any reaching idle. `error` is
+# excluded since the autoscaler retries it (error -> rebooting -> model_loading).
+TERMINAL_STATES = {"stopped", "destroying", "unavail"}
+TERMINAL_GRACE_SECONDS = 30
 
-# key in worker states that says "no worker rented yet"
-_WAITING_KEY = "__waiting__"
+# Per-spec statuses that freeze the live-table elapsed timer (work is over).
+TERMINAL_STATUSES = {"done", "skipped", "timeout", "failed", "no_worker"}
 
 
-def _format_time_elapsed(seconds):
+def format_time_elapsed(seconds):
     m, s = divmod(int(seconds), 60)
     return f"{m}:{s:02d}"
 
 
-def _parse_gpu_spec(token, default_num_gpus):
-    """parses the gpu arg into (gpu_name, num_gpus)
-    ex. "2x RTX_4090" -> ("RTX 4090", 2)
+def parse_gpu_spec(token, default_num_gpus):
+    """Parse a GPU token into (canonical_gpu_name, num_gpus).
 
-    if both --num_gpus and inline Nx (1x, 2x, etc) prefix are given, Nx wins
-    if no count per gpu isprovided, uses default num_gpus
+    "2x RTX_4090" -> ("RTX 4090", 2). Accepts rtx_4090 / RTX 4090 / Rtx_4090 and
+    canonicalizes to the marketplace's exact name. An inline Nx prefix wins over
+    --num_gpus; with neither, falls back to default_num_gpus.
     """
 
-    # so users can input "rtx_4090" or "RTX 4090" or "Rtx_4090" and all resolves to "RTX 4090" 
+    # so users can input "rtx_4090" or "RTX 4090" or "Rtx_4090" and all resolves to "RTX 4090"
     canonical = {
         v.lower(): v for k, v in vars(_query_consts).items()
         if isinstance(v, str) and not k.startswith("_")
@@ -88,7 +91,7 @@ def _parse_gpu_spec(token, default_num_gpus):
     return (canonical.get(raw_name.lower(), raw_name), n)
 
 
-def _format_filter_query(filters):
+def format_filter_query(filters):
     """Render extra_filters dict into comparison string.
     e.g. {"gpu_ram": {"gte": 16000}} -> "gpu_ram>=16000"
     """
@@ -103,14 +106,13 @@ def _format_filter_query(filters):
 
 
 # ------------------------------------------------------------------------------------
-# the next few functions are pre flight helpers 
-# they check whether each (template, gpu_name, and num_gpus) is rentable
-# so we dont run the benchmark only for it to fail due to 0 matching offers
-# if no mathcing offers, returns user friendly msg 
-# -----------------------------------------------------------------------------------
+# Pre-flight helpers: check whether each (template, gpu_name, num_gpus) is rentable
+# before we benchmark it, so a run can't fail late due to 0 matching offers. On a
+# miss they build a user-friendly explanation of which filter blocked it.
+# ------------------------------------------------------------------------------------
 
 
-def _has_matching_offer(vast, *, gpu_name, num_gpus, extra_filters):
+def has_matching_offer(vast, *, gpu_name, num_gpus, extra_filters):
     """True if any verified+rentable offer matches the template's filters"""
     query = dict(extra_filters or {})
     query["gpu_name"] = {"eq": gpu_name}
@@ -118,14 +120,14 @@ def _has_matching_offer(vast, *, gpu_name, num_gpus, extra_filters):
     return bool(vast.search_offers(query=query, limit=1))
 
 
-def _format_skip_message(vast, *, gpu_name, num_gpus, extra_filters):
-    """Build a user friendlyexplanation for why a GPU has 0 matching offers.
-    Calls search offers to find the blocking filter
+def format_skip_message(vast, *, gpu_name, num_gpus, extra_filters):
+    """Build a user-friendly explanation for why a GPU has 0 matching offers.
+    Calls search_offers to find the blocking filter.
     """
     if not extra_filters:
         return (f"no offers for {gpu_name} (num_gpus={num_gpus})")
 
-    diag = _find_blockers(
+    diag = find_blockers(
         vast, gpu_name=gpu_name, num_gpus=num_gpus,
         extra_filters=extra_filters,
     )
@@ -144,7 +146,7 @@ def _format_skip_message(vast, *, gpu_name, num_gpus, extra_filters):
                 continue
             gpu_value = sample.get(key)
             for op, threshold in ops.items():
-                if _check_template_filter(gpu_value, op, threshold) is True:
+                if check_template_filter(gpu_value, op, threshold) is True:
                     continue  # search-engine quirk, skip
                 sym = OP_TO_STR.get(op, op)
                 if gpu_value is None:
@@ -161,10 +163,10 @@ def _format_skip_message(vast, *, gpu_name, num_gpus, extra_filters):
                 ops = extra_filters.get("gpu_total_ram") or {}
                 if ops:
                     op, value = next(iter(ops.items()))
-                    raw = _min_gpus_for_ram(
+                    raw = min_gpus_for_ram(
                         value, op, diag.get("per_card_gpu_ram"))
                     if raw and raw > num_gpus:
-                        viable = _get_gpu_chunk_size(raw)
+                        viable = get_gpu_chunk_size(raw)
                         lines.append(
                             f"  hint: try {viable}x {gpu_name} "
                             f"(host total then satisfies {value})")
@@ -173,15 +175,13 @@ def _format_skip_message(vast, *, gpu_name, num_gpus, extra_filters):
 
     return ("0 offers match. No single filter is the culprit; the combination "
             f"of template filters excludes {gpu_name} "
-            f"({_format_filter_query(extra_filters)})")
+            f"({format_filter_query(extra_filters)})")
 
 
-def _find_blockers(vast, *, gpu_name, num_gpus, extra_filters):
-    """Identify why ``_has_matching_offer`` returned False.
+def find_blockers(vast, *, gpu_name, num_gpus, extra_filters):
+    """Find which template filter blocks this GPU from having offers.
 
-    Skips filters the GPU mathematically satisfies (avoids API call + dodges
-    Vast search-engine quirks where a passing filter still returns 0). Bails
-    on the first real blocker (user fixes one and re-runs). Returns a dict
+    Bails on the first real blocker. Returns a dict
     {base_count, single_blockers, per_card_gpu_ram, sample_offer}.
     """
     base_query = {"gpu_name": {"eq": gpu_name},
@@ -197,11 +197,11 @@ def _find_blockers(vast, *, gpu_name, num_gpus, extra_filters):
             if isinstance(ops, dict) and sample is not None:
                 gpu_value = sample.get(key)
                 if gpu_value is not None and all(
-                    _check_template_filter(gpu_value, op, threshold) is True
+                    check_template_filter(gpu_value, op, threshold) is True
                     for op, threshold in ops.items()
                 ):
                     continue
-            if not _has_matching_offer(
+            if not has_matching_offer(
                 vast, gpu_name=gpu_name, num_gpus=num_gpus,
                 extra_filters={key: ops},
             ):
@@ -211,7 +211,7 @@ def _find_blockers(vast, *, gpu_name, num_gpus, extra_filters):
             "per_card_gpu_ram": per_card, "sample_offer": sample}
 
 
-def _check_template_filter(gpu_value, op, threshold):
+def check_template_filter(gpu_value, op, threshold):
     """Checks if gpu_value matches the template filters (e.g. gpu_total_ram>=16000)"""
     if gpu_value is None or threshold is None:
         return None
@@ -228,7 +228,7 @@ def _check_template_filter(gpu_value, op, threshold):
     return None
 
 
-def _min_gpus_for_ram(threshold, op, per_card_gpu_ram):
+def min_gpus_for_ram(threshold, op, per_card_gpu_ram):
     """Smallest ``num_gpus`` such that ``num_gpus * per_card_gpu_ram``
     satisfies the template's ``gpu_total_ram`` filter. Returns None if any
     input is missing or the operator isn't a comparison we can solve.
@@ -242,7 +242,7 @@ def _min_gpus_for_ram(threshold, op, per_card_gpu_ram):
     return None
 
 
-def _get_gpu_chunk_size(n):
+def get_gpu_chunk_size(n):
     """Round n up to the next common GPU chunk size (1, 2, 4, 8). Returns n
     unchanged for >8 since that's rare enough we'd rather be honest than guess.
     """
@@ -252,26 +252,65 @@ def _get_gpu_chunk_size(n):
     return n
 
 
-def _pick_num_gpus(gpu_name, extra_filters):
+def pick_num_gpus(gpu_name, extra_filters):
     """Smallest num_gpus where ``num_gpus * per_card_ram`` satisfies the
     template's ``gpu_total_ram`` filter, rounded up to a chassis size.
     Falls back to 1 when the template has no such filter or one card
     already satisfies it.
     """
-    per_card = _DEFAULT_GPUS.get(gpu_name)
+    per_card = DEFAULT_GPUS.get(gpu_name)
     if per_card is None:
         return 1
     ops = (extra_filters or {}).get("gpu_total_ram") or {}
     if not ops:
         return 1
     op, threshold = next(iter(ops.items()))
-    raw_min = _min_gpus_for_ram(threshold, op, per_card)
+    raw_min = min_gpus_for_ram(threshold, op, per_card)
     if raw_min is None or raw_min <= 1:
         return 1
-    return _get_gpu_chunk_size(raw_min)
+    return get_gpu_chunk_size(raw_min)
 
 
-def _update_worker_states(worker_states, current_workers, gpu_name):
+DEFAULT_CACHE_MAX_AGE_DAYS = 30
+
+
+def lookup_cached_benchmark(vast, *, gpu_name, num_gpus, template_hash,
+                             template_id, max_age_days):
+    """Recent reported benchmarks for this exact spec (median + spread), or None.
+
+    Template is matched client-side: rows carry template_hash or template_id
+    depending on how the benchmarked workergroup was created.
+    """
+    query = {
+        "type": {"eq": "perf"},
+        "gpu_name": {"eq": gpu_name},
+        "num_gpus": {"eq": num_gpus},
+        "last_update": {"gte": time.time() - max_age_days * 86400},
+    }
+    rows = vast.search_benchmarks(query=query)
+    if not isinstance(rows, list):
+        return None
+    matched = [
+        r for r in rows
+        if isinstance(r, dict)
+        and ((template_hash and r.get("template_hash") == template_hash)
+             or (template_id and r.get("template_id") == template_id))
+        and isinstance(r.get("value"), (int, float)) and r["value"] > 0
+    ]
+    if not matched:
+        return None
+    values = [r["value"] for r in matched]
+    newest = max((r.get("last_update") or 0) for r in matched)
+    return {
+        "median": statistics.median(values),
+        "low": min(values),
+        "high": max(values),
+        "n": len(matched),
+        "age_days": max(0.0, (time.time() - newest) / 86400),
+    }
+
+
+def update_worker_states(worker_states, current_workers, gpu_name):
     """Update worker_states with current poll, and print only on worker
     rotation (the live rich table already shows current status / elapsed).
     Tracks state_started per worker for the terminal-state grace check.
@@ -279,12 +318,13 @@ def _update_worker_states(worker_states, current_workers, gpu_name):
     """
     now = time.monotonic()
     abandoned = 0
+    waiting_key = "__waiting__"  # non-int sentinel: "no worker rented yet"
 
     if not current_workers:
-        worker_states.setdefault(_WAITING_KEY, {"started": now})
+        worker_states.setdefault(waiting_key, {"started": now})
         return abandoned
 
-    worker_states.pop(_WAITING_KEY, None)
+    worker_states.pop(waiting_key, None)
 
     seen = set()
     for w in current_workers:
@@ -303,11 +343,11 @@ def _update_worker_states(worker_states, current_workers, gpu_name):
 
     for wid in list(worker_states):
         if not isinstance(wid, int):
-            continue  # sentinel keys (e.g. _WAITING_KEY)
+            continue  # skip the non-int waiting sentinel
         if wid not in seen:
             # Worker abandoned; live table only shows current worker, so rotation is otherwise invisible.
             prev = worker_states[wid]
-            elapsed = _format_time_elapsed(now - prev["state_started"])
+            elapsed = format_time_elapsed(now - prev["state_started"])
             print(f"[{gpu_name}] worker {wid} abandoned "
                   f"(last state={prev['status']} for {elapsed})",
                   file=sys.stderr)
@@ -316,7 +356,7 @@ def _update_worker_states(worker_states, current_workers, gpu_name):
     return abandoned
 
 
-def _update_row(class_states, row_id, **fields):
+def update_row(class_states, row_id, **fields):
     """Update one GPU's row in the live-table state dict. Sets
     ``run_started`` on first non-``queued`` status and ``run_ended`` on
     terminal status (so elapsed freezes); each thread only writes its own
@@ -328,16 +368,16 @@ def _update_row(class_states, row_id, **fields):
     new_status = fields.get("status")
     now_ts = time.monotonic()
     if new_status and new_status != cur.get("status"):
-        if "run_started" not in cur and new_status != "queued":
+        if "run_started" not in cur and new_status not in ("queued", "cached"):
             cur["run_started"] = now_ts
-        if new_status in _TERMINAL_STATUSES:
+        if new_status in TERMINAL_STATUSES:
             cur["run_ended"] = now_ts
         else:
             cur.pop("run_ended", None)  # recovered from a transient terminal status; unfreeze elapsed
     cur.update(fields)
 
 
-def _render_table(class_states):
+def render_table(class_states):
     """Render the per-GPU progress as a rich.Table for the live display."""
     table = Table(show_header=True, header_style="bold cyan")
     table.add_column("GPU", no_wrap=True)
@@ -361,9 +401,9 @@ def _render_table(class_states):
         if run_started is None:
             elapsed_str = "-"
         elif run_ended is not None:
-            elapsed_str = _format_time_elapsed(run_ended - run_started)
+            elapsed_str = format_time_elapsed(run_ended - run_started)
         else:
-            elapsed_str = _format_time_elapsed(now - run_started)
+            elapsed_str = format_time_elapsed(now - run_started)
         perf = s.get("perf")
         dph = s.get("dph")
         pps = (perf / dph) if (perf and dph) else None
@@ -380,7 +420,7 @@ def _render_table(class_states):
     return table
 
 
-def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
+def benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
                    workergroups, endpoints,
                    template_hash=None, template_id=None,
                    auto_instance=None, autoscaler_url=None,
@@ -391,11 +431,12 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
     """
     endpoint_id = None
     workergroup_id = None
-    # need the uuid so the endpoint name is unique if we benchmark the same GPU in parallel
-    endpoint_name = f"benchmark {num_gpus}x {gpu_name} ({uuid.uuid4().hex[:8]})"
+    # uuid suffix keeps the name unique when benchmarking the same GPU in parallel;
+    # no parens/shell chars, the backend rejects them in endpoint_name.
+    endpoint_name = f"benchmark {num_gpus}x {gpu_name} {uuid.uuid4().hex[:8]}"
     row_id = f"{num_gpus}x {gpu_name}" # id for the live table so 1x/2x/4x of the same GPU gets its own row
     start = time.monotonic()
-    _update_row(class_states, row_id, status="provisioning")
+    update_row(class_states, row_id, status="provisioning")
     search = f"gpu_name={gpu_name.replace(' ', '_')} num_gpus={num_gpus}"
     if autoscaler_url:
         status_vast = VastAI(api_key=vast.client.api_key, server_url=autoscaler_url, retry=vast.client.retry)
@@ -403,7 +444,7 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
         status_vast = vast
 
     try:
-        endpoint_kwargs = dict(_ENDPOINT_CONFIG, endpoint_name=endpoint_name)
+        endpoint_kwargs = dict(ENDPOINT_CONFIG, endpoint_name=endpoint_name)
         if auto_instance is not None:
             endpoint_kwargs["auto_instance"] = auto_instance
         ep_resp = vast.create_endpoint(**endpoint_kwargs)
@@ -413,9 +454,9 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
             return (gpu_name, num_gpus, "error", None,
                     f"create_endpoint returned no id: {ep_resp!r}", None)
         endpoints.add(endpoint_id)
-        _update_row(class_states, row_id, endpoint_id=endpoint_id)
+        update_row(class_states, row_id, endpoint_id=endpoint_id)
 
-        # cold_workers and min_load are set on _ENDPOINT_CONFIG, not here; the autoscaler reads
+        # cold_workers and min_load are set on ENDPOINT_CONFIG, not here; the autoscaler reads
         # both from the endpoint group, not the workergroup (verified via autoscaler.cpp).
         workergroup_kwargs = dict(
             endpoint_id=endpoint_id,
@@ -434,16 +475,16 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
             return (gpu_name, num_gpus, "error", None,
                     f"create_workergroup returned no id: {resp!r}", None)
         workergroups.add(workergroup_id)
-        _update_row(class_states, row_id, status="waiting_for_worker")
+        update_row(class_states, row_id, status="waiting_for_worker")
         worker_states = {}
         dph_by_worker = {}  # cache so we don't re-fetch dph on every poll
-        abandoned_count = 0  # bail when this hits _MAX_ABANDONS; autoscaler is renting + giving up repeatedly, no progress
+        abandoned_count = 0  # bail when this hits MAX_ABANDONS; autoscaler is renting + giving up repeatedly, no progress
 
         while time.monotonic() - start < timeout:
             if stop_event is not None and stop_event.is_set():
-                _update_row(class_states, row_id, status="aborted")
+                update_row(class_states, row_id, status="aborted")
                 return (gpu_name, num_gpus, "aborted", None, "user aborted", None)
-            # calls get endpoint workers which includes measured perf(get workergroup workers doesnt)  
+            # calls get endpoint workers which includes measured perf(get workergroup workers doesnt)
             resp = status_vast.get_endpoint_workers(endpoint_id)
             if isinstance(resp, list):
                 workers = resp
@@ -451,9 +492,9 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
                 workers = resp["workers"]
             else:
                 workers = []
-            abandoned_count += _update_worker_states(worker_states, workers, gpu_name)
-            if abandoned_count >= _MAX_ABANDONS:
-                _update_row(class_states, row_id, status="failed")
+            abandoned_count += update_worker_states(worker_states, workers, gpu_name)
+            if abandoned_count >= MAX_ABANDONS:
+                update_row(class_states, row_id, status="failed")
                 return (gpu_name, num_gpus, "failed", None,
                         f"autoscaler abandoned {abandoned_count} workers without "
                         f"any reaching idle (likely template + GPU config not loadable "
@@ -477,7 +518,7 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
                               file=sys.stderr)
                 if primary_id and dph_by_worker.get(primary_id) is not None:
                     fields["dph"] = dph_by_worker[primary_id]
-                _update_row(class_states, row_id, **fields)
+                update_row(class_states, row_id, **fields)
             # measured_perf is only real once status==idle; before that it's a dlperf placeholder.
             ready = [w for w in workers
                      if str(w.get("status", "")).lower() == "idle"
@@ -486,46 +527,46 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
                 # dph was already fetched and cached when this worker_id first appeared in polling.
                 worker_id = ready[0].get("id")
                 dph = dph_by_worker.get(worker_id) if worker_id else None
-                _update_row(class_states, row_id, status="done",
+                update_row(class_states, row_id, status="done",
                                  perf=ready[0]["measured_perf"], dph=dph)
                 return (gpu_name, num_gpus, "ok", ready[0]["measured_perf"], None, dph)
             # Fail fast: every worker stuck terminal past the grace period, none reached idle.
             now_ts = time.monotonic()
             terminal_workers_long = workers and all(
-                str(w.get("status", "")).lower() in _TERMINAL_STATES
+                str(w.get("status", "")).lower() in TERMINAL_STATES
                 and isinstance(w.get("id"), int)
                 and w["id"] in worker_states
                 and now_ts - worker_states[w["id"]]["state_started"]
-                    > _TERMINAL_GRACE_SECONDS
+                    > TERMINAL_GRACE_SECONDS
                 for w in workers
             )
             if terminal_workers_long:
                 states = sorted({str(w.get("status", "")).lower()
                                  for w in workers})
-                _update_row(class_states, row_id, status="failed")
+                update_row(class_states, row_id, status="failed")
                 return (gpu_name, num_gpus, "failed", None,
                         f"all workers terminal ({', '.join(states)}) for "
-                        f">{_TERMINAL_GRACE_SECONDS}s without reaching idle; "
+                        f">{TERMINAL_GRACE_SECONDS}s without reaching idle; "
                         f"autoscaler not rotating", None)
             # Fail fast if no real worker (int id) has ever appeared.
             if (not any(isinstance(k, int) for k in worker_states)
-                    and time.monotonic() - start > _RENTAL_TIMEOUT):
-                _update_row(class_states, row_id, status="no_worker")
+                    and time.monotonic() - start > RENTAL_TIMEOUT):
+                update_row(class_states, row_id, status="no_worker")
                 return (gpu_name, num_gpus, "no_worker", None,
-                        f"autoscaler did not rent in {_RENTAL_TIMEOUT}s "
+                        f"autoscaler did not rent in {RENTAL_TIMEOUT}s "
                         f"(possible causes: insufficient credit, scoring issue, "
                         f"all candidates failed silently, or template+GPU mismatch "
                         f"missed by pre-flight)", None)
             # Jitter so N parallel threads don't all hit the autoscaler at the same instant.
-            delay = _WORKER_POLL_INTERVAL + random.uniform(0, 2.0)
+            delay = WORKER_POLL_INTERVAL + random.uniform(0, 2.0)
             if stop_event is not None:
                 if stop_event.wait(timeout=delay):
-                    _update_row(class_states, row_id, status="aborted")
+                    update_row(class_states, row_id, status="aborted")
                     return (gpu_name, num_gpus, "aborted", None, "user aborted", None)
             else:
                 time.sleep(delay)
 
-        _update_row(class_states, row_id, status="timeout")
+        update_row(class_states, row_id, status="timeout")
         return (gpu_name, num_gpus, "timeout", None,
                 f"no measured_perf in {timeout}s", None)
     finally:
@@ -562,8 +603,10 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
              help="comma-separated GPU names (e.g. RTX_4090,RTX_3090); optional Nx prefix takes precedence over --num_gpus (e.g. \"2x RTX_4090\")"),
     argument("--num_gpus", type=int, default=None,
              help="GPUs per instance for tokens without an Nx prefix (default 1); overridden by inline Nx in --gpus"),
-    argument("--timeout", type=int, default=_DEFAULT_BENCHMARK_TIMEOUT,
-             help=f"max seconds to wait for a benchmark before giving up (default {_DEFAULT_BENCHMARK_TIMEOUT})"),
+    argument("--timeout", type=int, default=DEFAULT_BENCHMARK_TIMEOUT,
+             help=f"max seconds to wait for a benchmark before giving up (default {DEFAULT_BENCHMARK_TIMEOUT})"),
+    argument("--no-cache", dest="no_cache", action="store_true",
+             help="re-measure instead of reusing recent cached benchmark results"),
     argument("-y", "--yes", action="store_true",
              help="Skip confirmation prompt"),
     argument("--auto_instance", type=str, default=None, help=argparse.SUPPRESS),
@@ -573,6 +616,11 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
     epilog=deindent("""
         Rents one instance per GPU in parallel, measures perf, tears down.
         Each rental runs for up to --timeout seconds and costs real money.
+
+        Specs benchmarked recently (same template, GPU, and count, by any
+        user) are served from the benchmarks table as an estimated perf, and
+        you're asked whether to reuse that or run a fresh benchmark. Pass
+        --no-cache to always re-measure, or -y to always reuse the cache.
 
         Examples:
             # auto-sweep the default GPUs against TGI
@@ -589,6 +637,9 @@ def _benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
 
             # shorter timeout (30 min), skipping the cost prompt
             vastai run benchmarks --template_hash 393fa8572e6c73c927c8275fe4dffd53 --timeout 1800 -y
+
+            # ignore cached results and re-measure everything
+            vastai run benchmarks --template_hash 79ebdd2ebfb9d42cedf7a221c42d37a5 --no-cache
 
             # raw JSON output for piping into another tool
             vastai run benchmarks --template_hash 40ef49becc953aa910ee05bd4653b9b3 --raw
@@ -623,24 +674,24 @@ def run__benchmarks(args):
         extra_filters = {}
 
     template_name = template.get("name") or template.get("title") or "?"
-    filter_summary = _format_filter_query(extra_filters) or "none"
+    filter_summary = format_filter_query(extra_filters) or "none"
     print(f"\nTemplate id={template.get('id')} {template_name}, filters: {filter_summary}")
 
     # if user provides specific GPU count like "2x RTX 4090", that takes precedence over --num_gpus
     if args.gpus:
-        gpu_specs = [_parse_gpu_spec(t, args.num_gpus or 1)
+        gpu_specs = [parse_gpu_spec(t, args.num_gpus or 1)
                      for t in args.gpus.split(",") if t.strip()]
     elif args.num_gpus is not None:
-        gpu_specs = [(g, args.num_gpus) for g in _DEFAULT_GPUS]
+        gpu_specs = [(g, args.num_gpus) for g in DEFAULT_GPUS]
     else:
         gpu_specs = [
-            (g, _pick_num_gpus(g, extra_filters))
-            for g in _DEFAULT_GPUS
+            (g, pick_num_gpus(g, extra_filters))
+            for g in DEFAULT_GPUS
         ]
 
     console = Console(stderr=True)
 
-    # deduplicates (gpu, num_gpus) so we dont benchmark the same GPU config twice 
+    # deduplicates (gpu, num_gpus) so we dont benchmark the same GPU config twice
     seen = set()
     deduped = []
     for g, n in gpu_specs:
@@ -652,16 +703,54 @@ def run__benchmarks(args):
         deduped.append((g, n))
     gpu_specs = deduped
 
-    # Pre-flight: skip GPU specs that have 0 matching offers before prompting,
-    # so the user sees skip reasons before approving the rentals.
+    # Pre-flight: for each spec, serve a recent cached benchmark if one exists
+    # (unless --no-cache), else skip specs with 0 matching offers, so the user
+    # sees cache hits and skip reasons before approving any rentals.
     compatible_specs = []
     skipped_results = []
+    cached_results = []
+    interactive = not (args.yes or args.raw)
     for g, n in gpu_specs:
-        if not _has_matching_offer(
+        if not args.no_cache:
+            hit = lookup_cached_benchmark(
+                vast, gpu_name=g, num_gpus=n,
+                template_hash=template.get("hash_id"),
+                template_id=template.get("id"),
+                max_age_days=DEFAULT_CACHE_MAX_AGE_DAYS,
+            )
+            if hit:
+                # Perf only: a cached row's $/hr would come from a different machine than the one benchmarked.
+                rentable = has_matching_offer(
+                    vast, gpu_name=g, num_gpus=n, extra_filters=extra_filters)
+                age = (f"{hit['age_days']:.0f}d" if hit["age_days"] >= 1
+                       else "<1d")
+                note = None if rentable else "no offers available to rent right now"
+                msg = (f"[green][{n}x {g}] cached:[/green] median perf "
+                       f"{hit['median']:.1f} "
+                       f"(n={hit['n']}, range {hit['low']:.1f}-{hit['high']:.1f}, "
+                       f"newest {age} ago)")
+                if note:
+                    msg += f"; [yellow]{note}[/yellow]"
+                console.print(msg, highlight=False)
+                # Default is to reuse the cached result; only an interactive user
+                # who opts in pays to re-measure (and only when offers exist).
+                run_fresh = (
+                    interactive and rentable
+                    and input(
+                        f"  [{n}x {g}] run a fresh benchmark anyway? this rents a "
+                        f"real GPU and charges your account [y/N] "
+                    ).strip().lower() in ("y", "yes")
+                )
+                if run_fresh:
+                    compatible_specs.append((g, n))  # offers already confirmed
+                else:
+                    cached_results.append((g, n, "cached", hit["median"], note, None))
+                continue
+        if not has_matching_offer(
             vast, gpu_name=g, num_gpus=n,
             extra_filters=extra_filters,
         ):
-            msg = _format_skip_message(
+            msg = format_skip_message(
                 vast, gpu_name=g, num_gpus=n,
                 extra_filters=extra_filters,
             )
@@ -671,13 +760,27 @@ def run__benchmarks(args):
         else:
             compatible_specs.append((g, n))
 
+    # Live-table state. Pre-populate every GPU so the table is complete.
+    class_states = {}
+    for g, n in compatible_specs:
+        update_row(class_states, f"{n}x {g}", status="queued")
+    for sr in skipped_results:
+        update_row(class_states, f"{sr[1]}x {sr[0]}", status="skipped")
+    for cr in cached_results:
+        update_row(class_states, f"{cr[1]}x {cr[0]}", status="cached",
+                    perf=cr[3], dph=cr[5])
+
     timeout_minutes = args.timeout / 60.0
     n = len(compatible_specs)
     if n == 0:
-        console.print(
-            "\nNo compatible GPUs to benchmark for this template.",
-            style="bold red")
-        return _print_results(args, skipped_results)
+        if cached_results:
+            console.print()
+            console.print(render_table(class_states))
+        else:
+            console.print(
+                "\nNo compatible GPUs to benchmark for this template.",
+                style="bold red")
+        return print_results(args, skipped_results + cached_results)
 
     spec_strs = [f"{cnt}x {gpu}" for gpu, cnt in compatible_specs]
     spec_summary = ", ".join(spec_strs)
@@ -727,16 +830,9 @@ def run__benchmarks(args):
                     pass
     atexit.register(_cleanup)
 
-    # Live-table state. Pre-populate every GPU so the table is complete.
-    class_states = {}
-    for g, n in compatible_specs:
-        _update_row(class_states, f"{n}x {g}", status="queued")
-    for sr in skipped_results:
-        _update_row(class_states, f"{sr[1]}x {sr[0]}", status="skipped")
-
     def _run_one_gpu(g, n):
         try:
-            return _benchmark_gpu(
+            return benchmark_gpu(
                 vast,
                 gpu_name=g,
                 num_gpus=n,
@@ -751,7 +847,7 @@ def run__benchmarks(args):
                 stop_event=stop_event,
             )
         except Exception as e:
-            _update_row(class_states, f"{n}x {g}", status="error")
+            update_row(class_states, f"{n}x {g}", status="error")
             # Surface response body for HTTPError so backend rate-limit / validation
             # messages aren't swallowed (default __str__ on HTTPError just shows the URL).
             body = ""
@@ -771,9 +867,9 @@ def run__benchmarks(args):
         for i, (g, n_for_class) in enumerate(compatible_specs):
             futures.append(executor.submit(_run_one_gpu, g, n_for_class))
             if i < len(compatible_specs) - 1:
-                time.sleep(_PARALLEL_SUBMIT_DELAY)
+                time.sleep(PARALLEL_SUBMIT_DELAY)
         try:
-            with Live(_render_table(class_states), console=console,
+            with Live(render_table(class_states), console=console,
                       refresh_per_second=2, transient=False) as live:
                 pending = set(futures)
                 while pending:
@@ -788,7 +884,7 @@ def run__benchmarks(args):
                             console.print(
                                 f"[red][{n}x {g}] {status}:[/red] {err}",
                                 highlight=False)
-                    live.update(_render_table(class_states))
+                    live.update(render_table(class_states))
         except KeyboardInterrupt:
             # Set stop_event so threads exit their poll/sleep immediately, then cleanup synchronously.
             console.print(
@@ -803,11 +899,11 @@ def run__benchmarks(args):
         executor.shutdown(wait=True)
         _cleanup()
 
-    results = skipped_results + run_results
-    return _print_results(args, results)
+    results = skipped_results + cached_results + run_results
+    return print_results(args, results)
 
 
-def _print_results(args, results):
+def print_results(args, results):
     rows = []
     for gpu, num_gpus, status, perf, err, price in results:
         pps = (perf / price) if (perf and price) else None
@@ -825,4 +921,6 @@ def _print_results(args, results):
         return rows
 
     n_ok = sum(1 for r in rows if r["status"] == "ok")
-    print(f"\nBenchmark complete: {n_ok}/{len(rows)} GPUs measured.")
+    n_cached = sum(1 for r in rows if r["status"] == "cached")
+    line = f"\nBenchmark complete: {n_ok + n_cached}/{len(rows)} GPUs measured"
+    print(line + (f" ({n_cached} from cache)." if n_cached else "."))

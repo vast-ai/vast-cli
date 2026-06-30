@@ -168,9 +168,15 @@ install_uv() {
     verify_sha "$tarball" "$sha" "uv"
 
     mkdir -p "$WORKDIR/uv-extract"
-    tar -xzf "$tarball" -C "$WORKDIR/uv-extract"
-    local uv_bin
-    uv_bin="$(find "$WORKDIR/uv-extract" -type f -name uv | head -n 1)"
+    tar -xzf "$tarball" -C "$WORKDIR/uv-extract" \
+        || die "could not unpack the runtime — tar+gzip required; install them or use pip: pip install vastai"
+    # Locate the uv binary without depending on `find` (absent on minimal images
+    # like amazonlinux:2023): the tarball is either uv-extract/uv or, more
+    # commonly, uv-extract/<target-triple>/uv.
+    local uv_bin="" cand
+    for cand in "$WORKDIR"/uv-extract/uv "$WORKDIR"/uv-extract/*/uv; do
+        [ -f "$cand" ] && { uv_bin="$cand"; break; }
+    done
     [ -n "$uv_bin" ] || die "uv binary not found in downloaded archive"
     chmod +x "$uv_bin"
     # Nothing lands in $ROOT until the download has been verified.

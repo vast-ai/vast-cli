@@ -157,8 +157,11 @@ def main():
         try:
             res = args.func(args)
 
-            # Passive upgrade nudge — disabled for now (manual `vastai update`).
-            # from vastai.cli.selfupdate import notify_update; notify_update(args)
+            # Passive upgrade nudge: best-effort, ≤1 manifest GET + ≤1 stderr
+            # line per 24h, silent when offline/piped/CI. Never raises. Opt out
+            # with VASTAI_NO_UPDATE_CHECK=1. See selfupdate.py and §7.
+            from vastai.cli.selfupdate import notify_update
+            notify_update(args)
 
             if args.raw and res is not None:
                 try:

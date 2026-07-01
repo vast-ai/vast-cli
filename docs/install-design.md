@@ -165,10 +165,9 @@ Not built in v1.
 
 ## 7. Passive update nudge
 
-> **Status: implemented but disabled.** The call is commented out in
-> `main.py` — updates are manual via `vastai update` for now. Re-enable the
-> two lines when we want the per-command check (the logic and tests below all
-> exist and pass).
+> **Status: enabled.** `notify_update(args)` runs as a post-command hook in
+> `main.py`. Opt out with `VASTAI_NO_UPDATE_CHECK=1` (also off under
+> `--raw`/`CI`/non-TTY).
 
 - After commands: at most **one manifest GET and one stderr line per 24h**, hard
   1s timeout, every failure silent with 24h backoff (offline machines pay ≤1s

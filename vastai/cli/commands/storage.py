@@ -54,12 +54,12 @@ parser = _get_parser()
         Volume copy is currently only supported for copying to other volumes or instances, not cloud services or local.
 
         Examples:
-         vast copy 6003036:/workspace/ 6003038:/workspace/
-         vast copy C.11824:/data/test local:data/test
-         vast copy local:data/test C.11824:/data/test
-         vast copy drive:/folder/file.txt C.6003036:/workspace/
-         vast copy s3.101:/data/ C.6003036:/workspace/
-         vast copy V.1234:/file C.5678:/workspace/
+         vastai copy 6003036:/workspace/ 6003038:/workspace/
+         vastai copy C.11824:/data/test local:data/test
+         vastai copy local:data/test C.11824:/data/test
+         vastai copy drive:/folder/file.txt C.6003036:/workspace/
+         vastai copy s3.101:/data/ C.6003036:/workspace/
+         vastai copy V.1234:/file C.5678:/workspace/
 
         The first example copy syncs all files from the absolute directory '/workspace' on instance 6003036 to the directory '/workspace' on instance 6003038.
         The second example copy syncs files from container 11824 to the local machine using structured syntax.

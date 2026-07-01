@@ -710,8 +710,8 @@ def dump_logs(args):
         runs a series of tests to ensure it's functioning correctly.
 
         Examples:
-         vast self-test machine 12345
-         vast self-test machine 12345 --debugging
+         vastai self-test machine 12345
+         vastai self-test machine 12345 --debugging
     """),
 )
 def self_test__machine(args):
@@ -1302,7 +1302,7 @@ def self_test__machine(args):
                             debug_print(f"Exception details: {error}")
                             time.sleep(interval)
 
-                    reason = f"Instance did not become running within {timeout} seconds. Verify network configuration. Use the self-test machine function in vast cli"
+                    reason = f"Instance did not become running within {timeout} seconds. Verify network configuration. Use the self-test machine function in the vastai CLI"
                     progress_print(reason)
                     return False, reason, make_failure(
                         INSTANCE_START_TIMEOUT,

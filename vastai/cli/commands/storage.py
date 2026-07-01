@@ -129,7 +129,7 @@ def copy(args):
         Use this command to cancel any/all current remote copy operations copying to a specific named instance, given by DST.
 
         Examples:
-         vast cancel copy 12371
+         vastai cancel copy 12371
 
         The first example cancels all copy operations currently copying data into instance 12371
 
@@ -160,7 +160,7 @@ def cancel__copy(args):
         Use this command to cancel any/all current remote cloud sync operations copying to a specific named instance, given by DST.
 
         Examples:
-         vast cancel sync 12371
+         vastai cancel sync 12371
 
         The first example cancels all copy operations currently copying data into instance 12371
 

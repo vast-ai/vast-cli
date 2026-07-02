@@ -133,6 +133,12 @@ detect_platform() {
         aarch64|arm64) [ "$os" = "DARWIN" ] && arch="ARM64" || arch="AARCH64" ;;
         *) die "unsupported architecture: $arch — install with pip instead: pip install vastai" ;;
     esac
+    # An x86_64 shell under Rosetta 2 reports the emulated arch; install the
+    # native arm64 build instead. (sysctl key absent on Intel Macs → empty → no-op.)
+    if [ "$os" = "DARWIN" ] && [ "$arch" = "X86_64" ] \
+        && [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || true)" = "1" ]; then
+        arch="ARM64"
+    fi
     if [ "$os" = "LINUX" ]; then
         if is_musl; then
             libc="_MUSL"

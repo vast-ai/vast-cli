@@ -202,9 +202,11 @@ install_version() {
     # uv venv's own "Activate with: source .../.env.new/..." line is misleading
     # here — .env.new is renamed to env/ below, and vastai is a symlinked CLI you
     # run, never a venv you "activate".
+    # ${arr[@]+...} guard: bash 3.2 (macOS default) treats an empty array as
+    # unset under `set -u`, so a bare "${pyquiet[@]}" would abort the install.
     local pyquiet=(--quiet)
     [ -t 2 ] && pyquiet=()
-    if ! "$ROOT/bin/uv" python install "$python_pin" "${pyquiet[@]}"; then
+    if ! "$ROOT/bin/uv" python install "$python_pin" ${pyquiet[@]+"${pyquiet[@]}"}; then
         rm -rf "$newdir"
         die "could not provision the Python $python_pin runtime"
     fi

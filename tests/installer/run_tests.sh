@@ -18,7 +18,8 @@ PASS=0
 FAIL=0
 
 cleanup() {
-    [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null
+    # The wait reaps the server so bash 3.2 doesn't print "Terminated".
+    [ -n "$SERVER_PID" ] && { kill "$SERVER_PID" 2>/dev/null; wait "$SERVER_PID" 2>/dev/null; }
     rm -rf "$TESTS_TMP"
 }
 trap cleanup EXIT
@@ -126,6 +127,7 @@ assert() { # assert DESC command...
 }
 
 out_contains() { grep -q "$1" "$SB_OUT"; }
+out_lacks()    { ! grep -qa "$1" "$SB_OUT"; }
 
 # ---------------------------------------------------------------------------
 # Scenarios
@@ -214,12 +216,39 @@ test_completion_files_generated() { # static completion scripts precomputed unde
         [ "$(grep -c 'eval.*register-python-argcomplete' "$SB_OUT")" -eq 0 ]
 }
 
+test_tty_install() { # interactive install (stderr on a pty) must survive old bash
+    # install.sh empties its pyquiet array at a TTY ([ -t 2 ]), and on bash
+    # < 4.4 expanding an empty array under `set -u` is fatal ("pyquiet[@]:
+    # unbound variable") — macOS's stock /bin/bash is 3.2. The other scenarios
+    # never hit this: they run detached from any tty, so the array stays
+    # non-empty. Runs the real installer on a pty via script(1) under
+    # ${VASTAI_TEST_TTY_BASH:-/bin/bash}; the regression guarantee comes from
+    # hosts whose /bin/bash predates 4.4 (the macOS leg of installer CI).
+    new_sandbox tty
+    command -v script >/dev/null 2>&1 || { echo "    (skipped: no script(1))"; return 0; }
+    local tty_bash="${VASTAI_TEST_TTY_BASH:-/bin/bash}"
+    local cmd=(env "HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" \
+        "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" \
+        "VASTAI_NO_MODIFY_PATH=1" "$tty_bash" "$INSTALL_SH")
+    case "$(uname -s)" in
+        Darwin*) script -q /dev/null "${cmd[@]}" >"$SB_OUT" 2>&1 </dev/null ;;
+        # util-linux script wants one string; sandbox paths contain no spaces.
+        *)       script -qec "${cmd[*]}" /dev/null >"$SB_OUT" 2>&1 </dev/null ;;
+    esac
+    assert "no set -u explosion at a TTY" out_lacks "unbound variable" &&
+    assert "install completed" out_contains "vastai 1.2.3 installed" &&
+    assert "installed CLI runs" [ "$("$SB_ROOT/bin/vastai" --version)" = "1.2.3" ]
+}
+
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
-ALL_TESTS=(fresh_install pinned_reinstall checksum_abort truncation_guard glibc_floor rc_safety completion_when_path_ok completion_files_generated)
-SELECTED=("${@:-${ALL_TESTS[@]}}")
+ALL_TESTS=(fresh_install pinned_reinstall checksum_abort truncation_guard glibc_floor rc_safety completion_when_path_ok completion_files_generated tty_install)
+# No "${@:-...}": expanding $@ with zero args under set -u is itself fatal on
+# old bash, and this harness must run under macOS's stock bash 3.2 (see
+# test_tty_install).
+if [ "$#" -gt 0 ]; then SELECTED=("$@"); else SELECTED=("${ALL_TESTS[@]}"); fi
 
 mkdir -p "$FIXTURES"
 start_server

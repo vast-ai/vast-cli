@@ -27,8 +27,16 @@ jobs:
       - name: python syntax check
         run: python3 -m py_compile scripts/make_manifest.py scripts/publish_release.py
 
+  # macOS matters here beyond os coverage: its stock /bin/bash is 3.2, which
+  # is what test_tty_install needs to catch set -u empty-array regressions
+  # (fatal on bash < 4.4, invisible on Linux CI's modern bash).
   hermetic-tests:
-    runs-on: ubuntu-latest
+    name: hermetic-tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - name: run install.sh hermetic scenarios (no external network)

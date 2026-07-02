@@ -9,6 +9,7 @@ on:
       - "scripts/publish_release.py"
       - "tests/installer/**"
       - "pyproject.toml"
+      - "poetry.lock"
       - ".github/workflows/installer-ci.yml"
 
 concurrency:
@@ -70,6 +71,44 @@ jobs:
         with:
           name: pr-wheel
           path: dist/vastai-*.whl
+
+  # Footprint ratchet: install THIS PR's closure and fail if it grew > 5% over
+  # the committed baseline. A CLI shouldn't quietly balloon (transformers added
+  # ~138 MiB via #424). On a real increase the dev either slims the PR or bumps
+  # tests/installer/footprint_baseline.env deliberately — the diff records intent.
+  # Hermetic uv measure on one canonical platform (linux x86_64); the per-package
+  # denylist in tests/test_dependency_budget.py covers the cross-platform angle.
+  footprint-budget:
+    needs: build-wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: pr-wheel
+          path: dist
+      - name: install uv
+        # Pinned to the same uv the release manifest ships (make_manifest.py).
+        run: curl -LsSf https://astral.sh/uv/0.11.21/install.sh | sh
+      - name: measure dependency footprint vs baseline (+5% ratchet)
+        run: |
+          set -euo pipefail
+          . tests/installer/footprint_baseline.env
+          export PATH="$HOME/.local/bin:$PATH"
+          uv venv /tmp/fp --python 3.12 --quiet
+          uv pip install --python /tmp/fp/bin/python --quiet dist/vastai-*.whl
+          # Ask the venv's own interpreter for site-packages — one deterministic
+          # path, vs. a find that could match zero or several dirs.
+          SITE="$(/tmp/fp/bin/python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+          BYTES="$(du -sb "$SITE" | cut -f1)"
+          CEIL=$(( FOOTPRINT_BASELINE_BYTES * 105 / 100 ))
+          PCT=$(( (BYTES - FOOTPRINT_BASELINE_BYTES) * 100 / FOOTPRINT_BASELINE_BYTES ))
+          printf 'footprint: %d MiB | baseline: %d MiB | delta: %d%% | ceiling(+5%%): %d MiB\n' \
+            $((BYTES/1048576)) $((FOOTPRINT_BASELINE_BYTES/1048576)) "$PCT" $((CEIL/1048576))
+          if [ "$BYTES" -gt "$CEIL" ]; then
+            echo "::error::dependency footprint grew ${PCT}% (>5%). Slim the PR, or bump FOOTPRINT_BASELINE_BYTES in tests/installer/footprint_baseline.env deliberately."
+            exit 1
+          fi
 
   # Real end-to-end install across the OS matrix — the prebuilt-runtime promise.
   # The release manifest (uv pin, CPython) comes from the published Release;

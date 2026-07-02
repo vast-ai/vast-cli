@@ -552,7 +552,7 @@ class MyWideHelpFormatter(argparse.RawTextHelpFormatter):
 
 
 parser = apwrap(
-    epilog="Use 'vast COMMAND --help' for more info about a command. AI agent? See https://raw.githubusercontent.com/vast-ai/vast-cli/master/vastai/SKILL.md",
+    epilog="Use 'vastai COMMAND --help' for more info about a command. AI agent? See https://raw.githubusercontent.com/vast-ai/vast-cli/master/vastai/SKILL.md",
     formatter_class=MyWideHelpFormatter
 )
 
@@ -1349,9 +1349,9 @@ def get_ssh_key(argstr):
         Attach an ssh key to an instance. This will allow you to connect to the instance with the ssh key.
 
         Examples:
-         vast attach ssh 12371 AAAAB3NzaC1yc2EAAA...
-         vast attach ssh 12371 $(cat ~/.ssh/id_rsa.pub)
-         vast attach ssh 12371 ~/.ssh/id_rsa.pub
+         vastai attach ssh 12371 AAAAB3NzaC1yc2EAAA...
+         vastai attach ssh 12371 $(cat ~/.ssh/id_rsa.pub)
+         vastai attach ssh 12371 ~/.ssh/id_rsa.pub
 
         All examples attaches the ssh key to instance 12371
     """),
@@ -1374,7 +1374,7 @@ def attach__ssh(args):
         Use this command to cancel any/all current remote copy operations copying to a specific named instance, given by DST.
 
         Examples:
-         vast cancel copy 12371
+         vastai cancel copy 12371
 
         The first example cancels all copy operations currently copying data into instance 12371
 
@@ -1417,7 +1417,7 @@ def cancel__copy(args: argparse.Namespace):
         Use this command to cancel any/all current remote cloud sync operations copying to a specific named instance, given by DST.
 
         Examples:
-         vast cancel sync 12371
+         vastai cancel sync 12371
 
         The first example cancels all copy operations currently copying data into instance 12371
 
@@ -1595,12 +1595,12 @@ def clone__volume(args: argparse.Namespace):
         Volume copy is currently only supported for copying to other volumes or instances, not cloud services or local.
 
         Examples:
-         vast copy 6003036:/workspace/ 6003038:/workspace/
-         vast copy C.11824:/data/test local:data/test
-         vast copy local:data/test C.11824:/data/test
-         vast copy drive:/folder/file.txt C.6003036:/workspace/
-         vast copy s3.101:/data/ C.6003036:/workspace/
-         vast copy V.1234:/file C.5678:/workspace/
+         vastai copy 6003036:/workspace/ 6003038:/workspace/
+         vastai copy C.11824:/data/test local:data/test
+         vastai copy local:data/test C.11824:/data/test
+         vastai copy drive:/folder/file.txt C.6003036:/workspace/
+         vastai copy s3.101:/data/ C.6003036:/workspace/
+         vastai copy V.1234:/file C.5678:/workspace/
 
         The first example copy syncs all files from the absolute directory '/workspace' on instance 6003036 to the directory '/workspace' on instance 6003038.
         The second example copy syncs files from container 11824 to the local machine using structured syntax.
@@ -8381,10 +8381,10 @@ def remove__defjob(args):
         runs a series of tests to ensure it's functioning correctly.
 
         Examples:
-         vast self-test machine 12345
-         vast self-test machine 12345 --debugging
-         vast self-test machine 12345 --explain
-         vast self-test machine 12345 --api_key <YOUR_API_KEY>
+         vastai self-test machine 12345
+         vastai self-test machine 12345 --debugging
+         vastai self-test machine 12345 --explain
+         vastai self-test machine 12345 --api_key <YOUR_API_KEY>
     """),
 )
 
@@ -8415,7 +8415,7 @@ def self_test__machine(args):
                 with open(api_key_file, "r") as reader:
                     args.api_key = reader.read().strip()
             else:
-                progress_print(args, "No API key found. Please set it using 'vast set api-key YOUR_API_KEY_HERE'")
+                progress_print(args, "No API key found. Please set it using 'vastai set api-key YOUR_API_KEY_HERE'")
                 result["reason"] = "API key not found."
         
         api_key = args.api_key
@@ -8627,7 +8627,7 @@ def self_test__machine(args):
                     raise Exception("Unexpected response type from create__instance.")
             except Exception as e:
                 progress_print(args, f"Error creating instance: {e}")
-                result["reason"] = "Failed to create instance. Check the docker configuration. Use the self-test machine function in vast cli "
+                result["reason"] = "Failed to create instance. Check the docker configuration. Use the self-test machine function in the vastai CLI "
                 return result  # Cleanup handled in finally block
 
             # Extract instance ID and proceed
@@ -9313,7 +9313,7 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
         try:
             instance_info = show__instance(show_args)
             if args.debugging:
-                debug_print(args, f"is_instance(): Output from vast show instance: {instance_info}")
+                debug_print(args, f"is_instance(): Output from vastai show instance: {instance_info}")
 
             if not instance_info or not isinstance(instance_info, dict):
                 if args.debugging:
@@ -9693,7 +9693,7 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
             time.sleep(interval)
     
     # Timeout reached without instance running
-    reason = f"Instance did not become running within {timeout} seconds. Verify network configuration. Use the self-test machine function in vast cli"
+    reason = f"Instance did not become running within {timeout} seconds. Verify network configuration. Use the self-test machine function in the vastai CLI"
     progress_print(args, reason)
     return False, reason
 
@@ -9705,7 +9705,7 @@ login_deprecated_message = """
 login via the command line is no longer supported.
 go to https://console.vast.ai/cli in a web browser to get your api key, then run:
 
-    vast set api-key YOUR_API_KEY_HERE
+    vastai set api-key YOUR_API_KEY_HERE
 """
 
 """

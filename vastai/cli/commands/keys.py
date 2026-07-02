@@ -192,9 +192,9 @@ def update__ssh_key(args):
         Attach an ssh key to an instance. This will allow you to connect to the instance with the ssh key.
 
         Examples:
-         vast attach ssh 12371 AAAAB3NzaC1yc2EAAA...
-         vast attach ssh 12371 $(cat ~/.ssh/id_rsa.pub)
-         vast attach ssh 12371 ~/.ssh/id_rsa.pub
+         vastai attach ssh 12371 AAAAB3NzaC1yc2EAAA...
+         vastai attach ssh 12371 $(cat ~/.ssh/id_rsa.pub)
+         vastai attach ssh 12371 ~/.ssh/id_rsa.pub
 
         All examples attaches the ssh key to instance 12371
     """),

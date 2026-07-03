@@ -204,9 +204,13 @@ install_version() {
     # run, never a venv you "activate".
     # ${arr[@]+...} guard: bash 3.2 (macOS default) treats an empty array as
     # unset under `set -u`, so a bare "${pyquiet[@]}" would abort the install.
+    # --no-bin: the venv finds the interpreter via UV_PYTHON_INSTALL_DIR, so
+    # python shims in ~/.local/bin are pointless — and when that dir is off
+    # PATH they trigger uv's "not on your PATH ... uv python update-shell"
+    # warning, advice that doesn't apply to a vastai install.
     local pyquiet=(--quiet)
     [ -t 2 ] && pyquiet=()
-    if ! "$ROOT/bin/uv" python install "$python_pin" ${pyquiet[@]+"${pyquiet[@]}"}; then
+    if ! "$ROOT/bin/uv" python install "$python_pin" --no-bin ${pyquiet[@]+"${pyquiet[@]}"}; then
         rm -rf "$newdir"
         die "could not provision the Python $python_pin runtime"
     fi
@@ -216,10 +220,26 @@ install_version() {
         die "could not set up the Python $python_pin runtime"
     fi
     # pip install stays quiet always — the per-package "+ pkg==ver" list is noise.
-    local spec="${VASTAI_PIP_SPEC:-vastai==$version}"
-    if ! "$ROOT/bin/uv" pip install --python "$newdir/bin/python" --quiet "$spec"; then
+    # Retry with backoff: right after a release the manifest can advertise a
+    # version that PyPI's CDN-cached index doesn't serve yet on every edge, so
+    # the pin resolves as "no version found" for a minute or two. --refresh on
+    # retries makes uv revalidate its cached index instead of replaying it.
+    local spec="${VASTAI_PIP_SPEC:-vastai==$version}" pip_ok="" delay
+    local pipflags=()
+    for delay in 5 10 20 30 60 60 0; do
+        if "$ROOT/bin/uv" pip install --python "$newdir/bin/python" --quiet \
+                ${pipflags[@]+"${pipflags[@]}"} "$spec"; then
+            pip_ok=1
+            break
+        fi
+        [ "$delay" = 0 ] && break
+        say "$spec is not installable yet (new releases can take a minute to reach the package index) — retrying in ${delay}s"
+        sleep "$delay"
+        pipflags=(--refresh)
+    done
+    if [ -z "$pip_ok" ]; then
         rm -rf "$newdir"
-        die "could not install $spec (is the version correct?)"
+        die "could not install $spec — if this release just went out, the package index may still be catching up: wait a minute and re-run. Otherwise check that the version exists."
     fi
     "$newdir/bin/vastai" --version >/dev/null \
         || { rm -rf "$newdir"; die "installed CLI failed its smoke test"; }

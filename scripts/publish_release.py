@@ -41,6 +41,7 @@ PACKAGE = "vastai"
 RELEASE_BASE_URL = "https://github.com/vast-ai/vast-cli/releases/latest/download"
 PYPI_POLL_TIMEOUT_S = 15 * 60
 PYPI_POLL_INTERVAL_S = 15
+PYPI_CDN_GRACE_S = 60
 
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+([.\-+].+)?$")
 
@@ -116,24 +117,44 @@ def ensure_tag_pushed(tag, *, assume_yes, dry):
 
 
 def wait_for_pypi(version, dry):
-    """Poll PyPI until the version is downloadable."""
-    url = f"https://pypi.org/pypi/{PACKAGE}/{version}/json"
+    """Poll PyPI's simple index until it serves this version's wheel.
+
+    pip/uv resolve against the simple index, which is CDN-cached and can lag
+    the JSON API by minutes after an upload — so the index, not the API, is
+    what gates publishing the manifest that points installers at the version.
+    """
+    url = f"https://pypi.org/simple/{PACKAGE}/"
+    needle = f"{PACKAGE}-{version}-"  # wheel filename prefix
+    # The CDN caches the HTML and JSON forms of the index as separate objects
+    # (it varies on Accept); uv fetches the JSON form, pip can use either —
+    # require the version in both before calling it live.
+    accepts = ("text/html", "application/vnd.pypi.simple.v1+json")
     if dry:
-        log(f"[dry-run] poll {url} until available")
+        log(f"[dry-run] wait {PYPI_CDN_GRACE_S}s, then poll {url} (html+json) "
+            f"until {needle}*.whl appears")
         return
-    log(f"waiting for {PACKAGE}=={version} on PyPI ...")
+    # Grace period first: our poll sees one CDN edge, installers hit others.
+    # Passing at t=15s here doesn't mean every edge serves the version yet.
+    log(f"waiting {PYPI_CDN_GRACE_S}s for the PyPI CDN to settle ...")
+    time.sleep(PYPI_CDN_GRACE_S)
+    log(f"waiting for {PACKAGE}=={version} on the PyPI index ...")
     start = time.monotonic()
     while True:
         try:
-            with urllib.request.urlopen(url, timeout=10) as r:
-                if r.status == 200:
-                    log(f"{PACKAGE}=={version} is live on PyPI")
-                    return
+            if all(needle in _fetch(url, accept) for accept in accepts):
+                log(f"{PACKAGE}=={version} is live on the PyPI index")
+                return
         except Exception:
             pass
         if time.monotonic() - start > PYPI_POLL_TIMEOUT_S:
             raise ReleaseError(f"timed out waiting for {PACKAGE}=={version} on PyPI")
         time.sleep(PYPI_POLL_INTERVAL_S)
+
+
+def _fetch(url, accept):
+    req = urllib.request.Request(url, headers={"Accept": accept})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return r.read().decode("utf-8", "replace")
 
 
 def resolve_wheel(version, workdir, *, ci, dry):
@@ -208,7 +229,7 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("version", help="release version, no leading v (e.g. 1.0.14)")
     ap.add_argument("--ci", action="store_true",
-                    help="CI mode: tag already pushed, hash the wheel in dist/ (no PyPI poll)")
+                    help="CI mode: tag already pushed, hash the wheel in dist/")
     ap.add_argument("--dry-run", action="store_true", help="print every action, change nothing")
     ap.add_argument("--yes", action="store_true", help="skip confirmation prompts")
     ap.add_argument("--skip-verify", action="store_true",
@@ -223,6 +244,9 @@ def main():
     try:
         if ci:
             log(f"CI release for {tag} (tag already pushed; wheel from dist/)")
+            # The wheel is hashed from dist/, but the manifest must not go
+            # live before installers can actually resolve the version.
+            wait_for_pypi(version, dry)
         else:
             check_clean_tree(dry)
             ensure_tag_pushed(tag, assume_yes=args.yes, dry=dry)

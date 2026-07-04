@@ -191,7 +191,8 @@ install_uv() {
 }
 
 install_version() {
-    local version="$1" python_pin="$2" envdir="$ROOT/env" newdir="$ROOT/.env.new"
+    local version="$1" python_pin="$2" wheel_url="${3:-}" wheel_sha="${4:-}"
+    local envdir="$ROOT/env" newdir="$ROOT/.env.new"
 
     say "Installing vastai $version (Python $python_pin) → $ROOT"
     rm -rf "$newdir"
@@ -204,9 +205,11 @@ install_version() {
     # run, never a venv you "activate".
     # ${arr[@]+...} guard: bash 3.2 (macOS default) treats an empty array as
     # unset under `set -u`, so a bare "${pyquiet[@]}" would abort the install.
+    # --no-bin: the venv finds the interpreter via UV_PYTHON_INSTALL_DIR;
+    # shims in ~/.local/bin would only add uv's misleading PATH warning.
     local pyquiet=(--quiet)
     [ -t 2 ] && pyquiet=()
-    if ! "$ROOT/bin/uv" python install "$python_pin" ${pyquiet[@]+"${pyquiet[@]}"}; then
+    if ! "$ROOT/bin/uv" python install "$python_pin" --no-bin ${pyquiet[@]+"${pyquiet[@]}"}; then
         rm -rf "$newdir"
         die "could not provision the Python $python_pin runtime"
     fi
@@ -216,7 +219,13 @@ install_version() {
         die "could not set up the Python $python_pin runtime"
     fi
     # pip install stays quiet always — the per-package "+ pkg==ver" list is noise.
+    # Latest installs the release wheel by URL, hash-verified against the
+    # manifest — no PyPI index propagation window. A pin to any other
+    # version falls back to PyPI (always long-published, so race-free).
     local spec="${VASTAI_PIP_SPEC:-vastai==$version}"
+    if [ -z "${VASTAI_PIP_SPEC:-}" ] && [ -n "$wheel_url" ] && [ -n "$wheel_sha" ]; then
+        spec="vastai @ ${wheel_url}#sha256=${wheel_sha}"
+    fi
     if ! "$ROOT/bin/uv" pip install --python "$newdir/bin/python" --quiet "$spec"; then
         rm -rf "$newdir"
         die "could not install $spec (is the version correct?)"
@@ -332,8 +341,16 @@ main() {
     fi
     version="${VASTAI_VERSION:-$latest}"
 
+    # The wheel URL/sha are truthful only for the version they describe
+    # (LATEST) — used whenever that's what we're installing, pinned or not.
+    local wheel_url="" wheel_sha=""
+    if [ "$version" = "$latest" ]; then
+        wheel_url="$(manifest_get WHEEL_URL)"
+        wheel_sha="$(manifest_get WHEEL_SHA256)"
+    fi
+
     install_uv
-    install_version "$version" "$python_pin"
+    install_version "$version" "$python_pin" "$wheel_url" "$wheel_sha"
     generate_completions
     setup_path
     check_pip_coexistence

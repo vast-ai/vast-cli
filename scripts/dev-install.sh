@@ -27,6 +27,7 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 from_source=""
+manifest_flags=()
 passthrough=()
 for arg in "$@"; do
     case "$arg" in
@@ -48,13 +49,15 @@ else
     # Default to the latest released tag: that's what the hosted manifest will say.
     version="${VASTAI_VERSION:-$(git -C "$repo" describe --tags --abbrev=0 | sed 's/^v//')}"
     wheel="$tmp/dummy.whl"
-    # install.sh never reads the wheel hash (uv verifies PyPI downloads itself),
-    # so a dummy wheel is fine for manifest rendering here.
+    # A dummy wheel can't yield a truthful wheel URL/sha; --no-wheel-url makes
+    # install.sh fall back to the PyPI version pin (uv verifies those itself).
     touch "$wheel"
+    manifest_flags=(--no-wheel-url)
 fi
 
 python3 "$repo/scripts/make_manifest.py" \
-    --version "$version" --wheel "$wheel" --out "$tmp" >/dev/null
+    --version "$version" --wheel "$wheel" --out "$tmp" \
+    ${manifest_flags[0]+"${manifest_flags[@]}"} >/dev/null
 
 echo "dev-install: simulating hosted installer for vastai $version (manifest in $tmp)"
 VASTAI_CLI_BASE_URL="file://$tmp" VASTAI_VERSION="$version" \

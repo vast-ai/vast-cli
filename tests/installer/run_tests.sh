@@ -67,15 +67,18 @@ EOF
     UV_SHA="$(sha256_of "$FIXTURES/uv.tar.gz")"
 }
 
-# write_manifest SUBDIR LATEST [SHA]
+# write_manifest SUBDIR LATEST [SHA [WHEEL_URL WHEEL_SHA]]
 write_manifest() {
-    local dir="$FIXTURES/$1" latest="$2" sha="${3:-$UV_SHA}" key
+    local dir="$FIXTURES/$1" latest="$2" sha="${3:-$UV_SHA}"
+    local wheel_url="${4:-}" wheel_sha="${5:-}" key
     mkdir -p "$dir"
     {
         echo "SCHEMA=1"
         echo "CHANNEL=stable"
         echo "LATEST=$latest"
         echo "PYTHON=3.12"
+        [ -n "$wheel_url" ] && echo "WHEEL_URL=$wheel_url"
+        [ -n "$wheel_sha" ] && echo "WHEEL_SHA256=$wheel_sha"
         echo "UV_VERSION=0.0.0-test"
         for key in LINUX_X86_64 LINUX_X86_64_MUSL LINUX_AARCH64 LINUX_AARCH64_MUSL DARWIN_ARM64 DARWIN_X86_64; do
             echo "UV_URL_$key=$SERVER/uv.tar.gz"
@@ -151,6 +154,25 @@ test_pinned_reinstall() { # VASTAI_VERSION pin replaces env in place, no retenti
     assert "pinned version live" [ "$("$SB_ROOT/bin/vastai" --version)" = "0.9.9" ] &&
     assert "single active install, no version retention" [ ! -e "$SB_ROOT/versions" ] &&
     assert "no leftover temp env" [ ! -e "$SB_ROOT/.env.new" ]
+}
+
+test_wheel_url_install() { # latest installs the manifest's hash-pinned release wheel
+    new_sandbox wheelurl
+    write_manifest wheelurl 1.2.3 "" \
+        "http://release.invalid/v1.2.3/vastai-1.2.3-py3-none-any.whl" "cafe123"
+    run_install "VASTAI_CLI_BASE_URL=$SERVER/wheelurl" || { cat "$SB_OUT"; return 1; }
+    assert "uv received the URL+sha spec" \
+        [ "$("$SB_ROOT/bin/vastai" --version)" = "vastai @ http://release.invalid/v1.2.3/vastai-1.2.3-py3-none-any.whl#sha256=cafe123" ]
+}
+
+test_wheel_url_pin_fallback() { # a pinned version must ignore latest's wheel URL
+    new_sandbox wheelpin
+    write_manifest wheelpin 1.2.3 "" \
+        "http://release.invalid/v1.2.3/vastai-1.2.3-py3-none-any.whl" "cafe123"
+    run_install "VASTAI_CLI_BASE_URL=$SERVER/wheelpin" VASTAI_VERSION=0.9.9 \
+        || { cat "$SB_OUT"; return 1; }
+    assert "pin used the plain version spec" \
+        [ "$("$SB_ROOT/bin/vastai" --version)" = "0.9.9" ]
 }
 
 test_checksum_abort() { # tampered artifact -> abort with zero residue
@@ -244,7 +266,7 @@ test_tty_install() { # interactive install (stderr on a pty) must survive old ba
 # Runner
 # ---------------------------------------------------------------------------
 
-ALL_TESTS=(fresh_install pinned_reinstall checksum_abort truncation_guard glibc_floor rc_safety completion_when_path_ok completion_files_generated tty_install)
+ALL_TESTS=(fresh_install pinned_reinstall wheel_url_install wheel_url_pin_fallback checksum_abort truncation_guard glibc_floor rc_safety completion_when_path_ok completion_files_generated tty_install)
 # No "${@:-...}": expanding $@ with zero args under set -u is itself fatal on
 # old bash, and this harness must run under macOS's stock bash 3.2 (see
 # test_tty_install).

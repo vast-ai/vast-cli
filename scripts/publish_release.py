@@ -166,23 +166,31 @@ def render_manifest(version, wheel, outdir, *, dry):
          "--wheel", wheel, "--out", outdir], dry=dry, capture=True)
 
 
-def attach_release(tag, manifest_dir, *, dry):
-    """Create the Release (if missing) and upload the three assets."""
+def attach_release(tag, manifest_dir, wheel, *, dry):
+    """Create the Release as a draft, upload all assets, then publish it.
+
+    releases/latest ignores drafts, so installers never see a manifest whose
+    wheel isn't fetchable, nor a half-populated latest release.
+    """
     if dry:
-        log(f"[dry-run] gh release create/view {tag}; "
-            f"gh release upload {tag} --clobber manifest.json manifest.env install.sh")
+        log(f"[dry-run] gh release create {tag} --draft; gh release upload {tag} "
+            f"--clobber {Path(wheel).name} manifest.json manifest.env install.sh; "
+            f"gh release edit {tag} --draft=false")
         return
     exists = subprocess.run(["gh", "release", "view", tag],
                             capture_output=True, text=True).returncode == 0
     if not exists:
-        run(["gh", "release", "create", tag, "--title", tag,
+        run(["gh", "release", "create", tag, "--draft", "--title", tag,
              "--notes", f"{PACKAGE} {tag.lstrip('v')}", "--generate-notes"], dry=dry)
     else:
         log(f"release {tag} exists — updating assets")
     run(["gh", "release", "upload", tag, "--clobber",
+         str(wheel),
          str(Path(manifest_dir) / "manifest.json"),
          str(Path(manifest_dir) / "manifest.env"),
          str(INSTALL_SH)], dry=dry)
+    # No-op if already published (re-run); flips a fresh draft live.
+    run(["gh", "release", "edit", tag, "--draft=false"], dry=dry)
 
 
 def verify_install(version, *, dry):
@@ -235,7 +243,7 @@ def main():
             if not confirm(f"Attach manifest + install.sh to GitHub Release {tag}?",
                            assume_yes=args.yes or ci, dry=dry):
                 raise ReleaseError("aborted before publishing the Release")
-            attach_release(tag, workdir, dry=dry)
+            attach_release(tag, workdir, wheel, dry=dry)
 
         if args.skip_verify:
             log("skipping verify (--skip-verify)")

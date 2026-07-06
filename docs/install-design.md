@@ -39,15 +39,19 @@ The design splits the install into two layers:
 2. Fetch manifest over TLS.
 3. Verify sha256 **before** anything lands in `$ROOT`.
 4. Install + symlink: pinned `uv` provisions managed CPython 3.12 and installs
-   the published PyPI wheel into an isolated venv. **System Python is never
-   used, even if present.**
+   the release wheel — fetched from the same GitHub Release as the manifest
+   and verified against its sha256, so a just-published release is installable
+   immediately (no PyPI index propagation window) — into an isolated venv.
+   **System Python is never used, even if present.**
 
 ### Fail-closed guarantees
 
 - Whole script wrapped in `main()`, invoked on the **last line** — a truncated
   download executes nothing.
 - TLS-only downloads; uv tarball sha256 verified against the manifest before
-  unpacking. (Wheel integrity is delegated to uv: TLS + PyPI hashes.)
+  unpacking. The wheel is hash-pinned too: uv verifies the manifest's sha256
+  via the `#sha256=` URL fragment. (Version-pinned installs fall back to the
+  PyPI pin: uv's TLS + index hashes.)
 - Runs as root without complaint (no shared prefix — everything lands in the
   invoking user's `$HOME/.vastai`), since fresh VMs/containers are commonly root.
 - Unsupported platform, **glibc older than the floor** (2.31 — Ubuntu 20.04+/
@@ -141,8 +145,9 @@ retargeting, no retention/GC, no offline-instant-rollback guarantee.
   downgrades," reusing the same install-and-swap. There is no separate rollback
   machinery and no kept-on-disk previous version.
 - Verification mirrors the installer: confirm the new env runs and reports the
-  expected version before swapping; wheel integrity comes from uv (TLS + PyPI
-  hashes), the uv binary itself from the manifest sha256 at install time.
+  expected version before swapping. Latest installs the manifest's hash-pinned
+  release wheel; `--version` pins use the PyPI pin (uv: TLS + index hashes).
+  The uv binary itself comes from the manifest sha256 at install time.
 
 ### Same-method discipline
 pip installs (which fail the managed-install check) get the correct
@@ -224,9 +229,11 @@ is what CI users will reach for by analogy to uv.
 wheel. Pins the `uv` version and embeds per-platform sha256 fetched from uv's
 release assets — no floating tags anywhere in the supply chain. `install.type`
 is the seam that lets a frozen binary replace the wheel later with zero
-user-facing change; a future `wheel_url` field would let the CLI ship faster
-than the PyPI `vastai` package (attach the wheel to the Release, point installs
-there) — not enabled yet, one pipeline at a time.
+user-facing change. `wheel_url` points installs of `latest` at the wheel on
+the same Release — drafted, fully populated, then published, so a manifest
+can never advertise a version installers can't fetch. `--no-wheel-url` omits
+the field (dev manifests from a placeholder wheel); consumers fall back to
+the PyPI version pin, as do `--version` pins and pre-`wheel_url` releases.
 
 ## 12. Rollout (dark launch)
 

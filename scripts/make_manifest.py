@@ -33,6 +33,10 @@ PYTHON_PIN = "3.12"
 UV_VERSION = "0.11.21"
 UV_BASE = f"https://github.com/astral-sh/uv/releases/download/{UV_VERSION}"
 
+# The wheel is attached to the same GitHub Release as this manifest; the URL
+# is per-tag so a manifest never races the next release.
+RELEASE_DOWNLOAD_BASE = "https://github.com/vast-ai/vast-cli/releases/download"
+
 # manifest platform key -> uv release target triple
 UV_TARGETS = {
     "linux-x86_64":       "x86_64-unknown-linux-gnu",
@@ -58,7 +62,7 @@ def fetch_uv_sha(target: str) -> str:
         return r.read().decode().split()[0]
 
 
-def build_manifest(version: str, wheel_sha: str, channel: str) -> dict:
+def build_manifest(version: str, wheel_sha: str, channel: str, wheel_url: str | None) -> dict:
     uv_artifacts = {
         key: {
             "url": f"{UV_BASE}/uv-{target}.tar.gz",
@@ -66,7 +70,7 @@ def build_manifest(version: str, wheel_sha: str, channel: str) -> dict:
         }
         for key, target in UV_TARGETS.items()
     }
-    return {
+    manifest = {
         "schema": SCHEMA,
         "channel": channel,
         "latest": version,
@@ -82,6 +86,9 @@ def build_manifest(version: str, wheel_sha: str, channel: str) -> dict:
             },
         },
     }
+    if wheel_url:
+        manifest["install"]["wheel_url"] = wheel_url
+    return manifest
 
 
 def render_env(manifest: dict) -> str:
@@ -95,6 +102,8 @@ def render_env(manifest: dict) -> str:
         f"WHEEL_SHA256={install['wheel_sha256']}",
         f"UV_VERSION={install['uv']['version']}",
     ]
+    if install.get("wheel_url"):
+        lines.append(f"WHEEL_URL={install['wheel_url']}")
     for key, art in install["uv"]["artifacts"].items():
         env_key = key.upper().replace("-", "_")
         lines.append(f"UV_URL_{env_key}={art['url']}")
@@ -108,6 +117,8 @@ def main() -> int:
     ap.add_argument("--wheel", required=True, help="path (or glob) to the published vastai wheel")
     ap.add_argument("--channel", default="stable")
     ap.add_argument("--out", required=True, help="output directory")
+    ap.add_argument("--no-wheel-url", action="store_true",
+                    help="omit install.wheel_url; consumers fall back to the PyPI version pin")
     args = ap.parse_args()
 
     wheels = sorted(glob.glob(args.wheel))
@@ -115,7 +126,9 @@ def main() -> int:
         print(f"error: --wheel {args.wheel!r} matched {len(wheels)} files, need exactly 1", file=sys.stderr)
         return 1
 
-    manifest = build_manifest(args.version, sha256_file(Path(wheels[0])), args.channel)
+    wheel = Path(wheels[0])
+    wheel_url = None if args.no_wheel_url else f"{RELEASE_DOWNLOAD_BASE}/v{args.version}/{wheel.name}"
+    manifest = build_manifest(args.version, sha256_file(wheel), args.channel, wheel_url)
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)

@@ -16,6 +16,7 @@ import pytest
 from vastai.cli import selfupdate
 from vastai.cli.selfupdate import (
     UpdateError, is_newer, version_key, is_managed_install, perform_update,
+    wheel_spec,
 )
 
 MANIFEST = {
@@ -24,6 +25,27 @@ MANIFEST = {
     "latest": "1.3.0",
     "install": {"type": "pypi-wheel", "package": "vastai", "python": "3.12"},
 }
+
+WHEEL_URL = "https://github.com/vast-ai/vast-cli/releases/download/v1.3.0/vastai-1.3.0-py3-none-any.whl"
+MANIFEST_WITH_WHEEL = {
+    **MANIFEST,
+    "install": {**MANIFEST["install"], "wheel_url": WHEEL_URL, "wheel_sha256": "cafe123"},
+}
+
+
+class TestWheelSpec:
+    def test_latest_installs_the_hash_pinned_release_wheel(self):
+        assert wheel_spec("1.3.0", MANIFEST_WITH_WHEEL) == f"vastai @ {WHEEL_URL}#sha256=cafe123"
+
+    def test_pin_or_rollback_uses_the_pypi_version_pin(self):
+        assert wheel_spec("1.2.0", MANIFEST_WITH_WHEEL) == "vastai==1.2.0"
+
+    def test_manifest_without_wheel_url_falls_back(self):
+        assert wheel_spec("1.3.0", MANIFEST) == "vastai==1.3.0"
+
+    def test_wheel_url_without_sha_falls_back(self):
+        manifest = {**MANIFEST, "install": {**MANIFEST["install"], "wheel_url": WHEEL_URL}}
+        assert wheel_spec("1.3.0", manifest) == "vastai==1.3.0"
 
 
 class TestVersionOrdering:

@@ -31,8 +31,10 @@ jobs:
           poetry config pypi-token.pypi "$PYPI_API_TOKEN"
           poetry publish --build
       # Installer side: hash the just-built dist/ wheel, render the manifest,
-      # and attach manifest.{json,env} + install.sh to the GitHub Release. The
-      # vast.ai redirects serve releases/latest/download/*, so this is the deploy.
+      # and attach wheel + manifest.{json,env} + install.sh to a draft Release
+      # published only once fully populated (installs fetch the wheel from the
+      # Release, not PyPI). The vast.ai redirects serve
+      # releases/latest/download/*, so this is the deploy.
       - name: publish installer manifest + release assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -89,4 +91,10 @@ jobs:
           grep -q 'Vast.ai CLI installer' /tmp/install.sh
           grep -qx "LATEST=$VERSION" /tmp/manifest.env
           python3 -c "import json; d=json.load(open('/tmp/manifest.json')); assert d['latest']=='$VERSION', d['latest']"
-          echo "release assets for $VERSION are attached, parse, and match"
+          # Confirm the wheel installers will fetch is live and byte-correct.
+          WHEEL_URL="$(sed -n 's/^WHEEL_URL=//p' /tmp/manifest.env)"
+          WHEEL_SHA="$(sed -n 's/^WHEEL_SHA256=//p' /tmp/manifest.env)"
+          test -n "$WHEEL_URL" && test -n "$WHEEL_SHA"
+          curl -fsSL --retry 3 "$WHEEL_URL" -o /tmp/release.whl
+          echo "$WHEEL_SHA  /tmp/release.whl" | sha256sum -c -
+          echo "release assets for $VERSION are attached, parse, match, and the wheel is fetchable + hash-verified"

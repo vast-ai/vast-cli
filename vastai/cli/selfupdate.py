@@ -216,6 +216,21 @@ def _link_binaries(root: Path) -> None:
         os.replace(tmp, link)
 
 
+def wheel_spec(target: str, manifest: dict) -> str:
+    """Requirement spec that installs ``target``.
+
+    Latest installs the manifest's release wheel: hash-pinned bytes straight
+    from the GitHub Release, no PyPI propagation window. Other targets are
+    pins/rollbacks to long-published versions, where the PyPI pin is
+    race-free and covers releases that predate wheel_url.
+    """
+    install = manifest.get("install") or {}
+    url, sha = install.get("wheel_url"), install.get("wheel_sha256")
+    if target == manifest.get("latest") and url and sha:
+        return f"vastai @ {url}#sha256={sha}"
+    return f"vastai=={target}"
+
+
 def perform_update(target: str, manifest: dict) -> None:
     """Install ``target`` into a fresh env, verify it, then swap it in.
 
@@ -223,8 +238,8 @@ def perform_update(target: str, manifest: dict) -> None:
     and only swapped over the live one after it verifies, so an interrupted
     update can never leave a half-written or broken ``vastai``. There is no
     version retention — a re-pin or rollback is just ``update --version X``,
-    which reinstalls. Wheel integrity is delegated to uv (TLS + PyPI hashes);
-    we additionally confirm the installed version matches ``target``.
+    which reinstalls. Wheel integrity comes from ``wheel_spec``; we
+    additionally confirm the installed version matches ``target``.
     """
     root = install_root()
     uv = root / "bin" / "uv"
@@ -242,7 +257,7 @@ def perform_update(target: str, manifest: dict) -> None:
         # --relocatable: shebangs must not hardcode the build path (env is renamed into place).
         _run([uv, "venv", new_dir, "--python", python_pin, "--relocatable", "--quiet"], env=uv_env)
         _run([uv, "pip", "install", "--python", new_dir / "bin" / "python",
-              "--quiet", f"vastai=={target}"], env=uv_env)
+              "--quiet", wheel_spec(target, manifest)], env=uv_env)
         installed = (_run([new_dir / "bin" / "vastai", "--version"]).stdout or "").strip()
         if target not in installed:
             raise UpdateError(

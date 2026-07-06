@@ -67,7 +67,7 @@ def update(args):
             return 0
         print(f"Updating vastai {current} -> {target} ...")
         perform_update(target, manifest)
-        print(f"Done. vastai is now {target} (roll back with `vastai update --version {current}`).")
+        print(f"Done. vastai is now {target}.")
         return 0
 
     except UpdateError as e:

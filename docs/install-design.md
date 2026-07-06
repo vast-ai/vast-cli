@@ -144,14 +144,6 @@ retargeting, no retention/GC, no offline-instant-rollback guarantee.
   expected version before swapping; wheel integrity comes from uv (TLS + PyPI
   hashes), the uv binary itself from the manifest sha256 at install time.
 
-### Why keep `--version` rollback at all
-We release **daily**, so bad releases ship fairly often. Without a `--version`
-escape hatch a user who pulls a broken daily can only "uninstall, reinstall, and
-hope latest is fixed" — useless mid-incident. `--version` lets them pin to
-yesterday's known-good. It is cheap insurance *because* we release daily, and it
-costs nothing extra on top of single-version (the mechanism already exists for
-pinning).
-
 ### Same-method discipline
 pip installs (which fail the managed-install check) get the correct
 `pip install --upgrade vastai` hint and exit — **never shell out to a guessed

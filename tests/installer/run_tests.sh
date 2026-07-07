@@ -267,12 +267,10 @@ test_pip_shadowing_rerun() { # rc block written pre-shadowing must gain the PATH
     new_sandbox piprerun
     command -v script >/dev/null 2>&1 || { echo "    (skipped: no script(1))"; return 0; }
     mkdir -p "$SB/pipbin" "$SB_HOME/.local/bin" "$SB_HOME/dotfiles"
-    # .bashrc as a symlink (dotfile-manager layout): the rewrite must write
-    # through the link, never replace it with a regular file.
+    # .bashrc as a symlink (dotfile-manager layout): the rewrite must write through it, not replace it.
     touch "$SB_HOME/dotfiles/bashrc"
     ln -s dotfiles/bashrc "$SB_HOME/.bashrc"
-    # First install with healthy PATH (.local/bin first, nothing shadowing):
-    # the rc block is written without a PATH export.
+    # First install with healthy PATH: block written without a PATH export.
     local cmd=(env "HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" \
         "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" \
         "PATH=$SB_HOME/.local/bin:/usr/bin:/bin" /bin/bash "$INSTALL_SH")
@@ -282,8 +280,7 @@ test_pip_shadowing_rerun() { # rc block written pre-shadowing must gain the PATH
     esac
     assert "precondition: block written without PATH export" \
         [ "$(grep -c 'export PATH' "$SB_HOME/.bashrc")" -eq 0 ] || return 1
-    # A pip vastai now outranks ours. A re-run must not skip on the marker: it
-    # rewrites the existing block to reassert precedence, still without warning.
+    # A pip vastai now outranks ours: the re-run must rewrite the block, not skip on the marker.
     printf '#!/bin/sh\necho 1.0.13\n' > "$SB/pipbin/vastai"
     chmod +x "$SB/pipbin/vastai"
     local cmd2=(env "HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" \
@@ -304,8 +301,7 @@ test_pip_shadowing_rerun() { # rc block written pre-shadowing must gain the PATH
         grep -q '\.local/bin' "$SB_HOME/dotfiles/bashrc" &&
     assert "no leftover tmp file" [ ! -e "$SB_HOME/.bashrc.vastai.tmp" ] &&
     assert "no coexistence warning once resolved" out_lacks "another vastai" || return 1
-    # Third run, shell still shadowed but rc already configured: must be a
-    # quiet no-op — no spurious warning, no second block, hint still shown.
+    # Third run, still shadowed but rc already configured: quiet no-op, hint still shown.
     cp "$SB_HOME/dotfiles/bashrc" "$SB/rc-after-rewrite"
     case "$(uname -s)" in
         Darwin*) script -q /dev/null "${cmd2[@]}" >"$SB_OUT" 2>&1 </dev/null ;;
@@ -325,9 +321,7 @@ test_rc_block_malformed() { # hand-mangled block must never be rewritten (data-l
     mkdir -p "$SB/pipbin" "$SB_HOME/.local/bin"
     printf '#!/bin/sh\necho 1.0.13\n' > "$SB/pipbin/vastai"
     chmod +x "$SB/pipbin/vastai"
-    # End marker indented by hand: passes a substring probe but is not the
-    # exact line the rewrite deletes up to — the installer must refuse the
-    # rewrite (falling back to the warning) rather than eat the rc tail.
+    # Indented end marker: not an exact line, so the rewrite must refuse rather than eat the rc tail.
     printf '# >>> vastai installer >>>\n  # <<< vastai installer <<<\nalias keepme=1\n' > "$SB_HOME/.bashrc"
     cp "$SB_HOME/.bashrc" "$SB/before"
     local cmd=(env "HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" \

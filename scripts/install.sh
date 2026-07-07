@@ -282,9 +282,7 @@ setup_path() {
         *) PATH_OK="" ;;
     esac
 
-    # rc block: completion always (sources the static script); PATH export
-    # whenever precedence isn't guaranteed — $LOCAL_BIN missing from PATH or
-    # outranked by another vastai — so we never skip completion on PATH_OK.
+    # rc block: completion always; PATH export whenever $LOCAL_BIN precedence isn't guaranteed (off PATH or outranked).
     local rc_file shell_name marker marker_end path_export completion comp_file path_line block rewrite
     rc_file="$(rc_file_for_shell)"
     shell_name="$(basename "${SHELL:-}")"
@@ -304,23 +302,15 @@ setup_path() {
 ${path_line}${completion}
 $marker_end"
 
-    # Marker idempotency is content-aware: an existing block written when PATH
-    # was healthy carries no PATH export, so if a foreign vastai now resolves
-    # first the block must be rewritten to reassert precedence, not skipped.
+    # Content-aware idempotency: a block lacking a newly needed PATH export is rewritten, not skipped.
     rewrite=""
     if [ -n "$rc_file" ] && [ -f "$rc_file" ] && grep -qF "$marker" "$rc_file"; then
         if [ -z "$path_line" ] || grep -qF "$path_export" "$rc_file"; then
-            # Already configured; takes effect in new shells. RC_UPDATED means
-            # "the rc guarantees precedence", not "written this run" — without
-            # it a re-run in a still-shadowed shell would warn about a
-            # coexistence problem the rc has already resolved.
+            # RC_UPDATED means "rc guarantees precedence", not "written this run" — else re-runs warn spuriously.
             RC_UPDATED=1
             return 0
         fi
-        # Rewrite only a well-formed block: both markers as exact lines (-x),
-        # matching what the awk below deletes between. A hand-edited or
-        # CRLF-converted block fails this and falls back to the printed
-        # instructions + coexistence warning instead of risking the rc.
+        # Rewrite only well-formed blocks (both markers exact lines, matching the awk); else fall back safely.
         grep -qxF "$marker" "$rc_file" && grep -qxF "$marker_end" "$rc_file" || return 0
         rewrite=1
     fi
@@ -329,8 +319,7 @@ $marker_end"
     # without a TTY (CI/pipes); there we just print the block.
     if [ -z "$NO_MODIFY_PATH" ] && [ -n "$rc_file" ] && is_interactive; then
         if [ -n "$rewrite" ]; then
-            # cat, not mv: rc files are often symlinks (dotfile managers), and
-            # writing through the link preserves its inode and permissions.
+            # cat, not mv: writes through rc symlinks (dotfile managers), preserving inode and perms.
             if awk -v s="$marker" -v e="$marker_end" '$0==s{skip=1;next} $0==e{skip=0;next} !skip' \
                 "$rc_file" > "$rc_file.vastai.tmp" && cat "$rc_file.vastai.tmp" > "$rc_file"; then
                 rm -f "$rc_file.vastai.tmp"

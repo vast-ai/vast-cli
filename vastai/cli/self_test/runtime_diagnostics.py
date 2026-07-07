@@ -94,8 +94,12 @@ FAILURE_CATALOG: dict[str, FailureCatalogEntry] = {
     INSTANCE_STATUS_ERROR: FailureCatalogEntry(
         INSTANCE_STATUS_ERROR,
         "The instance reported an error while starting.",
-        "Inspect the instance status message and host/container logs.",
-        ("Run show instance for the contract.", "Check docker logs on the host if available."),
+        "Inspect the instance status message, diagnostic bundle, and host/container logs where available.",
+        (
+            "Run show instance for the temporary contract.",
+            "Review the self-test diagnostic bundle for CLI/API-visible daemon and container output.",
+            "Collect host daemon, kaalia, dmesg, and journal logs from the host-side installer/TUI or daemon workflow when deeper root cause is needed.",
+        ),
     ),
     INSTANCE_STATUS_POLL_FAILED: FailureCatalogEntry(
         INSTANCE_STATUS_POLL_FAILED,
@@ -193,8 +197,12 @@ FAILURE_CATALOG: dict[str, FailureCatalogEntry] = {
     DAEMON_STARTUP_FAILED: FailureCatalogEntry(
         DAEMON_STARTUP_FAILED,
         "The container or daemon failed during startup.",
-        "Inspect docker daemon, OCI runtime, and container startup logs.",
-        ("Check docker logs.", "Verify NVIDIA container runtime and host daemon health."),
+        "Inspect docker daemon, OCI runtime, container startup, and host daemon logs.",
+        (
+            "Review the status evidence and diagnostic bundle first.",
+            "Check docker logs, daemon/kaalia logs, dmesg, and journalctl on the host.",
+            "Verify NVIDIA container runtime and host daemon health.",
+        ),
     ),
     NVML_FAILED: FailureCatalogEntry(
         NVML_FAILED,
@@ -241,8 +249,8 @@ FAILURE_CATALOG: dict[str, FailureCatalogEntry] = {
     UNEXPECTED_ERROR: FailureCatalogEntry(
         UNEXPECTED_ERROR,
         "The self-test command hit an unexpected CLI error.",
-        "Retry with --debugging and inspect the support bundle or terminal output.",
-        ("Retry with --debugging enabled.", "Share the support bundle with Vast support if the error repeats."),
+        "Retry with --debugging and inspect the diagnostic bundle or terminal output.",
+        ("Retry with --debugging enabled.", "Review the diagnostic bundle before escalating platform-side issues."),
     ),
 }
 
@@ -276,8 +284,8 @@ _NCCL_RE = re.compile(r"\bnccl\b|unhandled system error|connection timed out|all
 _STRESS_RE = re.compile(r"stress-ng|gpu-burn|xid|thermal|power limit|burn-in|hardware error", re.IGNORECASE)
 
 _DOCKER_PULL_RE = re.compile(
-    r"pull|manifest|not found|unauthorized|denied|repository does not exist|no such image|"
-    r"pull access denied|requested access to the resource is denied",
+    r"manifest\s+.*(?:not found|unknown)|not found|unauthorized|denied|repository does not exist|"
+    r"no such image|pull access denied|requested access to the resource is denied",
     re.IGNORECASE,
 )
 _STARTUP_RE = re.compile(
@@ -285,6 +293,12 @@ _STARTUP_RE = re.compile(
     r"docker|exited|exec format error|permission denied|mount|entrypoint",
     re.IGNORECASE,
 )
+_STATUS_MSG_FAILURE_RE = re.compile(
+    r"(?<![A-Za-z0-9_])(error|failed|failure|exception|traceback)(?![A-Za-z0-9_])|"
+    r"oci runtime|permission denied",
+    re.IGNORECASE,
+)
+_DAEMON_BUILD_STEP_RE = re.compile(r"^\s*#\d+\s+\d+(?:\.\d+)?\s+", re.MULTILINE)
 
 _API_KEY_RE = re.compile(r"([?&]api_key=)[^&\s]+")
 
@@ -423,6 +437,40 @@ def make_failure(
     return diagnostic
 
 
+def summarize_status_msg(status_msg: str | None, *, max_lines: int = 4, max_chars: int = 600) -> str | None:
+    """Return a compact host-facing summary of daemon-reported instance status text."""
+    if not status_msg:
+        return None
+    lines = [line.strip() for line in str(status_msg).splitlines() if line.strip()]
+    if not lines:
+        return None
+    if _DAEMON_BUILD_STEP_RE.search(str(status_msg)):
+        prefix = "Docker/BuildKit output from Vast daemon"
+    else:
+        prefix = "Instance status message"
+    sample = " | ".join(lines[:max_lines])
+    if len(lines) > max_lines:
+        sample = f"{sample} | ... ({len(lines) - max_lines} more line(s))"
+    if len(sample) > max_chars:
+        sample = f"{sample[:max_chars].rstrip()}... [truncated]"
+    return f"{prefix}: {sample}"
+
+
+def status_msg_indicates_failure(status_msg: str | None) -> bool:
+    """Return True only for status messages with explicit failure semantics.
+
+    This intentionally avoids substring matching on ``error`` so package names
+    such as ``liberror-perl`` do not make normal daemon/build output look like a
+    self-test failure before the instance reaches a terminal state.
+    """
+    if not status_msg:
+        return False
+    msg = status_msg.strip()
+    if not msg:
+        return False
+    return bool(_STATUS_MSG_FAILURE_RE.search(msg) or _DOCKER_PULL_RE.search(msg))
+
+
 def stage_from_progress_line(line: str) -> str | None:
     """Return the legacy runtime stage introduced by a progress line."""
     for pattern, stage in _STAGE_PATTERNS:
@@ -500,16 +548,31 @@ def classify_status_msg(status_msg: str | None) -> dict[str, object] | None:
         return None
 
     code = INSTANCE_STATUS_ERROR
+    summary = None
+    remediation = None
+    suggested_steps = None
     if _DOCKER_PULL_RE.search(msg):
         code = DOCKER_PULL_FAILED
     elif _STARTUP_RE.search(msg):
         code = DAEMON_STARTUP_FAILED
+    elif _DAEMON_BUILD_STEP_RE.search(msg):
+        code = DAEMON_STARTUP_FAILED
+        summary = "The daemon reported startup/build output while the instance failed to start."
+        remediation = "Inspect daemon-side startup/build logs; the CLI only receives the daemon status message."
+        suggested_steps = (
+            "Review the diagnostic bundle for the raw status message.",
+            "Collect host daemon/kaalia, docker, dmesg, and journal logs from the host-side workflow.",
+            "Use daemon source or daemon-owned logs to map BuildKit step output to the real failure.",
+        )
 
     return make_failure(
         code,
         stage=STAGE_STARTUP,
+        summary=summary,
         error=msg,
-        details=f"Instance status message reported: {msg}",
+        details=summarize_status_msg(msg),
+        remediation=remediation,
+        suggested_steps=suggested_steps,
         underlying_error=msg,
     )
 
@@ -562,4 +625,6 @@ __all__ = [
     "parse_legacy_progress",
     "redact_secret_text",
     "stage_from_progress_line",
+    "status_msg_indicates_failure",
+    "summarize_status_msg",
 ]

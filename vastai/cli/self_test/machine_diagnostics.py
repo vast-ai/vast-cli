@@ -157,7 +157,6 @@ def preflight_requirement_checks(offer):
     listed_gpus = num_gpus if num_gpus > 0 else 1
     direct_port_count = safe_float(offer.get("direct_port_count"))
     required_min_ports = 3 * listed_gpus
-    recommended_max_ports = 64 * listed_gpus
     uncapped_required_cpu_ram = 0.95 * gpu_total_ram
     required_cpu_ram = min(uncapped_required_cpu_ram, SYSTEM_RAM_REQUIREMENT_CAP_MIB)
 
@@ -264,29 +263,6 @@ def preflight_requirement_checks(offer):
             ),
         ),
     ]
-    if direct_port_count > recommended_max_ports:
-        checks.append(
-            _info_check(
-                "network.direct_ports.recommended_max",
-                "Direct port count advisory",
-                direct_port_count,
-                recommended_max_ports,
-                "<=",
-                "ports",
-                (
-                    f"Direct port count: actual {direct_port_count} ports, recommended <= "
-                    f"{recommended_max_ports} ports for {listed_gpus} GPU(s)"
-                ),
-                (
-                    "Vast instances can use at most 64 open ports each. Mapping more than "
-                    "64 ports per listed GPU is usually wasted effort."
-                ),
-                (
-                    "This is advisory only, not a self-test gate. Keep enough direct ports for "
-                    "self-test and normal workloads, but avoid mapping very large unused ranges."
-                ),
-            )
-        )
     return checks
 
 

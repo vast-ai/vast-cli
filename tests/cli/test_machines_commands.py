@@ -13,6 +13,8 @@ def _self_test_udp_probe_success(monkeypatch):
     """Default self-test machine tests to a successful external UDP echo probe."""
     from vastai.cli.commands import machines
 
+    monkeypatch.setattr(machines, "CLI_VERSION", machines.SELF_TEST_MIN_CLI_VERSION)
+
     def _probe(public_ip, host_port, *, mapped_ports=None, attempts=3, timeout_seconds=2):
         return True, {
             "url": f"udp://{public_ip}:{host_port}",
@@ -579,7 +581,7 @@ class TestSelfTestMachineDiagnostics:
         assert gpu_ram_check["status"] == "pass"
         assert gpu_ram_check["actual"] == 80
 
-    def test_preflight_direct_port_overage_is_advisory_not_gate(self):
+    def test_preflight_direct_port_overage_is_not_advisory_or_gate(self):
         from vastai.cli.self_test.machine_diagnostics import (
             failed_checks,
             informational_checks,
@@ -599,19 +601,10 @@ class TestSelfTestMachineDiagnostics:
 
         checks = preflight_requirement_checks(offer)
         direct_ports = next(check for check in checks if check["id"] == "network.direct_ports")
-        advisory = next(
-            check
-            for check in informational_checks(checks)
-            if check["id"] == "network.direct_ports.recommended_max"
-        )
 
         assert direct_ports["status"] == "pass"
-        assert advisory["status"] == "info"
-        assert advisory["actual"] == 1000
-        assert advisory["required"] == 512
-        assert advisory["operator"] == "<="
-        assert "64 ports per listed GPU" in advisory["purpose"]
-        assert advisory not in failed_checks(checks)
+        assert informational_checks(checks) == []
+        assert direct_ports not in failed_checks(checks)
 
     def test_preflight_direct_port_minimum_scales_by_gpu_count(self):
         from vastai.cli.self_test.machine_diagnostics import preflight_requirement_checks
@@ -658,7 +651,7 @@ class TestSelfTestMachineDiagnostics:
         assert "cpu.cores" not in {check["id"] for check in checks}
         assert failed_checks(checks) == []
 
-    def test_preflight_direct_port_overage_renders_advisory(
+    def test_preflight_direct_port_overage_does_not_render_advisory(
         self, parse_argv, patch_get_client, monkeypatch, capsys
     ):
         offer = _self_test_offer(
@@ -683,11 +676,9 @@ class TestSelfTestMachineDiagnostics:
 
         captured = capsys.readouterr()
         assert exc_info.value.code == 1
-        assert "Preflight advisory for machine 42:" in captured.out
-        assert "Direct port count advisory" in captured.out
-        assert "actual: 1000.0 ports" in captured.out
-        assert "recommended: <= 512 ports" in captured.out
-        assert "This is advisory only, not a self-test gate." in captured.out
+        assert "Preflight advisory for machine 42:" not in captured.out
+        assert "Direct port count advisory" not in captured.out
+        assert "recommended: <= 512 ports" not in captured.out
 
     def test_preflight_caps_system_ram_requirement_for_huge_vram_hosts(self):
         from vastai.cli.self_test.machine_diagnostics import preflight_requirement_checks
@@ -908,11 +899,17 @@ class TestSelfTestMachineDiagnostics:
         result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
 
         assert result["diagnostics"]["image"]["override"] is False
-        assert create.call_args.kwargs["image"] == "vastai/test:self-test-v2-cuda-12.8"
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.2-cuda-12.8"
         assert create.call_args.kwargs["runtype"] == "ssh_direc ssh_proxy"
         assert create.call_args.kwargs["label"] == "vast-self-test-machine-42"
         assert result["diagnostics"]["launch"]["label"] == "vast-self-test-machine-42"
         assert result["diagnostics"]["launch"]["ports"] == ["5000/tcp", "1234/tcp", "5001/udp"]
+        assert result["diagnostics"]["cli"]["self_test_min_cli_version"] == "1.2.2"
+        assert result["diagnostics"]["cli"]["self_test_contract_version"] == "1.2.2"
+        assert result["diagnostics"]["cli"]["self_test_image_tag_prefix"] == "self-test-cli-1.2.2-cuda"
+        env = create.call_args.kwargs["env"]
+        assert env["VAST_SELF_TEST_CLI_VERSION"] == "1.2.2"
+        assert env["VAST_SELF_TEST_CLI_CONTRACT_VERSION"] == "1.2.2"
 
     def test_cuda_mapping_selects_cuda_133_exact_match(
         self, parse_argv, patch_get_client, monkeypatch
@@ -921,7 +918,7 @@ class TestSelfTestMachineDiagnostics:
         result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
 
         assert result["diagnostics"]["image"]["override"] is False
-        assert create.call_args.kwargs["image"] == "vastai/test:self-test-v2-cuda-13.3"
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.2-cuda-13.3"
         assert "exact match" in result["diagnostics"]["image"]["reason"]
 
     def test_cuda_mapping_steps_down_to_newest_compatible_image(
@@ -931,7 +928,7 @@ class TestSelfTestMachineDiagnostics:
         result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
 
         assert result["diagnostics"]["image"]["override"] is False
-        assert create.call_args.kwargs["image"] == "vastai/test:self-test-v2-cuda-13.0"
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.2-cuda-13.0"
         assert "selected newest image <= host CUDA (13.0)" in result["diagnostics"]["image"]["reason"]
 
     def test_cuda_mapping_uses_cuda_133_for_newer_cuda_hosts(
@@ -941,7 +938,7 @@ class TestSelfTestMachineDiagnostics:
         result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
 
         assert result["diagnostics"]["image"]["override"] is False
-        assert create.call_args.kwargs["image"] == "vastai/test:self-test-v2-cuda-13.3"
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.2-cuda-13.3"
         assert "selected newest image <= host CUDA (13.3)" in result["diagnostics"]["image"]["reason"]
 
     def test_cuda_mapping_still_clamps_volta_to_cuda_128(
@@ -951,14 +948,14 @@ class TestSelfTestMachineDiagnostics:
         result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
 
         assert result["diagnostics"]["image"]["override"] is False
-        assert create.call_args.kwargs["image"] == "vastai/test:self-test-v2-cuda-12.8"
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.2-cuda-12.8"
         assert "clamped to 12.8" in result["diagnostics"]["image"]["reason"]
 
     def test_startup_status_msg_is_classified_in_raw_output(
         self, parse_argv, patch_get_client, monkeypatch
     ):
         offer = _self_test_offer()
-        status_msg = "Error response from daemon: manifest for vastai/test:self-test-v2-cuda-99 not found"
+        status_msg = "Error response from daemon: manifest for vastai/test:self-test-cli-1.2.2-cuda-99 not found"
         monkeypatch.setattr(
             "vastai.cli.commands.machines.offers_api.search_offers",
             Mock(return_value=[offer]),
@@ -991,6 +988,93 @@ class TestSelfTestMachineDiagnostics:
         assert result["failure"]["underlying_error"] == status_msg
         assert result["diagnostics"]["runtime_failure"]["code"] == "docker_pull_failed"
         destroy.assert_called_once()
+
+    def test_startup_daemon_output_is_compact_without_debugging(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        offer = _self_test_offer()
+        status_msg = (
+            "#7 0.829   libappstream5 libargon2-1 libbrotli1 libcap2-bin libcbor0.10\n"
+            "#7 0.829   liberror-perl libevent-core-2.1-7t64 libfdisk1 libfido2-1"
+        )
+        failed_instance = {
+            "id": 123,
+            "status_msg": status_msg,
+            "actual_status": "error",
+            "intended_status": "running",
+        }
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            Mock(side_effect=[failed_instance, failed_instance]),
+        )
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.destroy_instance", destroy)
+
+        args = parse_argv(["self-test", "machine", "42"])
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 1
+        assert "- code: daemon_startup_failed" in captured.out
+        assert "- daemon/status output: captured in raw output and the diagnostic bundle; use --debugging to print it." in captured.out
+        assert "#7 0.829" not in captured.out
+        assert "liberror-perl" not in captured.out
+        destroy.assert_called_once()
+
+    def test_startup_daemon_output_prints_raw_evidence_with_debugging(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        offer = _self_test_offer()
+        status_msg = (
+            "#7 0.829   libappstream5 libargon2-1 libbrotli1 libcap2-bin libcbor0.10\n"
+            "#7 0.829   liberror-perl libevent-core-2.1-7t64 libfdisk1 libfido2-1"
+        )
+        failed_instance = {
+            "id": 123,
+            "status_msg": status_msg,
+            "actual_status": "error",
+            "intended_status": "running",
+        }
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            Mock(side_effect=[failed_instance, failed_instance]),
+        )
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.destroy_instance", destroy)
+
+        args = parse_argv(["self-test", "machine", "42", "--debugging"])
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 1
+        assert "- code: daemon_startup_failed" in captured.out
+        assert "- raw daemon/status text:" in captured.out
+        assert "#7 0.829   libappstream5" in captured.out
+        assert "#7 0.829   liberror-perl" in captured.out
+        destroy.assert_called_once()
+
+    def test_self_test_debuging_alias_enables_debugging(self, parse_argv):
+        args = parse_argv(["self-test", "machine", "42", "--debuging"])
+
+        assert args.debugging is True
 
     def test_stopped_startup_status_is_classified_without_waiting_for_timeout(
         self, parse_argv, patch_get_client, monkeypatch
@@ -1066,7 +1150,7 @@ class TestSelfTestMachineDiagnostics:
         assert exc_info.value.code == 1
         assert "Runtime failure diagnostics:" in captured.out
         assert "- code: daemon_startup_failed" in captured.out
-        assert "- remediation: Inspect docker daemon, OCI runtime, and container startup logs." in captured.out
+        assert "- remediation: Inspect docker daemon, OCI runtime, container startup, and host daemon logs." in captured.out
         assert "WARNING: failed to destroy test instance" not in captured.out
         assert "api_key=secret" not in captured.out
         destroy.assert_called_once()
@@ -1283,6 +1367,58 @@ class TestSelfTestMachineDiagnostics:
         assert "status: loading" not in captured.out
         assert "status_msg:" not in captured.out
         assert "Verifying Checksum" not in captured.out
+        assert destroy.call_count >= 1
+
+    def test_wait_for_instance_does_not_treat_liberror_package_as_startup_error(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        offer = _self_test_offer()
+        daemon_build_output = (
+            "#7 0.829   libappstream5 libargon2-1 libbrotli1 libcap2-bin libcbor0.10\n"
+            "#7 0.829   liberror-perl libevent-core-2.1-7t64 libfdisk1 libfido2-1"
+        )
+        loading_instance = {
+            "id": 123,
+            "actual_status": "loading",
+            "intended_status": "running",
+            "status_msg": daemon_build_output,
+        }
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"5000/tcp": [{"HostPort": "45000"}], "5001/udp": [{"HostPort": "45001"}]},
+            "status_msg": "",
+        }
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            Mock(side_effect=[loading_instance, running_instance, running_instance]),
+        )
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.destroy_instance", destroy)
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.requests.get",
+            Mock(return_value=SimpleNamespace(status_code=200, text="DONE")),
+        )
+        monkeypatch.setattr("vastai.cli.commands.machines.time.sleep", lambda *_: None)
+
+        args = parse_argv(["self-test", "machine", "42"])
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 0
+        assert "reported a startup failure" not in captured.out
+        assert "liberror-perl" not in captured.out
         assert destroy.call_count >= 1
 
     def test_wait_for_instance_loading_status_is_verbose_with_debugging(

@@ -24,6 +24,7 @@ from vastai.api import storage as storage_api
 
 
 from vastai.cli.utils import get_parser as _get_parser, get_client  # noqa: F401
+from vastai.cli.util import VERSION as CLI_VERSION
 from vastai.cli.self_test.machine_diagnostics import (
     base_result,
     compact_offer_metadata,
@@ -41,6 +42,7 @@ from vastai.cli.self_test.runtime_diagnostics import (
     INSTANCE_CREATE_MISSING_CONTRACT,
     INSTANCE_OFFLINE_BEFORE_TEST,
     INSTANCE_START_TIMEOUT,
+    INSTANCE_STATUS_ERROR,
     INSTANCE_STATUS_POLL_FAILED,
     INTERRUPTED,
     LegacyProgressParser,
@@ -60,6 +62,8 @@ from vastai.cli.self_test.runtime_diagnostics import (
     make_failure,
     make_udp_probe_diagnostic,
     redact_secret_text,
+    status_msg_indicates_failure,
+    summarize_status_msg,
 )
 from vastai.cli.self_test.support_bundle import (
     create_support_bundle,
@@ -70,6 +74,9 @@ from vastai.cli.self_test.support_bundle import (
 
 parser = _get_parser()
 SELF_TEST_INSTANCE_LABEL_PREFIX = "vast-self-test-machine"
+SELF_TEST_MIN_CLI_VERSION = "1.2.2"
+SELF_TEST_CLI_CONTRACT_VERSION = SELF_TEST_MIN_CLI_VERSION
+SELF_TEST_IMAGE_TAG_PREFIX = f"self-test-cli-{SELF_TEST_MIN_CLI_VERSION}-cuda"
 INSTANCE_LOG_TAIL_LINES = 1000
 UDP_PROBE_PAYLOAD = b"vast-self-test-udp-probe"
 UDP_PROBE_RESPONSE_PREFIX = b"vast-self-test-udp-ok:"
@@ -766,6 +773,7 @@ def dump_logs(args):
 @parser.command(
     argument("machine_id", help="Machine ID", type=str),
     argument("--debugging", action="store_true", help="Enable debugging output"),
+    argument("--debuging", action="store_true", dest="debugging", help=argparse.SUPPRESS),
     argument("--ignore-requirements", action="store_true", help="Ignore the minimum system requirements and run the self test regardless"),
     argument("--test-image", help="Use a custom self-test image for testing custom self-test images. Overrides VAST_SELF_TEST_IMAGE and CUDA mapping.", type=str),
     argument("--support-bundle-dir", help="Directory for failure diagnostic bundles (default: /tmp)", type=str),
@@ -809,6 +817,12 @@ def self_test__machine(args):
     if getattr(args, "ignore_requirements", False):
         result["warning"] = ignore_requirements_warning
         result["diagnostics"]["requirements_ignored"] = True
+    result["diagnostics"]["cli"] = {
+        "version": CLI_VERSION,
+        "self_test_contract_version": SELF_TEST_CLI_CONTRACT_VERSION,
+        "self_test_min_cli_version": SELF_TEST_MIN_CLI_VERSION,
+        "self_test_image_tag_prefix": SELF_TEST_IMAGE_TAG_PREFIX,
+    }
 
     def output_line(*args_to_print):
         return " ".join(str(item) for item in args_to_print)
@@ -895,6 +909,21 @@ def self_test__machine(args):
     def safe_error(error):
         return redact_secret_text(error) or ""
 
+    def compact_diagnostic_text(text, *, max_lines=4, max_chars=700):
+        if not text:
+            return None, False
+        lines = [line for line in str(text).splitlines() if line.strip()]
+        if not lines:
+            return None, False
+        truncated = len(lines) > max_lines
+        compact = " | ".join(lines[:max_lines])
+        if len(compact) > max_chars:
+            compact = f"{compact[:max_chars].rstrip()}... [truncated]"
+            truncated = True
+        elif truncated:
+            compact = f"{compact} | ... ({len(lines) - max_lines} more line(s))"
+        return compact, truncated
+
     def render_runtime_failure():
         diagnostic = result.get("diagnostics", {}).get("runtime_failure")
         if not diagnostic:
@@ -903,8 +932,22 @@ def self_test__machine(args):
         progress_print(f"- code: {diagnostic.get('code')}")
         if diagnostic.get("summary"):
             progress_print(f"- summary: {diagnostic['summary']}")
+        suppress_daemon_text = diagnostic.get("code") in {DAEMON_STARTUP_FAILED, INSTANCE_STATUS_ERROR}
+        if diagnostic.get("details") and (args.debugging or not suppress_daemon_text):
+            progress_print(f"- details: {diagnostic['details']}")
         if diagnostic.get("underlying_error"):
-            progress_print(f"- underlying error: {diagnostic['underlying_error']}")
+            if suppress_daemon_text and not args.debugging:
+                progress_print("- daemon/status output: captured in raw output and the diagnostic bundle; use --debugging to print it.")
+            elif args.debugging:
+                progress_print("- raw daemon/status text:")
+                for line in str(diagnostic["underlying_error"]).splitlines() or [str(diagnostic["underlying_error"])]:
+                    progress_print(f"  {line}")
+            else:
+                compact, truncated = compact_diagnostic_text(diagnostic["underlying_error"])
+                if compact:
+                    progress_print(f"- raw daemon/status text: {compact}")
+                    if truncated:
+                        progress_print("- raw daemon/status text truncated; full text is in raw output and the diagnostic bundle.")
         endpoint = diagnostic.get("progress_endpoint") or result.get("diagnostics", {}).get("progress_endpoint")
         if endpoint:
             if endpoint.get("url"):
@@ -1104,7 +1147,7 @@ def self_test__machine(args):
         def cuda_map_to_image(cuda_version, compute_cap=None):
             """Return (image, reason). Reason explains why this image was picked."""
             docker_repo = "vastai/test"
-            image_tag_prefix = "self-test-v2-cuda"
+            image_tag_prefix = SELF_TEST_IMAGE_TAG_PREFIX
 
             def image_for(version):
                 return f"{docker_repo}:{image_tag_prefix}-{version}"
@@ -1190,7 +1233,13 @@ def self_test__machine(args):
                 result["phase"] = "rental"
                 result["stage"] = "create_instance"
                 from vastai.cli.util import parse_env
-                env = parse_env("-e TZ=PDT -e XNAME=XX4 -p 5000:5000 -p 1234:1234 -p 5001:5001/udp")
+                env = parse_env(
+                    f"-e TZ=PDT "
+                    f"-e XNAME=XX4 "
+                    f"-e VAST_SELF_TEST_CLI_VERSION={CLI_VERSION} "
+                    f"-e VAST_SELF_TEST_CLI_CONTRACT_VERSION={SELF_TEST_CLI_CONTRACT_VERSION} "
+                    f"-p 5000:5000 -p 1234:1234 -p 5001:5001/udp"
+                )
                 runtype = "ssh_direc ssh_proxy"
                 self_test_label = f"{SELF_TEST_INSTANCE_LABEL_PREFIX}-{args.machine_id}"
                 result["diagnostics"]["launch"] = {
@@ -1317,37 +1366,51 @@ def self_test__machine(args):
 
                             status_msg = instance_info.get('status_msg', '')
                             status_msg_clean = status_msg.strip() if isinstance(status_msg, str) else ""
-                            status_msg_lower = status_msg_clean.lower()
-                            status_msg_is_error = any(
-                                token in status_msg_lower
-                                for token in (
-                                    "error",
-                                    "failed",
-                                    "failure",
-                                    "exception",
-                                    "traceback",
-                                    "oci runtime",
-                                    "permission denied",
-                                )
+                            actual_status = instance_info.get('actual_status', 'unknown')
+                            intended_status = instance_info.get('intended_status', 'unknown')
+                            terminal_error_status = (
+                                str(actual_status).lower() in {"error", "failed", "failure"}
+                                or str(intended_status).lower() in {"error", "failed", "failure"}
                             )
-                            if status_msg_clean and status_msg_is_error:
+                            if status_msg_clean and (status_msg_indicates_failure(status_msg_clean) or terminal_error_status):
                                 diagnostic = classify_status_msg(status_msg_clean) or make_failure(
                                     DAEMON_STARTUP_FAILED,
                                     stage="startup",
                                     error=status_msg_clean,
+                                    details=summarize_status_msg(status_msg_clean),
                                     underlying_error=status_msg_clean,
                                 )
-                                reason = f"Instance {inst_id} encountered an error: {status_msg_clean}"
+                                reason = (
+                                    f"Instance {inst_id} reported a startup failure before the self-test "
+                                    "runtime became reachable."
+                                )
                                 progress_print(reason)
                                 if instance_exist(inst_id):
                                     destroy_instance_silent(inst_id, collect_logs=True)
-                                    progress_print(f"Instance {inst_id} has been destroyed due to error.")
+                                    progress_print(f"Instance {inst_id} has been destroyed due to startup failure.")
                                 else:
                                     progress_print(f"Instance {inst_id} could not be destroyed or does not exist.")
                                 return False, reason, diagnostic
 
-                            actual_status = instance_info.get('actual_status', 'unknown')
-                            intended_status = instance_info.get('intended_status', 'unknown')
+                            if terminal_error_status:
+                                reason = (
+                                    f"Instance {inst_id} reported terminal status "
+                                    f"{actual_status!r} / intended {intended_status!r} before reaching running."
+                                )
+                                diagnostic = make_failure(
+                                    DAEMON_STARTUP_FAILED,
+                                    stage="startup",
+                                    summary="Instance entered a terminal error status before the self-test runtime started.",
+                                    details=reason,
+                                )
+                                progress_print(reason)
+                                if instance_exist(inst_id):
+                                    destroy_instance_silent(inst_id, collect_logs=True)
+                                    progress_print(f"Instance {inst_id} has been destroyed due to startup failure.")
+                                else:
+                                    progress_print(f"Instance {inst_id} could not be destroyed or does not exist.")
+                                return False, reason, diagnostic
+
                             if actual_status == 'offline':
                                 reason = "Instance offline during testing"
                                 diagnostic = make_failure(INSTANCE_OFFLINE_BEFORE_TEST, stage="startup")
@@ -1361,8 +1424,9 @@ def self_test__machine(args):
 
                             if intended_status in ('stopped', 'exited') or actual_status in ('stopped', 'exited'):
                                 reason = f"Instance {inst_id} stopped before reaching running status"
-                                if status_msg_clean:
-                                    reason = f"{reason}: {status_msg_clean}"
+                                status_summary = summarize_status_msg(status_msg_clean)
+                                if status_summary:
+                                    reason = f"{reason}. {status_summary}"
                                 diagnostic = classify_status_msg(status_msg_clean) if status_msg_clean else None
                                 if diagnostic is None:
                                     diagnostic = make_failure(

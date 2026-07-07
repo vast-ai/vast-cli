@@ -287,5 +287,5 @@ def format_bundle_summary(bundle: dict[str, Any]) -> list[str]:
             lines.append(f"  - {item.get('artifact')}: {item.get('error')}")
         if len(errors) > 10:
             lines.append(f"  - ... {len(errors) - 10} more")
-    lines.append("Review this tarball before sharing it with support.")
+    lines.append("Review this tarball before sharing it outside your own diagnostic workflow.")
     return lines

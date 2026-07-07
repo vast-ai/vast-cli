@@ -109,7 +109,7 @@ def test_self_test_failure_creates_support_bundle(
     assert exc_info.value.code == 1
     assert "Self-test diagnostic bundle saved to:" in captured.out
     assert "self-test-result.json" in captured.out
-    assert "Review this tarball before sharing it with support." in captured.out
+    assert "Review this tarball before sharing it outside your own diagnostic workflow." in captured.out
     assert f"Support bundle: {bundle_path}" in captured.out
     assert captured.out.rfind("Test failed:") < captured.out.rfind("Support bundle:")
 

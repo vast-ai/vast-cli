@@ -191,6 +191,30 @@ def test_status_msg_classifies_generic_daemon_startup_failure():
     assert result["underlying_error"] == status_msg
 
 
+def test_status_msg_failure_detection_ignores_package_names_with_error_substring():
+    status_msg = (
+        "#7 0.829   libappstream5 libargon2-1 libbrotli1 libcap2-bin libcbor0.10\n"
+        "#7 0.829   liberror-perl libevent-core-2.1-7t64 libfdisk1 libfido2-1"
+    )
+
+    assert diag.status_msg_indicates_failure(status_msg) is False
+
+
+def test_status_msg_classifies_buildkit_output_when_instance_status_is_terminal():
+    status_msg = (
+        "#7 0.829   libappstream5 libargon2-1 libbrotli1 libcap2-bin libcbor0.10\n"
+        "#7 0.829   liberror-perl libevent-core-2.1-7t64 libfdisk1 libfido2-1"
+    )
+
+    result = diag.classify_status_msg(status_msg)
+
+    assert result["code"] == diag.DAEMON_STARTUP_FAILED
+    assert result["stage"] == diag.STAGE_STARTUP
+    assert result["underlying_error"] == status_msg
+    assert "Docker/BuildKit output from Vast daemon" in result["details"]
+    assert "daemon source" in " ".join(result["suggested_steps"])
+
+
 def test_status_msg_classifies_other_errors_as_status_error():
     result = diag.classify_status_msg("Error: host reported an unknown fault")
 

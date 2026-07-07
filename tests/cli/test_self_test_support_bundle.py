@@ -46,6 +46,41 @@ def test_support_bundle_contains_redacted_result_and_cli_output(tmp_path):
     assert manifest["machine_id"] == "42"
     assert manifest["run_started_at_utc"] == "20260602T100000Z"
     assert manifest["includes_local_host_artifacts"] is False
+    assert manifest["includes_cli_visible_instance_artifacts"] is False
+    assert manifest["cli_visible_instance_artifacts"] == []
+    assert manifest["local_host_artifacts"] == []
+
+
+def test_support_bundle_manifest_describes_instance_and_host_artifacts(tmp_path, monkeypatch):
+    from vastai.cli.self_test import support_bundle
+
+    monkeypatch.setattr(
+        support_bundle,
+        "_collect_host_artifacts",
+        lambda secrets=None: ({"host/dmesg-filtered.log": "host kernel warning"}, []),
+    )
+
+    bundle = support_bundle.create_support_bundle(
+        machine_id="42",
+        output_dir=str(tmp_path),
+        extra_files={
+            "instance/container.log": "container startup failure",
+            "instance/daemon.log": "daemon startup failure",
+        },
+        include_local_host_artifacts=True,
+    )
+
+    with tarfile.open(bundle["path"], "r:gz") as tar:
+        manifest = json.loads(tar.extractfile("manifest.json").read().decode())
+
+    assert manifest["includes_cli_visible_instance_artifacts"] is True
+    assert manifest["cli_visible_instance_artifacts"] == [
+        "instance/container.log",
+        "instance/daemon.log",
+    ]
+    assert manifest["includes_local_host_artifacts"] is True
+    assert manifest["local_host_artifacts"] == ["host/dmesg-filtered.log"]
+    assert "cli_visible_instance_artifacts are collected through the Vast instance logs API" in manifest["note"]
 
 
 def test_support_bundle_sanitizes_archive_names(tmp_path):

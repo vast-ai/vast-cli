@@ -238,6 +238,8 @@ def create_support_bundle(
         files.update(host_files)
         errors.extend(host_errors)
 
+    cli_visible_instance_artifacts = sorted(name for name in files if name.startswith("instance/"))
+    local_host_artifacts = sorted(name for name in files if name.startswith("host/"))
     manifest = {
         "bundle_version": 1,
         "machine_id": str(machine_id),
@@ -246,14 +248,19 @@ def create_support_bundle(
         "command": _redact_json(command or [], secrets),
         "max_text_bytes_per_artifact": MAX_TEXT_BYTES,
         "max_log_bytes_per_artifact": MAX_LOG_BYTES,
+        "includes_cli_visible_instance_artifacts": bool(cli_visible_instance_artifacts),
+        "cli_visible_instance_artifacts": cli_visible_instance_artifacts,
         "includes_local_host_artifacts": include_local_host_artifacts,
+        "local_host_artifacts": local_host_artifacts,
         "files": sorted(files.keys()) + ["manifest.json", "collection-errors.json"],
         "collection_errors": errors,
         "note": (
-            "This bundle contains CLI-visible self-test evidence. Host OS artifacts "
-            "are included only when includes_local_host_artifacts=true; otherwise "
-            "host daemon/kaalia/system logs need host-side daemon/backend collection "
-            "or an explicit dump run on the actual host."
+            "This bundle contains CLI-visible self-test evidence. "
+            "cli_visible_instance_artifacts are collected through the Vast instance "
+            "logs API when an instance id is available. Host OS artifacts are "
+            "included only when includes_local_host_artifacts=true; otherwise host "
+            "daemon/kaalia/system logs need host-side daemon/backend collection or "
+            "an explicit dump run on the actual host."
         ),
     }
     files["manifest.json"] = json.dumps(manifest, indent=2, sort_keys=True)

@@ -40,7 +40,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          python3 scripts/publish_release.py "$VERSION" --ci --yes --skip-verify
+          python3 scripts/publish_release.py "$VERSION"
 
   build_and_publish_vastai_sdk:
     name: Publish vastai-sdk

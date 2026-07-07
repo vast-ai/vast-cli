@@ -61,13 +61,12 @@ The design splits the install into two layers:
   skippable via `--no-modify-path`, never written non-interactively.
 - pip coexistence: pip stays the channel for the Python SDK, and its package
   ships a `vastai` script too — the `vastai` *command* belongs to the managed
-  install. The installer guarantees precedence (prepends `~/.local/bin` even
-  when it's already on PATH but outranked) rather than telling SDK users to
-  uninstall their library, and resolves it silently — the coexistence warning
-  prints only when precedence couldn't be written (non-interactive,
-  `--no-modify-path`, unknown shell). Marker idempotency is content-aware: a
-  re-run rewrites an existing rc block that predates a newly needed PATH
-  export instead of skipping on the marker.
+  install. The rc gets one constant line sourcing `~/.vastai/env.sh` (the
+  rustup/uv pattern), which prepends `~/.local/bin` unless already first — so
+  precedence is asserted at every shell startup and a later pip install is
+  out-ranked without any re-run. rc files are append-only, never rewritten;
+  the coexistence warning prints only when the rc line couldn't be written
+  (non-interactive, `--no-modify-path`, unknown shell).
 
 ## 3. On-disk layout
 
@@ -79,6 +78,7 @@ Everything lives under `~/.vastai` (`VASTAI_INSTALL_DIR` overrides):
 │   ├── vastai   → ../env/bin/vastai   (fixed symlink; target never changes)
 │   └── uv                              (pinned bootstrap engine, internal)
 ├── env/                                (the single active venv — see §6)
+├── env.sh                              (sourced by the rc line: PATH precedence + completion)
 └── python/                             (uv-managed CPython 3.12, shared)
 ```
 

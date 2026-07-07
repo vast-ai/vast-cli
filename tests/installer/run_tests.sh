@@ -207,37 +207,41 @@ test_glibc_floor() { # below the glibc floor -> clean abort to pip, zero residue
     assert "no install root created" [ ! -e "$SB_ROOT" ]
 }
 
-test_rc_safety() { # never edits shell rc non-interactively; marker idempotent
+test_rc_safety() { # never edits shell rc non-interactively; rc line idempotent
     new_sandbox rc
     run_install VASTAI_NO_MODIFY_PATH=1 || { cat "$SB_OUT"; return 1; }
-    assert "prints rc instructions" out_contains "add this to your shell rc" &&
+    assert "prints rc instructions" out_contains "add this line to your shell rc" &&
     assert "no bashrc created" [ ! -e "$SB_HOME/.bashrc" ] || return 1
 
     new_sandbox rc2
-    printf '# >>> vastai installer >>>\nexport PATH=x\n# <<< vastai installer <<<\n' > "$SB_HOME/.bashrc"
+    printf '[ -f "%s/env.sh" ] && . "%s/env.sh"  # vastai shell setup\n' "$SB_ROOT" "$SB_ROOT" > "$SB_HOME/.bashrc"
     cp "$SB_HOME/.bashrc" "$SB/before"
     run_install || { cat "$SB_OUT"; return 1; }
-    assert "rc untouched when marker present" cmp -s "$SB_HOME/.bashrc" "$SB/before"
+    assert "rc untouched when line present" cmp -s "$SB_HOME/.bashrc" "$SB/before" &&
+    assert "no setup instructions when already configured" out_lacks "To finish setup"
 }
 
-test_completion_when_path_ok() { # PATH already set -> still wires completion, omits PATH export
-    new_sandbox pathok
-    run_install "PATH=$SB_HOME/.local/bin:$PATH" || { cat "$SB_OUT"; return 1; }
-    assert "still wires tab completion" out_contains "vastai-completion" &&
-    assert "omits redundant PATH export" [ "$(grep -c 'export PATH' "$SB_OUT")" -eq 0 ]
+test_env_sh() { # env.sh carries PATH precedence + completion for both shells
+    new_sandbox envsh
+    run_install || { cat "$SB_OUT"; return 1; }
+    assert "env.sh generated" [ -s "$SB_ROOT/env.sh" ] &&
+    assert "prepends .local/bin unless already first" grep -q 'export PATH=' "$SB_ROOT/env.sh" &&
+    assert "sources bash completion" grep -q 'vastai-completion.bash' "$SB_ROOT/env.sh" &&
+    assert "sources zsh completion" grep -q 'vastai-completion.zsh' "$SB_ROOT/env.sh"
 }
 
-test_pip_shadowing() { # pip vastai earlier in PATH -> PATH export forced, SDK-aware warning
+test_pip_shadowing() { # pip vastai earlier in PATH -> warning; sourcing env.sh out-ranks it
     new_sandbox pipshadow
     mkdir -p "$SB/pipbin" "$SB_HOME/.local/bin"
     printf '#!/bin/sh\necho 1.0.13\n' > "$SB/pipbin/vastai"
     chmod +x "$SB/pipbin/vastai"
-    # .local/bin IS on PATH but the pip one outranks it — the installer must
-    # still emit the PATH export so its CLI wins in new shells.
     run_install "PATH=$SB/pipbin:$SB_HOME/.local/bin:$PATH" || { cat "$SB_OUT"; return 1; }
+    local resolved
+    resolved="$(env "PATH=$SB/pipbin:$SB_HOME/.local/bin:/usr/bin:/bin" HOME="$SB_HOME" \
+        bash -c ". '$SB_ROOT/env.sh'; command -v vastai" 2>/dev/null)"
     assert "detects the foreign vastai" out_contains "another vastai is on your PATH" &&
-    assert "forces the PATH export despite .local/bin being on PATH" \
-        out_contains "export PATH" &&
+    assert "prints the env.sh line for manual setup" out_contains "env.sh" &&
+    assert "sourcing env.sh out-ranks the pip vastai" [ "$resolved" = "$SB_HOME/.local/bin/vastai" ] &&
     assert "never advises uninstalling the pip package (it may be the SDK)" \
         out_lacks "pip uninstall"
 }
@@ -248,8 +252,7 @@ test_pip_shadowing_quiet() { # rc update resolves coexistence -> no warning, jus
     mkdir -p "$SB/pipbin" "$SB_HOME/.local/bin"
     printf '#!/bin/sh\necho 1.0.13\n' > "$SB/pipbin/vastai"
     chmod +x "$SB/pipbin/vastai"
-    # A pty (no --no-modify-path) lets the installer write the rc PATH line,
-    # which settles precedence — so the coexistence warning must NOT print.
+    # A pty lets the installer write the rc line, settling precedence — no warning.
     # PATH is pinned to sandbox dirs + system bins so the pip fake outranks ours.
     local cmd=(env "HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" \
         "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" \
@@ -258,19 +261,18 @@ test_pip_shadowing_quiet() { # rc update resolves coexistence -> no warning, jus
         Darwin*) script -q /dev/null "${cmd[@]}" >"$SB_OUT" 2>&1 </dev/null ;;
         *)       script -qec "${cmd[*]}" /dev/null >"$SB_OUT" 2>&1 </dev/null ;;
     esac
-    assert "rc gained the PATH line" grep -q '\.local/bin' "$SB_HOME/.bashrc" &&
+    assert "rc gained the env.sh line" grep -q 'env\.sh' "$SB_HOME/.bashrc" &&
     assert "no coexistence warning once resolved" out_lacks "another vastai" &&
     assert "current-shell hint printed" out_contains "Use it now"
 }
 
-test_pip_shadowing_rerun() { # rc block written pre-shadowing must gain the PATH export on re-run
+test_pip_shadowing_rerun() { # re-run with new shadowing: rc line idempotent, no spurious warning
     new_sandbox piprerun
     command -v script >/dev/null 2>&1 || { echo "    (skipped: no script(1))"; return 0; }
     mkdir -p "$SB/pipbin" "$SB_HOME/.local/bin" "$SB_HOME/dotfiles"
-    # .bashrc as a symlink (dotfile-manager layout): the rewrite must write through it, not replace it.
+    # .bashrc as a symlink (dotfile-manager layout): the append must write through it.
     touch "$SB_HOME/dotfiles/bashrc"
     ln -s dotfiles/bashrc "$SB_HOME/.bashrc"
-    # First install with healthy PATH: block written without a PATH export.
     local cmd=(env "HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" \
         "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" \
         "PATH=$SB_HOME/.local/bin:/usr/bin:/bin" /bin/bash "$INSTALL_SH")
@@ -278,11 +280,11 @@ test_pip_shadowing_rerun() { # rc block written pre-shadowing must gain the PATH
         Darwin*) script -q /dev/null "${cmd[@]}" >"$SB_OUT" 2>&1 </dev/null ;;
         *)       script -qec "${cmd[*]}" /dev/null >"$SB_OUT" 2>&1 </dev/null ;;
     esac
-    assert "precondition: block written without PATH export" \
-        [ "$(grep -c 'export PATH' "$SB_HOME/.bashrc")" -eq 0 ] || return 1
-    # A pip vastai now outranks ours: the re-run must rewrite the block, not skip on the marker.
+    assert "rc gained the env.sh line" grep -q 'env\.sh' "$SB_HOME/.bashrc" || return 1
+    # A pip vastai now outranks ours: the re-run is a quiet no-op (env.sh wins at shell startup).
     printf '#!/bin/sh\necho 1.0.13\n' > "$SB/pipbin/vastai"
     chmod +x "$SB/pipbin/vastai"
+    cp "$SB_HOME/dotfiles/bashrc" "$SB/before"
     local cmd2=(env "HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" \
         "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" \
         "PATH=$SB/pipbin:$SB_HOME/.local/bin:/usr/bin:/bin" /bin/bash "$INSTALL_SH")
@@ -290,49 +292,11 @@ test_pip_shadowing_rerun() { # rc block written pre-shadowing must gain the PATH
         Darwin*) script -q /dev/null "${cmd2[@]}" >"$SB_OUT" 2>&1 </dev/null ;;
         *)       script -qec "${cmd2[*]}" /dev/null >"$SB_OUT" 2>&1 </dev/null ;;
     esac
-    assert "rc block gained the PATH export" \
-        grep -qF "export PATH=\"\$HOME/.local/bin:\$PATH\"" "$SB_HOME/.bashrc" &&
-    assert "block rewritten in place, not appended twice" \
-        [ "$(grep -c '>>> vastai installer' "$SB_HOME/.bashrc")" -eq 1 ] &&
-    assert "completion line survives the rewrite" \
-        grep -q 'vastai-completion' "$SB_HOME/.bashrc" &&
-    assert "rc symlink survives the rewrite" [ -L "$SB_HOME/.bashrc" ] &&
-    assert "rewrite landed in the symlink target" \
-        grep -q '\.local/bin' "$SB_HOME/dotfiles/bashrc" &&
-    assert "no leftover tmp file" [ ! -e "$SB_HOME/.bashrc.vastai.tmp" ] &&
-    assert "no coexistence warning once resolved" out_lacks "another vastai" || return 1
-    # Third run, still shadowed but rc already configured: quiet no-op, hint still shown.
-    cp "$SB_HOME/dotfiles/bashrc" "$SB/rc-after-rewrite"
-    case "$(uname -s)" in
-        Darwin*) script -q /dev/null "${cmd2[@]}" >"$SB_OUT" 2>&1 </dev/null ;;
-        *)       script -qec "${cmd2[*]}" /dev/null >"$SB_OUT" 2>&1 </dev/null ;;
-    esac
-    assert "re-run leaves the rc untouched" \
-        cmp -s "$SB_HOME/dotfiles/bashrc" "$SB/rc-after-rewrite" &&
-    assert "no spurious warning when rc already resolves precedence" \
-        out_lacks "another vastai" &&
-    assert "use-it-now hint still printed for the shadowed shell" \
-        out_contains "Use it now"
-}
-
-test_rc_block_malformed() { # hand-mangled block must never be rewritten (data-loss guard)
-    new_sandbox rcmangled
-    command -v script >/dev/null 2>&1 || { echo "    (skipped: no script(1))"; return 0; }
-    mkdir -p "$SB/pipbin" "$SB_HOME/.local/bin"
-    printf '#!/bin/sh\necho 1.0.13\n' > "$SB/pipbin/vastai"
-    chmod +x "$SB/pipbin/vastai"
-    # Indented end marker: not an exact line, so the rewrite must refuse rather than eat the rc tail.
-    printf '# >>> vastai installer >>>\n  # <<< vastai installer <<<\nalias keepme=1\n' > "$SB_HOME/.bashrc"
-    cp "$SB_HOME/.bashrc" "$SB/before"
-    local cmd=(env "HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" \
-        "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" \
-        "PATH=$SB/pipbin:$SB_HOME/.local/bin:/usr/bin:/bin" /bin/bash "$INSTALL_SH")
-    case "$(uname -s)" in
-        Darwin*) script -q /dev/null "${cmd[@]}" >"$SB_OUT" 2>&1 </dev/null ;;
-        *)       script -qec "${cmd[*]}" /dev/null >"$SB_OUT" 2>&1 </dev/null ;;
-    esac
-    assert "malformed block left byte-identical" cmp -s "$SB_HOME/.bashrc" "$SB/before" &&
-    assert "falls back to the coexistence warning" out_contains "another vastai"
+    assert "re-run leaves the rc untouched" cmp -s "$SB_HOME/dotfiles/bashrc" "$SB/before" &&
+    assert "rc line present exactly once" [ "$(grep -c 'env\.sh' "$SB_HOME/.bashrc")" -eq 1 ] &&
+    assert "rc symlink survives" [ -L "$SB_HOME/.bashrc" ] &&
+    assert "no spurious warning when rc already resolves precedence" out_lacks "another vastai" &&
+    assert "use-it-now hint printed for the shadowed shell" out_contains "Use it now"
 }
 
 test_completion_files_generated() { # static completion scripts precomputed under share/
@@ -340,10 +304,10 @@ test_completion_files_generated() { # static completion scripts precomputed unde
     run_install || { cat "$SB_OUT"; return 1; }
     assert "bash completion file present" [ -s "$SB_ROOT/share/vastai-completion.bash" ] &&
     assert "zsh completion file present" [ -s "$SB_ROOT/share/vastai-completion.zsh" ] &&
-    assert "rc block sources the static file, not a per-startup eval" \
-        out_contains "source .*vastai-completion" &&
+    assert "env.sh sources the static file, not a per-startup eval" \
+        grep -q 'vastai-completion' "$SB_ROOT/env.sh" &&
     assert "no per-startup register-python-argcomplete eval" \
-        [ "$(grep -c 'eval.*register-python-argcomplete' "$SB_OUT")" -eq 0 ]
+        [ "$(grep -c 'eval.*register-python-argcomplete' "$SB_ROOT/env.sh")" -eq 0 ]
 }
 
 test_tty_install() { # interactive install (stderr on a pty) must survive old bash
@@ -374,7 +338,7 @@ test_tty_install() { # interactive install (stderr on a pty) must survive old ba
 # Runner
 # ---------------------------------------------------------------------------
 
-ALL_TESTS=(fresh_install pinned_reinstall wheel_url_install wheel_url_pin_fallback checksum_abort truncation_guard glibc_floor rc_safety completion_when_path_ok pip_shadowing pip_shadowing_quiet pip_shadowing_rerun rc_block_malformed completion_files_generated tty_install)
+ALL_TESTS=(fresh_install pinned_reinstall wheel_url_install wheel_url_pin_fallback checksum_abort truncation_guard glibc_floor rc_safety env_sh pip_shadowing pip_shadowing_quiet pip_shadowing_rerun completion_files_generated tty_install)
 # No "${@:-...}": expanding $@ with zero args under set -u is itself fatal on
 # old bash, and this harness must run under macOS's stock bash 3.2 (see
 # test_tty_install).

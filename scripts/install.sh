@@ -282,8 +282,9 @@ setup_path() {
         *) PATH_OK="" ;;
     esac
 
-    # rc block: completion always (sources the static script); PATH export only
-    # if $LOCAL_BIN isn't already on PATH — so we never skip completion on PATH_OK.
+    # rc block: completion always (sources the static script); PATH export
+    # whenever precedence isn't guaranteed — $LOCAL_BIN missing from PATH or
+    # outranked by another vastai — so we never skip completion on PATH_OK.
     local rc_file shell_name marker marker_end path_export completion comp_file path_line block rewrite
     rc_file="$(rc_file_for_shell)"
     shell_name="$(basename "${SHELL:-}")"
@@ -316,7 +317,11 @@ $marker_end"
             RC_UPDATED=1
             return 0
         fi
-        grep -qF "$marker_end" "$rc_file" || return 0  # block corrupt — coexistence warning covers it
+        # Rewrite only a well-formed block: both markers as exact lines (-x),
+        # matching what the awk below deletes between. A hand-edited or
+        # CRLF-converted block fails this and falls back to the printed
+        # instructions + coexistence warning instead of risking the rc.
+        grep -qxF "$marker" "$rc_file" && grep -qxF "$marker_end" "$rc_file" || return 0
         rewrite=1
     fi
 

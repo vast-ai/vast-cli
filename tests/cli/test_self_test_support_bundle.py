@@ -18,10 +18,15 @@ def test_support_bundle_contains_redacted_result_and_cli_output(tmp_path):
             "error": "request failed: https://console.vast.ai/?api_key=secret",
             "diagnostics": {"jupyter_token": "secret-token"},
         },
-        cli_output=["Starting self-test", "token=supersecret"],
+        cli_output=[
+            "Starting self-test",
+            "token=supersecret",
+            "Captured instance_info: {'success': True, 'instance_api_key': 'instance-secret'}",
+            'Captured show-instance: {"jupyter_token": "jupyter-secret"}',
+        ],
         run_started_at="20260602T100000Z",
         command=["vastai", "--api-key", "secret", "self-test", "machine", "42"],
-        secrets=["secret", "supersecret"],
+        secrets=["secret", "supersecret", "instance-secret", "jupyter-secret"],
         include_host_logs=False,
     )
 
@@ -34,6 +39,8 @@ def test_support_bundle_contains_redacted_result_and_cli_output(tmp_path):
     assert {"manifest.json", "self-test-result.json", "self-test-output.log", "collection-errors.json"} <= names
     assert "secret" not in result_json
     assert "secret" not in output_log
+    assert "instance-secret" not in output_log
+    assert "jupyter-secret" not in output_log
     assert "REDACTED" in result_json
     assert "REDACTED" in output_log
     assert manifest["machine_id"] == "42"

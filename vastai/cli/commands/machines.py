@@ -68,6 +68,7 @@ from vastai.cli.self_test.runtime_diagnostics import (
 from vastai.cli.self_test.support_bundle import (
     create_support_bundle,
     format_bundle_summary,
+    redact_diagnostic_text,
     support_bundles_enabled,
 )
 
@@ -833,10 +834,14 @@ def self_test__machine(args):
             print(*args_to_print)
 
     def debug_print(*args_to_print):
+        line = redact_diagnostic_text(
+            output_line(*args_to_print),
+            secrets=[getattr(args, "api_key", None), os.environ.get("VAST_API_KEY")],
+        )
         if args.debugging:
-            cli_output.append(f"DEBUG: {output_line(*args_to_print)}")
+            cli_output.append(f"DEBUG: {line}")
         if args.debugging and not args.raw:
-            print(*args_to_print)
+            print(line)
 
     def collect_instance_logs(inst_id):
         if args.no_support_bundle or not support_bundles_enabled():

@@ -26,8 +26,9 @@ SENSITIVE_KEY_RE = re.compile(
     re.IGNORECASE,
 )
 SENSITIVE_ASSIGNMENT_RE = re.compile(
-    r"(?i)\b(api[_-]?key|token|secret|password|passwd|authorization|jupyter_token|instance_api_key|host_port_range)"
-    r"\b\s*[:=]\s*([^\s,;]+)"
+    r"(?i)(?P<prefix>['\"]?\b(?:api[_-]?key|token|secret|password|passwd|authorization|"
+    r"jupyter_token|instance_api_key|host_port_range)\b['\"]?\s*[:=]\s*)"
+    r"(?P<quote>['\"]?)(?P<value>[^'\"\s,;}\]]+)(?P=quote)?"
 )
 DMESG_KEYWORDS_RE = re.compile(r"\b(warn|warning|err|error|fail|fault|crit|panic|oops|bug)\b", re.IGNORECASE)
 
@@ -45,12 +46,19 @@ def _safe_machine_id(machine_id: object) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(machine_id or "unknown"))[:80]
 
 
-def _redact_text(text: object, secrets: list[str] | None = None) -> str:
+def redact_diagnostic_text(text: object, secrets: list[str] | None = None) -> str:
     redacted = redact_secret_text("" if text is None else str(text)) or ""
     for secret in secrets or []:
         if secret:
             redacted = redacted.replace(str(secret), "REDACTED")
-    return SENSITIVE_ASSIGNMENT_RE.sub(lambda match: f"{match.group(1)}=REDACTED", redacted)
+    return SENSITIVE_ASSIGNMENT_RE.sub(
+        lambda match: f"{match.group('prefix')}{match.group('quote')}REDACTED{match.group('quote')}",
+        redacted,
+    )
+
+
+def _redact_text(text: object, secrets: list[str] | None = None) -> str:
+    return redact_diagnostic_text(text, secrets)
 
 
 def _redact_json(value: Any, secrets: list[str] | None = None) -> Any:

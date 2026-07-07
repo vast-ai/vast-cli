@@ -266,7 +266,11 @@ test_pip_shadowing_quiet() { # rc update resolves coexistence -> no warning, jus
 test_pip_shadowing_rerun() { # rc block written pre-shadowing must gain the PATH export on re-run
     new_sandbox piprerun
     command -v script >/dev/null 2>&1 || { echo "    (skipped: no script(1))"; return 0; }
-    mkdir -p "$SB/pipbin" "$SB_HOME/.local/bin"
+    mkdir -p "$SB/pipbin" "$SB_HOME/.local/bin" "$SB_HOME/dotfiles"
+    # .bashrc as a symlink (dotfile-manager layout): the rewrite must write
+    # through the link, never replace it with a regular file.
+    touch "$SB_HOME/dotfiles/bashrc"
+    ln -s dotfiles/bashrc "$SB_HOME/.bashrc"
     # First install with healthy PATH (.local/bin first, nothing shadowing):
     # the rc block is written without a PATH export.
     local cmd=(env "HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" \
@@ -295,6 +299,10 @@ test_pip_shadowing_rerun() { # rc block written pre-shadowing must gain the PATH
         [ "$(grep -c '>>> vastai installer' "$SB_HOME/.bashrc")" -eq 1 ] &&
     assert "completion line survives the rewrite" \
         grep -q 'vastai-completion' "$SB_HOME/.bashrc" &&
+    assert "rc symlink survives the rewrite" [ -L "$SB_HOME/.bashrc" ] &&
+    assert "rewrite landed in the symlink target" \
+        grep -q '\.local/bin' "$SB_HOME/dotfiles/bashrc" &&
+    assert "no leftover tmp file" [ ! -e "$SB_HOME/.bashrc.vastai.tmp" ] &&
     assert "no coexistence warning once resolved" out_lacks "another vastai"
 }
 

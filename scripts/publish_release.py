@@ -84,15 +84,13 @@ def attach_release(tag, manifest_dir, wheel, *, dry):
     wheel isn't fetchable, nor a half-populated latest release.
     """
     if dry:
-        log(f"[dry-run] gh release create {tag} --draft; gh release upload {tag} "
-            f"--clobber {Path(wheel).name} manifest.json manifest.env install.sh; "
-            f"gh release edit {tag} --draft=false")
-        return
-    try:
-        exists = subprocess.run(["gh", "release", "view", tag],
-                                capture_output=True, text=True).returncode == 0
-    except FileNotFoundError:
-        raise ReleaseError("required tool not found: gh")
+        exists = False  # skip the gh probe: dry-run needs neither gh nor auth
+    else:
+        try:
+            exists = subprocess.run(["gh", "release", "view", tag],
+                                    capture_output=True, text=True).returncode == 0
+        except FileNotFoundError:
+            raise ReleaseError("required tool not found: gh")
     if not exists:
         run(["gh", "release", "create", tag, "--draft", "--title", tag,
              "--notes", f"{PACKAGE} {tag.lstrip('v')}", "--generate-notes"], dry=dry)

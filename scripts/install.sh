@@ -319,8 +319,17 @@ $marker_end"
     # without a TTY (CI/pipes); there we just print the block.
     if [ -z "$NO_MODIFY_PATH" ] && [ -n "$rc_file" ] && is_interactive; then
         if [ -n "$rewrite" ]; then
-            awk -v s="$marker" -v e="$marker_end" '$0==s{skip=1;next} $0==e{skip=0;next} !skip' \
-                "$rc_file" > "$rc_file.vastai.tmp" && mv "$rc_file.vastai.tmp" "$rc_file"
+            # cat, not mv: rc files are often symlinks (dotfile managers), and
+            # writing through the link preserves its inode and permissions.
+            if awk -v s="$marker" -v e="$marker_end" '$0==s{skip=1;next} $0==e{skip=0;next} !skip' \
+                "$rc_file" > "$rc_file.vastai.tmp" && cat "$rc_file.vastai.tmp" > "$rc_file"; then
+                rm -f "$rc_file.vastai.tmp"
+            else
+                rm -f "$rc_file.vastai.tmp"
+                say "To finish setup, update the vastai block in $rc_file to:"
+                printf '\n%s\n\n' "$block"
+                return 0
+            fi
         fi
         printf '\n%s\n' "$block" >> "$rc_file"
         RC_UPDATED=1

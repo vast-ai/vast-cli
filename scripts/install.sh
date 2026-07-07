@@ -28,7 +28,7 @@ LOCAL_BIN="$HOME/.local/bin"
 NO_MODIFY_PATH="${VASTAI_NO_MODIFY_PATH:-}"
 WORKDIR=""
 RC_UPDATED=""
-PATH_PREPENDED=""
+NEEDS_PATH_HINT=""
 
 say()  { printf '  %s\n' "$*"; }
 warn() { printf '  warning: %s\n' "$*" >&2; }
@@ -285,7 +285,7 @@ setup_path() {
     existing="$(command -v vastai 2>/dev/null || true)"
     case "$existing" in
         "$LOCAL_BIN/vastai"|"$ROOT/bin/vastai") ;;
-        *) PATH_PREPENDED=1 ;;
+        *) NEEDS_PATH_HINT=1 ;;
     esac
 
     local rc_file line
@@ -363,7 +363,7 @@ main() {
 
     printf '\n'
     say "vastai $version installed to $ROOT"
-    if [ -n "$RC_UPDATED" ] && [ -n "$PATH_PREPENDED" ]; then
+    if [ -n "$RC_UPDATED" ] && [ -n "$NEEDS_PATH_HINT" ]; then
         say "  Use it now:   start a new shell, or run: export PATH=\"\$HOME/.local/bin:\$PATH\""
     fi
     say "  Get started:  vastai set api-key YOUR_API_KEY   (https://cloud.vast.ai/manage-keys/?tab=api-keys)"

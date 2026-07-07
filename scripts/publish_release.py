@@ -64,6 +64,9 @@ def run(cmd, *, dry, capture=False):
 def resolve_wheel(version, *, dry):
     """The wheel poetry just built/published, in dist/ — hash those exact bytes."""
     matches = sorted(glob.glob(str(REPO_ROOT / "dist" / f"{PACKAGE}-{version}-*.whl")))
+    if len(matches) > 1:
+        names = ", ".join(Path(m).name for m in matches)
+        raise ReleaseError(f"multiple wheels match dist/{PACKAGE}-{version}-*.whl: {names}")
     if matches:
         return matches[0]
     if dry:

@@ -227,6 +227,42 @@ test_completion_when_path_ok() { # PATH already set -> still wires completion, o
     assert "omits redundant PATH export" [ "$(grep -c 'export PATH' "$SB_OUT")" -eq 0 ]
 }
 
+test_pip_shadowing() { # pip vastai earlier in PATH -> PATH export forced, SDK-aware warning
+    new_sandbox pipshadow
+    mkdir -p "$SB/pipbin" "$SB_HOME/.local/bin"
+    printf '#!/bin/sh\necho 1.0.13\n' > "$SB/pipbin/vastai"
+    chmod +x "$SB/pipbin/vastai"
+    # .local/bin IS on PATH but the pip one outranks it — the installer must
+    # still emit the PATH export so its CLI wins in new shells.
+    run_install "PATH=$SB/pipbin:$SB_HOME/.local/bin:$PATH" || { cat "$SB_OUT"; return 1; }
+    assert "detects the foreign vastai" out_contains "another vastai is on your PATH" &&
+    assert "forces the PATH export despite .local/bin being on PATH" \
+        out_contains "export PATH" &&
+    assert "never advises uninstalling the pip package (it may be the SDK)" \
+        out_lacks "pip uninstall"
+}
+
+test_pip_shadowing_quiet() { # rc update resolves coexistence -> no warning, just the use-it-now hint
+    new_sandbox pipquiet
+    command -v script >/dev/null 2>&1 || { echo "    (skipped: no script(1))"; return 0; }
+    mkdir -p "$SB/pipbin" "$SB_HOME/.local/bin"
+    printf '#!/bin/sh\necho 1.0.13\n' > "$SB/pipbin/vastai"
+    chmod +x "$SB/pipbin/vastai"
+    # A pty (no --no-modify-path) lets the installer write the rc PATH line,
+    # which settles precedence — so the coexistence warning must NOT print.
+    # PATH is pinned to sandbox dirs + system bins so the pip fake outranks ours.
+    local cmd=(env "HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" \
+        "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" \
+        "PATH=$SB/pipbin:$SB_HOME/.local/bin:/usr/bin:/bin" /bin/bash "$INSTALL_SH")
+    case "$(uname -s)" in
+        Darwin*) script -q /dev/null "${cmd[@]}" >"$SB_OUT" 2>&1 </dev/null ;;
+        *)       script -qec "${cmd[*]}" /dev/null >"$SB_OUT" 2>&1 </dev/null ;;
+    esac
+    assert "rc gained the PATH line" grep -q '\.local/bin' "$SB_HOME/.bashrc" &&
+    assert "no coexistence warning once resolved" out_lacks "another vastai" &&
+    assert "current-shell hint printed" out_contains "Use it now"
+}
+
 test_completion_files_generated() { # static completion scripts precomputed under share/
     new_sandbox compgen
     run_install || { cat "$SB_OUT"; return 1; }
@@ -266,7 +302,7 @@ test_tty_install() { # interactive install (stderr on a pty) must survive old ba
 # Runner
 # ---------------------------------------------------------------------------
 
-ALL_TESTS=(fresh_install pinned_reinstall wheel_url_install wheel_url_pin_fallback checksum_abort truncation_guard glibc_floor rc_safety completion_when_path_ok completion_files_generated tty_install)
+ALL_TESTS=(fresh_install pinned_reinstall wheel_url_install wheel_url_pin_fallback checksum_abort truncation_guard glibc_floor rc_safety completion_when_path_ok pip_shadowing pip_shadowing_quiet completion_files_generated tty_install)
 # No "${@:-...}": expanding $@ with zero args under set -u is itself fatal on
 # old bash, and this harness must run under macOS's stock bash 3.2 (see
 # test_tty_install).

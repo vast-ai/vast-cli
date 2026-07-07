@@ -59,6 +59,13 @@ The design splits the install into two layers:
   lands in `$ROOT`.
 - PATH/completion edits default-on at a real TTY (no prompt, like uv/rustup);
   skippable via `--no-modify-path`, never written non-interactively.
+- pip coexistence: pip stays the channel for the Python SDK, and its package
+  ships a `vastai` script too — the `vastai` *command* belongs to the managed
+  install. The installer guarantees precedence (prepends `~/.local/bin` even
+  when it's already on PATH but outranked) rather than telling SDK users to
+  uninstall their library, and resolves it silently — the coexistence warning
+  prints only when precedence couldn't be written (non-interactive,
+  `--no-modify-path`, unknown shell).
 
 ## 3. On-disk layout
 
@@ -260,8 +267,8 @@ until launch.
 ## 13. Release runbook
 
 A release is triggered by pushing a `vX.Y.Z` tag — `python-publish.yml` then
-publishes to PyPI and attaches the installer assets via `publish_release.py
---ci`. The manual equivalent, for reference / break-glass (~10 min):
+publishes to PyPI and attaches the installer assets via `publish_release.py`.
+The manual equivalent, for reference / break-glass (~10 min):
 
 ```bash
 git tag v1.0.14 && git push origin v1.0.14         # existing CI publishes to PyPI
@@ -288,38 +295,23 @@ Rules the automation must enforce (a human must remember for now):
 - **Upload `install.sh` from the tagged commit**, not a dirty working tree.
 - Once redirects are live, **the asset upload *is* the deploy** — verify immediately.
 
-### `scripts/publish_release.py` (one orchestrator, human + CI)
+### `scripts/publish_release.py` (CI-only orchestrator)
 
-The four rules above are exactly the things a human forgets, so the runbook
-collapses into a single script — **one orchestrator both a human and CI invoke**,
-so the dangerous steps have one implementation, not a local copy plus a
-divergent YAML copy.
-
-```bash
-scripts/publish_release.py 1.0.14            # local: tag → wait for PyPI → manifest → gh release → verify
-scripts/publish_release.py 1.0.14 --ci       # CI: hash dist/*.whl → manifest → attach (tag/poll skipped)
-scripts/publish_release.py 1.0.14 --dry-run  # print every action, touch nothing
-```
+The four rules above are exactly the things a human forgets, so CI owns them:
+the script runs only in `python-publish.yml`, right after `poetry publish
+--build`, hashing the exact bytes in `dist/` that PyPI serves. It wraps the
+existing `make_manifest.py` (no duplicated logic), creates the Release as a
+draft, uploads all assets, then flips it live; re-runs use `gh release upload
+--clobber`. The workflow step is `python scripts/publish_release.py
+"${GITHUB_REF_NAME#v}"`; `--dry-run` prints every action and touches nothing.
 
 The version is always explicit (it's the tag the deployer chose). Computing the
 next version from the latest tag (`major|minor|patch`) is deliberately left out
 for now — pick the version when you tag.
 
-It wraps the existing `make_manifest.py` (no duplicated logic) and differs only
-by context:
-
-| | Local (manual window) | CI (`--ci`, on tag push) |
-|---|---|---|
-| Tag | script pushes it | already pushed (the trigger) |
-| Wheel to hash | `pip download` from PyPI after publish — **polls** until available | `dist/*.whl` from `poetry publish --build` — the exact published bytes, no wait |
-| `gh` auth | developer creds | `GITHUB_TOKEN` |
-
-Guardrails (because it triggers irreversible, outward actions): refuse on a
-dirty tree / wrong branch; refuse if the tag already exists (re-runs use
-`gh release upload --clobber`); confirm before the tag push and
-`gh release create` unless `--yes`/`--ci`; baked-in post-upload verification
-(install via the Release URL → `vastai --version`). PR 2's workflow step then
-reduces to `python scripts/publish_release.py "${GITHUB_REF_NAME#v}" --ci`.
+A local mode (tag → poll PyPI → attach → verify) existed while CI was being
+proven and was removed once tag-push releases were the only path used; the
+manual runbook above is the break-glass fallback.
 
 (Named `publish_release.py`, not `publish_update.py`: it publishes a *release* —
 `install.sh` + both manifests as Release assets — not "an update.")
@@ -344,9 +336,10 @@ reduces to `python scripts/publish_release.py "${GITHUB_REF_NAME#v}" --ci`.
   are explicit later-phase options.
 - No guard against downgrading below the first update-capable release —
   deliberate: low-probability, low-severity; recovery is a reinstall.
-- Release orchestration is one script (`scripts/publish_release.py`, §13) shared
-  by humans and CI — not a local helper plus a separate CI YAML copy. Lands in
-  PR 2 to keep PR 1 a no-op.
+- Release orchestration is one script (`scripts/publish_release.py`, §13) run
+  by CI on tag push — not orchestration logic spread across YAML. Its former
+  local mode was removed once tag-push releases proved out; break-glass is the
+  manual runbook.
 - **Platform support floor: glibc ≥ 2.31** (Ubuntu 20.04+/Debian 11+). Older
   systems (18.04 = 2.27, CentOS 7 = 2.17) lack wheels for some deps under the
   pinned CPython, so `install.sh` detects glibc and bails cleanly to pip rather

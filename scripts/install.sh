@@ -28,6 +28,7 @@ LOCAL_BIN="$HOME/.local/bin"
 NO_MODIFY_PATH="${VASTAI_NO_MODIFY_PATH:-}"
 WORKDIR=""
 RC_UPDATED=""
+PATH_PREPENDED=""
 
 say()  { printf '  %s\n' "$*"; }
 warn() { printf '  warning: %s\n' "$*" >&2; }
@@ -270,6 +271,16 @@ setup_path() {
         *":$LOCAL_BIN:"*) PATH_OK=1 ;;
         *) PATH_OK="" ;;
     esac
+    # $LOCAL_BIN being on PATH isn't enough — the `vastai` command must WIN.
+    # pip remains the right way to get the Python SDK, and its package ships a
+    # `vastai` script too; if anything but ours resolves first, emit the PATH
+    # line anyway so this install takes precedence in new shells.
+    local existing
+    existing="$(command -v vastai 2>/dev/null || true)"
+    case "$existing" in
+        ""|"$LOCAL_BIN/vastai"|"$ROOT/bin/vastai") ;;
+        *) PATH_OK="" ;;
+    esac
 
     # rc block: completion always (sources the static script); PATH export only
     # if $LOCAL_BIN isn't already on PATH — so we never skip completion on PATH_OK.
@@ -284,6 +295,7 @@ setup_path() {
     else
         path_line="export PATH=\"\$HOME/.local/bin:\$PATH\"
 "
+        PATH_PREPENDED=1
     fi
     block="$marker
 ${path_line}${completion}
@@ -310,8 +322,12 @@ check_pip_coexistence() {
     case "$existing" in
         ""|"$LOCAL_BIN/vastai"|"$ROOT/bin/vastai") return 0 ;;
     esac
-    warn "another vastai is on your PATH at $existing (likely a pip install)."
-    warn "whichever comes first in PATH wins; remove the old one with: pip uninstall vastai"
+    # The rc update already put ours first — resolved, nothing to say.
+    # Warn only when precedence couldn't be guaranteed (no-modify-path,
+    # non-interactive, unknown shell).
+    [ -n "$RC_UPDATED" ] && return 0
+    warn "another vastai is on your PATH at $existing."
+    warn "put $LOCAL_BIN first in PATH so this one wins."
 }
 
 main() {
@@ -357,6 +373,9 @@ main() {
 
     printf '\n'
     say "vastai $version installed to $ROOT"
+    if [ -n "$RC_UPDATED" ] && [ -n "$PATH_PREPENDED" ]; then
+        say "  Use it now:   start a new shell, or run: export PATH=\"\$HOME/.local/bin:\$PATH\""
+    fi
     say "  Get started:  vastai set api-key YOUR_API_KEY   (https://cloud.vast.ai/manage-keys/?tab=api-keys)"
     say "  Update later: vastai update"
     if [ -n "$RC_UPDATED" ]; then

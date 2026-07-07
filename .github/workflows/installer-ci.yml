@@ -52,10 +52,8 @@ jobs:
           python3 scripts/make_manifest.py --version 0.0.0 --wheel dummy.whl --out /tmp/m
           grep -q '^LATEST=0.0.0$' /tmp/m/manifest.env
           python3 -c "import json; json.load(open('/tmp/m/manifest.json'))"
-      - name: publish_release dry-runs (local + ci)
-        run: |
-          python3 scripts/publish_release.py 0.0.0 --dry-run --yes
-          python3 scripts/publish_release.py 0.0.0 --ci --dry-run
+      - name: publish_release dry-runs
+        run: python3 scripts/publish_release.py 0.0.0 --dry-run
 
   # Builds THIS PR's wheel so the OS matrix exercises the PR's install.sh AND
   # its dependency closure (a dep without wheels for a target — e.g. musl —

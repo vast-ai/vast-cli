@@ -88,8 +88,11 @@ def attach_release(tag, manifest_dir, wheel, *, dry):
             f"--clobber {Path(wheel).name} manifest.json manifest.env install.sh; "
             f"gh release edit {tag} --draft=false")
         return
-    exists = subprocess.run(["gh", "release", "view", tag],
-                            capture_output=True, text=True).returncode == 0
+    try:
+        exists = subprocess.run(["gh", "release", "view", tag],
+                                capture_output=True, text=True).returncode == 0
+    except FileNotFoundError:
+        raise ReleaseError("required tool not found: gh")
     if not exists:
         run(["gh", "release", "create", tag, "--draft", "--title", tag,
              "--notes", f"{PACKAGE} {tag.lstrip('v')}", "--generate-notes"], dry=dry)

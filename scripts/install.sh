@@ -284,30 +284,44 @@ setup_path() {
 
     # rc block: completion always (sources the static script); PATH export only
     # if $LOCAL_BIN isn't already on PATH — so we never skip completion on PATH_OK.
-    local rc_file shell_name marker completion comp_file path_line block
+    local rc_file shell_name marker marker_end path_export completion comp_file path_line block rewrite
     rc_file="$(rc_file_for_shell)"
     shell_name="$(basename "${SHELL:-}")"
     marker="# >>> vastai installer >>>"
+    marker_end="# <<< vastai installer <<<"
+    path_export="export PATH=\"\$HOME/.local/bin:\$PATH\""
     comp_file="$ROOT/share/vastai-completion.$shell_name"
     completion="[ -f \"$comp_file\" ] && source \"$comp_file\"  # vastai tab completion"
     if [ -n "$PATH_OK" ]; then
         path_line=""
     else
-        path_line="export PATH=\"\$HOME/.local/bin:\$PATH\"
+        path_line="$path_export
 "
         PATH_PREPENDED=1
     fi
     block="$marker
 ${path_line}${completion}
-# <<< vastai installer <<<"
+$marker_end"
 
+    # Marker idempotency is content-aware: an existing block written when PATH
+    # was healthy carries no PATH export, so if a foreign vastai now resolves
+    # first the block must be rewritten to reassert precedence, not skipped.
+    rewrite=""
     if [ -n "$rc_file" ] && [ -f "$rc_file" ] && grep -qF "$marker" "$rc_file"; then
-        return 0  # already configured; takes effect in new shells
+        if [ -z "$path_line" ] || grep -qF "$path_export" "$rc_file"; then
+            return 0  # already configured; takes effect in new shells
+        fi
+        grep -qF "$marker_end" "$rc_file" || return 0  # block corrupt — coexistence warning covers it
+        rewrite=1
     fi
 
     # Default-on, no prompt — but never edit rc under --no-modify-path or
     # without a TTY (CI/pipes); there we just print the block.
     if [ -z "$NO_MODIFY_PATH" ] && [ -n "$rc_file" ] && is_interactive; then
+        if [ -n "$rewrite" ]; then
+            awk -v s="$marker" -v e="$marker_end" '$0==s{skip=1;next} $0==e{skip=0;next} !skip' \
+                "$rc_file" > "$rc_file.vastai.tmp" && mv "$rc_file.vastai.tmp" "$rc_file"
+        fi
         printf '\n%s\n' "$block" >> "$rc_file"
         RC_UPDATED=1
     else

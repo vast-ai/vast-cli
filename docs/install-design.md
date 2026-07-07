@@ -65,7 +65,9 @@ The design splits the install into two layers:
   when it's already on PATH but outranked) rather than telling SDK users to
   uninstall their library, and resolves it silently — the coexistence warning
   prints only when precedence couldn't be written (non-interactive,
-  `--no-modify-path`, unknown shell).
+  `--no-modify-path`, unknown shell). Marker idempotency is content-aware: a
+  re-run rewrites an existing rc block that predates a newly needed PATH
+  export instead of skipping on the marker.
 
 ## 3. On-disk layout
 

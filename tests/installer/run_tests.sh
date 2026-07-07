@@ -263,6 +263,41 @@ test_pip_shadowing_quiet() { # rc update resolves coexistence -> no warning, jus
     assert "current-shell hint printed" out_contains "Use it now"
 }
 
+test_pip_shadowing_rerun() { # rc block written pre-shadowing must gain the PATH export on re-run
+    new_sandbox piprerun
+    command -v script >/dev/null 2>&1 || { echo "    (skipped: no script(1))"; return 0; }
+    mkdir -p "$SB/pipbin" "$SB_HOME/.local/bin"
+    # First install with healthy PATH (.local/bin first, nothing shadowing):
+    # the rc block is written without a PATH export.
+    local cmd=(env "HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" \
+        "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" \
+        "PATH=$SB_HOME/.local/bin:/usr/bin:/bin" /bin/bash "$INSTALL_SH")
+    case "$(uname -s)" in
+        Darwin*) script -q /dev/null "${cmd[@]}" >"$SB_OUT" 2>&1 </dev/null ;;
+        *)       script -qec "${cmd[*]}" /dev/null >"$SB_OUT" 2>&1 </dev/null ;;
+    esac
+    assert "precondition: block written without PATH export" \
+        [ "$(grep -c 'export PATH' "$SB_HOME/.bashrc")" -eq 0 ] || return 1
+    # A pip vastai now outranks ours. A re-run must not skip on the marker: it
+    # rewrites the existing block to reassert precedence, still without warning.
+    printf '#!/bin/sh\necho 1.0.13\n' > "$SB/pipbin/vastai"
+    chmod +x "$SB/pipbin/vastai"
+    local cmd2=(env "HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" \
+        "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" \
+        "PATH=$SB/pipbin:$SB_HOME/.local/bin:/usr/bin:/bin" /bin/bash "$INSTALL_SH")
+    case "$(uname -s)" in
+        Darwin*) script -q /dev/null "${cmd2[@]}" >"$SB_OUT" 2>&1 </dev/null ;;
+        *)       script -qec "${cmd2[*]}" /dev/null >"$SB_OUT" 2>&1 </dev/null ;;
+    esac
+    assert "rc block gained the PATH export" \
+        grep -qF "export PATH=\"\$HOME/.local/bin:\$PATH\"" "$SB_HOME/.bashrc" &&
+    assert "block rewritten in place, not appended twice" \
+        [ "$(grep -c '>>> vastai installer' "$SB_HOME/.bashrc")" -eq 1 ] &&
+    assert "completion line survives the rewrite" \
+        grep -q 'vastai-completion' "$SB_HOME/.bashrc" &&
+    assert "no coexistence warning once resolved" out_lacks "another vastai"
+}
+
 test_completion_files_generated() { # static completion scripts precomputed under share/
     new_sandbox compgen
     run_install || { cat "$SB_OUT"; return 1; }
@@ -302,7 +337,7 @@ test_tty_install() { # interactive install (stderr on a pty) must survive old ba
 # Runner
 # ---------------------------------------------------------------------------
 
-ALL_TESTS=(fresh_install pinned_reinstall wheel_url_install wheel_url_pin_fallback checksum_abort truncation_guard glibc_floor rc_safety completion_when_path_ok pip_shadowing pip_shadowing_quiet completion_files_generated tty_install)
+ALL_TESTS=(fresh_install pinned_reinstall wheel_url_install wheel_url_pin_fallback checksum_abort truncation_guard glibc_floor rc_safety completion_when_path_ok pip_shadowing pip_shadowing_quiet pip_shadowing_rerun completion_files_generated tty_install)
 # No "${@:-...}": expanding $@ with zero args under set -u is itself fatal on
 # old bash, and this harness must run under macOS's stock bash 3.2 (see
 # test_tty_install).

@@ -309,7 +309,12 @@ $marker_end"
     rewrite=""
     if [ -n "$rc_file" ] && [ -f "$rc_file" ] && grep -qF "$marker" "$rc_file"; then
         if [ -z "$path_line" ] || grep -qF "$path_export" "$rc_file"; then
-            return 0  # already configured; takes effect in new shells
+            # Already configured; takes effect in new shells. RC_UPDATED means
+            # "the rc guarantees precedence", not "written this run" — without
+            # it a re-run in a still-shadowed shell would warn about a
+            # coexistence problem the rc has already resolved.
+            RC_UPDATED=1
+            return 0
         fi
         grep -qF "$marker_end" "$rc_file" || return 0  # block corrupt — coexistence warning covers it
         rewrite=1

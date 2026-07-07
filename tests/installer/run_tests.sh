@@ -303,7 +303,20 @@ test_pip_shadowing_rerun() { # rc block written pre-shadowing must gain the PATH
     assert "rewrite landed in the symlink target" \
         grep -q '\.local/bin' "$SB_HOME/dotfiles/bashrc" &&
     assert "no leftover tmp file" [ ! -e "$SB_HOME/.bashrc.vastai.tmp" ] &&
-    assert "no coexistence warning once resolved" out_lacks "another vastai"
+    assert "no coexistence warning once resolved" out_lacks "another vastai" || return 1
+    # Third run, shell still shadowed but rc already configured: must be a
+    # quiet no-op — no spurious warning, no second block, hint still shown.
+    cp "$SB_HOME/dotfiles/bashrc" "$SB/rc-after-rewrite"
+    case "$(uname -s)" in
+        Darwin*) script -q /dev/null "${cmd2[@]}" >"$SB_OUT" 2>&1 </dev/null ;;
+        *)       script -qec "${cmd2[*]}" /dev/null >"$SB_OUT" 2>&1 </dev/null ;;
+    esac
+    assert "re-run leaves the rc untouched" \
+        cmp -s "$SB_HOME/dotfiles/bashrc" "$SB/rc-after-rewrite" &&
+    assert "no spurious warning when rc already resolves precedence" \
+        out_lacks "another vastai" &&
+    assert "use-it-now hint still printed for the shadowed shell" \
+        out_contains "Use it now"
 }
 
 test_completion_files_generated() { # static completion scripts precomputed under share/

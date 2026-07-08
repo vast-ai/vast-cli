@@ -157,6 +157,10 @@ retargeting, no retention/GC, no offline-instant-rollback guarantee.
   expected version before swapping. Latest installs the manifest's hash-pinned
   release wheel; `--version` pins use the PyPI pin (uv: TLS + index hashes).
   The uv binary itself comes from the manifest sha256 at install time.
+- After a successful swap, best-effort `uv cache prune`: envs are hardlinked
+  out of uv's user-global cache, which otherwise accumulates every version's
+  wheels forever. Prune, never clean — the cache is shared with any other uv
+  on the machine — and a prune failure never fails the completed update.
 
 ### Same-method discipline
 pip installs (which fail the managed-install check) get the correct

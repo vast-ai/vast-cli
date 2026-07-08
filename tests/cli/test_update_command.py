@@ -101,7 +101,8 @@ class TestIsManagedInstall:
         assert is_managed_install() is False
 
 
-# Fake uv: `uv venv DIR ...` and `uv pip install --python PY ... vastai==VER`
+# Fake uv: `uv venv DIR ...`, `uv pip install --python PY ... vastai==VER`,
+# and `uv cache prune` (drops a marker next to itself).
 FAKE_UV = """#!/bin/sh
 set -e
 if [ "$1" = "venv" ]; then
@@ -115,6 +116,8 @@ elif [ "$1" = "pip" ]; then
     bindir="$(dirname "$py")"
     printf '#!/bin/sh\\necho "%s"\\n' "${last#vastai==}" > "$bindir/vastai"
     chmod +x "$bindir/vastai"
+elif [ "$1" = "cache" ]; then
+    touch "$(dirname "$0")/cache-pruned"
 fi
 """
 
@@ -143,6 +146,18 @@ class TestPerformUpdate:
         assert "1.3.0" in (install_root / "env" / "bin" / "vastai").read_text()
         assert not (install_root / ".env.new").exists()
         assert not (install_root / "versions").exists()
+
+    def test_success_prunes_uv_cache(self, install_root, fake_uv):
+        _seed_env(install_root, "1.2.3")
+        perform_update("1.3.0", MANIFEST)
+        assert (install_root / "bin" / "cache-pruned").exists()
+
+    def test_prune_failure_does_not_fail_the_update(self, install_root, fake_uv):
+        # uv errors on `cache prune`; the already-swapped update must still succeed
+        fake_uv.write_text(FAKE_UV.replace('touch "$(dirname "$0")/cache-pruned"', "exit 1"))
+        _seed_env(install_root, "1.2.3")
+        perform_update("1.3.0", MANIFEST)
+        assert "1.3.0" in (install_root / "env" / "bin" / "vastai").read_text()
 
     def test_build_failure_surfaces_real_error_not_a_fabricated_one(self, install_root):
         # A uv that "succeeds" but never builds the env: the verify step then

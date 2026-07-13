@@ -367,6 +367,7 @@ main() {
         say "  Use it now:   start a new shell, or run: export PATH=\"\$HOME/.local/bin:\$PATH\""
     fi
     say "  Get started:  vastai set api-key YOUR_API_KEY   (https://cloud.vast.ai/manage-keys/?tab=api-keys)"
+    say "  All commands: vastai --help"
     say "  Update later: vastai update"
     if [ -n "$RC_UPDATED" ]; then
         say "  Tab completion: start a new shell, then type 'vastai <TAB>'"

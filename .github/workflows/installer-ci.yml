@@ -84,9 +84,6 @@ jobs:
   # avoids the actions/checkout-on-musl node problem); macOS runs natively.
   os-matrix:
     needs: build-wheel
-    # Non-blocking canary until proven green across a few runs; then delete this
-    # line to make the matrix gate PRs.
-    continue-on-error: true
     name: install (${{ matrix.name }})
     runs-on: ${{ matrix.os || 'ubuntu-latest' }}
     strategy:

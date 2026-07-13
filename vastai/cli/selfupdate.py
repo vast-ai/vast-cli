@@ -202,6 +202,20 @@ def _run(cmd, *, env=None):
         raise UpdateError(f"Could not run {' '.join(cmd)}: {e}")
 
 
+def _prune_uv_cache(uv: Path, env: dict) -> None:
+    """Best-effort prune of uv's cache after a successful swap.
+
+    Each update hardlinks the new env out of the cache, so the cache
+    accumulates every version's wheels forever unless pruned. Prune (not
+    clean): the cache is the user-global one, shared with any other uv on
+    the machine. The update already succeeded — never fail because of this.
+    """
+    try:
+        _run([uv, "cache", "prune", "--quiet"], env=env)
+    except UpdateError:
+        pass
+
+
 def _link_binaries(root: Path) -> None:
     """Point bin/<name> at the fixed env/bin/<name> for each shipped console
     script. The target path is constant across updates (always ``env/``), so
@@ -274,3 +288,4 @@ def perform_update(target: str, manifest: dict) -> None:
     os.replace(new_dir, env_dir)
     _link_binaries(root)
     shutil.rmtree(old_dir, ignore_errors=True)
+    _prune_uv_cache(uv, uv_env)

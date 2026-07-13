@@ -46,7 +46,7 @@ for row in "${MATRIX[@]}"; do
       -e VASTAI_CLI_BASE_URL="$BASE" -e VASTAI_NO_MODIFY_PATH="${TTY:+}${TTY:-1}" \
       "$image" sh -c "$prep
         bash scripts/install.sh
-        \"\$HOME/.local/share/vastai/bin/vastai\" --version"; then
+        \"\${XDG_DATA_HOME:-\$HOME/.local/share}/vastai/bin/vastai\" --version"; then
     echo "PASS $name"; pass=$((pass+1))
   else
     echo "FAIL $name"; fail=$((fail+1))

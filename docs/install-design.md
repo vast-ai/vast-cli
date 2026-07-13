@@ -110,8 +110,10 @@ hermetic tests use):
 - Throwaway state (update-check throttle) lives in `~/.local/state/vastai`,
   separate from the disposable-cache directory — it's a small persistent
   marker, not something safe to evict on a whim the way a cache entry is.
-- Uninstall: `rm -rf ~/.local/share/vastai ~/.local/bin/vastai` (config,
-  cache, and state are left alone, same as before).
+- Uninstall: `rm -rf "$XDG_DATA_HOME/vastai" ~/.local/bin/vastai` (default
+  `$XDG_DATA_HOME` is `~/.local/share`; use whatever `VASTAI_INSTALL_DIR`/
+  `XDG_DATA_HOME` you installed with, if overridden. Config, cache, and state
+  are left alone, same as before).
 
 This is a directory-naming change only — see §14 for why it does **not**
 reopen the single-active-install decision in §6: `current/` still names the

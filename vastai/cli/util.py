@@ -67,6 +67,11 @@ try:
         'temp': xdg.xdg_cache_home(),
         'state': xdg.xdg_state_home(),
     }
+    # Not part of DIRS: DIRS entries are this CLI's own runtime data and get
+    # auto-created below regardless of install method. DATA_HOME is where a
+    # *managed install* lives (selfupdate.install_root()) — a pip install
+    # must never side-effect that directory into existence just by running.
+    DATA_HOME = xdg.xdg_data_home()
 
 except Exception:
     # Reasonable defaults.
@@ -77,6 +82,7 @@ except Exception:
         'temp': os.path.join(_home, '.cache'),
         'state': os.path.join(_home, '.local', 'state'),
     }
+    DATA_HOME = os.path.join(_home, '.local', 'share')
 
 for key in DIRS.keys():
     DIRS[key] = path = os.path.join(DIRS[key], APP_NAME)

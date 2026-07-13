@@ -136,7 +136,7 @@ out_lacks()    { ! grep -qa "$1" "$SB_OUT"; }
 # Scenarios
 # ---------------------------------------------------------------------------
 
-test_fresh_install() { # happy path: fixed env symlink, runnable CLI, managed layout
+test_fresh_install() { # happy path: fixed current symlink, runnable CLI, managed layout
     new_sandbox fresh
     run_install || { cat "$SB_OUT"; return 1; }
     assert "vastai symlink -> current bin" \

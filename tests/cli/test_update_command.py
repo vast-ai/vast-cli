@@ -84,7 +84,7 @@ def _seed_env(root, version):
 
 
 class TestIsManagedInstall:
-    def test_true_when_running_from_env_next_to_uv(self, install_root, monkeypatch):
+    def test_true_when_running_from_current_next_to_uv(self, install_root, monkeypatch):
         (install_root / "current").mkdir()
         (install_root / "bin" / "uv").write_text("")
         monkeypatch.setattr(sys, "prefix", str(install_root / "current"))

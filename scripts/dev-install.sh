@@ -18,7 +18,9 @@
 #   python3 -m http.server 8901 --directory DIR &
 #   VASTAI_MANIFEST_URL=http://127.0.0.1:8901/manifest.json vastai update --check
 #
-# Uninstall: rm -rf ~/.local/share/vastai ~/.local/bin/vastai
+# Uninstall: rm -rf "$XDG_DATA_HOME/vastai" ~/.local/bin/vastai
+#            (default XDG_DATA_HOME is ~/.local/share; use whatever
+#            VASTAI_INSTALL_DIR/XDG_DATA_HOME you installed with, if overridden)
 
 set -euo pipefail
 

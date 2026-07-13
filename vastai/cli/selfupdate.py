@@ -27,7 +27,7 @@ from pathlib import Path
 
 import requests
 
-from vastai.cli.util import DIRS, VERSION
+from vastai.cli.util import DATA_HOME, DIRS, VERSION
 
 DEFAULT_MANIFEST_URL = "https://vast.ai/cli/manifest.json"
 INSTALL_SH_HINT = "curl -fsSL https://vast.ai/install.sh | bash"
@@ -50,10 +50,24 @@ class UpdateError(Exception):
 # ---------------------------------------------------------------------------
 
 def install_root() -> Path:
+    """Where the managed install lives.
+
+    Prefers ground truth from where this interpreter is actually running: if
+    we're already inside a managed install (``<root>/current`` next to
+    ``<root>/bin/uv``), that's authoritative and immune to
+    $VASTAI_INSTALL_DIR/$XDG_DATA_HOME differing between install time and
+    now — e.g. a custom install dir that isn't set in the current shell would
+    otherwise make a real managed install look unmanaged. Only when we're
+    *not* currently running from one (a pip install checking
+    ``is_managed_install``) do we fall back to computing where a managed
+    install would live.
+    """
+    prefix = Path(sys.prefix).resolve()
+    if prefix.name == "current" and (prefix.parent / "bin" / "uv").exists():
+        return prefix.parent
     if os.environ.get("VASTAI_INSTALL_DIR"):
-        return Path(os.environ["VASTAI_INSTALL_DIR"])
-    data_home = os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share")
-    return Path(data_home) / "vastai"
+        return Path(os.environ["VASTAI_INSTALL_DIR"]).expanduser()
+    return Path(DATA_HOME) / "vastai"
 
 
 def is_managed_install() -> bool:

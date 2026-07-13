@@ -21,8 +21,11 @@
 #                              (dev/CI only: e.g. a local wheel path)
 #   VASTAI_GLIBC_FLOOR=2.31    minimum glibc; below this, bail to pip
 #
-# Uninstall:  rm -rf ~/.local/share/vastai ~/.local/bin/vastai
-#             (config in ~/.config/vastai and cache/state are left alone)
+# Uninstall:  rm -rf "$XDG_DATA_HOME/vastai" ~/.local/bin/vastai
+#             (default XDG_DATA_HOME is ~/.local/share; use whatever
+#             VASTAI_INSTALL_DIR/XDG_DATA_HOME you installed with, if
+#             overridden. Config in ~/.config/vastai and cache/state are
+#             left alone.)
 
 set -euo pipefail
 

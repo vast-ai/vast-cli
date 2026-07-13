@@ -117,10 +117,10 @@ jobs:
             "${{ matrix.image }}" sh -c '
               ${{ matrix.prep }}
               VASTAI_PIP_SPEC="$(ls dist/vastai-*.whl)" bash scripts/install.sh
-              "$HOME/.vastai/bin/vastai" --version
+              "$HOME/.local/share/vastai/bin/vastai" --version
             '
       - name: install natively (macOS)
         if: ${{ !matrix.image }}
         run: |
           VASTAI_PIP_SPEC="$(ls dist/vastai-*.whl)" bash scripts/install.sh
-          "$HOME/.vastai/bin/vastai" --version
+          "$HOME/.local/share/vastai/bin/vastai" --version

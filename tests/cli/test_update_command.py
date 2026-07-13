@@ -75,8 +75,8 @@ def install_root(tmp_path, monkeypatch):
 
 
 def _seed_env(root, version):
-    """Create a live env/ with a runnable vastai (a prior install to replace)."""
-    bindir = root / "env" / "bin"
+    """Create a live current/ with a runnable vastai (a prior install to replace)."""
+    bindir = root / "current" / "bin"
     bindir.mkdir(parents=True)
     exe = bindir / "vastai"
     exe.write_text(f"#!/bin/sh\necho '{version}'\n")
@@ -85,9 +85,9 @@ def _seed_env(root, version):
 
 class TestIsManagedInstall:
     def test_true_when_running_from_env_next_to_uv(self, install_root, monkeypatch):
-        (install_root / "env").mkdir()
+        (install_root / "current").mkdir()
         (install_root / "bin" / "uv").write_text("")
-        monkeypatch.setattr(sys, "prefix", str(install_root / "env"))
+        monkeypatch.setattr(sys, "prefix", str(install_root / "current"))
         assert is_managed_install() is True
 
     def test_false_for_pip_install(self, install_root, monkeypatch):
@@ -96,8 +96,8 @@ class TestIsManagedInstall:
         assert is_managed_install() is False
 
     def test_false_when_uv_missing(self, install_root, monkeypatch):
-        (install_root / "env").mkdir()  # env present but no bin/uv
-        monkeypatch.setattr(sys, "prefix", str(install_root / "env"))
+        (install_root / "current").mkdir()  # current present but no bin/uv
+        monkeypatch.setattr(sys, "prefix", str(install_root / "current"))
         assert is_managed_install() is False
 
 
@@ -138,16 +138,16 @@ class TestPerformUpdate:
         perform_update("1.3.0", MANIFEST)
 
         # single fixed env, symlink points into it, new version live, no retention
-        assert "env/bin/vastai" in os.readlink(str(install_root / "bin" / "vastai"))
-        assert (install_root / "env" / "bin" / "vastai").exists()
-        assert "1.3.0" in (install_root / "env" / "bin" / "vastai").read_text()
-        assert not (install_root / ".env.new").exists()
+        assert "current/bin/vastai" in os.readlink(str(install_root / "bin" / "vastai"))
+        assert (install_root / "current" / "bin" / "vastai").exists()
+        assert "1.3.0" in (install_root / "current" / "bin" / "vastai").read_text()
+        assert not (install_root / ".current.new").exists()
         assert not (install_root / "versions").exists()
 
     def test_build_failure_surfaces_real_error_not_a_fabricated_one(self, install_root):
         # A uv that "succeeds" but never builds the env: the verify step then
-        # runs a non-existent .env.new/bin/vastai. The error must name the real
-        # missing path, not relabel it the misleading "Required tool not found".
+        # runs a non-existent .current.new/bin/vastai. The error must name the
+        # real missing path, not relabel it the misleading "Required tool not found".
         _seed_env(install_root, "1.2.3")
         uv = install_root / "bin" / "uv"
         uv.write_text("#!/bin/sh\nexit 0\n")  # does nothing — no venv, no install
@@ -157,11 +157,11 @@ class TestPerformUpdate:
             perform_update("1.3.0", MANIFEST)
         msg = str(exc.value)
         assert "Required tool not found" not in msg
-        assert ".env.new/bin/vastai" in msg
+        assert ".current.new/bin/vastai" in msg
 
     def test_failure_leaves_current_install_untouched(self, install_root):
         _seed_env(install_root, "1.2.3")  # live install that must survive
-        before = (install_root / "env" / "bin" / "vastai").read_text()
+        before = (install_root / "current" / "bin" / "vastai").read_text()
         uv = install_root / "bin" / "uv"
         uv.write_text("#!/bin/sh\nexit 1\n")
         uv.chmod(uv.stat().st_mode | stat.S_IXUSR)
@@ -169,8 +169,8 @@ class TestPerformUpdate:
         with pytest.raises(UpdateError):
             perform_update("1.3.0", MANIFEST)
 
-        assert (install_root / "env" / "bin" / "vastai").read_text() == before
-        assert not (install_root / ".env.new").exists()
+        assert (install_root / "current" / "bin" / "vastai").read_text() == before
+        assert not (install_root / ".current.new").exists()
 
 
 class TestUpdateCommand:
@@ -185,7 +185,7 @@ class TestUpdateCommand:
         assert "Update available: 1.3.0" in capsys.readouterr().out
 
     def test_pip_install_refused_with_hint(self, parse_argv, capsys):
-        # not a managed install (interpreter isn't under ~/.vastai/env)
+        # not a managed install (interpreter isn't under the data root's current/)
         args = parse_argv(["update"])
         with patch("vastai.cli.commands.update.is_managed_install", return_value=False):
             assert args.func(args) == 1

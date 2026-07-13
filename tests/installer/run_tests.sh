@@ -139,21 +139,32 @@ out_lacks()    { ! grep -qa "$1" "$SB_OUT"; }
 test_fresh_install() { # happy path: fixed env symlink, runnable CLI, managed layout
     new_sandbox fresh
     run_install || { cat "$SB_OUT"; return 1; }
-    assert "vastai symlink -> env bin" \
-        [ "$(readlink "$SB_ROOT/bin/vastai")" = "../env/bin/vastai" ] &&
+    assert "vastai symlink -> current bin" \
+        [ "$(readlink "$SB_ROOT/bin/vastai")" = "../current/bin/vastai" ] &&
     assert "installed CLI runs" [ "$("$SB_ROOT/bin/vastai" --version)" = "1.2.3" ] &&
-    assert "managed-install markers present (env/ + bin/uv)" \
-        [ -d "$SB_ROOT/env" ] && [ -x "$SB_ROOT/bin/uv" ] &&
+    assert "managed-install markers present (current/ + bin/uv)" \
+        [ -d "$SB_ROOT/current" ] && [ -x "$SB_ROOT/bin/uv" ] &&
     assert "local bin link exists" [ -L "$SB_HOME/.local/bin/vastai" ]
 }
 
-test_pinned_reinstall() { # VASTAI_VERSION pin replaces env in place, no retention
+test_pinned_reinstall() { # VASTAI_VERSION pin replaces current in place, no retention
     new_sandbox reinstall
     run_install || { cat "$SB_OUT"; return 1; }
     run_install VASTAI_VERSION=0.9.9 || { cat "$SB_OUT"; return 1; }
     assert "pinned version live" [ "$("$SB_ROOT/bin/vastai" --version)" = "0.9.9" ] &&
     assert "single active install, no version retention" [ ! -e "$SB_ROOT/versions" ] &&
-    assert "no leftover temp env" [ ! -e "$SB_ROOT/.env.new" ]
+    assert "no leftover temp env" [ ! -e "$SB_ROOT/.current.new" ]
+}
+
+test_xdg_data_home_default() { # no VASTAI_INSTALL_DIR -> installs under $XDG_DATA_HOME/vastai
+    new_sandbox xdgdata
+    local xdg_data="$SB/xdgdata"
+    env "HOME=$SB_HOME" "XDG_DATA_HOME=$xdg_data" "VASTAI_CLI_BASE_URL=$SERVER/good" \
+        "SHELL=/bin/bash" "VASTAI_NO_MODIFY_PATH=1" \
+        bash "$INSTALL_SH" >"$SB_OUT" 2>&1 </dev/null || { cat "$SB_OUT"; return 1; }
+    assert "installed under \$XDG_DATA_HOME/vastai/current" [ -d "$xdg_data/vastai/current" ] &&
+    assert "installed CLI runs" [ "$("$xdg_data/vastai/bin/vastai" --version)" = "1.2.3" ] &&
+    assert "local bin link exists" [ -L "$SB_HOME/.local/bin/vastai" ]
 }
 
 test_wheel_url_install() { # latest installs the manifest's hash-pinned release wheel
@@ -338,7 +349,7 @@ test_tty_install() { # interactive install (stderr on a pty) must survive old ba
 # Runner
 # ---------------------------------------------------------------------------
 
-ALL_TESTS=(fresh_install pinned_reinstall wheel_url_install wheel_url_pin_fallback checksum_abort truncation_guard glibc_floor rc_safety env_sh pip_shadowing pip_shadowing_quiet pip_shadowing_rerun completion_files_generated tty_install)
+ALL_TESTS=(fresh_install pinned_reinstall xdg_data_home_default wheel_url_install wheel_url_pin_fallback checksum_abort truncation_guard glibc_floor rc_safety env_sh pip_shadowing pip_shadowing_quiet pip_shadowing_rerun completion_files_generated tty_install)
 # No "${@:-...}": expanding $@ with zero args under set -u is itself fatal on
 # old bash, and this harness must run under macOS's stock bash 3.2 (see
 # test_tty_install).

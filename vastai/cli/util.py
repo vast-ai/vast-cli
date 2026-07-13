@@ -64,7 +64,8 @@ try:
 
     DIRS = {
         'config': xdg.xdg_config_home(),
-        'temp': xdg.xdg_cache_home()
+        'temp': xdg.xdg_cache_home(),
+        'state': xdg.xdg_state_home(),
     }
 
 except Exception:
@@ -74,6 +75,7 @@ except Exception:
     DIRS = {
         'config': os.path.join(_home, '.config'),
         'temp': os.path.join(_home, '.cache'),
+        'state': os.path.join(_home, '.local', 'state'),
     }
 
 for key in DIRS.keys():

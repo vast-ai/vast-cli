@@ -3,27 +3,32 @@
 #
 #   curl -fsSL https://vast.ai/install.sh | bash
 #
-# Installs a self-contained vastai CLI into ~/.vastai (no Python required on
-# the machine, no sudo, nothing outside ~/.vastai and ~/.local/bin is touched
-# except one setup line in your shell rc (enabled by default at a real
-# terminal; skip with --no-modify-path; never written non-interactively/CI).
+# Installs a self-contained vastai CLI following the XDG Base Directory
+# Specification (no Python required on the machine, no sudo): the program
+# lives under $XDG_DATA_HOME/vastai (default ~/.local/share/vastai), state
+# under $XDG_STATE_HOME/vastai (default ~/.local/state/vastai), and the
+# binary is symlinked into ~/.local/bin. Nothing outside those directories is
+# touched except one setup line in your shell rc (enabled by default at a
+# real terminal; skip with --no-modify-path; never written non-interactively/CI).
 # Design: install-design.md in https://github.com/vast-ai/vast-cli
 #
 # Options (env vars, or flags after `bash -s --`):
 #   VASTAI_VERSION=1.2.3       install a specific version (default: latest)
-#   VASTAI_INSTALL_DIR=DIR     install root (default: ~/.vastai)
+#   VASTAI_INSTALL_DIR=DIR     install root (default: $XDG_DATA_HOME/vastai)
 #   VASTAI_CLI_BASE_URL=URL    manifest base (default: https://vast.ai/cli)
 #   VASTAI_NO_MODIFY_PATH=1    never edit shell rc files  (flag: --no-modify-path)
 #   VASTAI_PIP_SPEC=...        what to install instead of vastai==VERSION
 #                              (dev/CI only: e.g. a local wheel path)
 #   VASTAI_GLIBC_FLOOR=2.31    minimum glibc; below this, bail to pip
 #
-# Uninstall:  rm -rf ~/.vastai ~/.local/bin/vastai
+# Uninstall:  rm -rf ~/.local/share/vastai ~/.local/bin/vastai
+#             (config in ~/.config/vastai and cache/state are left alone)
 
 set -euo pipefail
 
 BASE_URL="${VASTAI_CLI_BASE_URL:-https://vast.ai/cli}"
-ROOT="${VASTAI_INSTALL_DIR:-$HOME/.vastai}"
+XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+ROOT="${VASTAI_INSTALL_DIR:-$XDG_DATA_HOME/vastai}"
 LOCAL_BIN="$HOME/.local/bin"
 NO_MODIFY_PATH="${VASTAI_NO_MODIFY_PATH:-}"
 WORKDIR=""
@@ -193,7 +198,7 @@ install_uv() {
 
 install_version() {
     local version="$1" python_pin="$2" wheel_url="${3:-}" wheel_sha="${4:-}"
-    local envdir="$ROOT/env" newdir="$ROOT/.env.new"
+    local envdir="$ROOT/current" newdir="$ROOT/.current.new"
 
     say "Installing vastai $version (Python $python_pin) → $ROOT"
     rm -rf "$newdir"
@@ -201,9 +206,9 @@ install_version() {
     export UV_PYTHON_PREFERENCE="only-managed"
     # Provision the managed CPython first — the slow, download-heavy step, so show
     # its progress at a TTY (quiet in CI). The venv build is then always quiet:
-    # uv venv's own "Activate with: source .../.env.new/..." line is misleading
-    # here — .env.new is renamed to env/ below, and vastai is a symlinked CLI you
-    # run, never a venv you "activate".
+    # uv venv's own "Activate with: source .../.current.new/..." line is misleading
+    # here — .current.new is renamed to current/ below, and vastai is a symlinked
+    # CLI you run, never a venv you "activate".
     # ${arr[@]+...} guard: bash 3.2 (macOS default) treats an empty array as
     # unset under `set -u`, so a bare "${pyquiet[@]}" would abort the install.
     # --no-bin: the venv finds the interpreter via UV_PYTHON_INSTALL_DIR;
@@ -214,7 +219,7 @@ install_version() {
         rm -rf "$newdir"
         die "could not provision the Python $python_pin runtime"
     fi
-    # --relocatable: no hardcoded build path in shebangs (env/ is renamed into place).
+    # --relocatable: no hardcoded build path in shebangs (current/ is renamed into place).
     if ! "$ROOT/bin/uv" venv "$newdir" --python "$python_pin" --relocatable --quiet; then
         rm -rf "$newdir"
         die "could not set up the Python $python_pin runtime"
@@ -235,15 +240,15 @@ install_version() {
         || { rm -rf "$newdir"; die "installed CLI failed its smoke test"; }
 
     # Swap built env in via renames; an interrupted build can't break the live env.
-    rm -rf "$ROOT/.env.old"
-    [ -d "$envdir" ] && mv "$envdir" "$ROOT/.env.old"
+    rm -rf "$ROOT/.current.old"
+    [ -d "$envdir" ] && mv "$envdir" "$ROOT/.current.old"
     mv "$newdir" "$envdir"
-    rm -rf "$ROOT/.env.old"
+    rm -rf "$ROOT/.current.old"
 
-    # Fixed-target symlinks (env/ path is constant); never retargeted on update.
+    # Fixed-target symlinks (current/ path is constant); never retargeted on update.
     local name
     for name in vastai serve-vast-deployment register-python-argcomplete; do
-        [ -e "$envdir/bin/$name" ] && link_swap "../env/bin/$name" "$ROOT/bin/$name"
+        [ -e "$envdir/bin/$name" ] && link_swap "../current/bin/$name" "$ROOT/bin/$name"
     done
 }
 

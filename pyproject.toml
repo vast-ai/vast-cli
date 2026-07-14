@@ -30,7 +30,7 @@ dependencies = [
   "python-dateutil>=2.8.2",
   "urllib3>=2.7.0,<3.0",
   "pyparsing>=3.1,<4.0",
-  "aiohttp>=3.13.3",
+  "aiohttp>=3.14.0",
   "aiodns>=3.6.0",
   "pycares==4.11.0",
   "anyio~=4.4",
@@ -68,7 +68,7 @@ style = "semver"
 poetry-dynamic-versioning = { version = ">=1.0.0,<2.0.0", extras = ["plugin"] }
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^8.0.0"
+pytest = "^9.0.3"
 pytest-mock = "^3.12"
 
 [tool.pytest.ini_options]

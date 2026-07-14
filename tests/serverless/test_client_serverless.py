@@ -28,7 +28,7 @@ from vastai.serverless.client.session import Session
 class TestServerlessRequest:
     """Verify ServerlessRequest is an asyncio.Future with status tracking."""
 
-    def test_initial_status_is_new(self) -> None:
+    async def test_initial_status_is_new(self) -> None:
         """
         Verifies that a new ServerlessRequest has status "New".
 
@@ -38,6 +38,9 @@ class TestServerlessRequest:
 
         Assumptions:
         - __init__ sets status to "New"
+
+        Async so an event loop is current when the Future subclass is
+        constructed (asyncio.Future.__init__ requires one).
         """
         req = ServerlessRequest()
         assert req.status == "New"
@@ -67,7 +70,7 @@ class TestServerlessRequest:
         await asyncio.sleep(0)
         assert results == [{"data": "hello"}]
 
-    def test_then_returns_self_for_chaining(self) -> None:
+    async def test_then_returns_self_for_chaining(self) -> None:
         """
         Verifies that .then() returns self for chaining.
 
@@ -77,6 +80,9 @@ class TestServerlessRequest:
 
         Assumptions:
         - then returns self
+
+        Async so an event loop is current when the Future subclass is
+        constructed (asyncio.Future.__init__ requires one).
         """
         req = ServerlessRequest()
         result = req.then(lambda r: None)

@@ -1,12 +1,13 @@
 """Self-update engine for the managed (curl | bash) CLI install.
 
-Layout (docs/install-design.md): everything under $VASTAI_INSTALL_DIR
-(default ~/.vastai) — a single active venv at env/, with bin/vastai a fixed
-symlink into it. Updating rebuilds env/ in place (build temp → verify → swap);
-there is no version retention.
+Layout (docs/install-design.md, XDG Base Directory Specification): the
+install root defaults to $XDG_DATA_HOME/vastai (~/.local/share/vastai),
+override with $VASTAI_INSTALL_DIR — a single active venv at current/, with
+bin/vastai a fixed symlink into it. Updating rebuilds current/ in place
+(build temp → verify → swap); there is no version retention.
 
 "Managed install?" is detected structurally (``is_managed_install``): a managed
-CLI runs from ~/.vastai/env with a sibling ~/.vastai/bin/uv. That's ground
+CLI runs from <root>/current with a sibling <root>/bin/uv. That's ground
 truth — no on-disk marker to drift or hand-copy. pip installs fail the check
 and the updater never touches them.
 
@@ -26,13 +27,13 @@ from pathlib import Path
 
 import requests
 
-from vastai.cli.util import DIRS, VERSION
+from vastai.cli.util import DATA_HOME, DIRS, VERSION
 
 DEFAULT_MANIFEST_URL = "https://vast.ai/cli/manifest.json"
 INSTALL_SH_HINT = "curl -fsSL https://vast.ai/install.sh | bash"
 PIP_UPGRADE_HINT = "pip install --upgrade vastai"
 
-UPDATE_CHECK_FILE = os.path.join(DIRS['temp'], "update_check.json")
+UPDATE_CHECK_FILE = os.path.join(DIRS['state'], "update_check.json")
 CHECK_INTERVAL_S = 24 * 60 * 60
 NUDGE_TIMEOUT_S = 1.0
 
@@ -49,20 +50,37 @@ class UpdateError(Exception):
 # ---------------------------------------------------------------------------
 
 def install_root() -> Path:
-    return Path(os.environ.get("VASTAI_INSTALL_DIR") or Path.home() / ".vastai")
+    """Where the managed install lives.
+
+    Prefers ground truth from where this interpreter is actually running: if
+    we're already inside a managed install (``<root>/current`` next to
+    ``<root>/bin/uv``), that's authoritative and immune to
+    $VASTAI_INSTALL_DIR/$XDG_DATA_HOME differing between install time and
+    now — e.g. a custom install dir that isn't set in the current shell would
+    otherwise make a real managed install look unmanaged. Only when we're
+    *not* currently running from one (a pip install checking
+    ``is_managed_install``) do we fall back to computing where a managed
+    install would live.
+    """
+    prefix = Path(sys.prefix).resolve()
+    if prefix.name == "current" and (prefix.parent / "bin" / "uv").exists():
+        return prefix.parent
+    if os.environ.get("VASTAI_INSTALL_DIR"):
+        return Path(os.environ["VASTAI_INSTALL_DIR"]).expanduser()
+    return Path(DATA_HOME) / "vastai"
 
 
 def is_managed_install() -> bool:
     """True iff this CLI was installed by the managed installer.
 
     Detected from where the interpreter actually runs: a managed CLI lives in
-    ``<root>/env`` next to ``<root>/bin/uv``. Ground truth, no marker file.
+    ``<root>/current`` next to ``<root>/bin/uv``. Ground truth, no marker file.
     pip installs run from elsewhere and fail the check.
     """
     try:
         root = install_root()
         return (
-            Path(sys.prefix).resolve() == (root / "env").resolve()
+            Path(sys.prefix).resolve() == (root / "current").resolve()
             and (root / "bin" / "uv").exists()
         )
     except Exception:
@@ -217,16 +235,17 @@ def _prune_uv_cache(uv: Path, env: dict) -> None:
 
 
 def _link_binaries(root: Path) -> None:
-    """Point bin/<name> at the fixed env/bin/<name> for each shipped console
-    script. The target path is constant across updates (always ``env/``), so
-    this is not symlink *retargeting* — just (re)creating stable links."""
+    """Point bin/<name> at the fixed current/bin/<name> for each shipped
+    console script. The target path is constant across updates (always
+    ``current/``), so this is not symlink *retargeting* — just (re)creating
+    stable links."""
     for name in MANAGED_BINARIES:
-        if not (root / "env" / "bin" / name).exists():
+        if not (root / "current" / "bin" / name).exists():
             continue
         link, tmp = root / "bin" / name, root / "bin" / f".{name}.tmp"
         if tmp.is_symlink() or tmp.exists():
             tmp.unlink()
-        os.symlink(Path("..") / "env" / "bin" / name, tmp)
+        os.symlink(Path("..") / "current" / "bin" / name, tmp)
         os.replace(tmp, link)
 
 
@@ -261,7 +280,7 @@ def perform_update(target: str, manifest: dict) -> None:
         raise UpdateError(f"Bootstrap tool missing at {uv}.\nRe-run the installer: {INSTALL_SH_HINT}")
 
     python_pin = (manifest.get("install") or {}).get("python") or "3.12"
-    env_dir, new_dir, old_dir = root / "env", root / ".env.new", root / ".env.old"
+    env_dir, new_dir, old_dir = root / "current", root / ".current.new", root / ".current.old"
     shutil.rmtree(new_dir, ignore_errors=True)
 
     uv_env = dict(os.environ,
@@ -281,7 +300,7 @@ def perform_update(target: str, manifest: dict) -> None:
         shutil.rmtree(new_dir, ignore_errors=True)
         raise
 
-    # Swap via two renames (~instant); a crash mid-build only dirties .env.new.
+    # Swap via two renames (~instant); a crash mid-build only dirties .current.new.
     shutil.rmtree(old_dir, ignore_errors=True)
     if env_dir.exists():
         os.replace(env_dir, old_dir)

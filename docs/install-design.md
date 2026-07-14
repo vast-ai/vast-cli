@@ -53,7 +53,8 @@ The design splits the install into two layers:
   via the `#sha256=` URL fragment. (Version-pinned installs fall back to the
   PyPI pin: uv's TLS + index hashes.)
 - Runs as root without complaint (no shared prefix — everything lands in the
-  invoking user's `$HOME/.vastai`), since fresh VMs/containers are commonly root.
+  invoking user's `$HOME/.local/share/vastai`), since fresh VMs/containers are
+  commonly root.
 - Unsupported platform, **glibc older than the floor** (2.31 — Ubuntu 20.04+/
   Debian 11+), or bad hash → exits cleanly pointing at pip, before anything
   lands in `$ROOT`.
@@ -61,7 +62,7 @@ The design splits the install into two layers:
   skippable via `--no-modify-path`, never written non-interactively.
 - pip coexistence: pip stays the channel for the Python SDK, and its package
   ships a `vastai` script too — the `vastai` *command* belongs to the managed
-  install. The rc gets one constant line sourcing `~/.vastai/env.sh` (the
+  install. The rc gets one constant line sourcing `<data-root>/env.sh` (the
   rustup/uv pattern), which prepends `~/.local/bin` unless already first — so
   precedence is asserted at every shell startup and a later pip install is
   out-ranked without any re-run. rc files are append-only, never rewritten;
@@ -70,35 +71,59 @@ The design splits the install into two layers:
 
 ## 3. On-disk layout
 
-Everything lives under `~/.vastai` (`VASTAI_INSTALL_DIR` overrides):
+Layout follows the [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/latest/)
+instead of a single ad hoc dotfolder. Four roots, each independently
+overridable by the standard `XDG_*` variable, plus `VASTAI_INSTALL_DIR` as a
+dedicated override for the program root (also the sandboxing knob the
+hermetic tests use):
+
+| Purpose | Default | Override |
+|---|---|---|
+| Program (venv, bootstrap engine, managed CPython) | `~/.local/share/vastai` | `VASTAI_INSTALL_DIR`, else `$XDG_DATA_HOME` |
+| Config (e.g. `vast_api_key`) | `~/.config/vastai` | `$XDG_CONFIG_HOME` |
+| Cache (disposable, regenerable) | `~/.cache/vastai` | `$XDG_CACHE_HOME` |
+| State (update-check throttle) | `~/.local/state/vastai` | `$XDG_STATE_HOME` |
+| Binary symlink | `~/.local/bin/vastai` | (fixed — always here, matches every other XDG-aware CLI) |
 
 ```
-~/.vastai/
+~/.local/share/vastai/            ($XDG_DATA_HOME/vastai, or $VASTAI_INSTALL_DIR)
 ├── bin/
-│   ├── vastai   → ../env/bin/vastai   (fixed symlink; target never changes)
-│   └── uv                              (pinned bootstrap engine, internal)
-├── env/                                (the single active venv — see §6)
-├── env.sh                              (sourced by the rc line: PATH precedence + completion)
-└── python/                             (uv-managed CPython 3.12, shared)
+│   ├── vastai   → ../current/bin/vastai   (fixed symlink; target never changes)
+│   └── uv                                  (pinned bootstrap engine, internal)
+├── current/                                (the single active venv — see §6)
+├── env.sh                                  (sourced by the rc line: PATH precedence + completion)
+└── python/                                 (uv-managed CPython 3.12, shared)
+
+~/.config/vastai/                 vast_api_key, etc. — untouched by install/uninstall
+~/.cache/vastai/                  disposable (e.g. a future download cache, §6)
+~/.local/state/vastai/            update_check.json (throttle timestamp)
 ```
 
 - The venv is built **relocatable** (`uv venv --relocatable`) so its
   entry-point shebangs don't hardcode the build path — that's what lets an
-  update build in a temp dir and rename `env/` into place (§6).
-- `bin/vastai` is a **fixed** symlink into `env/`; it is created once and never
-  retargeted (the `env/` path is constant). `~/.local/bin/vastai` →
-  `~/.vastai/bin/vastai` puts it on PATH.
-- Config lives in `~/.config/vastai` (e.g. `vast_api_key`) — **untouched** by
-  install/uninstall. Switching install methods keeps auth; uninstalling keeps
-  the key.
-- Throwaway state lives in `~/.cache/vastai` (update-check throttle).
-- Uninstall: `rm -rf ~/.vastai ~/.local/bin/vastai`.
+  update build in a temp dir and rename `current/` into place (§6).
+- `bin/vastai` is a **fixed** symlink into `current/`; it is created once and
+  never retargeted (the `current/` path is constant). `~/.local/bin/vastai` →
+  `<data-root>/bin/vastai` puts it on PATH.
+- Config lives in `~/.config/vastai` — **untouched** by install/uninstall.
+  Switching install methods keeps auth; uninstalling keeps the key.
+- Throwaway state (update-check throttle) lives in `~/.local/state/vastai`,
+  separate from the disposable-cache directory — it's a small persistent
+  marker, not something safe to evict on a whim the way a cache entry is.
+- Uninstall: `rm -rf "$XDG_DATA_HOME/vastai" ~/.local/bin/vastai` (default
+  `$XDG_DATA_HOME` is `~/.local/share`; use whatever `VASTAI_INSTALL_DIR`/
+  `XDG_DATA_HOME` you installed with, if overridden. Config, cache, and state
+  are left alone, same as before).
+
+This is a directory-naming change only — see §14 for why it does **not**
+reopen the single-active-install decision in §6: `current/` still names the
+one active venv, not a slot in a retained version tree.
 
 ### Detecting a managed install
 
 `vastai update` decides "do I own this install?" **structurally**, not from a
-marker file: a managed CLI runs from `~/.vastai/env` with a sibling
-`~/.vastai/bin/uv`. That's ground truth — `sys.prefix` can't drift or be
+marker file: a managed CLI runs from `<data-root>/current` with a sibling
+`<data-root>/bin/uv`. That's ground truth — `sys.prefix` can't drift or be
 hand-copied the way a receipt file could. **pip installs run from elsewhere,
 fail the check, and are never touched by the updater.** Either misdetection
 fails safe (a wrong "managed" hits "no bin/uv" and aborts cleanly; a wrong
@@ -144,10 +169,11 @@ retargeting, no retention/GC, no offline-instant-rollback guarantee.
 
 ### Behavior
 - **Single active install.** Update = build-new-then-swap, never mutate in
-  place destructively: build a fresh venv in a temp dir (`.env.new`) → verify →
-  atomically rename over `env/`. An interrupted update only ever dirties the
-  temp dir; the live `env/` is touched by two renames (~instant) and can never
-  be left half-written. **This is the one safety property worth preserving.**
+  place destructively: build a fresh venv in a temp dir (`.current.new`) →
+  verify → atomically rename over `current/`. An interrupted update only ever
+  dirties the temp dir; the live `current/` is touched by two renames
+  (~instant) and can never be left half-written. **This is the one safety
+  property worth preserving.**
 - `vastai update` — installs the manifest's latest.
 - `vastai update --version X` — installs/pins a specific version. **Downgrade
   and forward-pin are the identical code path**; rollback is just "don't forbid
@@ -223,7 +249,10 @@ is.
 ## 10. Env knobs
 
 - `VASTAI_VERSION` — pin version (also the rollback/downgrade mechanism).
-- `VASTAI_INSTALL_DIR` — override `~/.vastai`.
+- `VASTAI_INSTALL_DIR` — override the program root (default `$XDG_DATA_HOME/vastai`,
+  i.e. `~/.local/share/vastai`).
+- `XDG_DATA_HOME` / `XDG_CONFIG_HOME` / `XDG_CACHE_HOME` / `XDG_STATE_HOME` —
+  standard XDG overrides for the program/config/cache/state roots (§3).
 - `VASTAI_CLI_BASE_URL` — manifest origin (dev/release verification).
 - `VASTAI_PIP_SPEC` — dev/CI: install from a local wheel path/URL.
 - `VASTAI_GLIBC_FLOOR` — override the minimum-glibc gate (default 2.31).
@@ -290,7 +319,7 @@ gh release upload v1.0.14 --clobber \
 # verify the real user path before walking away
 VASTAI_CLI_BASE_URL=https://github.com/vast-ai/vast-cli/releases/latest/download \
     bash scripts/install.sh
-~/.vastai/bin/vastai --version
+~/.local/share/vastai/bin/vastai --version
 ```
 
 Rules the automation must enforce (a human must remember for now):
@@ -325,8 +354,18 @@ manual runbook above is the break-glass fallback.
 
 - Canonical URL `https://vast.ai/install.sh`; hosting via `vast_landing` 307
   redirects → GitHub Release assets.
-- Program in `~/.vastai`, config in `~/.config/vastai`, throwaway state in
-  `~/.cache/vastai`.
+- **Layout follows the XDG Base Directory Specification (CLN ticket, this
+  PR):** program in `~/.local/share/vastai` (`current/` the single active
+  venv), config in `~/.config/vastai`, cache in `~/.cache/vastai`, update-check
+  state in `~/.local/state/vastai`, binary symlinked at `~/.local/bin/vastai`
+  — each root independently overridable via the standard `XDG_*` variable
+  (§3, §10). This was a pure directory-naming migration off the original
+  single `~/.vastai` dotfolder: it deliberately does **not** revisit the
+  single-active-install decision below — `current/` is still one active venv,
+  not a slot in a version tree. Config/cache placement was already
+  XDG-correct before this change (via the `xdg` package); state is the only
+  new root, split out of cache because a throttle timestamp is small,
+  persistent, and not safe to treat as disposable the way a download cache is.
 - Managed runtime pinned to CPython 3.12 (independent of the wheel's `>=3.10`
   for pip users); bumps roll out as manifest changes.
 - Bootstrap engine: pinned `uv` behind the manifest seam — replaceable without

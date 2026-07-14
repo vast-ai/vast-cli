@@ -8,8 +8,8 @@
 #
 # Renders the same release manifest CI would publish (real uv checksums from
 # GitHub), then runs scripts/install.sh against it via file:// — everything
-# else is exactly the production path: installs to ~/.vastai, links
-# ~/.local/bin/vastai, consent-gated PATH edit, real PyPI download.
+# else is exactly the production path: installs to ~/.local/share/vastai,
+# links ~/.local/bin/vastai, consent-gated PATH edit, real PyPI download.
 #
 # --from-source builds the working tree with poetry and installs that wheel
 # through the same path, so unreleased features (e.g. `vastai update`) can be
@@ -18,7 +18,9 @@
 #   python3 -m http.server 8901 --directory DIR &
 #   VASTAI_MANIFEST_URL=http://127.0.0.1:8901/manifest.json vastai update --check
 #
-# Uninstall: rm -rf ~/.vastai ~/.local/bin/vastai
+# Uninstall: rm -rf "$XDG_DATA_HOME/vastai" ~/.local/bin/vastai
+#            (default XDG_DATA_HOME is ~/.local/share; use whatever
+#            VASTAI_INSTALL_DIR/XDG_DATA_HOME you installed with, if overridden)
 
 set -euo pipefail
 

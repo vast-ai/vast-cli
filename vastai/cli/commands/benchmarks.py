@@ -48,20 +48,15 @@ DEFAULT_GPUS = {
 # One worker per GPU, kept alive while idle so we can read its measured perf.
 ENDPOINT_CONFIG = {"cold_workers": 1, "max_workers": 1, "min_load": 1.0}
 
-# Timing knobs, in the order they fire during a run.
-RENTAL_TIMEOUT = 120                 # give up if the autoscaler hasn't rented a worker by now
-DEFAULT_BENCHMARK_TIMEOUT = 30 * 60  # default --timeout: max wait for a measured result
-WORKER_POLL_INTERVAL = 10.0          # base seconds between worker-status polls (jitter added at call site)
+RENTAL_TIMEOUT = 120                 
+DEFAULT_BENCHMARK_TIMEOUT = 30 * 60  
+WORKER_POLL_INTERVAL = 10.0          
 PARALLEL_SUBMIT_DELAY = 4.0          # spacing between parallel endpoint submits
 MAX_ABANDONS = 3                     # bail after this many workers vanish without one reaching idle
 
-# Worker states the autoscaler does NOT recover from; a run fails if every worker
-# sits in one for >TERMINAL_GRACE_SECONDS without any reaching idle. `error` is
-# excluded since the autoscaler retries it (error -> rebooting -> model_loading).
-TERMINAL_STATES = {"stopped", "destroying", "unavail"}
+# states in which the autoscaler shouldnt retry the worker 
+TERMINAL_STATES = {"stopped", "destroying", "unavail"} 
 TERMINAL_GRACE_SECONDS = 30
-
-# Per-spec statuses that freeze the live-table elapsed timer (work is over).
 TERMINAL_STATUSES = {"done", "skipped", "timeout", "failed", "no_worker"}
 
 
@@ -111,17 +106,14 @@ def _per_card_vram_mb(gpu_name):
 
 def parse_gpu_spec(token, default_num_gpus):
     """Parse a GPU token into (canonical_gpu_name, num_gpus).
-
-    "2x RTX_4090" -> ("RTX 4090", 2). Accepts rtx_4090 / RTX 4090 / Rtx_4090 and
-    canonicalizes to the marketplace's exact name. An inline Nx prefix wins over
-    --num_gpus; with neither, falls back to default_num_gpus.
+       Example: 2x RTX_4090" -> ("RTX 4090", 2).  
     """
 
-    # so users can input "rtx_4090" or "RTX 4090" or "Rtx_4090" and all resolves to "RTX 4090"
+    # so "rtx_4090", "RTX 4090", "Rtx_4090" all map to "RTX 4090"
     canonical = _canonical_gpu_names()
 
     token = token.strip()
-    # converts "2x RTX_4090" to ("RTX 4090", 2)
+    # string to tuple. "2x RTX_4090" to ("RTX 4090", 2)
     m = re.match(r"^(\d+)[\s_]*x[\s_]*(.+)$", token, re.IGNORECASE)
     if m:
         raw_name, n = m.group(2).strip().replace("_", " "), int(m.group(1))
@@ -635,11 +627,11 @@ def benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
 
 @parser.command(
     argument("--template_hash", type=str, default=None,
-             help="(required, one of --template_hash or --template_id) template hash to benchmark"),
+             help="the template to benchmark; provide either --template_hash or --template_id"),
     argument("--template_id", type=int, default=None,
-             help="(required, one of --template_hash or --template_id) template id"),
+             help="the template to benchmark; provide either --template_hash or --template_id"),
     argument("--gpus", type=str,
-             help="comma-separated GPU names (e.g. RTX_4090,RTX_3090); optional Nx prefix takes precedence over --num_gpus (e.g. \"2x RTX_4090\")"),
+             help="comma-separated GPU names to benchmark (e.g. RTX_4090,RTX_3090). Prefix a name with a count to set GPUs per instance, e.g. \"2x RTX_4090\" (overrides --num_gpus)"),
     argument("--num_gpus", type=int, default=None,
              help="GPUs per instance for tokens without an Nx prefix (default 1); overridden by inline Nx in --gpus"),
     argument("--timeout", type=int, default=DEFAULT_BENCHMARK_TIMEOUT,
@@ -690,18 +682,19 @@ def run__benchmarks(args):
               "(run `vastai run benchmarks --help` for usage)",
               file=sys.stderr)
         return 1
-    # bump retry budget so parallel polls don't exhaust VastClient's tiny default (3 attempts, ~0.7s) under autoscaler rate limits.
-    retry = max(args.retry, 8)
-    vast = VastAI(api_key=args.api_key, server_url=args.url, retry=retry,
-                  explain=getattr(args, 'explain', False),
-                  curl=getattr(args, 'curl', False))
-
     if args.template_id is not None:
         query = {"id": {"eq": args.template_id}}
         ident = f"id={args.template_id}"
     else:
         query = {"hash_id": {"eq": args.template_hash}}
         ident = f"hash={args.template_hash}"
+
+    # bump retry budget so parallel polls don't exhaust VastClient's tiny default (3 attempts, ~0.7s) under autoscaler rate limits.
+    retry = max(args.retry, 8)
+    vast = VastAI(api_key=args.api_key, server_url=args.url, retry=retry,
+                  explain=getattr(args, 'explain', False),
+                  curl=getattr(args, 'curl', False))
+
     templates = vast.search_templates(query=query)
     if not templates:
         print(f"error: template not found ({ident})", file=sys.stderr)

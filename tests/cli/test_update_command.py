@@ -157,7 +157,7 @@ class TestPerformUpdate:
         fake_uv.write_text(FAKE_UV.replace('touch "$(dirname "$0")/cache-pruned"', "exit 1"))
         _seed_env(install_root, "1.2.3")
         perform_update("1.3.0", MANIFEST)
-        assert "1.3.0" in (install_root / "env" / "bin" / "vastai").read_text()
+        assert "1.3.0" in (install_root / "current" / "bin" / "vastai").read_text()
 
     def test_build_failure_surfaces_real_error_not_a_fabricated_one(self, install_root):
         # A uv that "succeeds" but never builds the env: the verify step then

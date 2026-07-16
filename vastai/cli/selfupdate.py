@@ -33,6 +33,12 @@ DEFAULT_MANIFEST_URL = "https://vast.ai/cli/manifest.json"
 INSTALL_SH_HINT = "curl -fsSL https://vast.ai/install.sh | bash"
 PIP_UPGRADE_HINT = "pip install --upgrade vastai"
 
+# Oldest version whose bundled selfupdate.py understands this layout
+# (<root>/current + <root>/bin/uv, XDG-based root). Versions before this pin
+# ~/.vastai/env and would install fine but then see themselves as unmanaged,
+# permanently losing self-update until the install is rebuilt from scratch.
+MIN_DOWNGRADE_VERSION = "1.4.0"
+
 UPDATE_CHECK_FILE = os.path.join(DIRS['state'], "update_check.json")
 CHECK_INTERVAL_S = 24 * 60 * 60
 NUDGE_TIMEOUT_S = 1.0
@@ -274,6 +280,12 @@ def perform_update(target: str, manifest: dict) -> None:
     which reinstalls. Wheel integrity comes from ``wheel_spec``; we
     additionally confirm the installed version matches ``target``.
     """
+    if version_key(target) < version_key(MIN_DOWNGRADE_VERSION):
+        raise UpdateError(
+            f"Can't roll back to {target}: versions before {MIN_DOWNGRADE_VERSION} "
+            "don't recognize this install's layout and would lose the ability "
+            f"to self-update. The oldest version you can roll back to is {MIN_DOWNGRADE_VERSION}."
+        )
     root = install_root()
     uv = root / "bin" / "uv"
     if not uv.exists():

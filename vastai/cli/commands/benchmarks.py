@@ -303,30 +303,49 @@ def pick_num_gpus(gpu_name, extra_filters):
 
 
 DEFAULT_CACHE_MAX_AGE_DAYS = 30
+MAX_CACHE_ROWS = 100  # newest rows per template column; caps popular template+GPU combos
 
 
 def lookup_cached_benchmark(vast, *, gpu_name, num_gpus, template_hash,
                              template_id, max_age_days):
     """Recent reported benchmarks for this exact spec (median + spread), or None.
 
-    Template is matched client-side: rows carry template_hash or template_id
-    depending on how the benchmarked workergroup was created.
+    Queried once per template column rather than filtered client-side: a
+    workergroup is created with either template_id or template_hash, so a row
+    can carry either one. Both columns are indexed with last_update on the
+    benchmarks table, so each query is index-backed instead of pulling every
+    perf row for the GPU and discarding the non-matching ones.
     """
-    query = {
+    base = {
         "type": {"eq": "perf"},
         "gpu_name": {"eq": gpu_name},
         "num_gpus": {"eq": num_gpus},
         "last_update": {"gte": time.time() - max_age_days * 86400},
     }
-    rows = vast.search_benchmarks(query=query)
-    if not isinstance(rows, list):
-        return None
+    rows = []
+    seen_ids = set()
+    for col, value in (("template_hash", template_hash), ("template_id", template_id)):
+        if not value:
+            continue
+        found = vast.search_benchmarks(
+            query=dict(base, **{col: {"eq": value}}),
+            order=[{"col": "last_update", "dir": "desc"}],
+            limit=MAX_CACHE_ROWS,
+        )
+        for r in found if isinstance(found, list) else []:
+            if not isinstance(r, dict):
+                continue
+            # A row carrying both columns comes back from both queries; dedupe on
+            # id, but keep rows without one rather than collapsing them together.
+            row_id = r.get("id")
+            if row_id is not None:
+                if row_id in seen_ids:
+                    continue
+                seen_ids.add(row_id)
+            rows.append(r)
     matched = [
         r for r in rows
-        if isinstance(r, dict)
-        and ((template_hash and r.get("template_hash") == template_hash)
-             or (template_id and r.get("template_id") == template_id))
-        and isinstance(r.get("value"), (int, float)) and r["value"] > 0
+        if isinstance(r.get("value"), (int, float)) and r["value"] > 0
     ]
     if not matched:
         return None

@@ -276,9 +276,12 @@ class VastAI:
         """Search for templates."""
         return offers.search_templates(self.client, query=query)
 
-    def search_benchmarks(self, query: Optional[Union[str, dict]] = None) -> list[dict]:
+    def search_benchmarks(self, query: Optional[Union[str, dict]] = None,
+                          order: Optional[list] = None,
+                          limit: Optional[int] = None) -> list[dict]:
         """Search for benchmarks."""
-        return offers.search_benchmarks(self.client, query=query)
+        return offers.search_benchmarks(self.client, query=query, order=order,
+                                        limit=limit)
 
     def search_volumes(self, query: Optional[str] = None, **kwargs) -> list[dict]:
         """Search for volume offers."""

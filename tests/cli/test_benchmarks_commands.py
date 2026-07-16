@@ -244,7 +244,21 @@ def _run_cli(parse_argv, argv, *, create_resp=None, workers_seq=None,
     vast.client = MagicMock(api_key="k")
     vast.search_templates.return_value = [template]
     vast.search_offers.return_value = fake_offer_list
-    vast.search_benchmarks.return_value = list(benchmark_rows or [])
+    # Template matching happens server-side now, so the fake has to apply
+    # select_filters; returning every row regardless of query would let a
+    # different template's rows count as a cache hit.
+    def _fake_search_benchmarks(query=None, order=None, limit=None):
+        def matches(row):
+            for col, cond in (query or {}).items():
+                if "eq" in cond and row.get(col) != cond["eq"]:
+                    return False
+                if "gte" in cond and (row.get(col) or 0) < cond["gte"]:
+                    return False
+            return True
+        hits = [r for r in (benchmark_rows or []) if matches(r)]
+        return hits[:limit] if limit else hits
+
+    vast.search_benchmarks.side_effect = _fake_search_benchmarks
     vast.show_instance.return_value = instance_resp
     vast.create_endpoint.return_value = {"success": True, "result": 11}
     vast.delete_endpoint.return_value = {}
@@ -490,4 +504,27 @@ class TestBenchmarkCache:
         cutoff = query["last_update"]["gte"]
         assert abs((time.time() - cutoff)
                    - DEFAULT_CACHE_MAX_AGE_DAYS * 86400) < 60
+
+    def test_cache_query_is_template_filtered_and_bounded(self, parse_argv):
+        """The template is filtered server-side, one query per template column.
+
+        Both columns are indexed with last_update, so filtering server-side and
+        ordering newest-first keeps the query index-backed and bounded instead
+        of pulling every perf row for the GPU and discarding most of them.
+        """
+        from vastai.cli.commands.benchmarks import MAX_CACHE_ROWS
+        _, vast = _run_cli(
+            parse_argv,
+            ["run", "benchmarks", "--template_id", "99999",
+             "--gpus", "RTX_3060", "-y", "--raw"],
+            benchmark_rows=[_bench_row(20.0)],
+        )
+        calls = vast.search_benchmarks.call_args_list
+        assert [c.kwargs["query"].get("template_hash") for c in calls] == [
+            {"eq": "x"}, None]
+        assert [c.kwargs["query"].get("template_id") for c in calls] == [
+            None, {"eq": 99999}]
+        for c in calls:
+            assert c.kwargs["limit"] == MAX_CACHE_ROWS
+            assert c.kwargs["order"] == [{"col": "last_update", "dir": "desc"}]
 

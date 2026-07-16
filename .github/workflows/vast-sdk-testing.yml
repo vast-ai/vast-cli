@@ -99,7 +99,7 @@ jobs:
   # detect-changes filters this job out.
   # --------------------------------------------------------------------------
   unit-and-integration-check:
-    name: unit-and-integration-check
+    name: unit-and-integration
     needs: unit-and-integration
     if: always()
     runs-on: ubuntu-latest

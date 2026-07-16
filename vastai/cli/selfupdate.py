@@ -35,7 +35,7 @@ PIP_UPGRADE_HINT = "pip install --upgrade vastai"
 
 # Oldest version whose bundled selfupdate.py understands this layout
 # (<root>/current + <root>/bin/uv, XDG-based root). Versions before this pin
-# ~/.vastai/env and would install fine but then see themselves as unmanaged,
+# assumed ~/.vastai/env and would install fine but then see themselves as unmanaged,
 # permanently losing self-update until the install is rebuilt from scratch.
 MIN_DOWNGRADE_VERSION = "1.4.0"
 

@@ -1506,7 +1506,7 @@ def self_test__machine(args):
                                     progress_print("  1. TCP firewall/NAT forwarding is blocking the mapped public port")
                                     progress_print("  2. Container did not start or did not bind the progress server")
                                     progress_print("  3. NAT loopback/hairpinning may fail when testing from the same LAN as the host")
-                                    progress_print(f"  4. direct_port_count below the 3 ports/GPU minimum - check with: vastai search offers 'machine_id={machine_id} rentable=any rented=any'")
+                                    progress_print(f"  4. direct_port_count below the 5-port host minimum - check with: vastai search offers 'machine_id={machine_id} rentable=any rented=any'")
                                     return_reason = "Port never reachable within 120 seconds"
                                     diagnostic = make_failure(
                                         PROGRESS_ENDPOINT_UNREACHABLE,
@@ -1654,7 +1654,7 @@ def self_test__machine(args):
                             progress_print(f"Port 5000/tcp not found in mapped ports. Available ports: {list(all_ports.keys())}")
                             progress_print("Possible causes:")
                             progress_print("  1. The instance launch did not map the self-test progress port")
-                            progress_print(f"  2. direct_port_count below the 3 ports/GPU minimum - check with: vastai search offers 'machine_id={args.machine_id} rentable=any rented=any'")
+                            progress_print(f"  2. direct_port_count below the 5-port host minimum - check with: vastai search offers 'machine_id={args.machine_id} rentable=any rented=any'")
                             progress_print("  3. Container is not exposing port 5000/tcp")
                             set_runtime_failure(
                                 make_failure(

@@ -162,7 +162,7 @@ def _stderr_is_tty() -> bool:
 
 
 def notify_update(args=None) -> None:
-    """Post-command, best-effort upgrade nudge. Must never raise or block."""
+    """Pre-command, best-effort upgrade nudge. Must never raise or block."""
     try:
         _notify_update(args)
     except Exception:
@@ -199,8 +199,9 @@ def _notify_update(args) -> None:
 
     hint = "vastai update" if is_managed_install() else PIP_UPGRADE_HINT
     arrow = "↑" if "utf" in (sys.stderr.encoding or "").lower() else "*"
+    # Trailing blank line separates the nudge from the command output that follows it.
     print(
-        f"{arrow} vastai {latest} is available (you have {VERSION}). Run `{hint}`.",
+        f"{arrow} vastai {latest} is available (you have {VERSION}). Run `{hint}`.\n",
         file=sys.stderr,
     )
     state["notified_at"] = now

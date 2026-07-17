@@ -201,11 +201,12 @@ Not built in v1.
 
 ## 7. Passive update nudge
 
-> **Status: enabled.** `notify_update(args)` runs as a post-command hook in
-> `main.py`. Opt out with `VASTAI_NO_UPDATE_CHECK=1` (also off under
+> **Status: enabled.** `notify_update(args)` runs as a pre-command hook in
+> `main.py`, before the command's own output, so it's never buried underneath
+> it. Opt out with `VASTAI_NO_UPDATE_CHECK=1` (also off under
 > `--raw`/`CI`/non-TTY).
 
-- After commands: at most **one manifest GET and one stderr line per 24h**, hard
+- Before commands: at most **one manifest GET and one stderr line per 24h**, hard
   1s timeout, every failure silent with 24h backoff (offline machines pay ≤1s
   once/day).
 - Suppressed under `--raw`, `CI`, non-TTY, or `VASTAI_NO_UPDATE_CHECK=1`.

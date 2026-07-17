@@ -272,6 +272,13 @@ class TestNudge:
         assert "1.3.0 is available" in err
         assert "pip install --upgrade vastai" in err
 
+    def test_trailing_blank_line_separates_it_from_command_output(self, nudge_env, capsys):
+        # runs pre-command now, so a blank line keeps it from running into
+        # whatever the command prints next
+        with patch.object(selfupdate, "fetch_manifest", return_value=MANIFEST):
+            selfupdate.notify_update(nudge_env)
+        assert capsys.readouterr().err.endswith("\n\n")
+
     def test_managed_install_gets_vastai_update_hint(self, nudge_env, capsys):
         with patch.object(selfupdate, "fetch_manifest", return_value=MANIFEST), \
              patch.object(selfupdate, "is_managed_install", return_value=True):

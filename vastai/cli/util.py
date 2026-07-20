@@ -191,6 +191,59 @@ def format_key_suffix(k):
 
 
 # ---------------------------------------------------------------------------
+# Client / host CLI role (CLN-3582)
+#
+# Purely a display preference — it only affects which commands --help, tab
+# completion, and error hints show. It is never used to gate execution: a
+# host command still runs for anyone who types it, since the server enforces
+# real permissions. Client is the default: host-only commands show only once
+# the role is explicitly resolved to 'host' (via `set role host` or, in the
+# full CLN-3582 rollout, auto-detection) — an unset or unrecognized role
+# means "assume client", not "show everything".
+# ---------------------------------------------------------------------------
+
+ROLE_FILE = os.path.join(DIRS['config'], "vast_role")
+ROLE_CLIENT = "client"
+ROLE_HOST = "host"
+VALID_ROLES = {ROLE_CLIENT, ROLE_HOST}
+
+
+def get_role():
+    """Return the stored CLI role ('client' or 'host'), or None if unset/unrecognized.
+
+    Returns ``None`` — never raises — when ``ROLE_FILE`` is missing or holds
+    anything else. Callers should treat ``None`` the same as ``'client'``
+    (see :func:`is_client_view`) rather than checking it separately.
+    """
+    try:
+        with open(ROLE_FILE) as f:
+            role = f.read().strip().lower()
+    except OSError:
+        return None
+    return role if role in VALID_ROLES else None
+
+
+def is_client_view(role):
+    """Whether ``role`` (as returned by :func:`get_role`) means "show the client view".
+
+    Client is the default: everything except an explicit ``'host'`` counts
+    as client, including ``None`` (unset) and any unrecognized value.
+    """
+    return role != ROLE_HOST
+
+
+def set_role_file(role):
+    """Persist ``role`` ('client' or 'host') to ``ROLE_FILE``.
+
+    Raises ValueError for anything else — callers pass user/API-derived input.
+    """
+    if role not in VALID_ROLES:
+        raise ValueError(f"role must be one of {sorted(VALID_ROLES)}, got {role!r}")
+    with open(ROLE_FILE, "w") as f:
+        f.write(role)
+
+
+# ---------------------------------------------------------------------------
 # Simple utility class
 # ---------------------------------------------------------------------------
 

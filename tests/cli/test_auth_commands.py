@@ -94,6 +94,7 @@ class TestSetApiKey:
         legacy_file = tmp_path / ".vast_api_key"
         monkeypatch.setattr("vastai.cli.util.APIKEY_FILE", str(key_file))
         monkeypatch.setattr("vastai.cli.util.APIKEY_FILE_HOME", str(legacy_file))
+        monkeypatch.setattr("vastai.api.machines.show_machines", lambda client: [])
         from vastai.cli.commands.auth import set__api_key
         set__api_key(argparse.Namespace(new_api_key="test-key-abc-123"))
         assert key_file.read_bytes() == b"test-key-abc-123"
@@ -109,6 +110,7 @@ class TestSetApiKey:
         key_file = xdg_dir / "vast_api_key"
         monkeypatch.setattr("vastai.cli.util.APIKEY_FILE", str(key_file))
         monkeypatch.setattr("vastai.cli.util.APIKEY_FILE_HOME", str(tmp_path / ".vast_api_key"))
+        monkeypatch.setattr("vastai.api.machines.show_machines", lambda client: [])
 
         from vastai.cli.commands.auth import set__api_key
         set__api_key(argparse.Namespace(new_api_key="round-trip-key"))
@@ -117,6 +119,96 @@ class TestSetApiKey:
         with patch("vastai.sdk.VastClient") as MockClient:
             VastAI()
             assert MockClient.call_args[0][0] == "round-trip-key"
+
+
+class TestAutoDetectHostRoleOnSetApiKey:
+    """`set api-key` resolves and announces the client/host CLI role (CLN-3582)."""
+
+    def _set_api_key(self, tmp_path, monkeypatch, *, show_machines_result=None, show_machines_raises=None):
+        key_file = tmp_path / "vast_api_key"
+        role_file = tmp_path / "vast_role"
+        monkeypatch.setattr("vastai.cli.util.APIKEY_FILE", str(key_file))
+        monkeypatch.setattr("vastai.cli.util.APIKEY_FILE_HOME", str(tmp_path / ".vast_api_key"))
+        monkeypatch.setattr("vastai.cli.util.ROLE_FILE", str(role_file))
+        if show_machines_raises is not None:
+            monkeypatch.setattr(
+                "vastai.api.machines.show_machines",
+                lambda client: (_ for _ in ()).throw(show_machines_raises),
+            )
+        else:
+            monkeypatch.setattr(
+                "vastai.api.machines.show_machines",
+                lambda client: show_machines_result,
+            )
+        from vastai.cli.commands.auth import set__api_key
+        set__api_key(argparse.Namespace(new_api_key="a-key"))
+        return role_file
+
+    def test_host_account_auto_enables_host_role(self, tmp_path, monkeypatch, capsys):
+        role_file = self._set_api_key(tmp_path, monkeypatch, show_machines_result=[{"id": 1}])
+        assert role_file.read_text().strip() == "host"
+        assert "host command view" in capsys.readouterr().out
+
+    def test_client_account_caches_client_role(self, tmp_path, monkeypatch, capsys):
+        # An empty machines list is a real answer, not "still unknown" — this
+        # is what brings a pre-existing install (key saved, role never
+        # written) up to date on its very first `set api-key` run.
+        role_file = self._set_api_key(tmp_path, monkeypatch, show_machines_result=[])
+        assert role_file.read_text().strip() == "client"
+        assert "client command view" in capsys.readouterr().out
+
+    def test_network_error_leaves_role_undetected_not_broken(self, tmp_path, monkeypatch):
+        # Must not raise out of `set api-key` — the key save is the important part.
+        role_file = self._set_api_key(
+            tmp_path, monkeypatch, show_machines_raises=ConnectionError("offline")
+        )
+        assert not role_file.exists()
+
+    def test_existing_host_role_is_not_rechecked_or_downgraded(self, tmp_path, monkeypatch):
+        role_file = tmp_path / "vast_role"
+        role_file.write_text("host")
+        monkeypatch.setattr("vastai.cli.util.ROLE_FILE", str(role_file))
+        monkeypatch.setattr("vastai.cli.util.APIKEY_FILE", str(tmp_path / "vast_api_key"))
+        monkeypatch.setattr("vastai.cli.util.APIKEY_FILE_HOME", str(tmp_path / ".vast_api_key"))
+
+        called = []
+        monkeypatch.setattr(
+            "vastai.api.machines.show_machines",
+            lambda client: called.append(True) or [],
+        )
+        from vastai.cli.commands.auth import set__api_key
+        set__api_key(argparse.Namespace(new_api_key="a-key"))
+
+        assert called == []  # already host -> no re-check
+        assert role_file.read_text().strip() == "host"
+
+    def test_existing_client_role_is_not_rechecked_or_upgraded(self, tmp_path, monkeypatch):
+        # Symmetric to the host case: once resolved to 'client', a later
+        # `set api-key` run does not silently flip it to 'host' even if this
+        # key now belongs to an account with machines. 'vastai set role host'
+        # is the deliberate override path for that transition.
+        role_file = tmp_path / "vast_role"
+        role_file.write_text("client")
+        monkeypatch.setattr("vastai.cli.util.ROLE_FILE", str(role_file))
+        monkeypatch.setattr("vastai.cli.util.APIKEY_FILE", str(tmp_path / "vast_api_key"))
+        monkeypatch.setattr("vastai.cli.util.APIKEY_FILE_HOME", str(tmp_path / ".vast_api_key"))
+
+        called = []
+        monkeypatch.setattr(
+            "vastai.api.machines.show_machines",
+            lambda client: called.append(True) or [{"id": 1}],
+        )
+        from vastai.cli.commands.auth import set__api_key
+        set__api_key(argparse.Namespace(new_api_key="a-key"))
+
+        assert called == []
+        assert role_file.read_text().strip() == "client"
+
+    def test_bare_namespace_missing_url_and_retry_does_not_crash(self, tmp_path, monkeypatch):
+        # Direct callers (like the existing TestSetApiKey tests) construct a
+        # bare Namespace(new_api_key=...) with no `url`/`retry` attributes.
+        role_file = self._set_api_key(tmp_path, monkeypatch, show_machines_result=[{"id": 1}])
+        assert role_file.read_text().strip() == "host"
 
 
 class TestSetRole:

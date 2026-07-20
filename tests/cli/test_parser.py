@@ -1,9 +1,12 @@
 """Tests for vastai/cli/parser.py — apwrap, command registration, parse_args."""
 
+import argparse
+
 import pytest
 from vastai.cli.parser import (
     apwrap, argument, hidden_aliases, MyWideHelpFormatter,
     build_command_maps, two_stage_command_completions,
+    is_host_only_command,
 )
 
 
@@ -175,6 +178,16 @@ def _completion_parser():
     return p
 
 
+def _completion_parser_with_host_cmd():
+    p = _completion_parser()
+
+    @p.command(help="show host machines", host_only=True)
+    def show__machines(args):
+        pass
+
+    return p
+
+
 class TestBuildCommandMaps:
     def test_splits_verbs_objects_and_singles(self):
         verbs, verb_objs, singles = build_command_maps(_completion_parser().parser)
@@ -183,6 +196,24 @@ class TestBuildCommandMaps:
         assert verb_objs["create"] == {"instance"}
         # bare command + the auto-registered "help" land in singles, not verbs
         assert "update" in singles and "update" not in verbs
+
+    def test_no_role_defaults_to_client_completions(self):
+        # Client is the default: an unset role (no role= passed) hides
+        # host-only commands from completion too, not just 'client'.
+        _, verb_objs, _ = build_command_maps(_completion_parser_with_host_cmd().parser)
+        assert verb_objs["show"] == {"instances", "env-vars"}
+
+    def test_host_role_completes_host_commands(self):
+        _, verb_objs, _ = build_command_maps(
+            _completion_parser_with_host_cmd().parser, role="host"
+        )
+        assert verb_objs["show"] == {"instances", "env-vars", "machines"}
+
+    def test_client_role_hides_host_commands_from_completion(self):
+        _, verb_objs, _ = build_command_maps(
+            _completion_parser_with_host_cmd().parser, role="client"
+        )
+        assert verb_objs["show"] == {"instances", "env-vars"}
 
 
 class TestTwoStageCompletions:
@@ -229,3 +260,151 @@ class TestTwoStageCompletions:
         cands, merged = self._complete(["vastai", "show", "--help"], "")
         assert cands is None
         assert merged == ["vastai", "show", "--help"]  # unchanged
+
+
+class TestIsHostOnlyCommand:
+    """Unit tests for the host-only/not classification (CLN-3582)."""
+
+    def test_explicit_true_wins_over_everything(self):
+        assert is_host_only_command(
+            "search offers", "vastai.cli.commands.machines", explicit=True
+        ) is True
+
+    def test_explicit_false_wins_over_everything(self):
+        assert is_host_only_command(
+            "show earnings", "vastai.cli.commands.machines", explicit=False
+        ) is False
+
+    def test_command_override_wins_over_module_default(self):
+        # 'reports' is flagged host-only despite misc.py being client-facing.
+        assert is_host_only_command("reports", "vastai.cli.commands.misc") is True
+
+    def test_falls_back_to_module_default(self):
+        assert is_host_only_command(
+            "show instances", "vastai.cli.commands.instances"
+        ) is False
+        assert is_host_only_command(
+            "show machines", "vastai.cli.commands.machines"
+        ) is True
+
+    def test_unmapped_module_and_command_defaults_to_visible(self):
+        # No raise, no "unresolved" state: an unmapped module/command is
+        # simply not host-only, so it's never hidden by mistake.
+        assert is_host_only_command("do stuff", "some.made.up.module") is False
+
+
+class TestCommandDecoratorHostOnly:
+    def test_unmapped_module_defaults_to_not_host_only(self):
+        # This test file's module isn't in HOST_ONLY_MODULES — the command
+        # is simply visible, not left in some unresolved state.
+        p = apwrap()
+
+        @p.command(help="show items")
+        def show__items(args):
+            pass
+
+        assert show__items.mysignature.host_only is False
+
+    def test_explicit_host_only_kwarg_is_honored(self):
+        p = apwrap()
+
+        @p.command(help="a host-only test command", host_only=True)
+        def do__hostthing(args):
+            pass
+
+        assert do__hostthing.mysignature.host_only is True
+
+    def test_host_only_auto_prefixes_help_text(self):
+        p = apwrap()
+
+        @p.command(help="do a host thing", host_only=True)
+        def do__hostthing(args):
+            pass
+
+        assert do__hostthing.mysignature_help == "do a host thing"  # stored unprefixed
+        # The rendered help (shown in --help output) carries the [Host] marker.
+        choices_actions = p.subparsers()._choices_actions
+        rendered = next(c.help for c in choices_actions if c.dest == "do hostthing")
+        assert rendered == "[Host] do a host thing"
+
+    def test_non_host_only_does_not_get_host_prefix(self):
+        p = apwrap()
+
+        @p.command(help="a client thing", host_only=False)
+        def show__clientthing(args):
+            pass
+
+        choices_actions = p.subparsers()._choices_actions
+        rendered = {c.dest: c.help for c in choices_actions}
+        assert rendered["show clientthing"] == "a client thing"
+
+
+class TestFullCliHostOnlyCoverage:
+    """Sanity check against the real, fully-populated CLI parser."""
+
+    def _all_choices_actions(self, cli_parser):
+        for a in cli_parser.parser._actions:
+            if isinstance(a, argparse._SubParsersAction):
+                return a
+        raise AssertionError("no subparsers action found")
+
+    def test_client_view_excludes_known_host_only_commands(self, cli_parser):
+        sub_action = self._all_choices_actions(cli_parser)
+        host_only = {
+            pseudo.dest
+            for pseudo in sub_action._choices_actions
+            if getattr(sub_action.choices.get(pseudo.dest), "host_only", False)
+        }
+        assert {"show machines", "list machine", "set min-bid"} <= host_only
+        assert "show instances" not in host_only
+
+
+class TestGroupedHelpRoleFiltering:
+    """--help output hides host-only commands for the client role (CLN-3582)."""
+
+    def _parser_with_host_and_client_cmds(self):
+        p = apwrap(epilog="epilogue text")
+
+        @p.command(help="show instances", host_only=False)
+        def show__instances(args):
+            pass
+
+        @p.command(help="show host machines", host_only=True)
+        def show__machines(args):
+            pass
+
+        return p
+
+    def test_unset_role_defaults_to_client_view(self, monkeypatch):
+        # Client is the default: an unset role hides host-only commands too,
+        # not just an explicit 'client' — see test below for that case.
+        monkeypatch.setattr("vastai.cli.parser.get_role", lambda: None)
+        help_text = self._parser_with_host_and_client_cmds().parser.format_help()
+        assert "show instances" in help_text
+        assert "show machines" not in help_text
+        assert "set role host" in help_text
+
+    def test_host_role_shows_everything(self, monkeypatch):
+        monkeypatch.setattr("vastai.cli.parser.get_role", lambda: "host")
+        help_text = self._parser_with_host_and_client_cmds().parser.format_help()
+        assert "show instances" in help_text
+        assert "show machines" in help_text
+        assert "set role host" not in help_text
+
+    def test_client_role_hides_host_commands_and_shows_footer(self, monkeypatch):
+        monkeypatch.setattr("vastai.cli.parser.get_role", lambda: "client")
+        help_text = self._parser_with_host_and_client_cmds().parser.format_help()
+        assert "show instances" in help_text
+        assert "show machines" not in help_text
+        assert "set role host" in help_text
+
+    def test_client_role_with_no_host_commands_shows_no_footer(self, monkeypatch):
+        monkeypatch.setattr("vastai.cli.parser.get_role", lambda: "client")
+        p = apwrap(epilog="epilogue text")
+
+        @p.command(help="show instances", host_only=False)
+        def show__instances(args):
+            pass
+
+        help_text = p.parser.format_help()
+        assert "set role host" not in help_text

@@ -119,6 +119,28 @@ class TestSetApiKey:
             assert MockClient.call_args[0][0] == "round-trip-key"
 
 
+class TestSetRole:
+    def test_set_role_host(self, tmp_path, monkeypatch, capsys):
+        role_file = tmp_path / "vast_role"
+        monkeypatch.setattr("vastai.cli.util.ROLE_FILE", str(role_file))
+        from vastai.cli.commands.auth import set__role
+        set__role(argparse.Namespace(role="host"))
+        assert role_file.read_text() == "host"
+        assert "host" in capsys.readouterr().out.lower()
+
+    def test_set_role_client(self, tmp_path, monkeypatch, capsys):
+        role_file = tmp_path / "vast_role"
+        monkeypatch.setattr("vastai.cli.util.ROLE_FILE", str(role_file))
+        from vastai.cli.commands.auth import set__role
+        set__role(argparse.Namespace(role="client"))
+        assert role_file.read_text() == "client"
+        assert "hidden" in capsys.readouterr().out.lower()
+
+    def test_only_host_and_client_are_valid_choices(self, cli_parser):
+        with pytest.raises(SystemExit):
+            cli_parser.parse_args(["set", "role", "admin"])
+
+
 class TestTfaStatus:
     def test_tfa_status_raw(self, parse_argv, patch_get_client, mock_response, capsys):
         patch_get_client.get.return_value = mock_response(200, {

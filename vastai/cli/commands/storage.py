@@ -658,7 +658,7 @@ def show__volumes(args):
     argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format), default 3 months", type=str),
     argument("-s", "--size", help="size of disk space allocated to offer in GB, default %(default)s GB", default=15),
     usage="vastai list volume ID [options]",
-    help="[Host] list disk space for rent as a volume on a machine",
+    help="list disk space for rent as a volume on a machine",
     epilog=deindent("""
         Allocates a section of disk on a machine to be used for volumes.
     """),
@@ -689,7 +689,7 @@ def list__volume(args):
     argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format), default 3 months", type=str),
     argument("-s", "--size", help="size of disk space allocated to offer in GB, default %(default)s GB", default=15),
     usage="vastai list volume IDs [options]",
-    help="[Host] list disk space for rent as a volume on machines",
+    help="list disk space for rent as a volume on machines",
     epilog=deindent("""
         Allocates a section of disk on machines to be used for volumes.
     """),
@@ -719,7 +719,7 @@ def list__volumes(args):
     argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format), default 1 month", type=str, default=None),
     argument("-s", "--size", help="size of disk space allocated to offer in GB, default %(default)s GB", default=15, type=int),
     usage="vastai list network volume DISK_ID [options]",
-    help="[Host] list disk space for rent as a network volume",
+    help="list disk space for rent as a network volume",
 )
 def list__network_volume(args):
     """List disk space for rent as a network volume."""
@@ -742,7 +742,7 @@ def list__network_volume(args):
 @parser.command(
     argument("id", help="volume ID you want to unlist", type=int),
     usage="vastai unlist volume ID",
-    help="[Host] unlist volume offer",
+    help="unlist volume offer",
 )
 def unlist__volume(args):
     """Unlist a volume offer."""
@@ -760,7 +760,7 @@ def unlist__volume(args):
 @parser.command(
     argument("id", help="id of network volume offer to unlist", type=int),
     usage="vastai unlist network volume OFFER_ID",
-    help="[Host] Unlists network volume offer",
+    help="Unlists network volume offer",
 )
 def unlist__network_volume(args):
     """Unlist a network volume offer."""

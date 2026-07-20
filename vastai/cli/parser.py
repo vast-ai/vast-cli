@@ -11,6 +11,8 @@ import sys
 import argparse
 from pathlib import Path
 
+from vastai.cli.util import get_role, is_client_view
+
 
 # ---------------------------------------------------------------------------
 # Tab-completion helpers
@@ -46,12 +48,21 @@ def complete_sshkeys(prefix=None, action=None, parser=None, parsed_args=None):
 # into staged completion. The argcomplete adapter in cli/main.py calls them.
 # ---------------------------------------------------------------------------
 
-def build_command_maps(parser):
-    """Derive (verbs, verb_objs, singles) from a parser's subparser names."""
+def build_command_maps(parser, role=None):
+    """Derive (verbs, verb_objs, singles) from a parser's subparser names.
+
+    ``role``: host-only commands are left out of completion unless ``role``
+    is explicitly ``'host'`` (see ``vastai.cli.util.is_client_view``) — client
+    is the default, matching the client --help view (CLN-3582). Display-only,
+    never affects execution.
+    """
     names = []
     for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
-            names = list(action.choices.keys())
+            for name, sp in action.choices.items():
+                if is_client_view(role) and getattr(sp, 'host_only', False):
+                    continue
+                names.append(name)
             break
     verbs, verb_objs, singles = set(), {}, set()
     for name in names:
@@ -156,10 +167,71 @@ COMMAND_OVERRIDES = {
     'reports':       'Host machines',
 }
 
+# ---------------------------------------------------------------------------
+# Host-only command classification (CLN-3582)
+#
+# A command is either host-only or not — there's no third state. The client
+# CLI view hides host-only commands from --help, tab completion, and error
+# hints; everything else stays visible to everyone. Unclassified commands
+# default to visible (not host-only), so a module nobody's flagged yet just
+# shows up everywhere rather than needing an entry to "opt in" to visibility.
+# This is a display classification only — it never affects whether a command
+# executes.
+# ---------------------------------------------------------------------------
+
+# Modules where every command is host-only.
+HOST_ONLY_MODULES = {
+    'vastai.cli.commands.machines',
+    'vastai.cli.commands.metrics',
+}
+
+# Individual host-only commands in modules that are mostly client-facing.
+# Keyed by the registered "verb object" (or bare verb) name, same shape as
+# COMMAND_OVERRIDES above.
+HOST_ONLY_COMMANDS = {
+    'reports',                # misc.py: machine reports, not instance logs
+    'show earnings',          # billing.py: machine earning history
+    'list network-volume',    # storage.py: list disk space for rent
+    'list volume',
+    'list volumes',
+    'unlist network-volume',
+    'unlist volume',
+}
+
+
+def is_host_only_command(name, module, explicit=None):
+    """Whether a registered command should be hidden from the client CLI view.
+
+    Priority: explicit ``host_only=`` kwarg on the decorator > per-command
+    override > per-module default. Defaults to ``False`` (visible) so an
+    unclassified module or an ad-hoc parser built outside the real command
+    modules (as tests do) never has commands silently disappear.
+    """
+    if explicit is not None:
+        return bool(explicit)
+    if name in HOST_ONLY_COMMANDS:
+        return True
+    return module in HOST_ONLY_MODULES
+
+
 GROUP_ORDER = [
     'Search', 'Instances', 'Host machines', 'Teams', 'Auth & keys',
     'Billing & account', 'Serverless', 'Metrics', 'Storage volumes', 'Other',
 ]
+
+# Well-known client equivalents for commonly-confused host commands. Used to
+# build the "did you mean" 401 hint on the client CLI role — e.g. a renter
+# running 'show machines' (a host command) when they meant 'show instances'.
+# Not exhaustive; commands without an entry get a generic hint instead. See
+# main.py's _emit_error and CLN-3582.
+HOST_COMMAND_CLIENT_HINTS = {
+    'show machine':  'show instances',
+    'show machines': 'show instances',
+    'list machine':  'create instance',
+    'list machines': 'create instance',
+    'show maints':   'show instances',
+    'set min-bid':   'change bid',
+}
 
 
 class GroupedArgumentParser(argparse.ArgumentParser):
@@ -187,8 +259,12 @@ class GroupedArgumentParser(argparse.ArgumentParser):
             formatter.add_arguments(non_sub_actions)
             formatter.end_section()
 
-        self._add_grouped_commands(formatter, sub_action)
+        hidden_count = self._add_grouped_commands(formatter, sub_action)
         formatter.add_text(self.epilog)
+        if hidden_count:
+            formatter.add_text(
+                "Hosting on Vast? Run 'vastai set role host' to show host commands."
+            )
         return formatter.format_help()
 
     def _subparsers_action(self):
@@ -198,10 +274,16 @@ class GroupedArgumentParser(argparse.ArgumentParser):
         return None
 
     def _add_grouped_commands(self, formatter, sub_action):
+        """Render grouped commands; returns the count hidden by the client role view."""
+        role = get_role()
         grouped = {}
+        hidden_count = 0
         for pseudo in sub_action._choices_actions:
             sp = sub_action.choices.get(pseudo.dest)
             if sp is None:
+                continue
+            if is_client_view(role) and getattr(sp, 'host_only', False):
+                hidden_count += 1
                 continue
             label = COMMAND_OVERRIDES.get(pseudo.dest)
             if label is None:
@@ -223,6 +305,8 @@ class GroupedArgumentParser(argparse.ArgumentParser):
             formatter.start_section(label)
             formatter.add_arguments(actions)
             formatter.end_section()
+
+        return hidden_count
 
 
 # ---------------------------------------------------------------------------
@@ -284,7 +368,7 @@ class apwrap(object):
             name = verb
         return name
 
-    def command(self, *arguments, aliases=(), help=None, **kwargs):
+    def command(self, *arguments, aliases=(), help=None, host_only=None, **kwargs):
         help_ = help
         if not self.added_help_cmd:
             self.added_help_cmd = True
@@ -304,7 +388,14 @@ class apwrap(object):
             if "formatter_class" not in kwargs:
                 kwargs["formatter_class"] = MyWideHelpFormatter
 
-            sp = self.subparsers().add_parser(name, aliases=aliases_transformed, help=help_, **kwargs)
+            is_host_only = is_host_only_command(name, func.__module__, explicit=host_only)
+            display_help = help_
+            if is_host_only and display_help and not display_help.startswith('[Host]'):
+                display_help = f'[Host] {display_help}'
+
+            sp = self.subparsers().add_parser(name, aliases=aliases_transformed, help=display_help, **kwargs)
+            sp.host_only = is_host_only
+            sp.command_name = name
 
             # TODO: Sometimes the parser.command has a help parameter. Ideally
             # I'd extract this during the sdk phase but for the life of me

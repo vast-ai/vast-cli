@@ -4,10 +4,13 @@ import os
 import json
 import requests
 
-from vastai.cli.parser import apwrap, argument, MyWideHelpFormatter, set_completers
+from vastai.cli.parser import (
+    apwrap, argument, MyWideHelpFormatter, set_completers,
+    HOST_COMMAND_CLIENT_HINTS,
+)
 from vastai.cli.util import (
     APIKEY_FILE, TFAKEY_FILE, VERSION, server_url_default, api_key_guard,
-    format_key_suffix,
+    format_key_suffix, get_role, is_client_view,
 )
 
 try:
@@ -44,6 +47,18 @@ def _emit_error(args, status_code, message):
                 "For SMS or email, first run 'vastai tfa send-sms' or 'vastai tfa send-email' to get <SECRET>.",
                 file=sys.stderr,
             )
+            return
+
+        sp = getattr(getattr(args, "func", None), "mysignature", None)
+        if sp is not None and getattr(sp, "host_only", False) and is_client_view(get_role()):
+            command_name = getattr(sp, "command_name", "this command")
+            hint = HOST_COMMAND_CLIENT_HINTS.get(command_name)
+            print(file=sys.stderr)
+            if hint:
+                print(f"'{command_name}' is a host-only command — did you mean 'vastai {hint}'?", file=sys.stderr)
+            else:
+                print(f"'{command_name}' is a host-only command. Renting compute? Run 'vastai --help' for client commands.", file=sys.stderr)
+            print("(Hosting on Vast? Run 'vastai set role host' to enable host commands.)", file=sys.stderr)
             return
 
         env = os.environ.get("VAST_API_KEY")
@@ -121,7 +136,8 @@ def main():
             def _command_maps(self):
                 cached = getattr(self, "_cmd_maps", None)
                 if cached is None:
-                    cached = self._cmd_maps = build_command_maps(self._parser)
+                    from vastai.cli.util import get_role
+                    cached = self._cmd_maps = build_command_maps(self._parser, role=get_role())
                 return cached
 
             def _get_completions(self, comp_words, cword_prefix, cword_prequote, last_wordbreak_pos):

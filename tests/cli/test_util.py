@@ -324,3 +324,31 @@ class TestRequiredInetMbps:
         from vastai.cli.util import required_inet_mbps
         result = required_inet_mbps(183359)
         assert 460.0 < result < 470.0
+
+
+class TestRole:
+    """get_role / set_role_file — the client/host CLI display preference (CLN-3582)."""
+
+    def test_unset_returns_none(self, tmp_path, monkeypatch):
+        from vastai.cli.util import get_role
+        monkeypatch.setattr("vastai.cli.util.ROLE_FILE", str(tmp_path / "vast_role"))
+        assert get_role() is None
+
+    def test_set_then_get_round_trips(self, tmp_path, monkeypatch):
+        from vastai.cli.util import get_role, set_role_file
+        monkeypatch.setattr("vastai.cli.util.ROLE_FILE", str(tmp_path / "vast_role"))
+        set_role_file("host")
+        assert get_role() == "host"
+
+    def test_invalid_role_raises(self, tmp_path, monkeypatch):
+        from vastai.cli.util import set_role_file
+        monkeypatch.setattr("vastai.cli.util.ROLE_FILE", str(tmp_path / "vast_role"))
+        with pytest.raises(ValueError):
+            set_role_file("admin")
+
+    def test_corrupt_file_contents_return_none_not_raise(self, tmp_path, monkeypatch):
+        from vastai.cli.util import get_role
+        role_file = tmp_path / "vast_role"
+        role_file.write_text("garbage\nbinary\x00data")
+        monkeypatch.setattr("vastai.cli.util.ROLE_FILE", str(role_file))
+        assert get_role() is None

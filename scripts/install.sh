@@ -328,6 +328,23 @@ check_pip_coexistence() {
     warn "put $LOCAL_BIN first in PATH so this one wins."
 }
 
+# warm_role_cache — best-effort: most reinstalls are an existing user with an
+# API key already on disk from before, so there's no "enter your key" moment
+# to hook into here — just a key that's already sitting there. If one exists,
+# resolve the client/host CLI view for it now (one GET to /machines) instead
+# of waiting on whatever command they happen to run next. A fresh install has
+# no key yet, so this is a no-op for that (the common) case.
+#
+# Detached (nohup, backgrounded, disowned) so it can't add latency to the
+# install and survives this script's own process exiting; every failure mode
+# is swallowed — this must never affect install success or its output.
+warm_role_cache() {
+    local cfg_dir
+    cfg_dir="${XDG_CONFIG_HOME:-$HOME/.config}/vastai"
+    [ -f "$cfg_dir/vast_api_key" ] || [ -f "$HOME/.vast_api_key" ] || return 0
+    ( nohup "$ROOT/bin/vastai" show machines --raw >/dev/null 2>&1 & disown ) 2>/dev/null || true
+}
+
 main() {
     for arg in "$@"; do
         case "$arg" in
@@ -368,6 +385,7 @@ main() {
     generate_completions
     setup_path
     check_pip_coexistence
+    warm_role_cache
 
     printf '\n'
     say "vastai $version installed to $ROOT"

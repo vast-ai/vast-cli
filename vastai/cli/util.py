@@ -243,6 +243,32 @@ def set_role_file(role):
         f.write(role)
 
 
+def ensure_host_role_detected(client):
+    """Best-effort: resolve and cache the role via ``client`` if it isn't known yet.
+
+    Called from :func:`vastai.cli.utils.get_client`, so it runs lazily on the
+    next real (authenticated) command a user makes — not on ``--help`` or tab
+    completion, which never build a client and so never pay this cost. This
+    is what brings a pre-existing install (API key saved before this feature
+    shipped, ``ROLE_FILE`` never written) up to date: the first real command
+    after upgrading resolves it once, and every command after that is free.
+
+    Once resolved, the role is cached permanently — 'client' as much as
+    'host' — since a successful check is a real answer, not a guess. Only a
+    failed check (network/auth error) leaves the role undetected, so it's
+    retried on the next call rather than wrongly cached as one or the other.
+    Never raises.
+    """
+    if get_role() is not None:
+        return
+    try:
+        from vastai.api import machines as machines_api
+        is_host = bool(machines_api.show_machines(client))
+    except Exception:
+        return
+    set_role_file(ROLE_HOST if is_host else ROLE_CLIENT)
+
+
 # ---------------------------------------------------------------------------
 # Simple utility class
 # ---------------------------------------------------------------------------

@@ -352,3 +352,55 @@ class TestRole:
         role_file.write_text("garbage\nbinary\x00data")
         monkeypatch.setattr("vastai.cli.util.ROLE_FILE", str(role_file))
         assert get_role() is None
+
+
+class TestEnsureHostRoleDetected:
+    """ensure_host_role_detected — lazy role resolution for pre-existing installs (CLN-3582)."""
+
+    def _client(self, tmp_path, monkeypatch, *, show_machines_result=None, show_machines_raises=None):
+        monkeypatch.setattr("vastai.cli.util.ROLE_FILE", str(tmp_path / "vast_role"))
+        if show_machines_raises is not None:
+            monkeypatch.setattr(
+                "vastai.api.machines.show_machines",
+                lambda client: (_ for _ in ()).throw(show_machines_raises),
+            )
+        else:
+            monkeypatch.setattr(
+                "vastai.api.machines.show_machines",
+                lambda client: show_machines_result,
+            )
+        return object()  # stand-in "client"; show_machines is patched to ignore it
+
+    def test_host_account_caches_host(self, tmp_path, monkeypatch):
+        from vastai.cli.util import ensure_host_role_detected, get_role
+        client = self._client(tmp_path, monkeypatch, show_machines_result=[{"id": 1}])
+        ensure_host_role_detected(client)
+        assert get_role() == "host"
+
+    def test_client_account_caches_client(self, tmp_path, monkeypatch):
+        # This is what brings a pre-existing install (key saved, role never
+        # written) up to date: an empty machines list is a real answer, not
+        # a "still unknown" — so it gets cached just like a host does.
+        from vastai.cli.util import ensure_host_role_detected, get_role
+        client = self._client(tmp_path, monkeypatch, show_machines_result=[])
+        ensure_host_role_detected(client)
+        assert get_role() == "client"
+
+    def test_network_error_leaves_role_undetected(self, tmp_path, monkeypatch):
+        from vastai.cli.util import ensure_host_role_detected, get_role
+        client = self._client(tmp_path, monkeypatch, show_machines_raises=ConnectionError("offline"))
+        ensure_host_role_detected(client)
+        assert get_role() is None
+
+    def test_already_resolved_role_is_not_rechecked(self, tmp_path, monkeypatch):
+        from vastai.cli.util import ensure_host_role_detected, set_role_file, get_role
+        monkeypatch.setattr("vastai.cli.util.ROLE_FILE", str(tmp_path / "vast_role"))
+        set_role_file("client")
+        called = []
+        monkeypatch.setattr(
+            "vastai.api.machines.show_machines",
+            lambda client: called.append(True) or [{"id": 1}],
+        )
+        ensure_host_role_detected(object())
+        assert called == []
+        assert get_role() == "client"  # not flipped to host

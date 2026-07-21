@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from vastai.cli.parser import argument
 from vastai.cli.display import deindent, display_table
 from vastai.api import auth as auth_api
-from vastai.cli.util import SUCCESS, WARN, FAIL, format_key_suffix
+from vastai.cli.util import SUCCESS, WARN, FAIL, INFO, format_key_suffix
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +219,49 @@ def set__api_key(args):
         print(f"\n{WARN} VAST_API_KEY is set in your environment (ends in {format_key_suffix(env_key)}) and overrides the key you just saved.")
         print("Unset VAST_API_KEY to use the saved key.")
 
+    _auto_detect_and_announce_role(args)
+
+
+def _auto_detect_and_announce_role(args):
+    """Best-effort: resolve and announce the client/host CLI role for this key.
+
+    A no-op if the role is already known — once resolved (by this, or by the
+    first real command a pre-existing install runs; see
+    ``vastai.cli.util.ensure_host_role_detected``), it's never silently
+    re-detected or changed. 'vastai set role host|client' is the override
+    path for e.g. a client account that starts hosting later.
+    """
+    from vastai.cli.util import get_role, ensure_host_role_detected, ROLE_HOST, ROLE_CLIENT, server_url_default
+    from vastai.api.client import VastClient
+
+    if get_role() is not None:
+        return  # already resolved; nothing to announce
+
+    try:
+        # args.api_key was resolved from the OLD saved key before this command
+        # ran (see main.py), so it can't be used here — build a client with
+        # the key that was just written instead. getattr() defaults cover
+        # direct/test calls that construct a bare Namespace(new_api_key=...).
+        client = VastClient(
+            api_key=args.new_api_key,
+            server_url=getattr(args, "url", server_url_default),
+            retry=getattr(args, "retry", 3),
+            client_type="cli",
+        )
+    except Exception:
+        return  # malformed args: leave role detection for the next real command
+
+    ensure_host_role_detected(client)
+
+    role = get_role()
+    if role == ROLE_HOST:
+        print(f"\n{INFO} This account has machines listed for rent — enabling the host command view.")
+        print("  (Run 'vastai set role client' to hide host-only commands, or 'vastai set role host' to re-enable.)")
+    elif role == ROLE_CLIENT:
+        print(f"\n{INFO} Showing the client command view (host-only commands are hidden from --help).")
+        print("  (Hosting on Vast? Run 'vastai set role host' to show them.)")
+    # else: network/auth error — leave role detection for the next real command
+
 
 # ---------------------------------------------------------------------------
 # set role
@@ -232,6 +275,8 @@ def set__api_key(args):
         This only changes what --help and tab completion display — every command
         still runs regardless of role, since the server enforces real permissions.
 
+        The role is auto-detected the first time you run a real command (or
+        'vastai set api-key'), so most people never need to run this manually.
         Use it to override the detected role — e.g. after your account starts
         or stops hosting machines.
     """),

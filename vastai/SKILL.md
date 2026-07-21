@@ -74,13 +74,13 @@ Common sort fields: `score` (default — overall value), `dlperf_usd` (DL perf p
 ### Instances
 
 ```bash
-vastai show instances                                    # List all your instances
-vastai show instances-v1                                 # Paginated instances with full filter/sort/cols support
-vastai show instances-v1 --status running loading        # Filter by status
-vastai show instances-v1 --gpu-name 'RTX 4090'           # Filter by GPU
-vastai show instances-v1 --label training                # Filter by label
-vastai show instances-v1 --order-by start_date desc      # Sort by column
-vastai show instances-v1 --cols id,status,gpu,dph        # Custom columns
+vastai show instances                                    # List all your instances (fetches every page, no prompts)
+vastai show instances --status running loading           # Filter by status
+vastai show instances --gpu-name 'RTX 4090'              # Filter by GPU
+vastai show instances --label training                   # Filter by label
+vastai show instances --order-by start_date desc         # Sort by column
+vastai show instances --cols id,status,gpu,dph           # Custom columns
+vastai show instances --raw                              # Flat JSON list of all instances (scripting)
 vastai show instance <id>                                # Poll single instance (use for status checks)
 vastai create instance <offer-id> --image pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime --disk 20 --ssh --direct
 # Response includes "new_contract": <id> — that is your instance ID

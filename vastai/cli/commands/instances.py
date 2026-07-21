@@ -32,45 +32,8 @@ parser = _get_parser()
 
 
 # ---------------------------------------------------------------------------
-# show instances
+# show instances (defined further down, after the display helpers it uses)
 # ---------------------------------------------------------------------------
-
-@parser.command(
-    argument("-q", "--quiet", action="store_true", help="only display numeric ids"),
-    usage="vastai show instances [OPTIONS]",
-    help="Display user's current instances",
-    epilog=deindent("""
-        Shows the stats on the instances the user is currently renting. Various options available to
-        limit which instances are shown and jeir data.
-
-        Examples:
-            vastai show instances
-            vastai show instances --raw
-            vastai show instances -q
-    """),
-)
-def show__instances(args, extra_filters=None):
-    """Show the user's current instances."""
-    if not (extra_filters and extra_filters.get('internal')) and not args.quiet:
-        print("DEPRECATED: `vastai show instances` will be removed in a future release. "
-              "Use `vastai show instances-v1` for the new paginated command.", file=sys.stderr)
-    client = get_client(args)
-    rows = instances_api.show_instances(client)
-
-    if extra_filters and extra_filters.get('internal'):
-        field = extra_filters.get('field', 'id')
-        return [str(r.get(field, '')) for r in rows]
-
-    if args.quiet:
-        for row in rows:
-            id = row.get("id", None)
-            if id is not None:
-                print(id)
-    elif args.raw:
-        return rows
-    else:
-        display_table(rows, instance_fields)
-
 
 # ---------------------------------------------------------------------------
 # show instance (single)
@@ -769,7 +732,7 @@ def launch__instance(args):
 
 
 # ---------------------------------------------------------------------------
-# show instances-v1 (paginated, Rich tables)
+# show instances -- display helpers (Rich tables, filtering, pagination)
 # ---------------------------------------------------------------------------
 
 _DEFAULT_INSTANCE_SELECT_COLS = [
@@ -1076,34 +1039,46 @@ def _rich_object_to_string(rich_obj, no_color=True):
 
 
 @parser.command(
-    argument("-q", "--quiet",       action="store_true", help="only print instance IDs, one per line"),
+    argument("-q", "--quiet",       action="store_true", help="only display numeric ids"),
     argument("-v", "--verbose",     action="store_true", help="show additional columns (SSH, location, template, etc.)"),
-    argument("-a", "--all",         action="store_true", help="fetch all pages automatically; useful for scripting"),
+    argument("-a", "--all",         action="store_true", help="force fetching every page before printing, even with --limit/--next-token (fetching everything is already the default otherwise)"),
     argument("-s", "--status",      metavar="STATUS",    nargs="+", help="filter by container status: running loading exited"),
     argument("--label",             metavar="LABEL",     nargs="+", help="filter by instance label; pass empty string '' for unlabeled"),
     argument("--gpu-name",          metavar="GPU",       nargs="+", dest="gpu_name", help="filter by GPU model name"),
     argument("--verification",      metavar="VERIF",     nargs="+", choices=["verified", "unverified", "deverified"], help="filter by verification status"),
-    argument("-l", "--limit",       type=int, default=25, help="max instances per page (1-25, default 25)"),
-    argument("-t", "--next-token",  dest="next_token",   help="resume from a pagination token"),
+    argument("-l", "--limit",       type=int, default=None, help="max instances per page (1-25); passing this switches to single-page mode instead of fetching everything"),
+    argument("-t", "--next-token",  dest="next_token",   help="resume from a pagination token (implies single-page mode)"),
     argument("--order-by",          dest="order_by",     metavar="COL [asc|desc]", action="append", help="sort by column; repeat for multiple keys"),
     argument("--cols",              metavar="COLS",       help=f"override displayed columns (available: {','.join(s[0] for s in _INSTANCE_COL_SPECS)})"),
-    usage="vastai show instances-v1 [OPTIONS]",
-    help="List instances with filtering, sorting, and pagination",
+    usage="vastai show instances [OPTIONS]",
+    help="Display user's current instances",
+    aliases=hidden_aliases(["show instances-v1"]),
     epilog=deindent("""
-        Displays your instances in a table with auto-sizing columns. Narrow terminals
-        drop lower-priority columns automatically; use --cols to override.
+        Shows the instances the user is currently renting. By default this fetches
+        every page and prints one combined result, which is safe for scripts and
+        cron jobs. Passing --limit or --next-token switches to single-page mode for
+        manual pagination (add --all to still fetch every page in that mode).
 
         Examples:
-            vastai show instances-v1
-            vastai show instances-v1 -v
-            vastai show instances-v1 --status running loading
-            vastai show instances-v1 --gpu-name 'RTX A5000' 'GTX 1070'
-            vastai show instances-v1 --label training --order-by start_date desc
-            vastai show instances-v1 --cols id,status,gpu,dph
-            vastai show instances-v1 --next-token eyJ2YWx1ZXMi...
+            vastai show instances
+            vastai show instances --raw
+            vastai show instances -q
+            vastai show instances -v
+            vastai show instances --status running loading
+            vastai show instances --gpu-name 'RTX A5000' 'GTX 1070'
+            vastai show instances --label training --order-by start_date desc
+            vastai show instances --cols id,status,gpu,dph
+            vastai show instances --next-token eyJ2YWx1ZXMi...
     """),
 )
-def show__instances_v1(args):
+def show__instances(args, extra_filters=None):
+    """Show the user's current instances."""
+    if extra_filters and extra_filters.get('internal'):
+        client = get_client(args)
+        rows = instances_api.show_instances(client)
+        field = extra_filters.get('field', 'id')
+        return [str(r.get(field, '')) for r in rows]
+
     try:
         from rich.prompt import Confirm
         from rich.text import Text
@@ -1153,7 +1128,17 @@ def show__instances_v1(args):
         if "id" not in seen_cols:
             order_by.append({"col": "id", "dir": "asc"})
 
-    limit = max(1, min(args.limit, 25))
+    # Legacy contract: fetch every page and print/return one combined result by
+    # default (safe for scripts). Only an explicit --limit or --next-token opts
+    # into single-page mode, matching the old paginated `instances-v1` behavior.
+    explicit_pagination = args.next_token is not None or args.limit is not None
+    fetch_all = args.all or not explicit_pagination
+    limit = max(1, min(args.limit, 25)) if args.limit is not None else 25
+
+    if args.raw and fetch_all:
+        # Flat list of every matching instance, full unrestricted row shape --
+        # this is the contract scripts have always depended on for --raw.
+        return instances_api.show_instances(client, select_filters=select_filters, order_by=order_by)
 
     params = {
         "select_filters": json.dumps(select_filters),
@@ -1167,6 +1152,18 @@ def show__instances_v1(args):
         params["select_cols"] = json.dumps(select_cols)
     if args.next_token:
         params["after_token"] = args.next_token
+
+    if args.quiet and fetch_all:
+        while True:
+            data = instances_api.show_instances_v1(client, params)
+            for inst in data.get("instances") or []:
+                instance_id = inst.get("id")
+                if instance_id is not None:
+                    print(instance_id)
+            next_token = data.get("next_token")
+            if not next_token:
+                return
+            params["after_token"] = next_token
 
     # fetch filter breakdown
     filter_combos = None
@@ -1183,7 +1180,7 @@ def show__instances_v1(args):
     looping = True
     all_instances = []
     while looping:
-        if args.all and page > 0:
+        if fetch_all and page > 0:
             time.sleep(1)
 
         data = instances_api.show_instances_v1(client, params)
@@ -1204,7 +1201,7 @@ def show__instances_v1(args):
                     print(instance_id)
             break
 
-        if args.all:
+        if fetch_all:
             all_instances.extend(instances)
             if next_token:
                 sys.stderr.write(f"\rLoading more... (page {page + 1})")
@@ -1218,7 +1215,7 @@ def show__instances_v1(args):
         output_parts = []
 
         if has_rich:
-            if page == 1 or args.all:
+            if page == 1 or fetch_all:
                 if filter_combos:
                     output_parts.append(_rich_object_to_string(_build_filters_panel(filter_combos), no_color=args.no_color))
                 output_parts.append(_rich_object_to_string(_build_summary_panel(
@@ -1236,14 +1233,14 @@ def show__instances_v1(args):
                 tbl, hidden = _build_instances_table(instances, verbose=args.verbose, cols=user_cols)
 
                 caption = Text()
-                if not args.all:
+                if not fetch_all:
                     if not args.next_token:
                         caption.append(f"[Page {page}]", style="bright_white")
                         caption.append("  ·  ", style="bright_white")
                     caption.append("Fetched Results: ", style="bright_white")
                     caption.append(f"{offset + 1} – {offset + len(instances)}", style="bright_white")
                     caption.append(f" of {total}", style="bright_white")
-                if hidden and (page == 1 or args.all):
+                if hidden and (page == 1 or fetch_all):
                     caption.append(
                         f"\nColumns hidden to fit terminal width: {', '.join(hidden)}"
                         f"  ·  use --cols to customize (see --help)",
@@ -1258,7 +1255,7 @@ def show__instances_v1(args):
                 if next_token:
                     output_parts.append(f"Next page token: {next_token}\n")
         else:
-            if page == 1 or args.all:
+            if page == 1 or fetch_all:
                 if filter_combos:
                     statuses = sorted({f["actual_status"] for f in filter_combos if f.get("actual_status")})
                     verifs   = sorted({f["verification"]   for f in filter_combos if f.get("verification")})
@@ -1287,20 +1284,20 @@ def show__instances_v1(args):
                 print("No instances matched your filters." if active_display_filters else "No instances found.")
             else:
                 display_table(instances, instance_fields)
-                if not args.all:
+                if not fetch_all:
                     print(f"[Page {page}]  Fetched Results: {offset + 1} – {offset + len(instances)} of {total}")
                 if next_token:
                     print(f"Next page token: {next_token}")
             if page == 1:
                 print("\nNOTE: install the 'rich' module for colored output  (pip install rich)")
 
-        if not args.all:
+        if not fetch_all:
             offset += len(instances)
 
-        if args.all or not next_token:
+        if fetch_all or not next_token:
             print_or_page(args, "\n".join(output_parts))
             looping = False
-        else:
+        elif sys.stdin.isatty() and sys.stdout.isatty():
             print("\n".join(output_parts))
             try:
                 if has_rich:
@@ -1313,3 +1310,7 @@ def show__instances_v1(args):
                 params["after_token"] = next_token
             else:
                 looping = False
+        else:
+            # Non-interactive invocation (no TTY): never block on a prompt.
+            print_or_page(args, "\n".join(output_parts))
+            looping = False

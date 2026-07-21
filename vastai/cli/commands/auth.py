@@ -221,6 +221,34 @@ def set__api_key(args):
 
 
 # ---------------------------------------------------------------------------
+# set role
+# ---------------------------------------------------------------------------
+
+@parser.command(
+    argument("role", help="'host' or 'client'", choices=["host", "client"]),
+    usage="vastai set role host|client",
+    help="Set host role to view host-only commands",
+    epilog=deindent("""
+        This only changes what --help and tab completion display — every command
+        still runs regardless of role, since the server enforces real permissions.
+
+        Use it to override the detected role — e.g. after your account starts
+        or stops hosting machines.
+    """),
+)
+def set__role(args):
+    """Set the client/host CLI display role."""
+    from vastai.cli.util import set_role_file
+
+    set_role_file(args.role)
+    print(f"CLI role set to '{args.role}'.")
+    if args.role == "client":
+        print("Host-only commands are now hidden from --help and tab completion.")
+    else:
+        print("All commands (client + host) are now shown in --help and tab completion.")
+
+
+# ---------------------------------------------------------------------------
 # Note: set__user and show__user are in billing.py.
 # Note: show__ipaddrs is in billing.py.
 # ---------------------------------------------------------------------------

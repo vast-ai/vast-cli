@@ -72,7 +72,7 @@ _GPU_LOCATION_FIELDS = (
     argument("--num-gpus", type=str, choices=["all", "1", "2", "4", "8"], default="all",
              help="Filter by machine GPU-count bucket (1x, 2x, 4x, 8x)"),
     usage="vastai metrics gpu [OPTIONS]",
-    help="[Host] Get current GPU market metrics",
+    help="Get current GPU market metrics",
     epilog=deindent("""
         Get current GPU metrics with counts, usage, performance, and pricing.
         For historical metrics, see the `metrics gpu-trends` command.
@@ -119,7 +119,7 @@ def metrics__gpu(args):
     argument("--full", action="store_true", default=False,
              help="Show all data points instead of sampling ~20"),
     usage="vastai metrics gpu-trends [NAME] [OPTIONS]",
-    help="[Host] Get GPU market history",
+    help="Get GPU market history",
     epilog=deindent("""
         Show GPU supply/demand and pricing trends over time. Defaults to RTX 5090, 4090, 3090
         for the last 24 hours. Requires host or admin access.
@@ -225,7 +225,7 @@ def metrics__gpu_trends(args):
     argument("--gpu", type=str, default=None,
              help="Filter by GPU name (comma-separated list). Underscores are accepted in place of spaces."),
     usage="vastai metrics gpu-locations [OPTIONS]",
-    help="[Host] Get GPU location metrics",
+    help="Get GPU location metrics",
     epilog=deindent("""
         Show geographic locations of GPUs on the platform. Filtering is applied
         client-side — the endpoint returns one shared dataset and the CLI narrows

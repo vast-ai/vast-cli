@@ -73,7 +73,7 @@ INSTANCE_LOG_TAIL_LINES = 1000
     argument("Machine", help="id of machine to display", type=int),
     argument("-q", "--quiet", action="store_true", help="only display numeric ids"),
     usage="vastai show machine ID [OPTIONS]",
-    help="[Host] Show hosted machines",
+    help="Show hosted machines",
 )
 def show__machine(args):
     """Show a machine the host is offering for rent."""
@@ -92,7 +92,7 @@ def show__machine(args):
 @parser.command(
     argument("-q", "--quiet", action="store_true", help="only display numeric ids"),
     usage="vastai show machines [OPTIONS]",
-    help="[Host] Show hosted machines",
+    help="Show hosted machines",
 )
 def show__machines(args):
     """Show the machines user is offering for rent."""
@@ -116,7 +116,7 @@ def show__machines(args):
     argument("-i", "--ids", help="comma separated string of machine_ids for which to get maintenance information", type=str),
     argument("-q", "--quiet", action="store_true", help="only display numeric ids of the machines in maintenance"),
     usage="vastai show maints --ids 'machine_id_1[,machine_id_2,...]' [OPTIONS]",
-    help="[Host] Show maintenance information for host machines",
+    help="Show maintenance information for host machines",
 )
 def show__maints(args):
     """Show the maintenance information for the machines."""
@@ -141,7 +141,7 @@ def show__maints(args):
 
 @parser.command(
     usage="vastai show network-disks",
-    help="[Host] Show network disks associated with your account.",
+    help="Show network disks associated with your account.",
     epilog=deindent("""
         Show network disks associated with your account.
     """)
@@ -242,7 +242,7 @@ def list_machine_impl(args, id):
     argument("-v", "--vol_size", help="Size for volume contract offer. Defaults to half of available disk. Set 0 to not create a volume contract offer.", type=int),
     argument("-z", "--vol_price", help="Price for disk on volume contract offer. Defaults to price_disk. Invalid if vol_size is 0.", type=float),
     usage="vastai list machine ID [options]",
-    help="[Host] list a machine for rent",
+    help="list a machine for rent",
     epilog=deindent("""
         Performs the same action as pressing the "LIST" button on the site https://cloud.vast.ai/host/machines.
         On the end date the listing will expire and your machine will unlist. However any existing client jobs will still remain until ended by their owners.
@@ -277,7 +277,7 @@ def list__machine(args):
     argument("-v", "--vol_size", help="Size for volume contract offer. Defaults to half of available disk. Set 0 to not create a volume contract offer.", type=int),
     argument("-z", "--vol_price", help="Price for disk on volume contract offer. Defaults to price_disk. Invalid if vol_size is 0.", type=float),
     usage="vastai list machines IDs [options]",
-    help="[Host] list machines for rent",
+    help="list machines for rent",
     epilog=deindent("""
         This variant can be used to list or update the listings for multiple machines at once with the same args.
         You could extend the end dates of all your machines using a command combo like this:
@@ -296,7 +296,7 @@ def list__machines(args):
 @parser.command(
     argument("id", help="id of machine to unlist", type=int),
     usage="vastai unlist machine <id>",
-    help="[Host] Unlist a listed machine",
+    help="Unlist a listed machine",
 )
 def unlist__machine(args):
     """Remove machine from list of machines for rent."""
@@ -315,7 +315,7 @@ def unlist__machine(args):
 @parser.command(
     argument("id", help="id of machine to delete", type=int),
     usage="vastai delete machine <id>",
-    help="[Host] Delete machine if the machine is not being used by clients. host jobs on their own machines are disregarded and machine is force deleted.",
+    help="Delete machine if the machine is not being used by clients. host jobs on their own machines are disregarded and machine is force deleted.",
 )
 def delete__machine(args):
     """Delete machine if the machine is not being used by clients."""
@@ -334,7 +334,7 @@ def delete__machine(args):
 @parser.command(
     argument("id", help="id of machine to cleanup", type=int),
     usage="vastai cleanup machine ID [options]",
-    help="[Host] Remove all expired storage instances from the machine, freeing up space",
+    help="Remove all expired storage instances from the machine, freeing up space",
     epilog=deindent("""
         Instances expire on their end date. Expired instances still pay storage fees, but can not start.
         Since hosts are still paid storage fees for expired instances, we do not auto delete them.
@@ -362,7 +362,7 @@ def cleanup__machine(args):
 @parser.command(
     argument("IDs", help="ids of machines", type=int, nargs='+'),
     usage="vastai defragment machines IDs ",
-    help="[Host] Defragment machines",
+    help="Defragment machines",
     epilog=deindent("""
         Defragment some of your machines. This will rearrange GPU assignments to try and make more multi-gpu offers available.
     """),
@@ -389,7 +389,7 @@ def defrag__machines(args):
     argument("id", help="id of machine to set min bid price for", type=int),
     argument("--price", help="per gpu min bid price in $/hour", type=float),
     usage="vastai set min_bid id [--price PRICE]",
-    help="[Host] Set the minimum bid/rental price for a machine",
+    help="Set the minimum bid/rental price for a machine",
     epilog=deindent("""
         Change the current min bid price of machine id to PRICE.
     """),
@@ -417,7 +417,7 @@ def set__min_bid(args):
     argument("--image", help="docker container image to launch", type=str),
     argument("--args", nargs=argparse.REMAINDER, help="list of arguments passed to container launch"),
     usage="vastai set defjob id [--api-key API_KEY] [--price_gpu PRICE_GPU] [--price_inetu PRICE_INETU] [--price_inetd PRICE_INETD] [--image IMAGE] [--args ...]",
-    help="[Host] Create default jobs for a machine",
+    help="Create default jobs for a machine",
     epilog=deindent("""
         Performs the same action as creating a background job at https://cloud.vast.ai/host/create.
     """)
@@ -446,7 +446,7 @@ def set__defjob(args):
 @parser.command(
     argument("id", help="id of machine to remove default instance from", type=int),
     usage="vastai remove defjob id",
-    help="[Host] Delete default jobs",
+    help="Delete default jobs",
 )
 def remove__defjob(args):
     """Delete default jobs for a machine."""
@@ -469,7 +469,7 @@ def remove__defjob(args):
     argument("--duration", help="maintenance duration in hours", type=float),
     argument("--maintenance_category", help="(optional) can be one of [power, internet, disk, gpu, software, other]", type=str, default="not provided"),
     usage="vastai schedule maintenance id [--sdate START_DATE --duration DURATION --maintenance_category MAINTENANCE_CATEGORY]",
-    help="[Host] Schedule upcoming maint window",
+    help="Schedule upcoming maint window",
     epilog=deindent("""
         The proper way to perform maintenance on your machine is to wait until all active contracts have expired or the machine is vacant.
         For unplanned or unscheduled maintenance, use this schedule maint command. That will notify the client that you have to take the machine down and that they should save their work.
@@ -504,7 +504,7 @@ def schedule__maint(args):
 @parser.command(
     argument("id", help="id of machine to cancel maintenance(s) for", type=int),
     usage="vastai cancel maint id",
-    help="[Host] Cancel maint window",
+    help="Cancel maint window",
     epilog=deindent("""
         For deleting a machine's scheduled maintenance window(s), use this cancel maint command.
         Example: vastai cancel maint 8207
@@ -535,7 +535,7 @@ def cancel__maint(args):
     argument("mount_point", help="mount path of disk to add", type=str),
     argument("-d", "--disk_id", help="id of network disk to attach to machines in the cluster", type=int, nargs='?'),
     usage="vastai add network-disk MACHINES MOUNT_PATH [options]",
-    help="[Host] Add Network Disk to Physical Cluster.",
+    help="Add Network Disk to Physical Cluster.",
     epilog=deindent("""
         This variant can be used to add a network disk to a physical cluster.
         When you add a network disk for the first time, you just need to specify the machine(s) and mount_path.
@@ -622,7 +622,7 @@ def collect_instance_log_artifacts(client, instance_id):
         "vastai dump-logs <machine_id> [--instance-id INSTANCE_ID] "
         "[--output-dir DIR] [--include-local-host-artifacts]"
     ),
-    help="[Host] Bundle self-test diagnostics for support",
+    help="Bundle self-test diagnostics for support",
     epilog=deindent("""
         Creates a redacted diagnostic tarball containing CLI-visible self-test
         evidence. If --instance-id is provided, the command also pulls container
@@ -704,7 +704,7 @@ def dump_logs(args):
     argument("--support-bundle-dir", help="Directory for failure diagnostic bundles (default: /tmp)", type=str),
     argument("--no-support-bundle", action="store_true", help="Do not create a diagnostic tarball when the self-test fails"),
     usage="vastai self-test machine <machine_id> [--debugging] [--ignore-requirements] [--test-image IMAGE]",
-    help="[Host] Perform a self-test on the specified machine",
+    help="Perform a self-test on the specified machine",
     epilog=deindent("""
         This command tests if a machine meets specific requirements and
         runs a series of tests to ensure it's functioning correctly.

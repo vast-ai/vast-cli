@@ -1135,7 +1135,7 @@ def show__instances(args, extra_filters=None):
     fetch_all = args.all or not explicit_pagination
     limit = max(1, min(args.limit, 25)) if args.limit is not None else 25
 
-    if args.raw and fetch_all:
+    if args.raw and fetch_all and not args.quiet:
         # Flat list of every matching instance, full unrestricted row shape --
         # this is the contract scripts have always depended on for --raw.
         return instances_api.show_instances(client, select_filters=select_filters, order_by=order_by)
@@ -1154,7 +1154,10 @@ def show__instances(args, extra_filters=None):
         params["after_token"] = args.next_token
 
     if args.quiet and fetch_all:
+        page = 0
         while True:
+            if page > 0:
+                time.sleep(1)
             data = instances_api.show_instances_v1(client, params)
             for inst in data.get("instances") or []:
                 instance_id = inst.get("id")
@@ -1164,6 +1167,7 @@ def show__instances(args, extra_filters=None):
             if not next_token:
                 return
             params["after_token"] = next_token
+            page += 1
 
     # fetch filter breakdown
     filter_combos = None
@@ -1191,15 +1195,15 @@ def show__instances(args, extra_filters=None):
         label_cnts  = data.get("label_counts", {})
         page       += 1
 
-        if args.raw:
-            return data
-
         if args.quiet:
             for inst in instances:
                 instance_id = inst.get("id")
                 if instance_id is not None:
                     print(instance_id)
             break
+
+        if args.raw:
+            return data
 
         if fetch_all:
             all_instances.extend(instances)

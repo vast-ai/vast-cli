@@ -47,11 +47,19 @@ def complete_sshkeys(prefix=None, action=None, parser=None, parsed_args=None):
 # ---------------------------------------------------------------------------
 
 def build_command_maps(parser):
-    """Derive (verbs, verb_objs, singles) from a parser's subparser names."""
+    """Derive (verbs, verb_objs, singles) from a parser's subparser names.
+
+    Commands flagged hidden (see ``is_hidden_command``) are left out of
+    completion — unreleased/feature-flagged functionality, still fully
+    runnable if typed directly.
+    """
     names = []
     for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
-            names = list(action.choices.keys())
+            for name, sp in action.choices.items():
+                if getattr(sp, 'hidden', False):
+                    continue
+                names.append(name)
             break
     verbs, verb_objs, singles = set(), {}, set()
     for name in names:
@@ -161,6 +169,33 @@ GROUP_ORDER = [
     'Billing & account', 'Serverless', 'Metrics', 'Storage volumes', 'Other',
 ]
 
+# ---------------------------------------------------------------------------
+# Unreleased/feature-flagged commands
+#
+# Hidden from --help and tab completion regardless of anything else — a
+# discoverability gate, not an access gate: the command still runs if typed
+# directly, so internal testing keeps working. Remove an entry once the
+# feature is ready to announce.
+# ---------------------------------------------------------------------------
+
+HIDDEN_COMMANDS = {
+    'search network-volumes',  # network volumes are not yet released
+    'create network-volume',
+    'list network-volume',
+    'unlist network-volume',
+}
+
+
+def is_hidden_command(name, explicit=None):
+    """Whether a registered command should be hidden from --help/completion.
+
+    Priority: explicit ``hidden=`` kwarg on the decorator > ``HIDDEN_COMMANDS``.
+    Defaults to ``False`` (visible).
+    """
+    if explicit is not None:
+        return bool(explicit)
+    return name in HIDDEN_COMMANDS
+
 
 class GroupedArgumentParser(argparse.ArgumentParser):
     """ArgumentParser that renders subcommands grouped by registering module."""
@@ -202,6 +237,8 @@ class GroupedArgumentParser(argparse.ArgumentParser):
         for pseudo in sub_action._choices_actions:
             sp = sub_action.choices.get(pseudo.dest)
             if sp is None:
+                continue
+            if getattr(sp, 'hidden', False):
                 continue
             label = COMMAND_OVERRIDES.get(pseudo.dest)
             if label is None:
@@ -284,7 +321,7 @@ class apwrap(object):
             name = verb
         return name
 
-    def command(self, *arguments, aliases=(), help=None, **kwargs):
+    def command(self, *arguments, aliases=(), help=None, hidden=None, **kwargs):
         help_ = help
         if not self.added_help_cmd:
             self.added_help_cmd = True
@@ -305,6 +342,7 @@ class apwrap(object):
                 kwargs["formatter_class"] = MyWideHelpFormatter
 
             sp = self.subparsers().add_parser(name, aliases=aliases_transformed, help=help_, **kwargs)
+            sp.hidden = is_hidden_command(name, explicit=hidden)
 
             # TODO: Sometimes the parser.command has a help parameter. Ideally
             # I'd extract this during the sdk phase but for the life of me

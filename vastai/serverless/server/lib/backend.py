@@ -106,6 +106,14 @@ class Backend:
     session_metrics: Dict[str, RequestMetrics] = dataclasses.field(default_factory=dict)
     max_sessions: int = dataclasses.field(default=-1)
     lifecycle: Optional[AsyncContextManager] = dataclasses.field(default=None)
+    # Readiness mode: 'logs' (default — mark loaded on the on_load log line) or
+    # 'healthcheck' (mark loaded on the first successful /health probe, no log dep).
+    readiness: str = dataclasses.field(default="logs")
+    readiness_timeout: float = dataclasses.field(default=300.0)
+    # Per-probe HTTP timeout for the /health check (seconds). Some backends' health
+    # does real work (SGLang runs a 1-token gen, up to ~20s internally); set this >=
+    # the backend's own health timeout to avoid a false regression error on a stall.
+    healthcheck_probe_timeout: float = dataclasses.field(default=10.0)
 
     async def pyworker_update_handler(self, request: web.Request) -> web.Response:
         # Verify authorization header matches mtoken
@@ -354,6 +362,10 @@ class Backend:
         )
 
     def __post_init__(self):
+        if self.readiness not in ("logs", "healthcheck"):
+            raise ValueError(
+                f"invalid readiness={self.readiness!r}: expected 'logs' or 'healthcheck'"
+            )
         self.metrics = Metrics()
         self.metrics._set_version(self.version)
         self.metrics._set_mtoken(self.mtoken)
@@ -363,6 +375,16 @@ class Backend:
         self.__start_healthcheck: asyncio.Event = asyncio.Event()
         self.__healthcheck_ready: asyncio.Event = asyncio.Event()
         self.__healthcheck_succeeded: bool = False
+        # Set True once the model is GENUINELY loaded (after benchmark + pubkey), in
+        # any readiness path. The healthcheck loop reports regressions only once this
+        # is True, so a health blip during startup/benchmark can't error the backend
+        # (nor race _model_loaded). Verified against live SGLang + llama.cpp: both
+        # 503 during load, so first-200 == ready and mid-load failures are expected.
+        self.__model_loaded: bool = False
+        # Latched by backend_errored(). Enforces 'errored => not loaded': a failed
+        # benchmark calls backend_errored and (in the swallow path) returns 0.0 without
+        # raising, so a readiness path must NOT then mark the model loaded on top of it.
+        self.__errored: bool = False
 
     @cached_property
     def session(self):
@@ -606,7 +628,7 @@ class Backend:
 
         await self.__start_healthcheck.wait()
 
-        timeout = ClientTimeout(total=10)
+        timeout = ClientTimeout(total=self.healthcheck_probe_timeout)
 
         while True:
             try:
@@ -628,7 +650,7 @@ class Backend:
                     else:
                         msg = f"Healthcheck failed with status: {status}"
                         log.debug(msg)
-                        if self.__healthcheck_succeeded:
+                        if self.__model_loaded:
                             self.backend_errored(msg)
 
             except CancelledError:
@@ -637,13 +659,23 @@ class Backend:
 
             except Exception as e:
                 log.debug(f"Healthcheck failed with exception: {e}")
-                if self.__healthcheck_succeeded:
+                if self.__model_loaded:
                     self.backend_errored(str(e))
 
             await sleep(10)
 
     async def _start_tracking(self) -> None:
-        if self.lifecycle is not None:
+        if self.readiness == "healthcheck":
+            await gather(
+                self._fetch_pubkey(),
+                self.__healthcheck_readiness(),
+                self.__read_logs(),  # on_error/on_info only; ModelLoaded gating is off in this mode
+                self.metrics._send_metrics_loop(),
+                self.__healthcheck(),
+                self.metrics._send_delete_requests_loop(),
+                self.__session_gc_loop(),
+            )
+        elif self.lifecycle is not None:
             await gather(
                 self._fetch_pubkey(),
                 self.__lifecycle_startup(),
@@ -661,6 +693,48 @@ class Backend:
                 self.metrics._send_delete_requests_loop(),
                 self.__session_gc_loop(),
             )
+
+    async def __healthcheck_readiness(self) -> None:
+        """Readiness mode 'healthcheck' (ADR: generic health-gated readiness).
+
+        Mark the model loaded on the FIRST successful /health probe, with no dependency
+        on a log 'model loaded' string. The benchmark runs AFTER health confirms the
+        server is up (unlike the log path there is no prior readiness signal to gate on).
+        Log tailing still runs concurrently for on_error/on_info detection.
+        """
+        try:
+            if not self.healthcheck_url:
+                raise Exception("readiness='healthcheck' requires a model_healthcheck_url")
+            self.__start_healthcheck.set()
+            log.debug("Healthcheck readiness: waiting for the first /health 200...")
+            try:
+                await asyncio.wait_for(
+                    self.__healthcheck_ready.wait(), timeout=self.readiness_timeout
+                )
+            except asyncio.TimeoutError:
+                raise Exception(
+                    f"Timed out waiting for healthcheck readiness ({self.readiness_timeout}s)"
+                )
+            max_throughput = await self.__run_benchmark()
+
+            if not self.unsecured:
+                if not self.__pubkey_fetch_complete.is_set():
+                    try:
+                        await asyncio.wait_for(
+                            self.__pubkey_fetch_complete.wait(), timeout=60.0
+                        )
+                    except asyncio.TimeoutError:
+                        raise Exception("Timed out waiting for pubkey fetch (waited 60s)")
+                if self.__pubkey_failed:
+                    raise Exception("Cannot mark model as loaded: pubkey fetch failed")
+
+            self._mark_loaded(max_throughput)
+            log.debug("Model marked as loaded via healthcheck readiness")
+            # Keep alive for the duration of the server (mirrors __lifecycle_startup).
+            await asyncio.Event().wait()
+        except Exception as e:
+            log.error(f"Healthcheck readiness failed: {e}")
+            self.backend_errored(f"Healthcheck readiness failed: {e}")
 
     async def __lifecycle_startup(self) -> None:
         """
@@ -681,16 +755,16 @@ class Backend:
                     log.debug("Lifecycle ready, waiting for healthcheck...")
                     try:
                         await asyncio.wait_for(
-                            self.__healthcheck_ready.wait(), timeout=300.0
+                            self.__healthcheck_ready.wait(), timeout=self.readiness_timeout
                         )
                     except asyncio.TimeoutError:
                         raise Exception(
-                            "Timed out waiting for healthcheck after lifecycle ready (300s)"
+                            f"Timed out waiting for healthcheck after lifecycle ready ({self.readiness_timeout}s)"
                         )
                 else:
                     log.debug("Lifecycle ready, no healthcheck configured")
 
-                self.metrics._model_loaded(max_throughput=max_throughput)
+                self._mark_loaded(max_throughput)
                 log.debug("Model marked as loaded via lifecycle")
 
                 # Keep alive — this coroutine lives for the duration of the server
@@ -705,7 +779,21 @@ class Backend:
             self.backend_errored(f"Lifecycle startup failed: {e}")
 
     def backend_errored(self, msg: str) -> None:
+        self.__errored = True
         self.metrics._model_errored(msg)
+
+    def _mark_loaded(self, max_throughput: float) -> None:
+        """Mark the model loaded UNLESS the backend has already errored. Enforces the
+        invariant 'errored => not loaded' across ALL readiness paths (log / lifecycle /
+        healthcheck): __run_benchmark calls backend_errored and returns 0.0 WITHOUT
+        raising on 'no successful responses', so without this guard a readiness path
+        would call _model_loaded on an already-errored backend and emit a contradictory
+        loaded+errored status (max_perf 0 with a set error_msg)."""
+        if self.__errored:
+            log.error("Not marking model loaded: backend already errored")
+            return
+        self.metrics._model_loaded(max_throughput=max_throughput)
+        self.__model_loaded = True
 
     async def __call_backend(
         self, handler: EndpointHandler[ApiPayload_T], payload: ApiPayload_T
@@ -866,7 +954,7 @@ class Backend:
             """
             for action, msg in self.log_actions:
                 match action:
-                    case LogAction.ModelLoaded if msg in log_line:
+                    case LogAction.ModelLoaded if msg in log_line and self.readiness != "healthcheck":
                         log.debug(
                             f"Got log line indicating model is loaded: {log_line}"
                         )
@@ -881,14 +969,14 @@ class Backend:
                                 )
                                 try:
                                     await asyncio.wait_for(
-                                        self.__healthcheck_ready.wait(), timeout=300.0
+                                        self.__healthcheck_ready.wait(), timeout=self.readiness_timeout
                                     )
                                     log.debug(
                                         "Healthcheck confirmed - marking model as loaded"
                                     )
                                 except asyncio.TimeoutError:
                                     raise Exception(
-                                        "Timed out waiting for healthcheck after benchmark (waited 300s)"
+                                        f"Timed out waiting for healthcheck after benchmark (waited {self.readiness_timeout}s)"
                                     )
                             else:
                                 # No healthcheck endpoint defined, wait 10 seconds as fallback
@@ -918,9 +1006,7 @@ class Backend:
                                     )
 
                             # Mark worker ready!
-                            self.metrics._model_loaded(
-                                max_throughput=max_throughput,
-                            )
+                            self._mark_loaded(max_throughput)
                         except Exception as e:
                             log.debug(f"Benchmark failed with error: {e}")
                             self.backend_errored(f"Benchmark failed with error: {e}")

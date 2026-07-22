@@ -227,11 +227,6 @@ install_version() {
         rm -rf "$newdir"
         die "could not set up the Python $python_pin runtime"
     fi
-    # pip install: quiet in CI/non-interactive (the per-package "+ pkg==ver"
-    # list is noise in logs); at a real TTY, show uv's own resolve/download/
-    # install progress — this step fetches vastai + all its deps and was
-    # otherwise the one silent stretch of the install (unlike the runtime
-    # download and the Python provisioning above, both already show progress).
     # Latest installs the release wheel by URL, hash-verified against the
     # manifest — no PyPI index propagation window. A pin to any other
     # version falls back to PyPI (always long-published, so race-free).

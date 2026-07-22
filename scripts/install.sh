@@ -227,7 +227,11 @@ install_version() {
         rm -rf "$newdir"
         die "could not set up the Python $python_pin runtime"
     fi
-    # pip install stays quiet always — the per-package "+ pkg==ver" list is noise.
+    # pip install: quiet in CI/non-interactive (the per-package "+ pkg==ver"
+    # list is noise in logs); at a real TTY, show uv's own resolve/download/
+    # install progress — this step fetches vastai + all its deps and was
+    # otherwise the one silent stretch of the install (unlike the runtime
+    # download and the Python provisioning above, both already show progress).
     # Latest installs the release wheel by URL, hash-verified against the
     # manifest — no PyPI index propagation window. A pin to any other
     # version falls back to PyPI (always long-published, so race-free).
@@ -235,7 +239,9 @@ install_version() {
     if [ -z "${VASTAI_PIP_SPEC:-}" ] && [ -n "$wheel_url" ] && [ -n "$wheel_sha" ]; then
         spec="vastai @ ${wheel_url}#sha256=${wheel_sha}"
     fi
-    if ! "$ROOT/bin/uv" pip install --python "$newdir/bin/python" --quiet "$spec"; then
+    local pipquiet=(--quiet)
+    [ -t 2 ] && pipquiet=()
+    if ! "$ROOT/bin/uv" pip install --python "$newdir/bin/python" ${pipquiet[@]+"${pipquiet[@]}"} "$spec"; then
         rm -rf "$newdir"
         die "could not install $spec (is the version correct?)"
     fi

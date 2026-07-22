@@ -234,9 +234,7 @@ install_version() {
     if [ -z "${VASTAI_PIP_SPEC:-}" ] && [ -n "$wheel_url" ] && [ -n "$wheel_sha" ]; then
         spec="vastai @ ${wheel_url}#sha256=${wheel_sha}"
     fi
-    local pipquiet=(--quiet)
-    [ -t 2 ] && pipquiet=()
-    if ! "$ROOT/bin/uv" pip install --python "$newdir/bin/python" ${pipquiet[@]+"${pipquiet[@]}"} "$spec"; then
+    if ! "$ROOT/bin/uv" pip install --python "$newdir/bin/python" "$spec"; then
         rm -rf "$newdir"
         die "could not install $spec (is the version correct?)"
     fi

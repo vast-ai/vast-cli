@@ -8,6 +8,31 @@ curl -fsSL https://vast.ai/install.sh | bash
 testing. This splits the audience (CLI users vs. SDK users); it does not
 replace pip.
 
+## 1. Goals
+
+- Install the CLI with **no system Python, pip, or sudo** required. Fresh VMs
+  and CI runners frequently have no usable Python — for a GPU cloud this is the
+  common case.
+- Decouple the CLI from the user's Python environment (avoid PEP 668 refusals,
+  venv confusion, pinned-dependency conflicts on `cryptography`/`pillow`).
+- Provide a first-class `vastai update` so the CLI can ship — and users can
+  adopt — daily releases (pip already lets us release daily; the gap is that
+  users lag, so the fixes never land).
+
+## 2. Core architecture: one-time install script + per-release manifest
+
+The design splits the install into two layers:
+
+- **`install.sh` — a one-time install script** with **no version numbers and
+  no artifact URLs**. It only: detects platform → fetches the manifest →
+  verifies sha256 → bootstraps + symlinks. "One-time" is about *change
+  frequency*: per-release churn lives in the manifest, so the script is written
+  once and rarely touched.
+- **`manifest.{json,env}` — regenerated every release.** Carries the latest
+  version, the CPython pin, and per-platform `uv` URLs + sha256.
+  `manifest.json` is for `vastai update`; flat `manifest.env` is for
+  `install.sh` (bare machines have no JSON parser).
+
 ### Current flow (post-activation)
 
 ```
@@ -38,31 +63,6 @@ curl -fsSL https://vast.ai/install.sh | bash
    passive nudge enabled as      pip installs refused with the pip hint, never touched
    a pre-command hook, §7)
 ```
-
-## 1. Goals
-
-- Install the CLI with **no system Python, pip, or sudo** required. Fresh VMs
-  and CI runners frequently have no usable Python — for a GPU cloud this is the
-  common case.
-- Decouple the CLI from the user's Python environment (avoid PEP 668 refusals,
-  venv confusion, pinned-dependency conflicts on `cryptography`/`pillow`).
-- Provide a first-class `vastai update` so the CLI can ship — and users can
-  adopt — daily releases (pip already lets us release daily; the gap is that
-  users lag, so the fixes never land).
-
-## 2. Core architecture: one-time install script + per-release manifest
-
-The design splits the install into two layers:
-
-- **`install.sh` — a one-time install script** with **no version numbers and
-  no artifact URLs**. It only: detects platform → fetches the manifest →
-  verifies sha256 → bootstraps + symlinks. "One-time" is about *change
-  frequency*: per-release churn lives in the manifest, so the script is written
-  once and rarely touched.
-- **`manifest.{json,env}` — regenerated every release.** Carries the latest
-  version, the CPython pin, and per-platform `uv` URLs + sha256.
-  `manifest.json` is for `vastai update`; flat `manifest.env` is for
-  `install.sh` (bare machines have no JSON parser).
 
 ### Install bootstrap sequence
 

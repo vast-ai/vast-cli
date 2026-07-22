@@ -728,8 +728,8 @@ class Backend:
                 if self.__pubkey_failed:
                     raise Exception("Cannot mark model as loaded: pubkey fetch failed")
 
-            self._mark_loaded(max_throughput)
-            log.debug("Model marked as loaded via healthcheck readiness")
+            if self._mark_loaded(max_throughput):
+                log.debug("Model marked as loaded via healthcheck readiness")
             # Keep alive for the duration of the server (mirrors __lifecycle_startup).
             await asyncio.Event().wait()
         except Exception as e:
@@ -764,8 +764,8 @@ class Backend:
                 else:
                     log.debug("Lifecycle ready, no healthcheck configured")
 
-                self._mark_loaded(max_throughput)
-                log.debug("Model marked as loaded via lifecycle")
+                if self._mark_loaded(max_throughput):
+                    log.debug("Model marked as loaded via lifecycle")
 
                 # Keep alive — this coroutine lives for the duration of the server
                 await asyncio.Event().wait()
@@ -782,18 +782,20 @@ class Backend:
         self.__errored = True
         self.metrics._model_errored(msg)
 
-    def _mark_loaded(self, max_throughput: float) -> None:
-        """Mark the model loaded UNLESS the backend has already errored. Enforces the
-        invariant 'errored => not loaded' across ALL readiness paths (log / lifecycle /
-        healthcheck): __run_benchmark calls backend_errored and returns 0.0 WITHOUT
-        raising on 'no successful responses', so without this guard a readiness path
-        would call _model_loaded on an already-errored backend and emit a contradictory
-        loaded+errored status (max_perf 0 with a set error_msg)."""
+    def _mark_loaded(self, max_throughput: float) -> bool:
+        """Mark the model loaded UNLESS the backend has already errored, returning whether
+        it actually marked. Enforces the invariant 'errored => not loaded' across ALL
+        readiness paths (log / lifecycle / healthcheck): __run_benchmark calls
+        backend_errored and returns 0.0 WITHOUT raising on 'no successful responses', so
+        without this guard a readiness path would call _model_loaded on an already-errored
+        backend and emit a contradictory loaded+errored status (max_perf 0 with a set
+        error_msg). Callers gate their 'marked loaded' logging on the return."""
         if self.__errored:
             log.error("Not marking model loaded: backend already errored")
-            return
+            return False
         self.metrics._model_loaded(max_throughput=max_throughput)
         self.__model_loaded = True
+        return True
 
     async def __call_backend(
         self, handler: EndpointHandler[ApiPayload_T], payload: ApiPayload_T

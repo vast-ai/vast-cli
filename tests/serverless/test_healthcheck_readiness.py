@@ -133,18 +133,20 @@ async def test_healthcheck_readiness_failed_benchmark_does_not_mark_loaded(
 
 @pytest.mark.asyncio
 async def test_mark_loaded_helper_skips_when_errored(serverless_backend_testkit):
-    """_mark_loaded is the single choke point for the invariant: errored => not loaded."""
+    """_mark_loaded is the single choke point for the invariant: errored => not loaded.
+    It RETURNS whether it marked, so callers gate their 'marked loaded' logging on it
+    (else a skip-due-to-errored still logs 'marked loaded' — the live-test finding)."""
     backend, _ = serverless_backend_testkit.make_backend(unsecured=True)
     backend.metrics._model_loaded = MagicMock()
     backend.metrics._model_errored = MagicMock()  # don't need real metric mutation
-    # clean path: marks loaded
-    backend._mark_loaded(12.0)
+    # clean path: marks loaded AND returns True
+    assert backend._mark_loaded(12.0) is True
     assert backend.metrics._model_loaded.called and backend._Backend__model_loaded is True
-    # after errored: subsequent _mark_loaded is a no-op
+    # after errored: subsequent _mark_loaded is a no-op AND returns False
     backend.metrics._model_loaded.reset_mock()
     backend._Backend__model_loaded = False
     backend.backend_errored("boom")
-    backend._mark_loaded(99.0)
+    assert backend._mark_loaded(99.0) is False
     assert not backend.metrics._model_loaded.called
     assert backend._Backend__model_loaded is False
 

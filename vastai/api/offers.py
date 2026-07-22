@@ -4,7 +4,7 @@ from vastai.api.client import VastClient
 
 def search_offers(client: VastClient, query: dict = None, offer_type: str = "on-demand",
                   order: list = None, limit: int = None, storage: float = 5.0,
-                  no_default: bool = False, disable_bundling: bool = False) -> list:
+                  no_default: bool = False) -> list:
     """Search for instance offers using a query dict.
 
     Args:
@@ -15,7 +15,6 @@ def search_offers(client: VastClient, query: dict = None, offer_type: str = "on-
         limit: Max number of results.
         storage: Allocated storage in GiB for pricing (default 5.0).
         no_default: If True, skip default filters.
-        disable_bundling: Deprecated bundling flag.
 
     Returns:
         List of offer dicts.
@@ -41,9 +40,6 @@ def search_offers(client: VastClient, query: dict = None, offer_type: str = "on-
         q["limit"] = int(limit)
     q["allocated_storage"] = storage
 
-    if disable_bundling:
-        q["disable_bundling"] = True
-
     r = client.post("/bundles/", json_data=q)
     r.raise_for_status()
     return r.json()["offers"]
@@ -51,7 +47,7 @@ def search_offers(client: VastClient, query: dict = None, offer_type: str = "on-
 
 def search_offers_new(client: VastClient, query: dict = None, offer_type: str = "on-demand",
                       order: list = None, limit: int = None, storage: float = 5.0,
-                      no_default: bool = False, disable_bundling: bool = False) -> list:
+                      no_default: bool = False) -> list:
     """Search for instance offers using the new /search/asks/ endpoint.
 
     Args:
@@ -62,7 +58,6 @@ def search_offers_new(client: VastClient, query: dict = None, offer_type: str = 
         limit: Max number of results.
         storage: Allocated storage in GiB for pricing (default 5.0).
         no_default: If True, skip default filters.
-        disable_bundling: Deprecated bundling flag.
 
     Returns:
         List of offer dicts.
@@ -87,9 +82,6 @@ def search_offers_new(client: VastClient, query: dict = None, offer_type: str = 
     if limit:
         q["limit"] = int(limit)
     q["allocated_storage"] = storage
-
-    if disable_bundling:
-        q["disable_bundling"] = True
 
     json_blob = {"select_cols": ["*"], "q": q}
     r = client.put("/search/asks/", json_data=json_blob)

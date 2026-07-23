@@ -137,55 +137,70 @@ def fake_uv(install_root):
 )
 class TestPerformUpdate:
     def test_success_swaps_in_new_env(self, install_root, fake_uv):
-        _seed_env(install_root, "1.2.3")
-        perform_update("1.3.0", MANIFEST)
+        _seed_env(install_root, "1.4.0")
+        perform_update("1.5.0", MANIFEST)
 
         # single fixed env, symlink points into it, new version live, no retention
         assert "current/bin/vastai" in os.readlink(str(install_root / "bin" / "vastai"))
         assert (install_root / "current" / "bin" / "vastai").exists()
-        assert "1.3.0" in (install_root / "current" / "bin" / "vastai").read_text()
+        assert "1.5.0" in (install_root / "current" / "bin" / "vastai").read_text()
         assert not (install_root / ".current.new").exists()
         assert not (install_root / "versions").exists()
 
     def test_success_prunes_uv_cache(self, install_root, fake_uv):
-        _seed_env(install_root, "1.2.3")
-        perform_update("1.3.0", MANIFEST)
+        _seed_env(install_root, "1.4.0")
+        perform_update("1.5.0", MANIFEST)
         assert (install_root / "bin" / "cache-pruned").exists()
 
     def test_prune_failure_does_not_fail_the_update(self, install_root, fake_uv):
         # uv errors on `cache prune`; the already-swapped update must still succeed
         fake_uv.write_text(FAKE_UV.replace('touch "$(dirname "$0")/cache-pruned"', "exit 1"))
-        _seed_env(install_root, "1.2.3")
-        perform_update("1.3.0", MANIFEST)
-        assert "1.3.0" in (install_root / "current" / "bin" / "vastai").read_text()
+        _seed_env(install_root, "1.4.0")
+        perform_update("1.5.0", MANIFEST)
+        assert "1.5.0" in (install_root / "current" / "bin" / "vastai").read_text()
 
     def test_build_failure_surfaces_real_error_not_a_fabricated_one(self, install_root):
         # A uv that "succeeds" but never builds the env: the verify step then
         # runs a non-existent .current.new/bin/vastai. The error must name the
         # real missing path, not relabel it the misleading "Required tool not found".
-        _seed_env(install_root, "1.2.3")
+        _seed_env(install_root, "1.4.0")
         uv = install_root / "bin" / "uv"
         uv.write_text("#!/bin/sh\nexit 0\n")  # does nothing — no venv, no install
         uv.chmod(uv.stat().st_mode | stat.S_IXUSR)
 
         with pytest.raises(UpdateError) as exc:
-            perform_update("1.3.0", MANIFEST)
+            perform_update("1.5.0", MANIFEST)
         msg = str(exc.value)
         assert "Required tool not found" not in msg
         assert ".current.new/bin/vastai" in msg
 
     def test_failure_leaves_current_install_untouched(self, install_root):
-        _seed_env(install_root, "1.2.3")  # live install that must survive
+        _seed_env(install_root, "1.4.0")  # live install that must survive
         before = (install_root / "current" / "bin" / "vastai").read_text()
         uv = install_root / "bin" / "uv"
         uv.write_text("#!/bin/sh\nexit 1\n")
         uv.chmod(uv.stat().st_mode | stat.S_IXUSR)
 
         with pytest.raises(UpdateError):
-            perform_update("1.3.0", MANIFEST)
+            perform_update("1.5.0", MANIFEST)
 
         assert (install_root / "current" / "bin" / "vastai").read_text() == before
         assert not (install_root / ".current.new").exists()
+
+    def test_downgrade_below_floor_is_refused_without_touching_disk(self, install_root, fake_uv):
+        _seed_env(install_root, "1.4.0")
+        before = (install_root / "current" / "bin" / "vastai").read_text()
+
+        with pytest.raises(UpdateError, match="1.4.0"):
+            perform_update("1.2.0", MANIFEST)
+
+        assert (install_root / "current" / "bin" / "vastai").read_text() == before
+        assert not (install_root / ".current.new").exists()
+
+    def test_downgrade_to_floor_itself_is_allowed(self, install_root, fake_uv):
+        _seed_env(install_root, "1.5.0")
+        perform_update("1.4.0", MANIFEST)
+        assert "1.4.0" in (install_root / "current" / "bin" / "vastai").read_text()
 
 
 class TestUpdateCommand:
@@ -256,6 +271,13 @@ class TestNudge:
         err = capsys.readouterr().err
         assert "1.3.0 is available" in err
         assert "pip install --upgrade vastai" in err
+
+    def test_trailing_blank_line_separates_it_from_command_output(self, nudge_env, capsys):
+        # runs pre-command now, so a blank line keeps it from running into
+        # whatever the command prints next
+        with patch.object(selfupdate, "fetch_manifest", return_value=MANIFEST):
+            selfupdate.notify_update(nudge_env)
+        assert capsys.readouterr().err.endswith("\n\n")
 
     def test_managed_install_gets_vastai_update_hint(self, nudge_env, capsys):
         with patch.object(selfupdate, "fetch_manifest", return_value=MANIFEST), \

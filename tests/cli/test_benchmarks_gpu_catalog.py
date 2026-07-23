@@ -50,7 +50,7 @@ def test_parse_gpu_spec_resolves_catalog_only_name(monkeypatch):
     monkeypatch.setattr(bench, "_get_gpu_types", lambda: [
         {"canonical_name": "RTX 6090", "gpu_ram_mb": 49152},
     ])
-    assert bench._parse_gpu_spec("2x rtx_6090", 1) == ("RTX 6090", 2)
+    assert bench.parse_gpu_spec("2x rtx_6090", 1) == ("RTX 6090", 2)
 
 
 # ---------------------------------------------------------------------------

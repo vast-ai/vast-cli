@@ -1927,7 +1927,7 @@ files = [
     {file = "typing_extensions-4.15.0-py3-none-any.whl", hash = "sha256:f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548"},
     {file = "typing_extensions-4.15.0.tar.gz", hash = "sha256:0cea48d173cc12fa28ecabc3b837ea3cf6f38c6d1136f85cbaaf598984861466"},
 ]
-markers = {main = "python_version < \"3.13\"", dev = "python_version == \"3.10\""}
+markers = {dev = "python_version == \"3.10\""}
 
 [[package]]
 name = "urllib3"
@@ -2105,4 +2105,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10, <4.0"
-content-hash = "7807eaf4a9efcc701e6d4f444ef049233fff1267a32e6ce4279ba941c601e2d7"
+content-hash = "6df7b68cb8d4c3b6e896339ca84e85e9705aade75a120cf7c2ae900411d64dff"

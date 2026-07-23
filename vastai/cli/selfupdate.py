@@ -33,6 +33,12 @@ DEFAULT_MANIFEST_URL = "https://vast.ai/cli/manifest.json"
 INSTALL_SH_HINT = "curl -fsSL https://vast.ai/install.sh | bash"
 PIP_UPGRADE_HINT = "pip install --upgrade vastai"
 
+# Oldest version whose bundled selfupdate.py understands this layout
+# (<root>/current + <root>/bin/uv, XDG-based root). Versions before this pin
+# assumed ~/.vastai/env and would install fine but then see themselves as unmanaged,
+# permanently losing self-update until the install is rebuilt from scratch.
+MIN_DOWNGRADE_VERSION = "1.4.0"
+
 UPDATE_CHECK_FILE = os.path.join(DIRS['state'], "update_check.json")
 CHECK_INTERVAL_S = 24 * 60 * 60
 NUDGE_TIMEOUT_S = 1.0
@@ -156,7 +162,7 @@ def _stderr_is_tty() -> bool:
 
 
 def notify_update(args=None) -> None:
-    """Post-command, best-effort upgrade nudge. Must never raise or block."""
+    """Pre-command, best-effort upgrade nudge. Must never raise or block."""
     try:
         _notify_update(args)
     except Exception:
@@ -193,8 +199,9 @@ def _notify_update(args) -> None:
 
     hint = "vastai update" if is_managed_install() else PIP_UPGRADE_HINT
     arrow = "↑" if "utf" in (sys.stderr.encoding or "").lower() else "*"
+    # Trailing blank line separates the nudge from the command output that follows it.
     print(
-        f"{arrow} vastai {latest} is available (you have {VERSION}). Run `{hint}`.",
+        f"{arrow} vastai {latest} is available (you have {VERSION}). Run `{hint}`.\n",
         file=sys.stderr,
     )
     state["notified_at"] = now
@@ -274,6 +281,12 @@ def perform_update(target: str, manifest: dict) -> None:
     which reinstalls. Wheel integrity comes from ``wheel_spec``; we
     additionally confirm the installed version matches ``target``.
     """
+    if version_key(target) < version_key(MIN_DOWNGRADE_VERSION):
+        raise UpdateError(
+            f"Can't roll back to {target}: versions before {MIN_DOWNGRADE_VERSION} "
+            "don't recognize this install's layout and would lose the ability "
+            f"to self-update. The oldest version you can roll back to is {MIN_DOWNGRADE_VERSION}."
+        )
     root = install_root()
     uv = root / "bin" / "uv"
     if not uv.exists():

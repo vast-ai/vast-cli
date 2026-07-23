@@ -9458,6 +9458,12 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
         progress_print(args, f"Machine: {machine_id} Done with testing remote.py results {message}")
         warnings.simplefilter('default')
 
+# Keep the deprecated self-test aligned with the packaged CLI. Very large GPU
+# hosts, such as 8x B300 systems, can exceed 2 TB of total VRAM; once a host has
+# about 2 TB of system RAM, do not reject it only for falling slightly below 95%.
+SYSTEM_RAM_REQUIREMENT_CAP_MIB = 2_000_000
+
+
 def safe_float(value):
     """
     Convert value to float, returning 0 if value is None.
@@ -9575,7 +9581,9 @@ def check_requirements(machine_id, api_key, args):
         # 8. System RAM vs. Total GPU RAM
         gpu_total_ram = safe_float(top_offer.get('gpu_total_ram'))  # in MB
         cpu_ram = safe_float(top_offer.get('cpu_ram'))  # in MB
-        if cpu_ram < .95*gpu_total_ram: # .95 to allow for reserved hardware memory
+        uncapped_required_cpu_ram = 0.95 * gpu_total_ram
+        required_cpu_ram = min(uncapped_required_cpu_ram, SYSTEM_RAM_REQUIREMENT_CAP_MIB)
+        if cpu_ram < required_cpu_ram:
             unmet_reasons.append("System RAM is less than total VRAM.")
 
         # Debugging Information for RAM

@@ -16,6 +16,19 @@ except AttributeError:
     JSONDecodeError = ValueError
 
 
+def _is_tfa_session_expired(status_code, errmsg):
+    """True if this error signals an expired 2FA session key.
+
+    401 "Invalid user key" is sent when a deleted API key is used; an expired
+    TFA session instead returns 404 "Session expired. Please log in again."
+    (matches legacy vast.py's handling of both signals).
+    """
+    return (
+        (status_code == 401 and errmsg == "Invalid user key")
+        or (status_code == 404 and errmsg == "Session expired. Please log in again.")
+    )
+
+
 def _emit_error(args, status_code, message):
     """Emit a command error in the appropriate format.
 
@@ -159,7 +172,11 @@ def main():
         else:
             args.api_key = None
 
-    # Execute command with error handling
+    run_command(args)
+
+
+def run_command(args):
+    """Execute ``args.func(args)``, retrying once on an expired 2FA session key."""
     while True:
         try:
             res = args.func(args)
@@ -181,18 +198,18 @@ def main():
                 else:
                     errmsg = "(no detail message supplied)"
 
-            # 2FA session key expired -> retry with long-lived API key
-            if (e.response.status_code == 401 and errmsg == "Invalid user key"
-                    and os.path.exists(TFAKEY_FILE)):
+            # 2FA session key expired -> retry with long-lived API key.
+            if _is_tfa_session_expired(e.response.status_code, errmsg) and os.path.exists(TFAKEY_FILE):
                 print(f"Failed with error {e.response.status_code}: Your 2FA session has expired.")
                 os.remove(TFAKEY_FILE)
                 if os.path.exists(APIKEY_FILE):
                     with open(APIKEY_FILE, "r") as reader:
                         args.api_key = reader.read().strip()
                         print(f"Trying again with your normal API Key from {APIKEY_FILE}...")
+                        print("To start a new 2FA session, run: vastai tfa login")
                         continue
                 else:
-                    print("Please log in using the `tfa login` command and try again.")
+                    print("Run `vastai tfa login` to start a new 2FA session and try again.")
                     break
 
             _emit_error(args, e.response.status_code, errmsg)

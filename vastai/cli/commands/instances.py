@@ -502,6 +502,7 @@ def recycle__instance(args):
     argument("--args", help="new arguments for the instance", type=str),
     argument("--env", help="new environment variables for the instance", type=json.loads),
     argument("--onstart", help="new onstart script for the instance", type=str),
+    argument("--disk", help="Disk size to update your instance to", type=str),
     usage="vastai update instance ID [OPTIONS]",
     help="Update recreate an instance from a new/updated template",
     epilog=deindent("""
@@ -519,6 +520,7 @@ def update__instance(args):
         args=args.args,
         env=args.env,
         onstart=args.onstart,
+        disk=args.disk,
     )
 
     if args.raw:

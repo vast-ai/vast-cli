@@ -156,6 +156,7 @@ benchmarks_displayable_fields = (
     ("gpu_name", "Model", "{}", None, True),
     ("num_gpus", "N", "{}x", None, False),
     ("value", "Value", "{:0.2f}", None, True),
+    ("dph_base", "$/hr", "{:0.4f}", None, True),
     ("type", "Type", "{}", None, True),
     ("template_hash", "Template", "{}", None, True),
     ("template_id", "Templ_ID", "{}", None, True),

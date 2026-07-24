@@ -114,26 +114,38 @@ def search_templates(client: VastClient, query: dict = None) -> list:
 
 
 def search_benchmarks(client: VastClient, query: dict = None, order: list = None,
-                      limit: int = None) -> list:
+                      limit: int = None, after_token: str = None,
+                      all_pages: bool = False) -> tuple:
     """Search for benchmarks using a query dict.
 
     Args:
         client: VastClient instance.
         query: Pre-parsed query dict of select_filters.
         order: List of {"col": ..., "dir": ...} dicts, e.g. [{"col": "last_update", "dir": "desc"}].
-        limit: Max number of results. Omit for an unbounded result set.
+        limit: Max number of results per page.
+        after_token: Pagination token to resume from.
+        all_pages: Follow pagination and return every matching row.
 
     Returns:
-        List of benchmark dicts.
+        Tuple of (list of benchmark dicts, next page token or None).
     """
-    query_args = {"select_cols": ["*"], "select_filters": query or {}}
-    if order is not None:
-        query_args["order_by"] = order
-    if limit is not None:
-        query_args["limit"] = int(limit)
-    r = client.get("/benchmarks", query_args=query_args)
-    r.raise_for_status()
-    return r.json()
+    rows = []
+    token = after_token
+    while True:
+        query_args = {"select_cols": ["*"], "select_filters": query or {}}
+        if order is not None:
+            query_args["order_by"] = order
+        if limit is not None:
+            query_args["limit"] = int(limit)
+        if token:
+            query_args["after_token"] = token
+        r = client.get("/benchmarks", query_args=query_args)
+        r.raise_for_status()
+        data = r.json()
+        rows.extend(data.get("benchmarks") or [])
+        token = data.get("next_token")
+        if not all_pages or not token:
+            return rows, token
 
 
 def search_volumes(client: VastClient, query: dict = None, order: list = None,

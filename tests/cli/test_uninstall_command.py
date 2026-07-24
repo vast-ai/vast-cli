@@ -5,14 +5,16 @@ managed install root under tmp_path, argv-level tests via parse_argv, and
 the same-method discipline (pip installs are refused, never shelled out to).
 """
 
+import shutil
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
 from vastai.cli import selfupdate
-from vastai.cli.selfupdate import perform_uninstall
+from vastai.cli.selfupdate import UninstallError, perform_uninstall
 
 
 @pytest.fixture
@@ -64,6 +66,38 @@ class TestPerformUninstall:
 
     def test_returns_the_removed_root(self, install_root, local_bin):
         assert perform_uninstall() == install_root
+
+    def test_matches_symlinks_when_install_dir_is_itself_a_symlink(self, tmp_path, local_bin, monkeypatch):
+        # VASTAI_INSTALL_DIR pointing through a symlink must not defeat the
+        # "does this bin/ symlink belong to us" check (compare resolved to resolved).
+        real_root = tmp_path / "real-root"
+        (real_root / "bin").mkdir(parents=True)
+        (real_root / "current" / "bin").mkdir(parents=True)
+        link_root = tmp_path / "linked-root"
+        link_root.symlink_to(real_root)
+        monkeypatch.setenv("VASTAI_INSTALL_DIR", str(link_root))
+        _link(local_bin, "vastai", link_root / "bin" / "vastai")
+
+        perform_uninstall()
+
+        assert not (local_bin / "vastai").exists()
+        assert not real_root.exists()
+
+    def test_symlink_removal_failure_raises_uninstall_error(self, install_root, local_bin, monkeypatch):
+        _link(local_bin, "vastai", install_root / "bin" / "vastai")
+        monkeypatch.setattr(Path, "unlink", lambda self: (_ for _ in ()).throw(OSError("permission denied")))
+        with pytest.raises(UninstallError, match="permission denied"):
+            perform_uninstall()
+
+    def test_root_removal_failure_raises_uninstall_error(self, install_root, local_bin, monkeypatch):
+        monkeypatch.setattr(shutil, "rmtree", lambda *a, **kw: (_ for _ in ()).throw(PermissionError("nope")))
+        with pytest.raises(UninstallError, match="nope"):
+            perform_uninstall()
+
+    def test_missing_root_is_not_an_error(self, install_root, local_bin):
+        # already removed (e.g. a retry after a prior partial failure) — not fatal
+        shutil.rmtree(install_root)
+        perform_uninstall()
 
 
 class TestUninstallCommand:
@@ -130,3 +164,16 @@ class TestUninstallCommand:
              patch("vastai.cli.commands.uninstall.perform_uninstall") as mock_uninstall:
             assert args.func(args) == 1
         mock_uninstall.assert_not_called()
+
+    def test_removal_failure_reports_error_and_exits_nonzero(self, parse_argv, capsys, tmp_path):
+        # perform_uninstall is fallible (see TestPerformUninstall) — the command
+        # must surface that failure, not claim success regardless.
+        args = parse_argv(["uninstall", "--yes"])
+        with patch("vastai.cli.commands.uninstall.is_managed_install", return_value=True), \
+             patch("vastai.cli.commands.uninstall.install_root", return_value=tmp_path), \
+             patch("vastai.cli.commands.uninstall.perform_uninstall",
+                   side_effect=UninstallError("could not remove /fake/root: permission denied")):
+            assert args.func(args) == 1
+        out, err = capsys.readouterr()
+        assert "permission denied" in err
+        assert "uninstalled" not in out

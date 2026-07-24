@@ -9,9 +9,9 @@ import sys
 
 from vastai.cli.parser import argument
 from vastai.cli.display import deindent
-from vastai.cli.util import VERSION
+from vastai.cli.util import DIRS, VERSION
 from vastai.cli.selfupdate import (
-    INSTALL_SH_HINT, is_managed_install, install_root, perform_uninstall,
+    INSTALL_SH_HINT, UninstallError, is_managed_install, install_root, perform_uninstall,
 )
 from vastai.cli.utils import get_parser as _get_parser
 
@@ -28,7 +28,7 @@ PIP_UNINSTALL_HINT = "pip uninstall vastai"
     epilog=deindent(f"""
         Removes a CLI installed with the managed installer
         ({INSTALL_SH_HINT}): the install root and its symlinks in
-        ~/.local/bin. Config in ~/.config/vastai (your API key) is left
+        ~/.local/bin. Config in {DIRS['config']} (your API key) is left
         untouched, so re-running the installer keeps you logged in.
         For pip installs, uninstall with: {PIP_UNINSTALL_HINT}
     """),
@@ -59,7 +59,12 @@ def uninstall(args):
             print("Aborted.")
             return 1
 
-    perform_uninstall()
-    print(f"vastai {VERSION} uninstalled from {root}.")
-    print("Config in ~/.config/vastai was left untouched.")
+    try:
+        removed = perform_uninstall()
+    except UninstallError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+
+    print(f"vastai {VERSION} uninstalled from {removed}.")
+    print(f"Config in {DIRS['config']} was left untouched.")
     return 0

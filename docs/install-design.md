@@ -33,6 +33,37 @@ The design splits the install into two layers:
   `manifest.json` is for `vastai update`; flat `manifest.env` is for
   `install.sh` (bare machines have no JSON parser).
 
+### Current flow (post-activation)
+
+```
+curl -fsSL https://vast.ai/install.sh | bash
+        │
+        ▼
+  install.sh ──fetch──► manifest.{json,env}      (stable script + per-release manifest:
+  (no versions,         latest ver · py 3.12 pin ·  script holds no version/URLs, so it's
+   no URLs)             per-platform uv + sha256)   written once and rarely touched)
+        │
+        ▼  glibc ≥2.31 / musl check → pinned uv → managed CPython 3.12 → vastai wheel
+           (unsupported platform / bad hash bails to pip before anything lands)
+        │
+        ▼
+  $XDG_DATA_HOME/vastai/            (~/.local/share/vastai, or $VASTAI_INSTALL_DIR)
+   ├── bin/vastai → ../current/bin/vastai   (fixed symlink, never retargeted)
+   ├── bin/uv                                ~/.local/bin/vastai → bin/vastai  (on PATH)
+   ├── current/                              (single active venv; update = build temp → verify → swap)
+   └── python/                               (uv-managed CPython 3.12, shared)
+
+  ~/.config/vastai/        vast_api_key, etc. — untouched by install/uninstall
+  ~/.cache/vastai/         disposable (uv-pruned after each update)
+  ~/.local/state/vastai/   update_check.json (nudge throttle)
+        │
+        ▼
+  vastai update                  ──manifest──►  build temp venv → verify runs → atomic rename
+  (registered in main.py;        `--version X` pins or rolls back (same code path);
+   passive nudge enabled as      pip installs refused with the pip hint, never touched
+   a pre-command hook, §7)
+```
+
 ### Install bootstrap sequence
 
 1. Detect platform (os/arch, musl).

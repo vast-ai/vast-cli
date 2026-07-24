@@ -227,7 +227,6 @@ install_version() {
         rm -rf "$newdir"
         die "could not set up the Python $python_pin runtime"
     fi
-    # pip install stays quiet always — the per-package "+ pkg==ver" list is noise.
     # Latest installs the release wheel by URL, hash-verified against the
     # manifest — no PyPI index propagation window. A pin to any other
     # version falls back to PyPI (always long-published, so race-free).
@@ -235,7 +234,7 @@ install_version() {
     if [ -z "${VASTAI_PIP_SPEC:-}" ] && [ -n "$wheel_url" ] && [ -n "$wheel_sha" ]; then
         spec="vastai @ ${wheel_url}#sha256=${wheel_sha}"
     fi
-    if ! "$ROOT/bin/uv" pip install --python "$newdir/bin/python" --quiet "$spec"; then
+    if ! "$ROOT/bin/uv" pip install --python "$newdir/bin/python" "$spec"; then
         rm -rf "$newdir"
         die "could not install $spec (is the version correct?)"
     fi

@@ -27,6 +27,7 @@ EXIT_STALE = 10  # `update --check` exit code when a newer version exists
     argument("--version", dest="target_version", metavar="VERSION", help="install a specific version instead of the latest (also how you pin or roll back)"),
     usage="vastai update [--check | --version VERSION]",
     help="Update the CLI to the latest version",
+    hidden=True,  # still under testing — remove once ready to announce
     epilog=deindent("""
         Updates a CLI installed with the managed installer
         (curl -fsSL https://vast.ai/install.sh | bash). The new version is

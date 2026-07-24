@@ -46,6 +46,9 @@ NUDGE_TIMEOUT_S = 1.0
 # Console scripts shipped in the wheel; each gets a swapped symlink in bin/.
 MANAGED_BINARIES = ("vastai", "serve-vast-deployment", "register-python-argcomplete")
 
+# Fixed, not XDG-overridable — every other XDG-aware CLI lands its symlink here too.
+LOCAL_BIN = Path.home() / ".local" / "bin"
+
 
 class UpdateError(Exception):
     """A self-update step failed; the current install is untouched."""
@@ -321,3 +324,28 @@ def perform_update(target: str, manifest: dict) -> None:
     _link_binaries(root)
     shutil.rmtree(old_dir, ignore_errors=True)
     _prune_uv_cache(uv, uv_env)
+
+
+# ---------------------------------------------------------------------------
+# Uninstall (managed installs only)
+# ---------------------------------------------------------------------------
+
+def perform_uninstall() -> Path:
+    """Remove the managed install: the install root and its bin/ symlinks.
+
+    Config (~/.config/vastai), cache (~/.cache/vastai), and state
+    (~/.local/state/vastai) are left alone — the same guarantee documented
+    for a manual ``rm -rf`` (docs/install-design.md §3). Safe to call while
+    running from inside ``root``: like the update swap above, removing the
+    directory doesn't disturb an already-running interpreter on POSIX.
+    """
+    root = install_root()
+    for name in MANAGED_BINARIES:
+        link = LOCAL_BIN / name
+        try:
+            if link.is_symlink() and root in link.resolve().parents:
+                link.unlink()
+        except OSError:
+            pass
+    shutil.rmtree(root, ignore_errors=True)
+    return root

@@ -1789,6 +1789,7 @@ def cli_parser():
         benchmarks,
         price_increase,
         update,
+        uninstall,
     )
     from vastai.cli.util import server_url_default, api_key_guard
     parser.add_argument("--url", help="Server REST API URL", default=server_url_default)

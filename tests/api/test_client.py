@@ -20,10 +20,19 @@ class TestBuildUrl:
         assert "/api/v1/invoices/" in url
         assert "/api/v0" not in url
 
-    def test_appends_api_key(self):
+    def test_does_not_append_api_key(self):
         c = VastClient(api_key="mykey123")
         url = c._build_url("/instances")
-        assert "api_key=mykey123" in url
+        assert url == "https://console.vast.ai/api/v0/instances"
+
+    def test_api_key_is_not_added_to_query_args(self):
+        c = VastClient(api_key="mykey123")
+        query_args = {"owner": "me"}
+
+        url = c._build_url("/instances", query_args=query_args)
+
+        assert url == "https://console.vast.ai/api/v0/instances?owner=me"
+        assert query_args == {"owner": "me"}
 
     def test_no_query_when_no_args_and_no_key(self):
         c = VastClient(api_key=None)

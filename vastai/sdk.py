@@ -51,15 +51,11 @@ class VastAI:
     # ------------------------------------------------------------------
 
     def show_instances(self) -> list[dict]:
-        """Return all instances for the authenticated user (deprecated; use show_instances_v1)."""
-        warnings.warn(
-            "VastAI.show_instances() is deprecated; use VastAI.show_instances_v1(params) for the paginated v1 API.",
-            DeprecationWarning, stacklevel=2,
-        )
+        """Return all of the authenticated user's instances as a flat list."""
         return instances.show_instances(self.client)
 
     def show_instances_v1(self, params: dict) -> dict:
-        """Return instances using the v1 paginated API."""
+        """Return instances using the paginated v1 API; for filtering, sorting, and manual pagination."""
         return instances.show_instances_v1(self.client, params)
 
     def show_instance_filters(self) -> list:

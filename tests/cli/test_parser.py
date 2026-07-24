@@ -4,6 +4,7 @@ import pytest
 from vastai.cli.parser import (
     apwrap, argument, hidden_aliases, MyWideHelpFormatter,
     build_command_maps, two_stage_command_completions,
+    is_hidden_command,
 )
 
 
@@ -183,6 +184,82 @@ class TestBuildCommandMaps:
         assert verb_objs["create"] == {"instance"}
         # bare command + the auto-registered "help" land in singles, not verbs
         assert "update" in singles and "update" not in verbs
+
+    def test_hidden_command_excluded_from_completion(self):
+        p = _completion_parser()
+
+        @p.command(help="an unreleased thing", hidden=True)
+        def show__unreleased(args):
+            pass
+
+        _, verb_objs, _ = build_command_maps(p.parser)
+        assert verb_objs["show"] == {"instances", "env-vars"}
+
+
+class TestIsHiddenCommand:
+    """Unit tests for the unreleased/feature-flagged command gate."""
+
+    def test_explicit_true_wins(self):
+        assert is_hidden_command("show instances", explicit=True) is True
+
+    def test_explicit_false_wins_over_registry(self):
+        assert is_hidden_command("search network-volumes", explicit=False) is False
+
+    def test_known_unreleased_command_is_hidden(self):
+        assert is_hidden_command("search network-volumes") is True
+        assert is_hidden_command("create network-volume") is True
+        assert is_hidden_command("list network-volume") is True
+        assert is_hidden_command("unlist network-volume") is True
+
+    def test_unregistered_command_defaults_to_visible(self):
+        assert is_hidden_command("show instances") is False
+
+
+class TestCommandDecoratorHidden:
+    def test_hidden_kwarg_is_stored_on_the_subparser(self):
+        p = apwrap()
+
+        @p.command(help="an unreleased thing", hidden=True)
+        def do__unreleased(args):
+            pass
+
+        assert do__unreleased.mysignature.hidden is True
+
+    def test_default_is_not_hidden(self):
+        p = apwrap()
+
+        @p.command(help="a normal thing")
+        def show__thing(args):
+            pass
+
+        assert show__thing.mysignature.hidden is False
+
+    def test_hidden_command_excluded_from_grouped_help(self):
+        p = apwrap(epilog="epilogue text")
+
+        @p.command(help="show instances")
+        def show__instances(args):
+            pass
+
+        @p.command(help="an unreleased thing", hidden=True)
+        def show__unreleased(args):
+            pass
+
+        help_text = p.parser.format_help()
+        assert "show instances" in help_text
+        assert "show unreleased" not in help_text
+
+
+class TestFullCliHiddenCommands:
+    """Sanity check against the real, fully-populated CLI parser."""
+
+    def test_network_volume_commands_are_hidden_from_help(self, cli_parser):
+        help_text = cli_parser.parser.format_help()
+        assert "network-volume" not in help_text
+
+    def test_network_volume_commands_still_parse_directly(self, cli_parser):
+        args = cli_parser.parse_args(["search", "network-volumes"])
+        assert callable(args.func)
 
 
 class TestTwoStageCompletions:

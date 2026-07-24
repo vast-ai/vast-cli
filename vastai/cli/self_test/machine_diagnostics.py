@@ -24,6 +24,8 @@ NO_OFFER_ROOT_STATES = (
 # Once a host has about 2 TB of system RAM, do not disqualify it only because it
 # is slightly below 95% of total VRAM.
 SYSTEM_RAM_REQUIREMENT_CAP_MIB = 2_000_000
+MIN_DIRECT_PORTS = 5
+RECOMMENDED_DIRECT_PORTS_PER_GPU = 100
 
 
 def safe_float(value):
@@ -157,8 +159,8 @@ def preflight_requirement_checks(offer):
     num_gpus = int(safe_float(offer.get("num_gpus")))
     listed_gpus = num_gpus if num_gpus > 0 else 1
     direct_port_count = safe_float(offer.get("direct_port_count"))
-    required_min_ports = 3 * listed_gpus
-    recommended_max_ports = 64 * listed_gpus
+    required_min_ports = MIN_DIRECT_PORTS
+    recommended_ports = RECOMMENDED_DIRECT_PORTS_PER_GPU * listed_gpus
     uncapped_required_cpu_ram = 0.95 * gpu_total_ram
     required_cpu_ram = min(uncapped_required_cpu_ram, SYSTEM_RAM_REQUIREMENT_CAP_MIB)
     required_cpu_cores = 2 * num_gpus
@@ -196,11 +198,11 @@ def preflight_requirement_checks(offer):
             "ports",
             direct_port_count >= required_min_ports,
             (
-                "The tester needs at least 3 directly mapped ports per listed GPU for remote "
+                "The tester needs at least 5 directly mapped ports on the host for remote "
                 "progress, SSH checks, and runtime port allocation."
             ),
             (
-                f"Open at least {required_min_ports} direct ports for {listed_gpus} listed GPU(s), "
+                f"Open at least {required_min_ports} direct ports on the host, "
                 "check firewall/NAT forwarding, and make TCP/UDP forwarding symmetric where required."
             ),
         ),
@@ -277,26 +279,26 @@ def preflight_requirement_checks(offer):
             "Expose more CPU cores to the host or reduce the GPU count for this offer.",
         ),
     ]
-    if direct_port_count > recommended_max_ports:
+    if direct_port_count < recommended_ports:
         checks.append(
             _info_check(
-                "network.direct_ports.recommended_max",
-                "Direct port count advisory",
+                "network.direct_ports.recommended",
+                "Direct port count recommendation",
                 direct_port_count,
-                recommended_max_ports,
-                "<=",
+                recommended_ports,
+                ">=",
                 "ports",
                 (
-                    f"Direct port count: actual {direct_port_count} ports, recommended <= "
-                    f"{recommended_max_ports} ports for {listed_gpus} GPU(s)"
+                    f"Direct port count: actual {direct_port_count} ports, recommended >= "
+                    f"{recommended_ports} ports for {listed_gpus} GPU(s)"
                 ),
                 (
-                    "Vast instances can use at most 64 open ports each. Mapping more than "
-                    "64 ports per listed GPU is usually wasted effort."
+                    f"Vast recommends {RECOMMENDED_DIRECT_PORTS_PER_GPU} direct ports per listed "
+                    "GPU to leave capacity for self-test and normal workloads."
                 ),
                 (
-                    "This is advisory only, not a self-test gate. Keep enough direct ports for "
-                    "self-test and normal workloads, but avoid mapping very large unused ranges."
+                    "This is advisory only, not a self-test gate. Configure 100 direct ports per "
+                    "listed GPU when practical; the hard minimum is 5 direct ports per host."
                 ),
             )
         )

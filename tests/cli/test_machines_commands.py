@@ -92,7 +92,7 @@ class TestSelfTestMachineCleanup:
             "compute_cap": 860,
             "dlperf": 1,
             "reliability": 0.99,
-            "direct_port_count": 4,
+            "direct_port_count": 5,
             "pcie_bw": 3.0,
             "gpu_total_ram": 12288,
             "inet_down": 500,
@@ -223,7 +223,7 @@ def _self_test_offer(**overrides):
         "cuda_max_good": 12.8,
         "compute_cap": 890,
         "reliability": 0.99,
-        "direct_port_count": 4,
+        "direct_port_count": 5,
         "pcie_bw": 3.2,
         "inet_down": 200,
         "inet_up": 200,
@@ -524,7 +524,7 @@ class TestSelfTestMachineDiagnostics:
         assert gpu_ram_check["status"] == "pass"
         assert gpu_ram_check["actual"] == 80
 
-    def test_preflight_direct_port_overage_is_advisory_not_gate(self):
+    def test_preflight_direct_port_recommendation_is_advisory_not_gate(self):
         from vastai.cli.self_test.machine_diagnostics import (
             failed_checks,
             informational_checks,
@@ -537,7 +537,7 @@ class TestSelfTestMachineDiagnostics:
             gpu_total_ram=8 * 24 * 1024,
             cpu_ram=256 * 1024,
             cpu_cores=32,
-            direct_port_count=1000,
+            direct_port_count=600,
             inet_down=600,
             inet_up=600,
         )
@@ -547,18 +547,42 @@ class TestSelfTestMachineDiagnostics:
         advisory = next(
             check
             for check in informational_checks(checks)
-            if check["id"] == "network.direct_ports.recommended_max"
+            if check["id"] == "network.direct_ports.recommended"
         )
 
         assert direct_ports["status"] == "pass"
         assert advisory["status"] == "info"
-        assert advisory["actual"] == 1000
-        assert advisory["required"] == 512
-        assert advisory["operator"] == "<="
-        assert "64 ports per listed GPU" in advisory["purpose"]
+        assert advisory["actual"] == 600
+        assert advisory["required"] == 800
+        assert advisory["operator"] == ">="
+        assert "100 direct ports per listed GPU" in advisory["purpose"]
         assert advisory not in failed_checks(checks)
 
-    def test_preflight_direct_port_minimum_scales_by_gpu_count(self):
+    def test_preflight_has_no_direct_port_advisory_at_recommendation(self):
+        from vastai.cli.self_test.machine_diagnostics import (
+            informational_checks,
+            preflight_requirement_checks,
+        )
+
+        offer = _self_test_offer(
+            num_gpus=8,
+            gpu_ram=24 * 1024,
+            gpu_total_ram=8 * 24 * 1024,
+            cpu_ram=256 * 1024,
+            cpu_cores=32,
+            direct_port_count=800,
+            inet_down=600,
+            inet_up=600,
+        )
+
+        checks = preflight_requirement_checks(offer)
+
+        assert all(
+            check["id"] != "network.direct_ports.recommended"
+            for check in informational_checks(checks)
+        )
+
+    def test_preflight_direct_port_minimum_is_five_per_host(self):
         from vastai.cli.self_test.machine_diagnostics import preflight_requirement_checks
 
         offer = _self_test_offer(
@@ -567,7 +591,7 @@ class TestSelfTestMachineDiagnostics:
             gpu_total_ram=8 * 24 * 1024,
             cpu_ram=256 * 1024,
             cpu_cores=32,
-            direct_port_count=20,
+            direct_port_count=4,
             inet_down=600,
             inet_up=600,
         )
@@ -576,12 +600,32 @@ class TestSelfTestMachineDiagnostics:
         direct_ports = next(check for check in checks if check["id"] == "network.direct_ports")
 
         assert direct_ports["status"] == "fail"
-        assert direct_ports["actual"] == 20
-        assert direct_ports["required"] == 24
+        assert direct_ports["actual"] == 4
+        assert direct_ports["required"] == 5
         assert direct_ports["operator"] == ">="
-        assert "3 directly mapped ports per listed GPU" in direct_ports["purpose"]
+        assert "at least 5 directly mapped ports on the host" in direct_ports["purpose"]
 
-    def test_preflight_direct_port_overage_renders_advisory(
+    def test_preflight_direct_port_minimum_does_not_scale_by_gpu_count(self):
+        from vastai.cli.self_test.machine_diagnostics import preflight_requirement_checks
+
+        offer = _self_test_offer(
+            num_gpus=8,
+            gpu_ram=24 * 1024,
+            gpu_total_ram=8 * 24 * 1024,
+            cpu_ram=256 * 1024,
+            cpu_cores=32,
+            direct_port_count=5,
+            inet_down=600,
+            inet_up=600,
+        )
+
+        checks = preflight_requirement_checks(offer)
+        direct_ports = next(check for check in checks if check["id"] == "network.direct_ports")
+
+        assert direct_ports["status"] == "pass"
+        assert direct_ports["required"] == 5
+
+    def test_preflight_direct_port_recommendation_renders_advisory(
         self, parse_argv, patch_get_client, monkeypatch, capsys
     ):
         offer = _self_test_offer(
@@ -590,7 +634,7 @@ class TestSelfTestMachineDiagnostics:
             gpu_total_ram=8 * 24 * 1024,
             cpu_ram=256 * 1024,
             cpu_cores=32,
-            direct_port_count=1000,
+            direct_port_count=600,
             inet_down=600,
             inet_up=600,
             reliability=0.9,
@@ -607,9 +651,9 @@ class TestSelfTestMachineDiagnostics:
         captured = capsys.readouterr()
         assert exc_info.value.code == 1
         assert "Preflight advisory for machine 42:" in captured.out
-        assert "Direct port count advisory" in captured.out
-        assert "actual: 1000.0 ports" in captured.out
-        assert "recommended: <= 512 ports" in captured.out
+        assert "Direct port count recommendation" in captured.out
+        assert "actual: 600.0 ports" in captured.out
+        assert "recommended: >= 800 ports" in captured.out
         assert "This is advisory only, not a self-test gate." in captured.out
 
     def test_preflight_caps_system_ram_requirement_for_huge_vram_hosts(self):

@@ -8655,7 +8655,7 @@ def self_test__machine(args):
                             progress_print(args, f"All mapped ports on instance: {all_ports if all_ports else 'none'}")
                             progress_print(args, f"Possible causes:")
                             progress_print(args, f"  - The machine's firewall is blocking port 5000.")
-                            progress_print(args, f"  - direct_port_count is too low on this machine (must be > 3).")
+                            progress_print(args, f"  - direct_port_count is too low on this machine (must be >= 5).")
                             progress_print(args, f"  - The container failed to expose the port correctly.")
                             progress_print(args, f"Check direct_port_count: vastai search offers 'machine_id={args.machine_id} rentable=any verified=any'")
                             result["reason"] = f"Port 5000/tcp not mapped. Available ports: {all_ports}"
@@ -9458,6 +9458,12 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
         progress_print(args, f"Machine: {machine_id} Done with testing remote.py results {message}")
         warnings.simplefilter('default')
 
+# Keep the deprecated self-test aligned with the packaged CLI. Very large GPU
+# hosts, such as 8x B300 systems, can exceed 2 TB of total VRAM; once a host has
+# about 2 TB of system RAM, do not reject it only for falling slightly below 95%.
+SYSTEM_RAM_REQUIREMENT_CAP_MIB = 2_000_000
+
+
 def safe_float(value):
     """
     Convert value to float, returning 0 if value is None.
@@ -9551,8 +9557,8 @@ def check_requirements(machine_id, api_key, args):
             unmet_reasons.append("Reliability <= 0.90")
 
         # 3. Direct port count
-        if safe_float(top_offer.get('direct_port_count')) <= 3:
-            unmet_reasons.append("Direct port count <= 3")
+        if safe_float(top_offer.get('direct_port_count')) < 5:
+            unmet_reasons.append("Direct port count < 5")
 
         # 4. PCIe bandwidth
         if safe_float(top_offer.get('pcie_bw')) <= 2.85:
@@ -9575,7 +9581,9 @@ def check_requirements(machine_id, api_key, args):
         # 8. System RAM vs. Total GPU RAM
         gpu_total_ram = safe_float(top_offer.get('gpu_total_ram'))  # in MB
         cpu_ram = safe_float(top_offer.get('cpu_ram'))  # in MB
-        if cpu_ram < .95*gpu_total_ram: # .95 to allow for reserved hardware memory
+        uncapped_required_cpu_ram = 0.95 * gpu_total_ram
+        required_cpu_ram = min(uncapped_required_cpu_ram, SYSTEM_RAM_REQUIREMENT_CAP_MIB)
+        if cpu_ram < required_cpu_ram:
             unmet_reasons.append("System RAM is less than total VRAM.")
 
         # Debugging Information for RAM

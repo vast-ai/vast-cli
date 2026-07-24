@@ -261,6 +261,15 @@ class TestFullCliHiddenCommands:
         args = cli_parser.parse_args(["search", "network-volumes"])
         assert callable(args.func)
 
+    def test_update_and_uninstall_are_hidden_from_help(self, cli_parser):
+        help_text = cli_parser.parser.format_help()
+        assert "\nupdate " not in help_text
+        assert "\nuninstall " not in help_text
+
+    def test_update_and_uninstall_still_parse_directly(self, cli_parser):
+        assert callable(cli_parser.parse_args(["update", "--check"]).func)
+        assert callable(cli_parser.parse_args(["uninstall", "--yes"]).func)
+
 
 class TestTwoStageCompletions:
     def setup_method(self):

@@ -46,9 +46,16 @@ NUDGE_TIMEOUT_S = 1.0
 # Console scripts shipped in the wheel; each gets a swapped symlink in bin/.
 MANAGED_BINARIES = ("vastai", "serve-vast-deployment", "register-python-argcomplete")
 
+# Fixed, not XDG-overridable — every other XDG-aware CLI lands its symlink here too.
+LOCAL_BIN = Path.home() / ".local" / "bin"
+
 
 class UpdateError(Exception):
     """A self-update step failed; the current install is untouched."""
+
+
+class UninstallError(Exception):
+    """A step of vastai uninstall failed; nothing further was attempted."""
 
 
 # ---------------------------------------------------------------------------
@@ -321,3 +328,37 @@ def perform_update(target: str, manifest: dict) -> None:
     _link_binaries(root)
     shutil.rmtree(old_dir, ignore_errors=True)
     _prune_uv_cache(uv, uv_env)
+
+
+# ---------------------------------------------------------------------------
+# Uninstall (managed installs only)
+# ---------------------------------------------------------------------------
+
+def perform_uninstall() -> Path:
+    """Remove the managed install: the install root and its bin/ symlinks.
+
+    Config, cache, and state (``vastai.cli.util.DIRS`` — each independently
+    XDG-overridable) are left alone — the same guarantee documented for a
+    manual ``rm -rf`` (docs/install-design.md §3). Safe to call while running
+    from inside ``root``: like the update swap above, removing the directory
+    doesn't disturb an already-running interpreter on POSIX.
+
+    Raises ``UninstallError`` on any real failure (permissions, a symlink
+    loop, …) instead of silently reporting success — callers should treat
+    this as fallible, not a fire-and-forget best-effort cleanup.
+    """
+    root = install_root().resolve()
+    for name in MANAGED_BINARIES:
+        link = LOCAL_BIN / name
+        try:
+            if link.is_symlink() and root in link.resolve().parents:
+                link.unlink()
+        except OSError as e:
+            raise UninstallError(f"Could not remove {link}: {e}")
+    try:
+        shutil.rmtree(root)
+    except FileNotFoundError:
+        pass  # already gone — nothing left to remove
+    except OSError as e:
+        raise UninstallError(f"Could not remove {root}: {e}")
+    return root

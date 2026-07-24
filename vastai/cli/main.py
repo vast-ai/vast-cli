@@ -80,6 +80,7 @@ def main():
         benchmarks,
         price_increase,
         update,
+        uninstall,
         # clusters,  # cluster/overlay commands disabled for now
     )
 

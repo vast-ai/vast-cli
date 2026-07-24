@@ -108,6 +108,19 @@ class TestInit:
 
 
 # ---------------------------------------------------------------------------
+# show_instances — un-deprecated (CLN-3581)
+# ---------------------------------------------------------------------------
+
+
+class TestShowInstancesNoDeprecation:
+    def test_no_deprecation_warning(self, sdk, recwarn):
+        """Regression: VastAI.show_instances() must stay a supported, non-deprecated method."""
+        with patch("vastai.api.instances.show_instances", return_value=[]):
+            sdk.show_instances()
+        assert not any(issubclass(w.category, DeprecationWarning) for w in recwarn.list)
+
+
+# ---------------------------------------------------------------------------
 # ssh_url / scp_url — URL building with fallback logic
 # ---------------------------------------------------------------------------
 

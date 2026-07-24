@@ -94,6 +94,18 @@ class WorkerConfig:
     log_action_config: LogActionConfig = field(default_factory=LogActionConfig)
     max_sessions: Optional[int] = 10
     lifecycle: Optional[AsyncContextManager] = None
+    # Readiness: 'logs' (default) marks loaded on the on_load log line; 'healthcheck'
+    # marks loaded on the first successful /health probe. IMPORTANT: in 'healthcheck'
+    # mode model_healthcheck_url MUST be a READINESS endpoint — one that returns
+    # non-200 while the model loads and 200 only once it can serve (verified: SGLang
+    # /health + llama.cpp /health both 503 during load). A mere LIVENESS endpoint
+    # (200 as soon as the HTTP socket binds) trips readiness before the model is up
+    # and benchmarks an unloaded server.
+    readiness: str = "logs"
+    readiness_timeout: float = 300.0
+    # Per-probe /health HTTP timeout (s); set >= the backend health timeout
+    # (e.g. SGLang can take ~20s internally) to avoid false regression errors.
+    healthcheck_probe_timeout: float = 10.0
 
 
 class EndpointHandlerFactory:
@@ -431,6 +443,9 @@ class Worker:
             healthcheck_url=config.model_healthcheck_url,
             max_sessions=config.max_sessions,
             lifecycle=config.lifecycle,
+            readiness=config.readiness,
+            readiness_timeout=config.readiness_timeout,
+            healthcheck_probe_timeout=config.healthcheck_probe_timeout,
         )
 
         # Attach endpoint handlers to HTTP routes

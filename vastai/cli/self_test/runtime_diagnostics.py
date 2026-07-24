@@ -253,6 +253,20 @@ _STARTUP_RE = re.compile(
     r"docker|exited|exec format error|permission denied|mount|entrypoint",
     re.IGNORECASE,
 )
+_STARTUP_WRAPPER_RE = re.compile(
+    r"V220614a|apt-get update|dockerfile|buildkit|\brun export DEBIAN_FRONTEND\b",
+    re.IGNORECASE,
+)
+_APT_UPDATE_STEP_RE = re.compile(
+    r"(?P<step>#\d+).*?\[[^\]]+\]\s+RUN\b.*?apt-get update\b.*?V220614a",
+    re.IGNORECASE,
+)
+_APT_UPDATE_ERROR_OUTPUT_RE = re.compile(
+    r"#\d+\s+\d+(?:\.\d+)?\s+V220614a:\s+error during apt-get update",
+    re.IGNORECASE,
+)
+_CDI_DEVICE_RE = re.compile(r"failed to inject CDI devices.*?(?:unresolvable CDI devices\s+)?(?P<devices>[^\n]+)", re.IGNORECASE)
+_GPU_ID_RE = re.compile(r"gpu=(\d+)")
 
 _API_KEY_RE = re.compile(r"([?&]api_key=)[^&\s]+")
 
@@ -426,6 +440,132 @@ def parse_legacy_progress(text: str) -> list[dict[str, object]]:
     return LegacyProgressParser().parse(text)
 
 
+def _unique_sorted_gpu_ids(text: str) -> list[str]:
+    return sorted(set(_GPU_ID_RE.findall(text)), key=lambda value: int(value))
+
+
+def summarize_startup_daemon_log(startup_text: str | None) -> dict[str, object] | None:
+    """Extract high-signal startup findings from daemon logs or status text."""
+    if not startup_text:
+        return None
+
+    findings: list[str] = []
+    evidence: dict[str, object] = {
+        "source": "startup logs/status",
+        "findings": findings,
+    }
+
+    apt_step = _APT_UPDATE_STEP_RE.search(startup_text)
+    if apt_step:
+        step_id = apt_step.group("step")
+        step_lines = [line for line in startup_text.splitlines() if step_id in line]
+        apt_update = {
+            "command_seen": True,
+            "step": step_id,
+            "fetched_packages": any("Fetched " in line for line in step_lines),
+            "completed": any(f"{step_id} DONE" in line for line in step_lines),
+            "error_marker_printed": any(
+                _APT_UPDATE_ERROR_OUTPUT_RE.search(line) for line in step_lines
+            ),
+        }
+        if apt_update["error_marker_printed"]:
+            apt_update["status"] = "failed"
+            findings.append("Vast startup wrapper apt-get update printed the V220614a failure marker.")
+        elif apt_update["completed"]:
+            apt_update["status"] = "completed"
+            findings.append("Vast startup wrapper apt-get update completed successfully.")
+        else:
+            apt_update["status"] = "unknown"
+            findings.append(
+                "Vast startup wrapper apt-get update was the visible build step, "
+                "but the daemon log does not show whether it completed."
+            )
+        evidence["apt_update"] = apt_update
+
+    cdi_match = _CDI_DEVICE_RE.search(startup_text)
+    if cdi_match:
+        gpu_ids = _unique_sorted_gpu_ids(cdi_match.group("devices"))
+        cdi_evidence = {
+            "failed": True,
+            "gpu_ids": gpu_ids,
+        }
+        evidence["cdi_gpu_device_injection"] = cdi_evidence
+        if gpu_ids:
+            findings.append(
+                "Docker/NVIDIA runtime failed to inject CDI GPU devices for GPUs "
+                f"{', '.join(gpu_ids)}."
+            )
+        else:
+            findings.append("Docker/NVIDIA runtime failed to inject CDI GPU devices.")
+        findings.append("The self-test runtime did not start; this happened before the test scripts ran.")
+        findings.append("This is probably host daemon/NVIDIA runtime state, not a self-test image failure.")
+
+    if not findings:
+        return None
+    return evidence
+
+
+def refine_startup_failure_with_daemon_log(
+    diagnostic: dict[str, object] | None,
+    daemon_log: str | None,
+) -> dict[str, object] | None:
+    """Attach startup evidence and refine common startup failure wording."""
+    if not diagnostic:
+        return diagnostic
+
+    diagnostic_text = "\n".join(
+        str(diagnostic.get(key) or "")
+        for key in ("underlying_error", "error", "details")
+        if diagnostic.get(key)
+    )
+    startup_text = "\n".join(text for text in (daemon_log, diagnostic_text) if text)
+    evidence = summarize_startup_daemon_log(startup_text)
+    if not evidence:
+        return diagnostic
+    evidence["sources"] = [
+        source
+        for source, text in (
+            ("instance/daemon.log", daemon_log),
+            ("instance status message", diagnostic_text),
+        )
+        if text
+    ]
+
+    refined = dict(diagnostic)
+    refined["startup_evidence"] = evidence
+
+    cdi = evidence.get("cdi_gpu_device_injection")
+    apt_update = evidence.get("apt_update")
+    if isinstance(cdi, dict) and cdi.get("failed"):
+        refined["code"] = DAEMON_STARTUP_FAILED
+        refined["summary"] = "Docker/NVIDIA runtime failed before the self-test container could start."
+        refined["remediation"] = (
+            "Check the host NVIDIA container runtime/CDI device configuration and daemon health."
+        )
+        refined["suggested_steps"] = [
+            "Check docker/kaalia daemon logs on the host.",
+            "Run nvidia-smi and verify all GPUs are visible to the container runtime.",
+            "Restart or repair the NVIDIA container runtime/CDI configuration before retrying self-test.",
+        ]
+    elif isinstance(apt_update, dict) and apt_update.get("status") == "failed":
+        refined["code"] = DAEMON_STARTUP_FAILED
+        refined["summary"] = "The Vast startup wrapper failed while updating packages."
+        refined["remediation"] = (
+            "Check host outbound networking, DNS, apt repository reachability, and Docker build logs."
+        )
+        refined["suggested_steps"] = [
+            "Retry once to rule out a transient repository/network failure.",
+            "Check host DNS and outbound HTTPS access from Docker builds.",
+            "Inspect the daemon log in the diagnostic bundle for apt errors.",
+        ]
+    elif isinstance(apt_update, dict):
+        refined["code"] = DAEMON_STARTUP_FAILED
+        refined["summary"] = "The instance failed during Vast startup wrapper build/startup."
+        refined["remediation"] = "Inspect the daemon log in the diagnostic bundle for the real startup error."
+
+    return refined
+
+
 def classify_status_msg(status_msg: str | None) -> dict[str, object] | None:
     """Classify startup/status messages reported while the instance starts."""
     if not status_msg:
@@ -438,7 +578,7 @@ def classify_status_msg(status_msg: str | None) -> dict[str, object] | None:
     code = INSTANCE_STATUS_ERROR
     if _DOCKER_PULL_RE.search(msg):
         code = DOCKER_PULL_FAILED
-    elif _STARTUP_RE.search(msg):
+    elif _STARTUP_RE.search(msg) or _STARTUP_WRAPPER_RE.search(msg):
         code = DAEMON_STARTUP_FAILED
 
     return make_failure(
@@ -492,5 +632,7 @@ __all__ = [
     "make_progress_endpoint_diagnostic",
     "parse_legacy_progress",
     "redact_secret_text",
+    "refine_startup_failure_with_daemon_log",
     "stage_from_progress_line",
+    "summarize_startup_daemon_log",
 ]

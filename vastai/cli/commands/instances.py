@@ -1154,10 +1154,7 @@ def show__instances(args, extra_filters=None):
         params["after_token"] = args.next_token
 
     if args.quiet and fetch_all:
-        page = 0
         while True:
-            if args.all and page > 0:
-                time.sleep(1)
             data = instances_api.show_instances_v1(client, params)
             for inst in data.get("instances") or []:
                 instance_id = inst.get("id")
@@ -1167,7 +1164,6 @@ def show__instances(args, extra_filters=None):
             if not next_token:
                 return
             params["after_token"] = next_token
-            page += 1
 
     # fetch filter breakdown
     filter_combos = None
@@ -1184,9 +1180,6 @@ def show__instances(args, extra_filters=None):
     looping = True
     all_instances = []
     while looping:
-        if args.all and page > 0:
-            time.sleep(1)
-
         data = instances_api.show_instances_v1(client, params)
 
         instances   = data.get("instances", [])

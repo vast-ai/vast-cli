@@ -168,27 +168,18 @@ class TestShowInstancesPagination:
         assert captured.out == "1\n2\n"
         assert patch_get_client.get.call_count == 2
 
-    def test_default_does_not_throttle_between_pages(self, parse_argv, patch_get_client, mock_response, monkeypatch):
-        """Regression: fetch-all-by-default must match the old default's cadence (no sleep)."""
+    @pytest.mark.parametrize("extra_argv", [[], ["--all"]])
+    def test_fetch_all_never_throttles_between_pages(self, parse_argv, patch_get_client, mock_response, monkeypatch, extra_argv):
+        """No inter-page sleep, with or without --all -- there's no rate-limit reason to pace
+        one fetch-all path differently from the other when both hit the same endpoint."""
         sleep_calls = []
         monkeypatch.setattr("vastai.cli.commands.instances.time.sleep", lambda s: sleep_calls.append(s))
         page1 = {"instances": [{"id": 1}], "next_token": "tok1"}
         page2 = {"instances": [{"id": 2}], "next_token": None}
         patch_get_client.get.side_effect = [mock_response(200, page1), mock_response(200, page2)]
-        args = parse_argv(["show", "instances", "-q"])
+        args = parse_argv(["show", "instances", "-q", *extra_argv])
         args.func(args)
         assert sleep_calls == []
-
-    def test_explicit_all_flag_throttles_between_pages(self, parse_argv, patch_get_client, mock_response, monkeypatch):
-        """The 1s throttle is preserved for the explicit opt-in --all flag."""
-        sleep_calls = []
-        monkeypatch.setattr("vastai.cli.commands.instances.time.sleep", lambda s: sleep_calls.append(s))
-        page1 = {"instances": [{"id": 1}], "next_token": "tok1"}
-        page2 = {"instances": [{"id": 2}], "next_token": None}
-        patch_get_client.get.side_effect = [mock_response(200, page1), mock_response(200, page2)]
-        args = parse_argv(["show", "instances", "-q", "--all"])
-        args.func(args)
-        assert sleep_calls == [1]
 
     def test_non_tty_never_blocks_on_pagination_prompt(self, parse_argv, patch_get_client, mock_response, monkeypatch, capsys):
         def boom(*a, **kw):

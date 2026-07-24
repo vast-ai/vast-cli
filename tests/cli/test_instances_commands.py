@@ -40,6 +40,33 @@ class TestShowInstances:
         captured = capsys.readouterr()
         assert "ID" in captured.out
 
+    def test_show_instances_quiet_prints_bare_ids(self, parse_argv, patch_get_client, mock_response, capsys):
+        patch_get_client.get.return_value = mock_response(200, {
+            "instances": [
+                {"id": 1, "gpu_name": "RTX_3090", "actual_status": "running",
+                 "start_date": time.time() - 3600, "extra_env": []},
+                {"id": 2, "gpu_name": "RTX_4090", "actual_status": "running",
+                 "start_date": time.time() - 3600, "extra_env": []},
+            ]
+        })
+        args = parse_argv(["show", "instances", "-q"])
+        args.func(args)
+        captured = capsys.readouterr()
+        assert captured.out == "1\n2\n"
+
+    def test_show_instances_v1_is_hidden_alias(self, parse_argv, patch_get_client, mock_response):
+        from vastai.cli.commands.instances import show__instances
+        patch_get_client.get.return_value = mock_response(200, {
+            "instances": [
+                {"id": 1, "gpu_name": "RTX_3090", "actual_status": "running",
+                 "start_date": time.time() - 3600, "extra_env": [["KEY", "VAL"]]}
+            ]
+        })
+        args = parse_argv(["show", "instances-v1", "--raw"])
+        assert args.func is show__instances
+        result = args.func(args)
+        assert isinstance(result, list)
+
 
 class TestShowInstance:
     def test_show_instance_raw(self, parse_argv, patch_get_client, mock_response):

@@ -1156,7 +1156,7 @@ def show__instances(args, extra_filters=None):
     if args.quiet and fetch_all:
         page = 0
         while True:
-            if page > 0:
+            if args.all and page > 0:
                 time.sleep(1)
             data = instances_api.show_instances_v1(client, params)
             for inst in data.get("instances") or []:
@@ -1184,7 +1184,7 @@ def show__instances(args, extra_filters=None):
     looping = True
     all_instances = []
     while looping:
-        if fetch_all and page > 0:
+        if args.all and page > 0:
             time.sleep(1)
 
         data = instances_api.show_instances_v1(client, params)

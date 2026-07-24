@@ -271,6 +271,16 @@ jobs:
                 fi
                 echo "Mintlify deployed: ${PREVIEW_URL} (after ${i} polls)"
                 break
+              elif [ "$conclusion" = "skipped" ]; then
+                # Mintlify skips the deploy when the pushed content is
+                # byte-identical to something it already built (content
+                # dedup) — "No eligible deployments found for changes".
+                # That is not a failure: the pages are already live on the
+                # previous deploy. Treating it as fatal is what red-CI'd the
+                # first master-merge run (2026-07-09) and contributed to the
+                # pipeline being reverted (#453). Warn and skip the sweep.
+                echo "::warning::Mintlify skipped the deployment (content identical to a previous deploy) — skipping 404 sweep"
+                exit 0
               else
                 echo "::error::Mintlify deployment ${conclusion}"
                 exit 1

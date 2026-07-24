@@ -28,10 +28,33 @@ jobs:
   verify-docs:
     runs-on: ubuntu-latest
     steps:
+      # This check compares the CLI against docs *main*. While an
+      # auto-generated deploy PR (auto/cli-sdk-docs-*) is open on vast-ai/docs,
+      # main is EXPECTED to be behind — the fix is merging that PR, not the
+      # CLI. Alarming here during that window is what got the whole pipeline
+      # reverted (#453): a scheduled run fired red on bootstrap drift and was
+      # read as a real regression. Skip while a deploy PR is pending.
+      - name: Check for pending auto-docs deploy PR
+        id: pending
+        run: |
+          urls=$(curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/vast-ai/docs/pulls?state=open&per_page=100" \
+            | jq -r '.[] | select(.head.ref | startswith("auto/cli-sdk-docs-")) | .html_url')
+          if [ -n "$urls" ]; then
+            echo "pending=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping drift check — auto-generated docs deploy PR is awaiting merge (drift will clear when it lands): ${urls}"
+          else
+            echo "pending=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout vast-cli
+        if: steps.pending.outputs.pending != 'true'
         uses: actions/checkout@v4
 
       - name: Checkout docs repo
+        if: steps.pending.outputs.pending != 'true'
         uses: actions/checkout@v4
         with:
           repository: vast-ai/docs
@@ -40,14 +63,17 @@ jobs:
           # token: ${{ secrets.DOCS_REPO_TOKEN }}
 
       - name: Set up Python
+        if: steps.pending.outputs.pending != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Install vast-cli package
+        if: steps.pending.outputs.pending != 'true'
         run: pip install -e .
 
       - name: Run inventory check
+        if: steps.pending.outputs.pending != 'true'
         run: |
           python scripts/verify_cli_sdk_docs.py \
             --docs-path docs-repo \
@@ -55,14 +81,14 @@ jobs:
             --json > drift-report.json
 
       - name: Display report
-        if: always()
+        if: always() && steps.pending.outputs.pending != 'true'
         run: |
           python scripts/verify_cli_sdk_docs.py \
             --docs-path docs-repo \
             --check-params
 
       - name: Upload drift report
-        if: always()
+        if: always() && steps.pending.outputs.pending != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: drift-report
@@ -113,10 +139,22 @@ jobs:
               report.sdk.undocumented.length,
               report.sdk.stale_docs.length,
             ].reduce((a, b) => a + b, 0);
+            const intro = [
+              'The weekly drift check found the CLI/SDK out of sync with docs `main`.',
+              '',
+              '**Before treating this as a regression:** docs are auto-generated. Check',
+              'for an open `auto/cli-sdk-docs-*` deploy PR on',
+              '[vast-ai/docs](https://github.com/vast-ai/docs/pulls) — if one exists,',
+              '**merging it resolves this drift** (this check should have been skipped',
+              'in that case, but a PR opened mid-run can race it). Otherwise, re-run the',
+              '`Auto-generate CLI/SDK docs` workflow on master to open a fresh deploy PR.',
+              'Do NOT revert the docs pipeline over this alarm.',
+              '',
+            ].join('\n');
             github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
               title: `Docs drift: ${counts} items out of sync`,
-              body: '```json\n' + JSON.stringify(report, null, 2) + '\n```',
+              body: intro + '```json\n' + JSON.stringify(report, null, 2) + '\n```',
               labels: ['documentation'],
             });

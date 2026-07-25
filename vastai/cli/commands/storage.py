@@ -627,7 +627,7 @@ def clone__volume(args):
 # ---------------------------------------------------------------------------
 
 @parser.command(
-    argument("-t", "--type", help="volume type to display. Default to all. Possible values are \"local\", \"all\", \"network\"", type=str, default="all"),
+    argument("-t", "--type", help="volume type to display. Default to all. Possible values are \"local\", \"all\"", type=str, default="all"),
     usage="vastai show volumes [OPTIONS]",
     help="Show stats on owned volumes.",
     epilog=deindent("""

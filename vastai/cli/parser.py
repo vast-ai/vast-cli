@@ -183,6 +183,8 @@ HIDDEN_COMMANDS = {
     'create network-volume',
     'list network-volume',
     'unlist network-volume',
+    'show network-disks',      # network disks are not yet released
+    'add network-disk',
 }
 
 

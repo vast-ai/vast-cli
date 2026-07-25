@@ -210,6 +210,8 @@ class TestIsHiddenCommand:
         assert is_hidden_command("create network-volume") is True
         assert is_hidden_command("list network-volume") is True
         assert is_hidden_command("unlist network-volume") is True
+        assert is_hidden_command("show network-disks") is True
+        assert is_hidden_command("add network-disk") is True
 
     def test_unregistered_command_defaults_to_visible(self):
         assert is_hidden_command("show instances") is False
@@ -259,6 +261,15 @@ class TestFullCliHiddenCommands:
 
     def test_network_volume_commands_still_parse_directly(self, cli_parser):
         args = cli_parser.parse_args(["search", "network-volumes"])
+        assert callable(args.func)
+
+    def test_network_disk_commands_are_hidden_from_help(self, cli_parser):
+        help_text = cli_parser.parser.format_help()
+        assert "network-disk" not in help_text
+
+    def test_network_disk_commands_still_parse_directly(self, cli_parser):
+        assert callable(cli_parser.parse_args(["show", "network-disks"]).func)
+        args = cli_parser.parse_args(["add", "network-disk", "1", "/mnt/data"])
         assert callable(args.func)
 
     def test_update_and_uninstall_are_hidden_from_help(self, cli_parser):

@@ -1343,6 +1343,45 @@ def get_ssh_key(argstr):
 SELF_TEST_MIN_CLI_VERSION = "1.2.3"
 SELF_TEST_CLI_CONTRACT_VERSION = SELF_TEST_MIN_CLI_VERSION
 SELF_TEST_IMAGE_TAG_PREFIX = f"self-test-cli-{SELF_TEST_MIN_CLI_VERSION}-cuda"
+_SELF_TEST_STATUS_ERROR_LINE_RE = re.compile(
+    r"^\s*(?:#\d+\s+(?:\d+(?:\.\d+)?\s+)?)?"
+    r"(?:(?:errors?|failed|failures?|exceptions?|tracebacks?)(?=[:\s]|$)|"
+    r"unauthorized(?=:))",
+    re.IGNORECASE | re.MULTILINE,
+)
+_SELF_TEST_STATUS_RECOVERABLE_LINE_RE = re.compile(
+    r"\bfailed to fetch\b[^\r\n]{0,240}"
+    r"\b(?:using cached|ignored|old (?:ones?|indexes?) used)\b",
+    re.IGNORECASE,
+)
+_SELF_TEST_STATUS_FATAL_MARKER_RE = re.compile(
+    r"\b(?:oci runtime|permission denied|pull access denied|"
+    r"repository does not exist|no such image|exec format error|failed to start|"
+    r"invalid reference format|manifest unknown|no matching manifest)\b|"
+    r"\bmanifest\b[^\r\n]{0,160}\bnot found\b|"
+    r"\brequested access\b[^\r\n]{0,160}\bdenied\b|"
+    r"\brpc error(?=[:\s]|$)|"
+    r"\bdocker:\s*error(?=[:\s]|$)|"
+    r"(?:docker_build\(\)|docker pull|containerd|dockerd|nvidia-container(?:-cli)?)"
+    r"[^\r\n]{0,160}\b(?:errors?|failed|failures?)(?=[:\s]|$)",
+    re.IGNORECASE,
+)
+
+
+def self_test_status_message_is_error(status_msg):
+    """Return whether a transitional self-test instance status is fatal."""
+    if not isinstance(status_msg, str):
+        return False
+    status_msg = status_msg.strip()
+    if not status_msg:
+        return False
+    if _SELF_TEST_STATUS_FATAL_MARKER_RE.search(status_msg):
+        return True
+    return any(
+        _SELF_TEST_STATUS_ERROR_LINE_RE.search(line)
+        and not _SELF_TEST_STATUS_RECOVERABLE_LINE_RE.search(line)
+        for line in status_msg.splitlines()
+    )
 
 
 def self_test_cuda_map_to_image(cuda_version, compute_cap=None):
@@ -9672,23 +9711,23 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
                 time.sleep(interval)
                 continue  # Retry
 
-            # Check for error in status_msg
             status_msg = instance_info.get('status_msg', '')
-            if status_msg and 'Error' in status_msg:
-                reason = f"Instance {instance_id} encountered an error: {status_msg.strip()}"
-                progress_print(args, reason)
-                
-                # Destroy the instance
-                if instance_exist(instance_id, api_key, destroy_args):
-                    destroy_instance_silent(instance_id, destroy_args)
-                    progress_print(args, f"Instance {instance_id} has been destroyed due to error.")
-                else:
-                    progress_print(args, f"Instance {instance_id} could not be destroyed or does not exist.")
-                
-                return False, reason
-            
-            # Check if instance went offline
-            actual_status = instance_info.get('actual_status', 'unknown')
+            status_msg_clean = (
+                status_msg.strip() if isinstance(status_msg, str) else ""
+            )
+            actual_status = str(
+                instance_info.get('actual_status', 'unknown')
+            ).lower()
+            intended_status = str(
+                instance_info.get('intended_status', 'unknown')
+            ).lower()
+
+            # Running lifecycle state wins over stale build output.
+            if intended_status == 'running' and actual_status == 'running':
+                if args.debugging:
+                    debug_print(args, f"Instance {instance_id} is now running.")
+                return instance_info, None
+
             if actual_status == 'offline':
                 reason = "Instance offline during testing"
                 progress_print(args, reason)
@@ -9701,12 +9740,65 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
                     progress_print(args, f"Instance {instance_id} could not be destroyed or does not exist.")
                 
                 return False, reason
-            
-            # Check if instance is running
-            if instance_info.get('intended_status') == 'running' and actual_status == 'running':
-                if args.debugging:
-                    debug_print(args, f"Instance {instance_id} is now running.")
-                return instance_info, None  # Return instance_info with None for reason
+
+            terminal_statuses = {
+                'destroyed',
+                'error',
+                'exited',
+                'failed',
+                'failure',
+                'stopped',
+                'terminated',
+            }
+            if (
+                intended_status in terminal_statuses
+                or actual_status in terminal_statuses
+            ):
+                reason = (
+                    f"Instance {instance_id} entered terminal status before "
+                    f"reaching running (actual={actual_status}, "
+                    f"intended={intended_status})"
+                )
+                if status_msg_clean:
+                    reason = f"{reason}: {status_msg_clean}"
+                progress_print(args, reason)
+                if instance_exist(instance_id, api_key, destroy_args):
+                    destroy_instance_silent(instance_id, destroy_args)
+                    progress_print(
+                        args,
+                        f"Instance {instance_id} has been destroyed due to "
+                        "startup failure.",
+                    )
+                else:
+                    progress_print(
+                        args,
+                        f"Instance {instance_id} could not be destroyed or "
+                        "does not exist.",
+                    )
+                return False, reason
+
+            if (
+                status_msg_clean
+                and self_test_status_message_is_error(status_msg_clean)
+            ):
+                reason = (
+                    f"Instance {instance_id} encountered an error: "
+                    f"{status_msg_clean}"
+                )
+                progress_print(args, reason)
+                if instance_exist(instance_id, api_key, destroy_args):
+                    destroy_instance_silent(instance_id, destroy_args)
+                    progress_print(
+                        args,
+                        f"Instance {instance_id} has been destroyed due to error.",
+                    )
+                else:
+                    progress_print(
+                        args,
+                        f"Instance {instance_id} could not be destroyed or "
+                        "does not exist.",
+                    )
+                return False, reason
             
             # Print feedback about the current status
             progress_print(args, f"Instance {instance_id} status: {actual_status}... waiting for 'running' status.")

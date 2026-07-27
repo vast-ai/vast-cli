@@ -1204,6 +1204,142 @@ class TestSelfTestMachineDiagnostics:
         assert result["diagnostics"]["runtime_failure"]["progress_endpoint"] == endpoint
         assert destroy.call_count >= 1
 
+    def test_loading_build_progress_with_liberror_package_is_not_startup_failure(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer()
+        loading_instance = {
+            "id": 123,
+            "actual_status": "loading",
+            "intended_status": "running",
+            "status_msg": (
+                "#7 4.226 Get:70 http://archive.ubuntu.com/ubuntu noble/main "
+                "amd64 liberror-perl all 0.17029-2 [25.6 kB]"
+            ),
+        }
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"22/tcp": [{"HostPort": "40022"}]},
+            "status_msg": "",
+        }
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        show = Mock()
+        show.side_effect = lambda *args, **kwargs: (
+            loading_instance if show.call_count == 1 else running_instance
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            show,
+        )
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.destroy_instance",
+            destroy,
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.time.sleep",
+            lambda *_: None,
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        assert result["failure_code"] == "progress_port_not_mapped"
+        assert result["failure_code"] != "instance_status_error"
+        assert show.call_count >= 2
+        assert destroy.call_count >= 1
+
+    def test_running_state_ignores_stale_startup_error_text(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer()
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"22/tcp": [{"HostPort": "40022"}]},
+            "status_msg": "Error response from daemon: stale build status",
+        }
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            Mock(return_value=running_instance),
+        )
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.destroy_instance",
+            destroy,
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.time.sleep",
+            lambda *_: None,
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        assert result["failure_code"] == "progress_port_not_mapped"
+        assert result["failure_code"] != "docker_pull_failed"
+        assert destroy.call_count >= 1
+
+    def test_terminal_status_fails_even_when_status_text_is_normal_build_progress(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer()
+        status_msg = (
+            "#7 4.226 Get:70 http://archive.ubuntu.com/ubuntu noble/main "
+            "amd64 liberror-perl all 0.17029-2 [25.6 kB]"
+        )
+        terminal_instance = {
+            "id": 123,
+            "actual_status": "error",
+            "intended_status": "running",
+            "status_msg": status_msg,
+        }
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        show = Mock(side_effect=[terminal_instance, terminal_instance, None])
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            show,
+        )
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.destroy_instance",
+            destroy,
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        assert result["failure_code"] == "instance_status_error"
+        assert result["failure"]["underlying_error"] == status_msg
+        assert destroy.call_count == 1
+
     def test_progress_endpoint_never_reachable_records_endpoint_diagnostic(
         self, parse_argv, patch_get_client, monkeypatch
     ):

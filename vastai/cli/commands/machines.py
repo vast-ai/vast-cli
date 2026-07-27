@@ -53,6 +53,7 @@ from vastai.cli.self_test.runtime_diagnostics import (
     make_progress_endpoint_diagnostic,
     make_failure,
     redact_secret_text,
+    status_message_is_error,
 )
 from vastai.cli.self_test.support_bundle import (
     create_support_bundle,
@@ -1338,37 +1339,19 @@ def self_test__machine(args):
 
                             status_msg = instance_info.get('status_msg', '')
                             status_msg_clean = status_msg.strip() if isinstance(status_msg, str) else ""
-                            status_msg_lower = status_msg_clean.lower()
-                            status_msg_is_error = any(
-                                token in status_msg_lower
-                                for token in (
-                                    "error",
-                                    "failed",
-                                    "failure",
-                                    "exception",
-                                    "traceback",
-                                    "oci runtime",
-                                    "permission denied",
-                                )
-                            )
-                            if status_msg_clean and status_msg_is_error:
-                                diagnostic = classify_status_msg(status_msg_clean) or make_failure(
-                                    DAEMON_STARTUP_FAILED,
-                                    stage="startup",
-                                    error=status_msg_clean,
-                                    underlying_error=status_msg_clean,
-                                )
-                                reason = f"Instance {inst_id} encountered an error: {status_msg_clean}"
-                                progress_print(reason)
-                                if instance_exist(inst_id):
-                                    destroy_instance_silent(inst_id, collect_logs=True)
-                                    progress_print(f"Instance {inst_id} has been destroyed due to error.")
-                                else:
-                                    progress_print(f"Instance {inst_id} could not be destroyed or does not exist.")
-                                return False, reason, diagnostic
+                            actual_status = str(
+                                instance_info.get('actual_status', 'unknown')
+                            ).lower()
+                            intended_status = str(
+                                instance_info.get('intended_status', 'unknown')
+                            ).lower()
 
-                            actual_status = instance_info.get('actual_status', 'unknown')
-                            intended_status = instance_info.get('intended_status', 'unknown')
+                            # A running instance may retain stale build output in
+                            # status_msg. Lifecycle state is authoritative.
+                            if intended_status == 'running' and actual_status == 'running':
+                                debug_print(f"Instance {inst_id} is now running.")
+                                return instance_info, None, None
+
                             if actual_status == 'offline':
                                 reason = "Instance offline during testing"
                                 diagnostic = make_failure(INSTANCE_OFFLINE_BEFORE_TEST, stage="startup")
@@ -1380,8 +1363,24 @@ def self_test__machine(args):
                                     progress_print(f"Instance {inst_id} could not be destroyed or does not exist.")
                                 return False, reason, diagnostic
 
-                            if intended_status in ('stopped', 'exited') or actual_status in ('stopped', 'exited'):
-                                reason = f"Instance {inst_id} stopped before reaching running status"
+                            terminal_statuses = {
+                                'destroyed',
+                                'error',
+                                'exited',
+                                'failed',
+                                'failure',
+                                'stopped',
+                                'terminated',
+                            }
+                            if (
+                                intended_status in terminal_statuses
+                                or actual_status in terminal_statuses
+                            ):
+                                reason = (
+                                    f"Instance {inst_id} entered terminal status "
+                                    f"before reaching running "
+                                    f"(actual={actual_status}, intended={intended_status})"
+                                )
                                 if status_msg_clean:
                                     reason = f"{reason}: {status_msg_clean}"
                                 diagnostic = classify_status_msg(status_msg_clean) if status_msg_clean else None
@@ -1402,9 +1401,27 @@ def self_test__machine(args):
                                     progress_print(f"Instance {inst_id} could not be destroyed or does not exist.")
                                 return False, reason, diagnostic
 
-                            if intended_status == 'running' and actual_status == 'running':
-                                debug_print(f"Instance {inst_id} is now running.")
-                                return instance_info, None, None
+                            # Transitional states carry ordinary Docker build
+                            # progress. Fail early only on explicit error
+                            # markers, not raw substrings in package names.
+                            if (
+                                status_msg_clean
+                                and status_message_is_error(status_msg_clean)
+                            ):
+                                diagnostic = classify_status_msg(status_msg_clean) or make_failure(
+                                    DAEMON_STARTUP_FAILED,
+                                    stage="startup",
+                                    error=status_msg_clean,
+                                    underlying_error=status_msg_clean,
+                                )
+                                reason = f"Instance {inst_id} encountered an error: {status_msg_clean}"
+                                progress_print(reason)
+                                if instance_exist(inst_id):
+                                    destroy_instance_silent(inst_id, collect_logs=True)
+                                    progress_print(f"Instance {inst_id} has been destroyed due to error.")
+                                else:
+                                    progress_print(f"Instance {inst_id} could not be destroyed or does not exist.")
+                                return False, reason, diagnostic
 
                             progress_print(f"Instance {inst_id} status: {actual_status}... waiting for 'running' status.")
                             time.sleep(interval)

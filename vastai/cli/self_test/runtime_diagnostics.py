@@ -253,6 +253,29 @@ _STARTUP_RE = re.compile(
     r"docker|exited|exec format error|permission denied|mount|entrypoint",
     re.IGNORECASE,
 )
+_STATUS_ERROR_LINE_RE = re.compile(
+    r"^\s*(?:#\d+\s+(?:\d+(?:\.\d+)?\s+)?)?"
+    r"(?:(?:errors?|failed|failures?|exceptions?|tracebacks?)(?=[:\s]|$)|"
+    r"unauthorized(?=:))",
+    re.IGNORECASE | re.MULTILINE,
+)
+_STATUS_RECOVERABLE_LINE_RE = re.compile(
+    r"\bfailed to fetch\b[^\r\n]{0,240}"
+    r"\b(?:using cached|ignored|old (?:ones?|indexes?) used)\b",
+    re.IGNORECASE,
+)
+_STATUS_FATAL_MARKER_RE = re.compile(
+    r"\b(?:oci runtime|permission denied|pull access denied|"
+    r"repository does not exist|no such image|exec format error|failed to start|"
+    r"invalid reference format|manifest unknown|no matching manifest)\b|"
+    r"\bmanifest\b[^\r\n]{0,160}\bnot found\b|"
+    r"\brequested access\b[^\r\n]{0,160}\bdenied\b|"
+    r"\brpc error(?=[:\s]|$)|"
+    r"\bdocker:\s*error(?=[:\s]|$)|"
+    r"(?:docker_build\(\)|docker pull|containerd|dockerd|nvidia-container(?:-cli)?)"
+    r"[^\r\n]{0,160}\b(?:errors?|failed|failures?)(?=[:\s]|$)",
+    re.IGNORECASE,
+)
 
 _API_KEY_RE = re.compile(r"([?&]api_key=)[^&\s]+")
 
@@ -426,6 +449,31 @@ def parse_legacy_progress(text: str) -> list[dict[str, object]]:
     return LegacyProgressParser().parse(text)
 
 
+def status_message_is_error(status_msg: str | None) -> bool:
+    """Return whether an in-progress instance status contains a fatal marker.
+
+    ``status_msg`` also carries ordinary Docker build output while an image is
+    loading. Match explicit error lines and unambiguous fatal phrases instead
+    of raw substrings such as ``error``, which also occur in package names such
+    as ``liberror-perl``.
+    """
+    if not status_msg:
+        return False
+
+    msg = status_msg.strip()
+    if not msg:
+        return False
+
+    if _STATUS_FATAL_MARKER_RE.search(msg):
+        return True
+
+    return any(
+        _STATUS_ERROR_LINE_RE.search(line)
+        and not _STATUS_RECOVERABLE_LINE_RE.search(line)
+        for line in msg.splitlines()
+    )
+
+
 def classify_status_msg(status_msg: str | None) -> dict[str, object] | None:
     """Classify startup/status messages reported while the instance starts."""
     if not status_msg:
@@ -492,5 +540,6 @@ __all__ = [
     "make_progress_endpoint_diagnostic",
     "parse_legacy_progress",
     "redact_secret_text",
+    "status_message_is_error",
     "stage_from_progress_line",
 ]

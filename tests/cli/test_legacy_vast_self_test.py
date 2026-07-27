@@ -7,6 +7,7 @@ from vastai.cli.commands import machines
 from vastai.cli.self_test.machine_diagnostics import (
     SYSTEM_RAM_REQUIREMENT_CAP_MIB as PACKAGED_SYSTEM_RAM_REQUIREMENT_CAP_MIB,
 )
+from vastai.cli.self_test.runtime_diagnostics import status_message_is_error
 
 
 def _args():
@@ -124,3 +125,117 @@ def test_legacy_preflight_direct_port_minimum_is_four(monkeypatch):
     passed, reasons = _check(monkeypatch, _b300_offer(direct_port_count=3))
     assert passed is False
     assert "Direct port count < 4" in reasons
+
+
+def test_legacy_startup_status_ignores_liberror_build_progress(monkeypatch):
+    loading = {
+        "actual_status": "loading",
+        "intended_status": "running",
+        "status_msg": (
+            "#7 4.226 Get:70 http://archive.ubuntu.com/ubuntu noble/main "
+            "amd64 liberror-perl all 0.17029-2 [25.6 kB]"
+        ),
+    }
+    running = {
+        "actual_status": "running",
+        "intended_status": "running",
+        "status_msg": "",
+    }
+    show = Mock(side_effect=[loading, running])
+    destroy = Mock()
+    monkeypatch.setattr(vast, "show__instance", show)
+    monkeypatch.setattr(vast, "destroy_instance_silent", destroy)
+    monkeypatch.setattr(vast.time, "sleep", lambda *_: None)
+
+    instance, reason = vast.wait_for_instance(
+        123,
+        "test-api-key",
+        _args(),
+        Namespace(),
+        timeout=1,
+        interval=0,
+    )
+
+    assert instance == running
+    assert reason is None
+    destroy.assert_not_called()
+
+
+def test_legacy_running_state_ignores_stale_error_text(monkeypatch):
+    running = {
+        "actual_status": "running",
+        "intended_status": "running",
+        "status_msg": "Error response from daemon: stale build status",
+    }
+    destroy = Mock()
+    monkeypatch.setattr(vast, "show__instance", Mock(return_value=running))
+    monkeypatch.setattr(vast, "destroy_instance_silent", destroy)
+
+    instance, reason = vast.wait_for_instance(
+        123,
+        "test-api-key",
+        _args(),
+        Namespace(),
+        timeout=1,
+        interval=0,
+    )
+
+    assert instance == running
+    assert reason is None
+    destroy.assert_not_called()
+
+
+def test_legacy_status_error_detection_matches_packaged_cli():
+    messages = [
+        "#7 4.226 Get:70 amd64 liberror-perl all 0.17029-2 [25.6 kB]",
+        "#8 1.250 Collecting unauthorized",
+        "#8 2.500 Successfully installed unauthorized-1.3.0",
+        "Generating documentation for unauthorized clients",
+        "Error-prone package metadata generated successfully",
+        (
+            "#7 5.2 W: Failed to fetch http://archive.ubuntu.com/index\n"
+            "#7 5.2 W: Some index files failed to download. They have been "
+            "ignored, or old ones used instead."
+        ),
+        "Failed to fetch package metadata; using cached index",
+        "rpc error: code = Unknown desc = failed to pull and unpack image",
+        "manifest unknown: manifest unknown",
+        "no matching manifest for linux/amd64 in the manifest list entries",
+        "denied: requested access to the resource is denied",
+        "docker: Error response from daemon: could not select device driver",
+        "invalid reference format",
+    ]
+
+    for message in messages:
+        assert (
+            vast.self_test_status_message_is_error(message)
+            is status_message_is_error(message)
+        )
+
+
+def test_legacy_terminal_status_fails_with_normal_build_text(monkeypatch):
+    terminal = {
+        "actual_status": "error",
+        "intended_status": "running",
+        "status_msg": (
+            "#7 4.226 Get:70 http://archive.ubuntu.com/ubuntu noble/main "
+            "amd64 liberror-perl all 0.17029-2 [25.6 kB]"
+        ),
+    }
+    destroy = Mock()
+    monkeypatch.setattr(vast, "show__instance", Mock(return_value=terminal))
+    monkeypatch.setattr(vast, "instance_exist", Mock(return_value=True))
+    monkeypatch.setattr(vast, "destroy_instance_silent", destroy)
+
+    instance, reason = vast.wait_for_instance(
+        123,
+        "test-api-key",
+        _args(),
+        Namespace(),
+        timeout=1,
+        interval=0,
+    )
+
+    assert instance is False
+    assert "actual=error" in reason
+    destroy.assert_called_once()

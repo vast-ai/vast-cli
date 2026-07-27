@@ -178,6 +178,55 @@ def test_status_msg_classifies_other_errors_as_status_error():
     assert result["stage"] == diag.STAGE_STARTUP
 
 
+@pytest.mark.parametrize(
+    "status_msg",
+    [
+        "Error response from daemon: manifest for image not found",
+        "#7 ERROR: failed to solve: process exited with code 1",
+        "docker_build() error writing dockerfile",
+        "container startup failed: OCI runtime create failed",
+        "pull access denied for private/image",
+        "unauthorized: authentication required",
+        "mount setup: permission denied",
+        "Failed to pull image vastai/test:self-test",
+        "rpc error: code = Unknown desc = failed to pull and unpack image",
+        "manifest unknown: manifest unknown",
+        "no matching manifest for linux/amd64 in the manifest list entries",
+        "denied: requested access to the resource is denied",
+        "docker: Error response from daemon: could not select device driver",
+        "invalid reference format",
+    ],
+)
+def test_status_message_error_marker_detects_explicit_failures(status_msg):
+    assert diag.status_message_is_error(status_msg) is True
+
+
+@pytest.mark.parametrize(
+    "status_msg",
+    [
+        "#7 4.226 Get:70 http://archive.ubuntu.com/ubuntu noble/main "
+        "amd64 liberror-perl all 0.17029-2 [25.6 kB]",
+        "#7 9.425 Unpacking liberror-perl (0.17029-2) ...",
+        "#8 1.250 Collecting exceptiongroup",
+        "#8 2.500 Successfully installed exceptiongroup-1.3.0",
+        "#8 1.250 Collecting unauthorized",
+        "#8 2.500 Successfully installed unauthorized-1.3.0",
+        "Generating documentation for unauthorized clients",
+        "Error-prone package metadata generated successfully",
+        (
+            "#7 5.2 W: Failed to fetch http://archive.ubuntu.com/index\n"
+            "#7 5.2 W: Some index files failed to download. They have been "
+            "ignored, or old ones used instead."
+        ),
+        "Failed to fetch package metadata; using cached index",
+    ],
+)
+def test_status_message_error_marker_ignores_build_progress(status_msg):
+    assert diag.status_message_is_error(status_msg) is False
+
+
 def test_status_msg_ignores_empty_values():
     assert diag.classify_status_msg(None) is None
     assert diag.classify_status_msg("  ") is None
+    assert diag.status_message_is_error(None) is False
+    assert diag.status_message_is_error("  ") is False

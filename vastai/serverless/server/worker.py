@@ -105,7 +105,7 @@ class WorkerConfig:
     readiness_timeout: float = 1800.0
     # Per-probe /health HTTP timeout (s); set >= the backend health timeout
     # (e.g. SGLang can take ~20s internally) to avoid false regression errors.
-    healthcheck_probe_timeout: float = 10.0
+    healthcheck_probe_timeout: float = 30.0
 
 
 class EndpointHandlerFactory:

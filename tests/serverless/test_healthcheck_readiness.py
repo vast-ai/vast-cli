@@ -117,8 +117,6 @@ async def test_healthcheck_readiness_failed_benchmark_does_not_mark_loaded(
     backend._Backend__healthcheck_ready.set()  # first /health 200 arrived
     task = asyncio.create_task(backend._Backend__healthcheck_readiness())
     for _ in range(200):
-        if not backend._Backend__run_benchmark:  # never; loop just yields
-            break
         await asyncio.sleep(0.001)
         if backend._Backend__errored:
             break
@@ -274,8 +272,22 @@ def test_invalid_readiness_mode_rejected():
         )
 
 
+def test_healthcheck_and_lifecycle_mutually_exclusive():
+    # healthcheck readiness takes precedence over lifecycle in _start_tracking, so a
+    # lifecycle passed alongside it would be silently ignored — reject the combo loudly.
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        Backend(
+            model_server_url="http://localhost:8000",
+            model_log_file="/tmp/x.log",
+            benchmark_handler=MagicMock(),
+            log_actions=[],
+            readiness="healthcheck",
+            lifecycle=MagicMock(),
+        )
+
+
 def test_healthcheck_probe_timeout_defaults_and_threads():
     c = WorkerConfig()
-    assert c.healthcheck_probe_timeout == 10.0
+    assert c.healthcheck_probe_timeout == 30.0
     c2 = WorkerConfig(healthcheck_probe_timeout=25.0)
     assert c2.healthcheck_probe_timeout == 25.0

@@ -62,6 +62,13 @@ LOG_POLL_INTERVAL = 0.1
 SESSION_GC_INTERVAL = 5.0
 BENCHMARK_INDICATOR_FILE = ".has_benchmark"
 MAX_PUBKEY_FETCH_ATTEMPTS = 5
+# Secondary /health confirm timeout for the log and lifecycle readiness paths: those
+# already have a PRIMARY ready signal (the on_load log line / lifecycle __aenter__), so
+# this only bounds a health probe that never confirms afterward. Kept fixed and separate
+# from readiness_timeout — in 'healthcheck' mode readiness_timeout is the PRIMARY wait (a
+# large-model cold start) and is larger; coupling them would slow default-path failure
+# detection.
+HEALTH_CONFIRM_TIMEOUT = 300.0
 
 
 @dataclasses.dataclass
@@ -113,7 +120,7 @@ class Backend:
     # Per-probe HTTP timeout for the /health check (seconds). Some backends' health
     # does real work (SGLang runs a 1-token gen, up to ~20s internally); set this >=
     # the backend's own health timeout to avoid a false regression error on a stall.
-    healthcheck_probe_timeout: float = dataclasses.field(default=10.0)
+    healthcheck_probe_timeout: float = dataclasses.field(default=30.0)
 
     async def pyworker_update_handler(self, request: web.Request) -> web.Response:
         # Verify authorization header matches mtoken
@@ -365,6 +372,11 @@ class Backend:
         if self.readiness not in ("logs", "healthcheck"):
             raise ValueError(
                 f"invalid readiness={self.readiness!r}: expected 'logs' or 'healthcheck'"
+            )
+        if self.readiness == "healthcheck" and self.lifecycle is not None:
+            raise ValueError(
+                "readiness='healthcheck' and a lifecycle are mutually exclusive: the "
+                "healthcheck path takes precedence, so the lifecycle would be silently ignored"
             )
         self.metrics = Metrics()
         self.metrics._set_version(self.version)
@@ -755,11 +767,11 @@ class Backend:
                     log.debug("Lifecycle ready, waiting for healthcheck...")
                     try:
                         await asyncio.wait_for(
-                            self.__healthcheck_ready.wait(), timeout=self.readiness_timeout
+                            self.__healthcheck_ready.wait(), timeout=HEALTH_CONFIRM_TIMEOUT
                         )
                     except asyncio.TimeoutError:
                         raise Exception(
-                            f"Timed out waiting for healthcheck after lifecycle ready ({self.readiness_timeout}s)"
+                            f"Timed out waiting for healthcheck after lifecycle ready ({HEALTH_CONFIRM_TIMEOUT}s)"
                         )
                 else:
                     log.debug("Lifecycle ready, no healthcheck configured")
@@ -971,14 +983,14 @@ class Backend:
                                 )
                                 try:
                                     await asyncio.wait_for(
-                                        self.__healthcheck_ready.wait(), timeout=self.readiness_timeout
+                                        self.__healthcheck_ready.wait(), timeout=HEALTH_CONFIRM_TIMEOUT
                                     )
                                     log.debug(
                                         "Healthcheck confirmed - marking model as loaded"
                                     )
                                 except asyncio.TimeoutError:
                                     raise Exception(
-                                        f"Timed out waiting for healthcheck after benchmark (waited {self.readiness_timeout}s)"
+                                        f"Timed out waiting for healthcheck after benchmark (waited {HEALTH_CONFIRM_TIMEOUT}s)"
                                     )
                             else:
                                 # No healthcheck endpoint defined, wait 10 seconds as fallback

@@ -103,6 +103,27 @@ templates = vast.search_templates()
 invoices = vast.search_invoices()
 ```
 
+### Data Transfer
+
+```python
+# copy() takes vast URLs: "[C.|V.]id:path", "cloud_service[.id]:path", or "local:path"
+vast.copy("local:./data/", "C.12345:/workspace/data/")   # Local → instance
+vast.copy("C.12345:/workspace/results/", "local:./out/") # Instance → local
+vast.copy("12345:/workspace/", "67890:/workspace/")      # Instance → instance (legacy format)
+vast.copy("s3.101:/data/", "C.12345:/workspace/")        # Cloud service → instance
+vast.copy("V.1234:/file", "C.5678:/workspace/")          # Volume → instance
+vast.copy("V.1234:/file", "s3.101:/workspace/")          # Volume → cloud service
+
+vast.cancel_copy(dst_id=12345)                           # Cancel an in-progress copy
+
+# Cloud sync via a saved cloud connection (see the UI settings page for connection IDs)
+vast.cloud_copy(src="./data", dst="s3://bucket/path", instance=12345,
+                connection=<conn_id>, transfer="Instance To Cloud")
+vast.cancel_sync(dst_id=12345)
+```
+
+Volume copy is currently only supported for copying to other volumes, instances, or cloud services, not local. Do not use `/root` or `/` as a destination directory — it breaks ssh permissions on the instance and future copies fail. See https://vast.ai/docs/gpu-instances/data-movement#constraints.
+
 ### Serverless Deployments
 
 ```python

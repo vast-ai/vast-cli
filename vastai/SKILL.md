@@ -195,6 +195,9 @@ vastai copy <src> <dst>                                  # Copy between instance
 vastai copy local:./data/ <id>:/workspace/data/          # Local → instance (preferred format)
 vastai copy <id>:/workspace/results/ local:./results/    # Instance → local
 vastai copy <id-a>:/workspace/ <id-b>:/workspace/        # Instance → instance
+vastai copy s3.101:/data/ C.<id>:/workspace/             # Cloud service → instance (s3.<connection-id>)
+vastai copy V.1234:/file C.<id>:/workspace/              # Volume → instance
+vastai copy V.1234:/file s3.101:/workspace/              # Volume → cloud service
 # Legacy format also works: vastai copy 12345:./data ./local-data
 vastai cloud copy --src ./data --dst s3://bucket/path \
   --instance 12345 --connection <conn-id> \
@@ -203,6 +206,8 @@ vastai cancel copy <dst-id>                              # Cancel in-progress co
 ```
 
 **cloud copy flags:** `--src`, `--dst`, `--instance`, `--connection`, `--transfer`
+
+**Location formats:** `[instance_id:]path` (legacy), `C.instance_id:path`, `V.volume_id:path`, `cloud_service[.id]:path`, `local:path`. Volume copy is currently only supported for copying to other volumes, instances, or cloud services, not local. Never copy to `/root` or `/` — it breaks ssh permissions on the instance and future copies fail.
 
 ### Logs & Exec
 

@@ -1592,7 +1592,7 @@ def clone__volume(args: argparse.Namespace):
 
         You should not copy to /root or / as a destination directory, as this can mess up the permissions on your instance ssh folder, breaking future copy operations (as they use ssh authentication)
         You can see more information about constraints here: https://vast.ai/docs/gpu-instances/data-movement#constraints
-        Volume copy is currently only supported for copying to other volumes or instances, not cloud services or local.
+        Volume copy is currently only supported for copying to other volumes, instances, or cloud services, not local.
 
         Examples:
          vastai copy 6003036:/workspace/ 6003038:/workspace/

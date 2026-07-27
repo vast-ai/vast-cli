@@ -1,4 +1,5 @@
 from argparse import Namespace
+from unittest.mock import Mock
 
 import vast
 
@@ -73,6 +74,19 @@ def test_legacy_launch_passes_the_image_contract():
     assert "-e VAST_SELF_TEST_CLI_VERSION=1.4.4" in env
     assert "-e VAST_SELF_TEST_CLI_CONTRACT_VERSION=1.2.3" in env
     assert "-p 5001:5001/udp" in env
+
+
+def test_legacy_gpu_name_lookup_is_safe_when_offline(monkeypatch, tmp_path):
+    from requests.exceptions import ConnectTimeout
+
+    monkeypatch.setattr(vast, "CACHE_FILE", str(tmp_path / "missing-cache.json"))
+    monkeypatch.setattr(
+        vast.requests,
+        "get",
+        Mock(side_effect=ConnectTimeout("offline")),
+    )
+
+    assert vast._get_gpu_names() is None
 
 
 def test_legacy_preflight_caps_system_ram_requirement_for_b300(monkeypatch):

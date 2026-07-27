@@ -75,6 +75,26 @@ curl -fsSL https://vast.ai/install.sh | bash
    immediately (no PyPI index propagation window) — into an isolated venv.
    **System Python is never used, even if present.**
 
+### Install output at a terminal
+
+The bootstrap tools are chatty — a 33 MB CPython download, then ~40 `+ pkg==ver`
+lines — and that scrolled the "Get started" block off the screen, which is the
+one thing a first-time installer needs to read. So at a TTY the install renders
+as a fixed two-line region on stderr: a step bar plus a single live log line
+that tails whatever `uv` is doing (`Downloading cpython-… (32.6MiB)`, then
+package names). The region is erased when the install finishes, leaving ~9
+lines total, ending with the next steps.
+
+- A background ticker animates the spinner; steps and tool output reach it
+  through state files under the temp workdir, so a step change repaints
+  immediately and the two writers can never split a frame.
+- Tool output is tailed through `tee`, with the full copy replayed if that step
+  fails — a wrapped command's own diagnostics are the real error, so they must
+  outlive the region.
+- No TTY (CI, pipes) → plain step lines and tool output straight through, as
+  before; `VASTAI_PROGRESS=0|1` forces either mode. Ctrl-C is trapped so the
+  region is erased and the cursor restored on the way out.
+
 ### Fail-closed guarantees
 
 - Whole script wrapped in `main()`, invoked on the **last line** — a truncated
@@ -288,6 +308,7 @@ is.
 - `VASTAI_CLI_BASE_URL` — manifest origin (dev/release verification).
 - `VASTAI_PIP_SPEC` — dev/CI: install from a local wheel path/URL.
 - `VASTAI_GLIBC_FLOOR` — override the minimum-glibc gate (default 2.31).
+- `VASTAI_PROGRESS=0|1` — force the progress bar off/on (default: on at a TTY, §2).
 - `VASTAI_NO_UPDATE_CHECK=1` — suppress the nudge.
 - `--no-modify-path` — skip PATH/completion edits.
 

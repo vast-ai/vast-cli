@@ -23,6 +23,7 @@ from vastai.api import storage as storage_api
 
 
 from vastai.cli.utils import get_parser as _get_parser, get_client  # noqa: F401
+from vastai.cli.util import VERSION as CLI_VERSION
 from vastai.cli.self_test.machine_diagnostics import (
     base_result,
     compact_offer_metadata,
@@ -68,6 +69,9 @@ from vastai.cli.self_test.port_range import (
 
 parser = _get_parser()
 SELF_TEST_INSTANCE_LABEL_PREFIX = "vast-self-test-machine"
+SELF_TEST_MIN_CLI_VERSION = "1.2.3"
+SELF_TEST_CLI_CONTRACT_VERSION = SELF_TEST_MIN_CLI_VERSION
+SELF_TEST_IMAGE_TAG_PREFIX = f"self-test-cli-{SELF_TEST_MIN_CLI_VERSION}-cuda"
 INSTANCE_LOG_TAIL_LINES = 1000
 
 
@@ -751,6 +755,12 @@ def self_test__machine(args):
     if getattr(args, "ignore_requirements", False):
         result["warning"] = ignore_requirements_warning
         result["diagnostics"]["requirements_ignored"] = True
+    result["diagnostics"]["cli"] = {
+        "version": CLI_VERSION,
+        "self_test_contract_version": SELF_TEST_CLI_CONTRACT_VERSION,
+        "self_test_min_cli_version": SELF_TEST_MIN_CLI_VERSION,
+        "self_test_image_tag_prefix": SELF_TEST_IMAGE_TAG_PREFIX,
+    }
 
     def output_line(*args_to_print):
         return " ".join(str(item) for item in args_to_print)
@@ -1061,7 +1071,7 @@ def self_test__machine(args):
         def cuda_map_to_image(cuda_version, compute_cap=None):
             """Return (image, reason). Reason explains why this image was picked."""
             docker_repo = "vastai/test"
-            image_tag_prefix = "self-test-v2-cuda"
+            image_tag_prefix = SELF_TEST_IMAGE_TAG_PREFIX
 
             def image_for(version):
                 return f"{docker_repo}:{image_tag_prefix}-{version}"
@@ -1153,7 +1163,12 @@ def self_test__machine(args):
                     and result.get("port_scan", {}).get("status") == "pending"
                 ):
                     port_args += " " + port_range_docker_args(configured_port_range)
-                env_args = f"-e TZ=PDT -e XNAME=XX4 {port_args}"
+                env_args = (
+                    f"-e TZ=PDT -e XNAME=XX4"
+                    f" -e VAST_SELF_TEST_CLI_VERSION={CLI_VERSION}"
+                    f" -e VAST_SELF_TEST_CLI_CONTRACT_VERSION={SELF_TEST_CLI_CONTRACT_VERSION}"
+                    f" {port_args}"
+                )
                 if configured_port_range is not None and result.get("port_scan", {}).get("status") == "pending":
                     env_args += (
                         f" -e VAST_SELF_TEST_PORT_START={configured_port_range.start}"

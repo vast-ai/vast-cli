@@ -1340,6 +1340,85 @@ def get_ssh_key(argstr):
     return ssh_key
 
 
+SELF_TEST_MIN_CLI_VERSION = "1.2.3"
+SELF_TEST_CLI_CONTRACT_VERSION = SELF_TEST_MIN_CLI_VERSION
+SELF_TEST_IMAGE_TAG_PREFIX = f"self-test-cli-{SELF_TEST_MIN_CLI_VERSION}-cuda"
+
+
+def self_test_cuda_map_to_image(cuda_version, compute_cap=None):
+    """Return the versioned self-test image compatible with a host."""
+    docker_repo = "vastai/test"
+
+    def image_for(version):
+        return f"{docker_repo}:{SELF_TEST_IMAGE_TAG_PREFIX}-{version}"
+
+    if isinstance(cuda_version, float):
+        cuda_version = str(cuda_version)
+    original_cuda = cuda_version
+
+    if compute_cap is not None and compute_cap < 700:
+        return (
+            image_for("11.8"),
+            f"compute_cap={compute_cap} below sm_70 → forced {SELF_TEST_IMAGE_TAG_PREFIX}-11.8",
+        )
+
+    clamped_for_volta = False
+    if compute_cap is not None and compute_cap < 750:
+        if float(cuda_version) > 12.8:
+            cuda_version = "12.8"
+            clamped_for_volta = True
+
+    docker_tag_map = {
+        "11.8": image_for("11.8"),
+        "12.8": image_for("12.8"),
+        "13.0": image_for("13.0"),
+        "13.3": image_for("13.3"),
+    }
+    cap_hint = (
+        f"compute_cap={compute_cap}"
+        if compute_cap is not None
+        else "compute_cap=unknown"
+    )
+    cuda_float = float(cuda_version)
+    compatible_versions = sorted(float(version) for version in docker_tag_map)
+    selected_version = max(
+        (version for version in compatible_versions if version <= cuda_float),
+        default=None,
+    )
+    if selected_version is None:
+        raise KeyError(
+            f"No CUDA version found for {cuda_version} or any lower version"
+        )
+
+    selected_version_str = f"{selected_version:.1f}"
+    image = docker_tag_map[selected_version_str]
+    if clamped_for_volta:
+        reason = (
+            f"{cap_hint} (Volta) + cuda_max_good={original_cuda} → "
+            f"clamped to {cuda_version} → {image}"
+        )
+    elif selected_version_str == cuda_version:
+        reason = (
+            f"{cap_hint}, cuda_max_good={cuda_version} → exact match → {image}"
+        )
+    else:
+        reason = (
+            f"{cap_hint}, cuda_max_good={original_cuda} → "
+            f"selected newest image <= host CUDA ({selected_version_str}) → {image}"
+        )
+    return image, reason
+
+
+def self_test_launch_env(cli_version=VERSION):
+    """Return the legacy launcher's contract-aware self-test environment."""
+    return (
+        f"-e TZ=PDT -e XNAME=XX4 "
+        f"-e VAST_SELF_TEST_CLI_VERSION={cli_version} "
+        f"-e VAST_SELF_TEST_CLI_CONTRACT_VERSION={SELF_TEST_CLI_CONTRACT_VERSION} "
+        "-p 5000:5000 -p 1234:1234 -p 5001:5001/udp"
+    )
+
+
 @parser.command(
     argument("instance_id", help="id of instance to attach to", type=int),
     argument("ssh_key", help="ssh key to attach to instance", type=str),
@@ -8449,82 +8528,6 @@ def self_test__machine(args):
         if args.ignore_requirements:
             progress_print(args, ignore_requirements_warning)
 
-        def cuda_map_to_image(cuda_version, compute_cap=None):
-            """
-            Map a CUDA version (and optional compute_cap) to (image, reason).
-
-            If compute_cap is below 700 (sm_70 / Volta), the cuda-11.8 image
-            is forced regardless of CUDA version. cuda-12.8 (torch 2.10) still
-            ships sm_70 kernels so Volta hosts land on cuda-12.8 via the
-            version map; cuda-13.0 (torch 2.11) and cuda-12.8 do not ship
-            sm_50/sm_60 kernels, so Maxwell and Pascal must use cuda-11.8.
-
-            Volta hosts whose operator has installed a CUDA 13 driver get the
-            cuda_version clamped down to 12.8 before the version map runs,
-            since cuda-13.0 wheels never built sm_70.
-
-            The returned reason is a short human-readable string so callers
-            can log why a particular image was chosen.
-            """
-            docker_repo = "vastai/test"
-            # Convert float input to string
-            if isinstance(cuda_version, float):
-                cuda_version = str(cuda_version)
-            original_cuda = cuda_version
-
-            # Force the cuda-11.8 legacy image on pre-Volta hardware (sm_50/sm_60).
-            if compute_cap is not None and compute_cap < 700:
-                return (
-                    f"{docker_repo}:self-test-cuda-11.8",
-                    f"compute_cap={compute_cap} below sm_70 → forced cuda-11.8",
-                )
-
-            # Volta sm_70/sm_72: cuda-12.8 has sm_70, cuda-13.0 doesn't. Cap
-            # driver CUDA at 12.8 so the map below picks cuda-12.8 even on a
-            # V100 host with a CUDA 13 driver installed.
-            clamped_for_volta = False
-            if compute_cap is not None and compute_cap < 750:
-                if float(cuda_version) > 12.8:
-                    cuda_version = "12.8"
-                    clamped_for_volta = True
-
-            # Predefined mapping. Tracks PyTorch releases and the docker
-            # images we currently publish (cuda-11.8 / cuda-12.8 / cuda-13.0).
-            docker_tag_map = {
-                "11.8": "cuda-11.8",
-                "12.8": "cuda-12.8",
-                "13.0": "cuda-13.0",
-            }
-
-            cap_hint = f"compute_cap={compute_cap}" if compute_cap is not None else "compute_cap=unknown"
-
-            if cuda_version in docker_tag_map:
-                tag = docker_tag_map[cuda_version]
-                if clamped_for_volta:
-                    reason = f"{cap_hint} (Volta) + cuda_max_good={original_cuda} → clamped to {cuda_version} → {tag}"
-                else:
-                    reason = f"{cap_hint}, cuda_max_good={cuda_version} → exact match → {tag}"
-                return f"{docker_repo}:self-test-{tag}", reason
-
-            # Try to find the next version down
-            cuda_float = float(cuda_version)
-
-            # Try to decrement the version by 0.1 until we find a match or run out of options
-            next_version = round(cuda_float - 0.1, 1)
-            while next_version >= min(float(v) for v in docker_tag_map.keys()):
-                next_version_str = str(next_version)
-                if next_version_str in docker_tag_map:
-                    tag = docker_tag_map[next_version_str]
-                    reason = (
-                        f"{cap_hint}, cuda_max_good={original_cuda} → "
-                        f"stepped down to {next_version_str} → {tag}"
-                    )
-                    return f"{docker_repo}:self-test-{tag}", reason
-                next_version = round(next_version - 0.1, 1)
-
-            raise KeyError(f"No CUDA version found for {cuda_version} or any lower version")
-    
-
         def search_offers_and_get_top(machine_id):
             search_args = argparse.Namespace(
                 query=[f"machine_id={machine_id}", "verified=any", "rentable=true", "rented=any"],
@@ -8567,7 +8570,10 @@ def self_test__machine(args):
             ask_contract_id = top_offer["id"]
             cuda_version = top_offer["cuda_max_good"]
             compute_cap = top_offer.get("compute_cap")
-            docker_image, image_reason = cuda_map_to_image(cuda_version, compute_cap)
+            docker_image, image_reason = self_test_cuda_map_to_image(
+                cuda_version,
+                compute_cap,
+            )
 
             # Prepare arguments for instance creation
             create_args = argparse.Namespace(
@@ -8589,7 +8595,7 @@ def self_test__machine(args):
                 lang_utf8=False,
                 python_utf8=False,
                 extra=None,
-                env="-e TZ=PDT -e XNAME=XX4 -p 5000:5000 -p 1234:1234",
+                env=self_test_launch_env(),
                 args=None,
                 force=False,
                 cancel_unavail=False,

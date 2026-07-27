@@ -814,10 +814,19 @@ class TestSelfTestMachineDiagnostics:
         result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
 
         assert result["diagnostics"]["image"]["override"] is False
-        assert create.call_args.kwargs["image"] == "vastai/test:self-test-v2-cuda-12.8"
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.3-cuda-12.8"
         assert create.call_args.kwargs["runtype"] == "ssh_direc ssh_proxy"
         assert create.call_args.kwargs["label"] == "vast-self-test-machine-42"
         assert result["diagnostics"]["launch"]["label"] == "vast-self-test-machine-42"
+        assert result["diagnostics"]["cli"]["self_test_min_cli_version"] == "1.2.3"
+        assert result["diagnostics"]["cli"]["self_test_contract_version"] == "1.2.3"
+        assert (
+            result["diagnostics"]["cli"]["self_test_image_tag_prefix"]
+            == "self-test-cli-1.2.3-cuda"
+        )
+        env = create.call_args.kwargs["env"]
+        assert env["VAST_SELF_TEST_CLI_VERSION"]
+        assert env["VAST_SELF_TEST_CLI_CONTRACT_VERSION"] == "1.2.3"
 
     def test_cuda_mapping_selects_cuda_133_exact_match(
         self, parse_argv, patch_get_client, monkeypatch
@@ -826,7 +835,7 @@ class TestSelfTestMachineDiagnostics:
         result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
 
         assert result["diagnostics"]["image"]["override"] is False
-        assert create.call_args.kwargs["image"] == "vastai/test:self-test-v2-cuda-13.3"
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.3-cuda-13.3"
         assert "exact match" in result["diagnostics"]["image"]["reason"]
 
     def test_cuda_mapping_steps_down_to_newest_compatible_image(
@@ -836,7 +845,7 @@ class TestSelfTestMachineDiagnostics:
         result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
 
         assert result["diagnostics"]["image"]["override"] is False
-        assert create.call_args.kwargs["image"] == "vastai/test:self-test-v2-cuda-13.0"
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.3-cuda-13.0"
         assert "selected newest image <= host CUDA (13.0)" in result["diagnostics"]["image"]["reason"]
 
     def test_cuda_mapping_uses_cuda_133_for_newer_cuda_hosts(
@@ -846,7 +855,7 @@ class TestSelfTestMachineDiagnostics:
         result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
 
         assert result["diagnostics"]["image"]["override"] is False
-        assert create.call_args.kwargs["image"] == "vastai/test:self-test-v2-cuda-13.3"
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.3-cuda-13.3"
         assert "selected newest image <= host CUDA (13.3)" in result["diagnostics"]["image"]["reason"]
 
     def test_cuda_mapping_still_clamps_volta_to_cuda_128(
@@ -856,14 +865,14 @@ class TestSelfTestMachineDiagnostics:
         result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
 
         assert result["diagnostics"]["image"]["override"] is False
-        assert create.call_args.kwargs["image"] == "vastai/test:self-test-v2-cuda-12.8"
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.3-cuda-12.8"
         assert "clamped to 12.8" in result["diagnostics"]["image"]["reason"]
 
     def test_startup_status_msg_is_classified_in_raw_output(
         self, parse_argv, patch_get_client, monkeypatch
     ):
         offer = _self_test_offer()
-        status_msg = "Error response from daemon: manifest for vastai/test:self-test-v2-cuda-99 not found"
+        status_msg = "Error response from daemon: manifest for vastai/test:self-test-cli-1.2.3-cuda-99 not found"
         monkeypatch.setattr(
             "vastai.cli.commands.machines.offers_api.search_offers",
             Mock(return_value=[offer]),

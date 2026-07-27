@@ -102,7 +102,7 @@ class WorkerConfig:
     # (200 as soon as the HTTP socket binds) trips readiness before the model is up
     # and benchmarks an unloaded server.
     readiness: str = "logs"
-    readiness_timeout: float = 300.0
+    readiness_timeout: float = 1800.0
     # Per-probe /health HTTP timeout (s); set >= the backend health timeout
     # (e.g. SGLang can take ~20s internally) to avoid false regression errors.
     healthcheck_probe_timeout: float = 10.0

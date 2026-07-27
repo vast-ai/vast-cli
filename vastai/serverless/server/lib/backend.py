@@ -109,7 +109,7 @@ class Backend:
     # Readiness mode: 'logs' (default — mark loaded on the on_load log line) or
     # 'healthcheck' (mark loaded on the first successful /health probe, no log dep).
     readiness: str = dataclasses.field(default="logs")
-    readiness_timeout: float = dataclasses.field(default=300.0)
+    readiness_timeout: float = dataclasses.field(default=1800.0)
     # Per-probe HTTP timeout for the /health check (seconds). Some backends' health
     # does real work (SGLang runs a 1-token gen, up to ~20s internally); set this >=
     # the backend's own health timeout to avoid a false regression error on a stall.

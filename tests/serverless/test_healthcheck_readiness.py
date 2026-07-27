@@ -50,7 +50,7 @@ async def _run_one_healthcheck(
 def test_worker_config_readiness_defaults_to_logs():
     c = WorkerConfig()
     assert c.readiness == "logs"
-    assert c.readiness_timeout == 300.0
+    assert c.readiness_timeout == 1800.0
 
 
 def test_worker_config_readiness_healthcheck_opt_in():
@@ -62,7 +62,7 @@ def test_worker_config_readiness_healthcheck_opt_in():
 def test_backend_threads_readiness_defaults(serverless_backend_testkit):
     backend, _ = serverless_backend_testkit.make_backend()
     assert backend.readiness == "logs"
-    assert backend.readiness_timeout == 300.0
+    assert backend.readiness_timeout == 1800.0
 
 
 @pytest.mark.asyncio

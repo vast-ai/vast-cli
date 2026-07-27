@@ -1415,7 +1415,7 @@ def self_test_launch_env(cli_version=VERSION):
         f"-e TZ=PDT -e XNAME=XX4 "
         f"-e VAST_SELF_TEST_CLI_VERSION={cli_version} "
         f"-e VAST_SELF_TEST_CLI_CONTRACT_VERSION={SELF_TEST_CLI_CONTRACT_VERSION} "
-        "-p 5000:5000 -p 1234:1234 -p 5001:5001/udp"
+        "-p 5000:5000 -p 5001:5001/udp"
     )
 
 
@@ -8673,7 +8673,7 @@ def self_test__machine(args):
                             progress_print(args, f"All mapped ports on instance: {all_ports if all_ports else 'none'}")
                             progress_print(args, f"Possible causes:")
                             progress_print(args, f"  - The machine's firewall is blocking port 5000.")
-                            progress_print(args, f"  - direct_port_count is too low on this machine (must be >= 5).")
+                            progress_print(args, f"  - direct_port_count is too low on this machine (must be >= 4).")
                             progress_print(args, f"  - The container failed to expose the port correctly.")
                             progress_print(args, f"Check direct_port_count: vastai search offers 'machine_id={args.machine_id} rentable=any verified=any'")
                             result["reason"] = f"Port 5000/tcp not mapped. Available ports: {all_ports}"
@@ -9575,8 +9575,8 @@ def check_requirements(machine_id, api_key, args):
             unmet_reasons.append("Reliability <= 0.90")
 
         # 3. Direct port count
-        if safe_float(top_offer.get('direct_port_count')) < 5:
-            unmet_reasons.append("Direct port count < 5")
+        if safe_float(top_offer.get('direct_port_count')) < 4:
+            unmet_reasons.append("Direct port count < 4")
 
         # 4. PCIe bandwidth
         if safe_float(top_offer.get('pcie_bw')) <= 2.85:

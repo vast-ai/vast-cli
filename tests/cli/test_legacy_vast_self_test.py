@@ -74,6 +74,7 @@ def test_legacy_launch_passes_the_image_contract():
     assert "-e VAST_SELF_TEST_CLI_VERSION=1.4.4" in env
     assert "-e VAST_SELF_TEST_CLI_CONTRACT_VERSION=1.2.3" in env
     assert "-p 5001:5001/udp" in env
+    assert "-p 1234:1234" not in env
 
 
 def test_legacy_gpu_name_lookup_is_safe_when_offline(monkeypatch, tmp_path):
@@ -113,3 +114,13 @@ def test_legacy_preflight_keeps_95_percent_requirement_below_cap(monkeypatch):
     )
     assert passed is False
     assert "System RAM is less than total VRAM." in reasons
+
+
+def test_legacy_preflight_direct_port_minimum_is_four(monkeypatch):
+    passed, reasons = _check(monkeypatch, _b300_offer(direct_port_count=4))
+    assert passed is True
+    assert "Direct port count < 4" not in reasons
+
+    passed, reasons = _check(monkeypatch, _b300_offer(direct_port_count=3))
+    assert passed is False
+    assert "Direct port count < 4" in reasons

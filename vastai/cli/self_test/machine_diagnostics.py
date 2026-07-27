@@ -24,7 +24,7 @@ NO_OFFER_ROOT_STATES = (
 # Once a host has about 2 TB of system RAM, do not disqualify it only because it
 # is slightly below 95% of total VRAM.
 SYSTEM_RAM_REQUIREMENT_CAP_MIB = 2_000_000
-MIN_DIRECT_PORTS = 5
+MIN_DIRECT_PORTS = 4
 RECOMMENDED_DIRECT_PORTS_PER_GPU = 100
 
 
@@ -198,7 +198,7 @@ def preflight_requirement_checks(offer):
             "ports",
             direct_port_count >= required_min_ports,
             (
-                "The tester needs at least 5 directly mapped ports on the host for remote "
+                "The tester needs at least 4 directly mapped ports on the host for remote "
                 "progress, SSH checks, and runtime port allocation."
             ),
             (
@@ -298,7 +298,7 @@ def preflight_requirement_checks(offer):
                 ),
                 (
                     "This is advisory only, not a self-test gate. Configure 100 direct ports per "
-                    "listed GPU when practical; the hard minimum is 5 direct ports per host."
+                    "listed GPU when practical; the hard minimum is 4 direct ports per host."
                 ),
             )
         )

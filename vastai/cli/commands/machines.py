@@ -60,10 +60,16 @@ from vastai.cli.self_test.support_bundle import (
     support_bundles_enabled,
 )
 from vastai.cli.self_test.port_range import (
-    FIXED_PORT_MAPPING_COUNT,
+    DEFAULT_PROBE_TIMEOUT_SECONDS,
+    DEFAULT_RESPONDER_READY_TIMEOUT_SECONDS,
+    DEFAULT_SCAN_DEADLINE_SECONDS,
+    fixed_port_docker_args,
     port_range_docker_args,
+    positive_finite_seconds,
+    required_direct_port_count,
     resolve_port_range,
     scan_mapped_port_range,
+    wait_for_port_responder_readiness,
 )
 
 
@@ -73,6 +79,7 @@ SELF_TEST_MIN_CLI_VERSION = "1.2.3"
 SELF_TEST_CLI_CONTRACT_VERSION = SELF_TEST_MIN_CLI_VERSION
 SELF_TEST_IMAGE_TAG_PREFIX = f"self-test-cli-{SELF_TEST_MIN_CLI_VERSION}-cuda"
 INSTANCE_LOG_TAIL_LINES = 1000
+PORT_SCAN_DETAIL_LIMIT = 50
 
 
 # ---------------------------------------------------------------------------
@@ -711,10 +718,32 @@ def dump_logs(args):
     argument("--debugging", action="store_true", help="Enable debugging output"),
     argument("--ignore-requirements", action="store_true", help="Ignore the minimum system requirements and run the self test regardless"),
     argument("--test-image", help="Use a custom self-test image for testing custom self-test images. Overrides VAST_SELF_TEST_IMAGE and CUDA mapping.", type=str),
-    argument("--port-scan-timeout", type=float, default=3.0, help="Timeout in seconds for each direct-port TCP/UDP probe"),
+    argument(
+        "--port-scan-timeout",
+        type=positive_finite_seconds,
+        default=DEFAULT_PROBE_TIMEOUT_SECONDS,
+        help="Finite timeout in seconds for each direct-port TCP/UDP probe",
+    ),
+    argument(
+        "--port-scan-deadline",
+        type=positive_finite_seconds,
+        default=DEFAULT_SCAN_DEADLINE_SECONDS,
+        help="Hard total deadline in seconds for the configured direct-port scan",
+    ),
+    argument(
+        "--port-ready-timeout",
+        type=positive_finite_seconds,
+        default=DEFAULT_RESPONDER_READY_TIMEOUT_SECONDS,
+        help="Maximum seconds to wait for image port responders before scanning",
+    ),
     argument("--support-bundle-dir", help="Directory for failure diagnostic bundles (default: /tmp)", type=str),
     argument("--no-support-bundle", action="store_true", help="Do not create a diagnostic tarball when the self-test fails"),
-    usage="vastai self-test machine <machine_id> [--debugging] [--ignore-requirements] [--test-image IMAGE] [--port-scan-timeout SECONDS]",
+    usage=(
+        "vastai self-test machine <machine_id> [--debugging] "
+        "[--ignore-requirements] [--test-image IMAGE] "
+        "[--port-scan-timeout SECONDS] [--port-scan-deadline SECONDS] "
+        "[--port-ready-timeout SECONDS]"
+    ),
     help="[Host] Perform a self-test on the specified machine",
     epilog=deindent("""
         This command tests if a machine meets specific requirements and
@@ -747,7 +776,11 @@ def self_test__machine(args):
     if not hasattr(args, 'test_image'):
         args.test_image = None
     if not hasattr(args, 'port_scan_timeout'):
-        args.port_scan_timeout = 3.0
+        args.port_scan_timeout = DEFAULT_PROBE_TIMEOUT_SECONDS
+    if not hasattr(args, 'port_scan_deadline'):
+        args.port_scan_deadline = DEFAULT_SCAN_DEADLINE_SECONDS
+    if not hasattr(args, 'port_ready_timeout'):
+        args.port_ready_timeout = DEFAULT_RESPONDER_READY_TIMEOUT_SECONDS
     if not hasattr(args, 'support_bundle_dir'):
         args.support_bundle_dir = None
     if not hasattr(args, 'no_support_bundle'):
@@ -1051,7 +1084,7 @@ def self_test__machine(args):
                 available_direct_ports = int(float(selected_offer.get("direct_port_count") or 0))
             except (TypeError, ValueError):
                 available_direct_ports = 0
-            required_direct_ports = configured_port_range.count + FIXED_PORT_MAPPING_COUNT
+            required_direct_ports = required_direct_port_count(configured_port_range)
             result["port_scan"].update({
                 "available_direct_ports": available_direct_ports,
                 "required_direct_ports": required_direct_ports,
@@ -1157,12 +1190,15 @@ def self_test__machine(args):
                 result["phase"] = "rental"
                 result["stage"] = "create_instance"
                 from vastai.cli.util import parse_env
-                port_args = "-p 5000:5000 -p 1234:1234 -p 5001:5001/udp"
+                port_args = fixed_port_docker_args(configured_port_range)
                 if (
                     configured_port_range is not None
                     and result.get("port_scan", {}).get("status") == "pending"
                 ):
-                    port_args += " " + port_range_docker_args(configured_port_range)
+                    range_args = port_range_docker_args(configured_port_range)
+                    port_args = " ".join(
+                        part for part in (port_args, range_args) if part
+                    )
                 env_args = (
                     f"-e TZ=PDT -e XNAME=XX4"
                     f" -e VAST_SELF_TEST_CLI_VERSION={CLI_VERSION}"
@@ -1180,7 +1216,7 @@ def self_test__machine(args):
                 result["diagnostics"]["launch"] = {
                     "runtype": runtype,
                     "jupyter_lab": False,
-                    "ports": ["5000/tcp", "1234/tcp", "5001/udp"],
+                    "ports": ["5000/tcp", "5001/udp"],
                     "label": self_test_label,
                 }
                 if configured_port_range is not None and result.get("port_scan", {}).get("status") == "pending":
@@ -1521,7 +1557,7 @@ def self_test__machine(args):
                                     progress_print("  1. TCP firewall/NAT forwarding is blocking the mapped public port")
                                     progress_print("  2. Container did not start or did not bind the progress server")
                                     progress_print("  3. NAT loopback/hairpinning may fail when testing from the same LAN as the host")
-                                    progress_print(f"  4. direct_port_count below the 5-port host minimum - check with: vastai search offers 'machine_id={machine_id} rentable=any rented=any'")
+                                    progress_print(f"  4. direct_port_count below the 4-port host minimum - check with: vastai search offers 'machine_id={machine_id} rentable=any rented=any'")
                                     return_reason = "Port never reachable within 120 seconds"
                                     diagnostic = make_failure(
                                         PROGRESS_ENDPOINT_UNREACHABLE,
@@ -1612,11 +1648,39 @@ def self_test__machine(args):
 
                         if result.get("port_scan", {}).get("status") == "pending":
                             try:
+                                urllib3.disable_warnings(
+                                    urllib3.exceptions.InsecureRequestWarning
+                                )
+                                readiness = wait_for_port_responder_readiness(
+                                    instance_info,
+                                    ip_address,
+                                    timeout=args.port_ready_timeout,
+                                    request_timeout=args.port_scan_timeout,
+                                )
+                                result["port_scan"]["readiness"] = readiness
+                                if not readiness.get("ready"):
+                                    result["port_scan"]["status"] = "failed"
+                                    result["reason"] = (
+                                        readiness.get("reason")
+                                        or "Configured-port responders did not become ready."
+                                    )
+                                    progress_print(
+                                        "Port-range scan could not start: "
+                                        f"{result['reason']}"
+                                    )
+                                    if instance_exist(instance_id):
+                                        destroy_instance_silent(
+                                            instance_id,
+                                            collect_logs=True,
+                                        )
+                                    return finish_failure()
+
                                 scan = scan_mapped_port_range(
                                     instance_info,
                                     ip_address,
                                     configured_port_range,
                                     timeout=args.port_scan_timeout,
+                                    total_timeout=args.port_scan_deadline,
                                 )
                                 result["port_scan"] = {
                                     **result["port_scan"],
@@ -1626,17 +1690,43 @@ def self_test__machine(args):
                                     f"Port-range scan {scan['status']}: "
                                     f"{scan['mapped_entries']} mapped entries for {scan['range']}."
                                 )
-                                for missing in scan["missing_mappings"]:
+                                for missing in scan["missing_mappings"][:PORT_SCAN_DETAIL_LIMIT]:
                                     progress_print(
                                         f"  MISSING {missing['protocol'].upper()} "
                                         f"{missing['container_port']}/{missing['protocol']} mapping"
                                     )
-                                for failed in scan["failed"]:
+                                omitted_missing = (
+                                    len(scan["missing_mappings"])
+                                    - PORT_SCAN_DETAIL_LIMIT
+                                )
+                                if omitted_missing > 0:
+                                    progress_print(
+                                        f"  ... {omitted_missing} additional missing "
+                                        "mappings omitted from console output; "
+                                        "the structured result contains all entries."
+                                    )
+                                for failed in scan["failed"][:PORT_SCAN_DETAIL_LIMIT]:
                                     progress_print(
                                         f"  FAILED {failed['protocol'].upper()} "
                                         f"{failed['public_ip']}:{failed['host_port']} "
                                         f"(container {failed['container_port']}/{failed['protocol']}): "
                                         f"{failed.get('error', 'unreachable')}"
+                                    )
+                                omitted_failed = (
+                                    len(scan["failed"]) - PORT_SCAN_DETAIL_LIMIT
+                                )
+                                if omitted_failed > 0:
+                                    progress_print(
+                                        f"  ... {omitted_failed} additional failed "
+                                        "probes omitted from console output; "
+                                        "the structured result contains all entries."
+                                    )
+                                if scan.get("deadline_exceeded"):
+                                    progress_print(
+                                        "  Scan deadline exceeded after "
+                                        f"{scan['deadline_seconds']} seconds; "
+                                        f"{scan.get('unprobed_count', 0)} mapped entries "
+                                        "were not probed."
                                     )
                                 if scan["status"] != "passed":
                                     result["reason"] = f"Port-range connectivity check failed for {scan['range']}."
@@ -1669,7 +1759,7 @@ def self_test__machine(args):
                             progress_print(f"Port 5000/tcp not found in mapped ports. Available ports: {list(all_ports.keys())}")
                             progress_print("Possible causes:")
                             progress_print("  1. The instance launch did not map the self-test progress port")
-                            progress_print(f"  2. direct_port_count below the 5-port host minimum - check with: vastai search offers 'machine_id={args.machine_id} rentable=any rented=any'")
+                            progress_print(f"  2. direct_port_count below the 4-port host minimum - check with: vastai search offers 'machine_id={args.machine_id} rentable=any rented=any'")
                             progress_print("  3. Container is not exposing port 5000/tcp")
                             set_runtime_failure(
                                 make_failure(

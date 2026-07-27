@@ -7,6 +7,8 @@ from unittest.mock import Mock
 import pytest
 import requests
 
+from vastai.cli.self_test.port_range import PortRange
+
 
 class TestShowMachines:
     def test_show_machines_raw(self, parse_argv, patch_get_client, mock_response):
@@ -582,7 +584,30 @@ class TestSelfTestMachineDiagnostics:
             for check in informational_checks(checks)
         )
 
-    def test_preflight_direct_port_minimum_is_five_per_host(self):
+    def test_preflight_direct_port_minimum_is_four_per_host(self):
+        from vastai.cli.self_test.machine_diagnostics import preflight_requirement_checks
+
+        offer = _self_test_offer(
+            num_gpus=8,
+            gpu_ram=24 * 1024,
+            gpu_total_ram=8 * 24 * 1024,
+            cpu_ram=256 * 1024,
+            cpu_cores=32,
+            direct_port_count=3,
+            inet_down=600,
+            inet_up=600,
+        )
+
+        checks = preflight_requirement_checks(offer)
+        direct_ports = next(check for check in checks if check["id"] == "network.direct_ports")
+
+        assert direct_ports["status"] == "fail"
+        assert direct_ports["actual"] == 3
+        assert direct_ports["required"] == 4
+        assert direct_ports["operator"] == ">="
+        assert "at least 4 directly mapped ports on the host" in direct_ports["purpose"]
+
+    def test_preflight_direct_port_minimum_does_not_scale_by_gpu_count(self):
         from vastai.cli.self_test.machine_diagnostics import preflight_requirement_checks
 
         offer = _self_test_offer(
@@ -599,31 +624,8 @@ class TestSelfTestMachineDiagnostics:
         checks = preflight_requirement_checks(offer)
         direct_ports = next(check for check in checks if check["id"] == "network.direct_ports")
 
-        assert direct_ports["status"] == "fail"
-        assert direct_ports["actual"] == 4
-        assert direct_ports["required"] == 5
-        assert direct_ports["operator"] == ">="
-        assert "at least 5 directly mapped ports on the host" in direct_ports["purpose"]
-
-    def test_preflight_direct_port_minimum_does_not_scale_by_gpu_count(self):
-        from vastai.cli.self_test.machine_diagnostics import preflight_requirement_checks
-
-        offer = _self_test_offer(
-            num_gpus=8,
-            gpu_ram=24 * 1024,
-            gpu_total_ram=8 * 24 * 1024,
-            cpu_ram=256 * 1024,
-            cpu_cores=32,
-            direct_port_count=5,
-            inet_down=600,
-            inet_up=600,
-        )
-
-        checks = preflight_requirement_checks(offer)
-        direct_ports = next(check for check in checks if check["id"] == "network.direct_ports")
-
         assert direct_ports["status"] == "pass"
-        assert direct_ports["required"] == 5
+        assert direct_ports["required"] == 4
 
     def test_preflight_direct_port_recommendation_renders_advisory(
         self, parse_argv, patch_get_client, monkeypatch, capsys
@@ -827,6 +829,159 @@ class TestSelfTestMachineDiagnostics:
         env = create.call_args.kwargs["env"]
         assert env["VAST_SELF_TEST_CLI_VERSION"]
         assert env["VAST_SELF_TEST_CLI_CONTRACT_VERSION"] == "1.2.3"
+        assert "-p 1234:1234" not in env
+
+    def test_configured_hundred_port_range_is_preserved_and_capacity_is_honest(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer(direct_port_count=103)
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.resolve_port_range",
+            Mock(return_value=(PortRange(40000, 40099), "host_port_range")),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        create = Mock(side_effect=RuntimeError("stop before live rental"))
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            create,
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        env = create.call_args.kwargs["env"]
+        assert env["-p 40000-40099:40000-40099/tcp"] == "1"
+        assert env["-p 40000-40099:40000-40099/udp"] == "1"
+        assert "-p 1234:1234" not in env
+        assert result["port_scan"]["expected_ports"] == 100
+        assert result["port_scan"]["required_direct_ports"] == 103
+        assert result["port_scan"]["available_direct_ports"] == 103
+
+    def test_configured_range_dedupes_overlapping_fixed_port_mappings(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer(direct_port_count=5)
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.resolve_port_range",
+            Mock(return_value=(PortRange(5000, 5001), "host_port_range")),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        create = Mock(side_effect=RuntimeError("stop before live rental"))
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            create,
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        env = create.call_args.kwargs["env"]
+        assert env["-p 5000-5001:5000-5001/tcp"] == "1"
+        assert env["-p 5000-5001:5000-5001/udp"] == "1"
+        assert "-p 5000:5000" not in env
+        assert "-p 5001:5001/udp" not in env
+        assert result["port_scan"]["required_direct_ports"] == 3
+
+    @pytest.mark.parametrize(
+        "flag",
+        ["--port-scan-timeout", "--port-scan-deadline", "--port-ready-timeout"],
+    )
+    @pytest.mark.parametrize("value", ["0", "-1", "nan", "inf"])
+    def test_port_timeout_options_reject_invalid_values(
+        self, parse_argv, flag, value
+    ):
+        with pytest.raises(SystemExit) as exc_info:
+            parse_argv(["self-test", "machine", "42", flag, value])
+
+        assert exc_info.value.code == 2
+
+    def test_responder_readiness_failure_cleans_up_without_scanning(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        from vastai.cli.commands import machines
+
+        offer = _self_test_offer(direct_port_count=10)
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "203.0.113.10",
+            "ports": {
+                "5000/tcp": [{"HostPort": "45000"}],
+                "40000/tcp": [{"HostPort": "45001"}],
+                "40000/udp": [{"HostPort": "45002"}],
+            },
+            "status_msg": "",
+        }
+        destroyed = False
+
+        def show_instance(_client, id):
+            assert id == 123
+            if destroyed:
+                return {
+                    "id": 123,
+                    "actual_status": "destroyed",
+                    "intended_status": "destroyed",
+                }
+            return running_instance
+
+        def destroy_instance(_client, id):
+            nonlocal destroyed
+            assert id == 123
+            destroyed = True
+            return {"success": True}
+
+        monkeypatch.setattr(
+            machines,
+            "resolve_port_range",
+            Mock(return_value=(PortRange(40000, 40000), "host_port_range")),
+        )
+        monkeypatch.setattr(
+            machines.offers_api,
+            "search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            machines.instances_api,
+            "create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        monkeypatch.setattr(machines.instances_api, "show_instance", show_instance)
+        destroy = Mock(side_effect=destroy_instance)
+        monkeypatch.setattr(machines.instances_api, "destroy_instance", destroy)
+        monkeypatch.setattr(
+            machines,
+            "wait_for_port_responder_readiness",
+            Mock(return_value={
+                "ready": False,
+                "reason": "responders still starting",
+                "attempts": 3,
+            }),
+        )
+        scan = Mock()
+        monkeypatch.setattr(machines, "scan_mapped_port_range", scan)
+
+        args = parse_argv([
+            "self-test",
+            "machine",
+            "42",
+            "--raw",
+            "--no-support-bundle",
+        ])
+        result = args.func(args)
+
+        assert result["success"] is False
+        assert result["port_scan"]["status"] == "failed"
+        assert result["port_scan"]["readiness"]["attempts"] == 3
+        assert result["reason"] == "responders still starting"
+        scan.assert_not_called()
+        destroy.assert_called_once()
 
     def test_cuda_mapping_selects_cuda_133_exact_match(
         self, parse_argv, patch_get_client, monkeypatch

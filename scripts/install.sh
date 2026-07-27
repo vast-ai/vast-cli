@@ -154,12 +154,12 @@ ui_start() {
 ui_end() {
     ui_on || return 0
     rm -f "$UI_DIR/on"
-    UI_DIR=""
     if [ -n "$UI_PID" ]; then
         kill "$UI_PID" 2>/dev/null || true
         wait "$UI_PID" 2>/dev/null || true
         UI_PID=""
     fi
+    UI_DIR=""       # last: while it's set, a re-entry (signal mid-wait) still restores the cursor
     printf '\r\033[K\n\r\033[K\033[A\r\033[?25h' >&2
 }
 

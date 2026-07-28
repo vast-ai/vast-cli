@@ -17,7 +17,7 @@ def copy(client, src_id, dst_id, src_path, dst_path):
     - instance_id (int)          legacy format, still supported
     - \"C.instance_id\"            container copy format
     - \"cloud_service\"            cloud service, e.g. \"drive\"
-    - \"cloud_service.id\"         cloud service with ID, e.g. \"s3.101\"
+    - \"cloud_service.id\"         cloud service with ID, e.g. \"s3.101\" or \"hf.101\"
     - \"local\" or None            local machine
     - \"V.volume_id\"              volume copy, e.g. \"V.1234\"
 
@@ -108,6 +108,9 @@ def cloud_copy(client, src, dst, instance, connection, transfer, flags=None):
 
     POST /commands/rclone/
 
+    Supported cloud providers include \"drive\", \"s3\", \"b2\", \"dropbox\", and
+    Hugging Face (\"hf\").
+
     Args:
         client: VastClient instance.
         src (str): Path to source of object to copy.
@@ -122,6 +125,10 @@ def cloud_copy(client, src, dst, instance, connection, transfer, flags=None):
 
     Returns:
         dict: API response data.
+
+    Hugging Face example (\"hf\" connection):
+        cloud_copy(client, \"my-bucket/data\", \"/workspace\", \"6003036\",
+                   \"1234\", \"Cloud To Instance\")
     """
     req_json = {
         "src": src,

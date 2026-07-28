@@ -73,22 +73,56 @@ doc filenames should match the flattened kebab-case form (e.g.,
 
 ## Interpreting Results
 
-Not all drift is a bug:
+A clean run means the report is empty and the exit code is 0. Running the
+checker against the generator's own output is expected to produce exactly that,
+and `tests/scripts/test_verify_cli_sdk_docs.py` pins the behaviour, so anything
+reported is worth reading rather than assuming it is noise.
+
+What the checker deliberately does *not* report:
+
+- **Policy-excluded commands.** `EXCLUDED_NAMES` in
+  `generate_cli_sdk_docs.py` lists surface we never publish (the
+  network-volume commands). Absent pages for those are correct. If such a page
+  *does* exist in the docs repo it is still reported, as stale — it should be
+  removed.
+- **Global options.** `--url`, `--raw`, `--api_key` and friends are inherited by
+  every command and rendered once per page in a "Global Options" table, not as
+  per-command parameters.
+- **Extra parameters on `**kwargs` methods.** Those signatures do not enumerate
+  what they accept, and the generator fills the parameters in from the matching
+  CLI command, so extra documented parameters cannot be judged stale. Genuinely
+  *missing* parameters are still reported.
+- **Positional arguments, on CLI parameter checks.** The code-side inventory is
+  scraped from `--help` flags, so positionals only ever appear on the docs side.
+
+Still worth a human eye:
 
 - **CLI command restructuring** (e.g., flat → two-level commands) will show
   everything as "stale" under the old names and "undocumented" under the new
   names. This means the verification script's name-matching logic may need
   updating to match the new CLI structure.
-- **`kwargs` as undocumented param** means the SDK method accepts flexible
-  keyword arguments. The docs should list the commonly used kwargs, but the
-  script can't extract individual kwargs from `**kwargs`.
 - **Case differences** (e.g., `Id` vs `id`, `COMMAND` vs `command`) are
   flagged as mismatches. These are usually cosmetic.
 
+The checker invokes the `vastai` console script next to the interpreter running
+it, not whatever `vastai` is first on `PATH`. Run it with the interpreter of the
+environment you want to check — a stale global install otherwise gets compared
+against the current SDK and every difference is reported as drift.
+
 ## Automation
 
-This check runs automatically via GitHub Actions
-(`.github/workflows/verify-docs.yml`):
+**Currently manual — run the commands above yourself.**
+
+The GitHub Actions workflows that ran this check on every PR, and that
+generated and pushed docs to [vast-ai/docs](https://github.com/vast-ai/docs),
+are parked on the `SO-80--reland-cli-sdk-docs` branch and are deliberately not
+on `master`. They were pulled because the docs baseline had drifted far enough
+that every run produced a full-rewrite pull request that nobody could review.
+
+The scripts in this directory are the durable part and stay on `master`, so
+drift can be checked on demand at any time. When the docs baseline has been
+regenerated and a typical run yields a small diff, re-land the workflows from
+that branch. It restores:
 
 | Trigger | Behavior |
 |---------|----------|

@@ -23,6 +23,7 @@ Exit codes:
 """
 
 import argparse
+import ast
 import inspect
 import json
 import os
@@ -126,6 +127,96 @@ class DriftReport:
 
 
 # ---------------------------------------------------------------------------
+# Environment resolution
+# ---------------------------------------------------------------------------
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+
+
+GENERATOR_PATH = SCRIPT_DIR / "generate_cli_sdk_docs.py"
+
+
+def _generator_constant(name: str, consequence: str) -> set[str]:
+    """
+    Read a module-level set literal out of generate_cli_sdk_docs.py.
+
+    The verifier must apply the same publishing policy as the generator or it
+    reports the generator's deliberate choices as drift on every single run.
+    Those permanent false alarms are what made the weekly drift check
+    untrustworthy. Reading the values keeps one definition of each policy.
+
+    Read statically with `ast` rather than by importing: the verifier is the
+    independent check on the generator, so it should not need the generator (or
+    the generator's imports) to load successfully in order to run.
+    """
+    try:
+        tree = ast.parse(GENERATOR_PATH.read_text())
+        for node in tree.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            if not any(
+                isinstance(t, ast.Name) and t.id == name for t in node.targets
+            ):
+                continue
+            return {str(v) for v in ast.literal_eval(node.value)}
+
+        raise ValueError(f"no module-level {name} assignment found")
+    except Exception as exc:  # pragma: no cover - defensive
+        print(
+            f"WARNING: could not read {name} from {GENERATOR_PATH.name} ({exc}); "
+            f"{consequence}",
+            file=sys.stderr,
+        )
+        return set()
+
+
+def get_excluded_names() -> set[str]:
+    """Doc names the generator never publishes (network-volume surface)."""
+    return _generator_constant(
+        "EXCLUDED_NAMES",
+        "policy-excluded commands will be reported as drift.",
+    )
+
+
+def get_global_cli_options() -> set[str]:
+    """
+    Options every command inherits from the top-level parser.
+
+    The generator renders these once in a static "Global Options" table per page
+    instead of repeating them in each command's parameter list, so they appear in
+    `--help` output but never as a per-command ParamField. Without this the
+    checker reports the same six flags as undocumented on all ~134 commands.
+    """
+    return _generator_constant(
+        "GLOBAL_CLI_OPTIONS",
+        "global options will be reported as undocumented on every command.",
+    )
+
+
+def vastai_cmd() -> list[str]:
+    """
+    Argv prefix for invoking the CLI that belongs to THIS interpreter.
+
+    Resolving bare "vastai" through PATH is wrong: it picks up whatever build
+    happens to be installed globally, while get_sdk_methods() introspects the
+    imported `vastai` package. The two halves of this script then describe
+    different versions of the CLI and every difference is reported as drift.
+    Prefer the console script next to sys.executable so both halves agree.
+    """
+    candidate = Path(sys.executable).parent / "vastai"
+    if candidate.exists():
+        return [str(candidate)]
+
+    print(
+        "WARNING: no 'vastai' console script next to the running interpreter "
+        f"({candidate}); falling back to PATH. CLI and SDK results may come from "
+        "different installs.",
+        file=sys.stderr,
+    )
+    return ["vastai"]
+
+
+# ---------------------------------------------------------------------------
 # CLI introspection
 # ---------------------------------------------------------------------------
 
@@ -141,10 +232,12 @@ def get_cli_commands() -> dict[str, list[str]]:
     Returns: {command_name: [list of --flags]}
     """
     commands = {}
+    base = vastai_cmd()
+    global_options = get_global_cli_options()
 
     # Get help output
     result = subprocess.run(
-        ["vastai", "--help"],
+        base + ["--help"],
         capture_output=True, text=True, timeout=30,
     )
     if result.returncode != 0:
@@ -157,13 +250,23 @@ def get_cli_commands() -> dict[str, list[str]]:
         doc_name = "-".join(cmd_parts)  # flatten to kebab-case for doc matching
         try:
             sub_result = subprocess.run(
-                ["vastai"] + cmd_parts + ["--help"],
+                base + cmd_parts + ["--help"],
                 capture_output=True, text=True, timeout=30,
             )
-            flags = _parse_flags(sub_result.stdout + sub_result.stderr)
-            commands[doc_name] = flags
-        except (subprocess.TimeoutExpired, Exception):
+        except subprocess.TimeoutExpired:
             commands[doc_name] = []
+            continue
+
+        # `<cmd> --help` exiting non-zero means _parse_subcommands scraped
+        # something that is not actually a command (a group heading, a wrapped
+        # description line, trailing prose). Dropping those here keeps a help
+        # -format change from inventing phantom commands and failing the run.
+        if sub_result.returncode != 0:
+            continue
+
+        commands[doc_name] = _parse_flags(
+            sub_result.stdout + sub_result.stderr, global_options,
+        )
 
     return commands
 
@@ -217,10 +320,24 @@ def _parse_subcommands(help_text: str) -> list[list[str]]:
         if not cmd_text or cmd_text.startswith("-"):
             continue
 
+        # Group headings ("Instances:", "Billing & account:", "options:") sit in
+        # the same column as commands once the CLI groups its help output. They
+        # are never commands.
+        if cmd_text.endswith(":"):
+            continue
+
         # Split the command into parts (handles "show instances", "tfa activate", "copy")
         cmd_parts = cmd_text.split()
-        if cmd_parts and cmd_parts[0] != "help":
-            commands.append(cmd_parts)
+        if not cmd_parts or cmd_parts[0] == "help":
+            continue
+
+        # Every real command token is lowercase kebab-case. This rejects prose
+        # that wraps into the command column -- e.g. the trailing
+        # "Use 'vastai COMMAND --help' ..." footer.
+        if not all(re.fullmatch(r"[a-z0-9][a-z0-9-]*", part) for part in cmd_parts):
+            continue
+
+        commands.append(cmd_parts)
 
     # Deduplicate while preserving order
     seen = set()
@@ -234,13 +351,43 @@ def _parse_subcommands(help_text: str) -> list[list[str]]:
     return unique
 
 
-def _parse_flags(help_text: str) -> list[str]:
-    """Extract --flag names from argparse help output."""
+def _parse_flags(help_text: str, global_options: set[str] | None = None) -> list[str]:
+    """
+    Extract --flag names from argparse help output.
+
+    Global options are dropped: they are inherited by every command and the docs
+    render them once in a per-page "Global Options" table rather than as
+    per-command parameters.
+    """
+    global_options = global_options or set()
     flags = set()
-    for match in re.finditer(r'(--[\w][\w-]*)', help_text):
-        flag = match.group(1)
-        if flag not in ("--help", "--version"):
+
+    for line in help_text.splitlines():
+        stripped = line.strip()
+
+        # Only lines that *declare* an option count. Scanning the whole help
+        # text also matched flags quoted inside description strings and epilog
+        # prose -- e.g. create-workergroup's --launch_args help embeds an
+        # example containing "--onstart --env --image --disk", and
+        # tfa-totp-setup's epilog walks the user through `vastai tfa activate
+        # --method-type ... --secret ...`. Those belong to other commands and
+        # were reported as undocumented flags of this one.
+        if not stripped.startswith("-"):
+            continue
+
+        # argparse puts >=2 spaces between the option signature and its help
+        # text, so the signature is everything before that gap.
+        signature = re.split(r"\s{2,}", stripped, maxsplit=1)[0]
+
+        for match in re.finditer(r'(--[\w][\w-]*)', signature):
+            flag = match.group(1)
+            if flag in ("--help", "--version"):
+                continue
+            # `--no-color` in help vs `no_color` in the parser's dest list.
+            if flag.lstrip("-").replace("-", "_") in global_options:
+                continue
             flags.add(flag)
+
     return sorted(flags)
 
 
@@ -248,11 +395,15 @@ def _parse_flags(help_text: str) -> list[str]:
 # SDK introspection
 # ---------------------------------------------------------------------------
 
-def get_sdk_methods() -> dict[str, list[str]]:
+def get_sdk_methods() -> tuple[dict[str, list[str]], set[str]]:
     """
     Import vastai SDK and introspect the VastAI class for public methods.
 
-    Returns: {method_name: [list of parameter names]}
+    `*args` / `**kwargs` are variadic markers, not parameters. Including them
+    made the checker demand a documented parameter literally named "kwargs" on
+    every method that takes them.
+
+    Returns: ({method_name: [parameter names]}, {methods taking **kwargs})
     """
     try:
         from vastai.sdk import VastAI
@@ -265,17 +416,23 @@ def get_sdk_methods() -> dict[str, list[str]]:
             )
 
     methods = {}
+    open_signatures = set()
+    variadic = (inspect.Parameter.VAR_KEYWORD, inspect.Parameter.VAR_POSITIONAL)
+
     for name, func in inspect.getmembers(VastAI, predicate=inspect.isfunction):
         if name.startswith("_"):
             continue
         sig = inspect.signature(func)
         params = [
             p.name for p in sig.parameters.values()
-            if p.name != "self"
+            if p.name != "self" and p.kind not in variadic
         ]
         methods[name] = params
 
-    return methods
+        if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+            open_signatures.add(name)
+
+    return methods, open_signatures
 
 
 # ---------------------------------------------------------------------------
@@ -292,11 +449,18 @@ def get_documented_cli_commands(docs_path: Path) -> dict[str, list[str]]:
     if not ref_dir.exists():
         return {}
 
+    # Each CLI page ends with a static "Global Options" table. Those rows parse
+    # as flags, so drop them here exactly as _parse_flags drops them from the
+    # help output -- otherwise every page reports them as stale documentation.
+    global_options = get_global_cli_options()
+
     commands = {}
     for mdx_file in ref_dir.glob("*.mdx"):
         cmd_name = mdx_file.stem  # e.g., "create-instance"
         flags = _parse_mdx_params(mdx_file, param_type="flag")
-        commands[cmd_name] = flags
+        commands[cmd_name] = [
+            f for f in flags if f.replace("-", "_") not in global_options
+        ]
 
     return commands
 
@@ -329,27 +493,44 @@ def _parse_mdx_params(mdx_file: Path, param_type: str = "flag") -> list[str]:
       - <ParamField path="flag_name" ...>
       - | `--flag-name` | description |  (markdown tables)
       - **--flag-name** or `--flag-name`  (inline)
+
+    For param_type="flag" (CLI pages) only flag-shaped entries are returned.
+    CLI pages document positional arguments as ParamFields too (`path="id"`),
+    but the actual-side inventory comes from scraping `--flags` out of `--help`
+    and so can never contain a positional. Returning them made every command
+    with a positional argument report it as stale documentation.
     """
-    content = mdx_file.read_text(errors="replace")
-    params = set()
+    return _parse_mdx_params_from_text(
+        mdx_file.read_text(errors="replace"), param_type,
+    )
+
+
+def _parse_mdx_params_from_text(content: str, param_type: str = "flag") -> list[str]:
+    """Parameter extraction for _parse_mdx_params, split out to be testable."""
+    raw = set()
 
     # Mintlify <ParamField> components
     for match in re.finditer(
         r'<ParamField\s+[^>]*(?:name|path|query|body)\s*=\s*["\']([^"\']+)["\']',
         content,
     ):
-        params.add(match.group(1).lstrip("-").strip())
+        raw.add(match.group(1).strip())
 
     # Markdown table rows with flags: | `--flag` | or | --flag |
-    for match in re.finditer(r'\|\s*`?(--[\w-]+)`?\s*\|', content):
-        params.add(match.group(1).lstrip("-").strip())
+    # Require a letter after the dashes so the `| --- | --- |` header separator
+    # is not picked up as a parameter named "".
+    for match in re.finditer(r'\|\s*`?(--[a-zA-Z][\w-]*)`?\s*\|', content):
+        raw.add(match.group(1).strip())
 
     # Fallback: look for --flag patterns in code blocks and descriptions
-    if not params:
-        for match in re.finditer(r'`(--[\w-]+)`', content):
-            params.add(match.group(1).lstrip("-").strip())
+    if not raw:
+        for match in re.finditer(r'`(--[a-zA-Z][\w-]*)`', content):
+            raw.add(match.group(1).strip())
 
-    return sorted(params)
+    if param_type == "flag":
+        raw = {p for p in raw if p.startswith("--")}
+
+    return sorted({p.lstrip("-").strip() for p in raw} - {""})
 
 
 # ---------------------------------------------------------------------------
@@ -379,13 +560,22 @@ def compare_inventory(
     actual: dict[str, list[str]],
     documented: dict[str, list[str]],
     name_to_doc: callable,
+    excluded: set[str] | None = None,
 ) -> tuple[list[str], list[str]]:
     """
     Compare actual commands/methods against documented ones.
 
+    `excluded` holds doc names the generator never publishes by policy. They are
+    dropped from the code side so they stop showing up as "missing docs" forever.
+    They are deliberately NOT dropped from the docs side: a policy-excluded page
+    that exists in the docs repo is a real problem and should still be reported
+    as stale.
+
     Returns: (undocumented, stale)
     """
-    actual_doc_names = {name_to_doc(name) for name in actual}
+    excluded = excluded or set()
+
+    actual_doc_names = {name_to_doc(name) for name in actual} - excluded
     documented_names = set(documented.keys())
 
     undocumented = sorted(actual_doc_names - documented_names)
@@ -398,12 +588,22 @@ def compare_params(
     actual: dict[str, list[str]],
     documented: dict[str, list[str]],
     name_to_doc: callable,
+    open_signatures: set[str] | None = None,
 ) -> dict:
     """
     For each command/method that exists in both, compare parameters.
 
+    `open_signatures` holds names whose signature ends in `**kwargs`. For those,
+    the signature does not enumerate the accepted parameters, so extra documented
+    parameters cannot be judged stale -- the generator fills them in from the
+    matching CLI command on purpose. Reporting them was the bulk of the
+    parameter-mismatch noise on the weekly drift run, and it flagged docs that
+    were correct. Missing parameters are still reported: those are sound either
+    way.
+
     Returns: {name: {"missing_from_docs": [...], "stale_in_docs": [...]}}
     """
+    open_signatures = open_signatures or set()
     mismatches = {}
 
     for actual_name, actual_params in actual.items():
@@ -420,7 +620,7 @@ def compare_params(
         doc_set = {p.lstrip("-").replace("-", "_") for p in doc_params}
 
         missing = sorted(actual_set - doc_set)
-        stale = sorted(doc_set - actual_set)
+        stale = [] if actual_name in open_signatures else sorted(doc_set - actual_set)
 
         if missing or stale:
             mismatches[doc_name] = {}
@@ -444,12 +644,16 @@ def run(docs_path: str, check_params: bool = False, output_json: bool = False):
         print(f"Error: docs path does not exist: {docs_path}", file=sys.stderr)
         sys.exit(2)
 
+    excluded = get_excluded_names()
+
     # --- CLI ---
     try:
         cli_actual = get_cli_commands()
         cli_documented = get_documented_cli_commands(docs)
 
-        undoc, stale = compare_inventory(cli_actual, cli_documented, cli_command_to_doc_name)
+        undoc, stale = compare_inventory(
+            cli_actual, cli_documented, cli_command_to_doc_name, excluded,
+        )
         report.cli_undocumented = undoc
         report.cli_stale = stale
 
@@ -462,16 +666,19 @@ def run(docs_path: str, check_params: bool = False, output_json: bool = False):
 
     # --- SDK ---
     try:
-        sdk_actual = get_sdk_methods()
+        sdk_actual, sdk_open_signatures = get_sdk_methods()
         sdk_documented = get_documented_sdk_methods(docs)
 
-        undoc, stale = compare_inventory(sdk_actual, sdk_documented, sdk_method_to_doc_name)
+        undoc, stale = compare_inventory(
+            sdk_actual, sdk_documented, sdk_method_to_doc_name, excluded,
+        )
         report.sdk_undocumented = undoc
         report.sdk_stale = stale
 
         if check_params and sdk_actual and sdk_documented:
             report.sdk_param_mismatches = compare_params(
                 sdk_actual, sdk_documented, sdk_method_to_doc_name,
+                sdk_open_signatures,
             )
     except Exception as e:
         report.errors.append(f"SDK check failed: {e}")

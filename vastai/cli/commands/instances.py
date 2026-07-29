@@ -296,8 +296,10 @@ def destroy_instance_impl(id, args):
         return rj
     elif rj.get("success"):
         print("destroying instance {id}.".format(**(locals())))
+        return True
     else:
         print(rj.get("msg", rj))
+    return False
 
 
 @parser.command(

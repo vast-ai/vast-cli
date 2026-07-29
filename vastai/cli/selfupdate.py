@@ -11,7 +11,7 @@ CLI runs from <root>/current with a sibling <root>/bin/uv. That's ground
 truth — no on-disk marker to drift or hand-copy. pip installs fail the check
 and the updater never touches them.
 
-The passive nudge is throttled to one manifest GET and one notice per 24h,
+The passive nudge is throttled to one manifest GET and one notice per week,
 capped at 1s, and swallows every failure — the CLI must never get slower or
 noisier because the manifest endpoint is unreachable.
 """
@@ -40,7 +40,7 @@ PIP_UPGRADE_HINT = "pip install --upgrade vastai"
 MIN_DOWNGRADE_VERSION = "1.4.0"
 
 UPDATE_CHECK_FILE = os.path.join(DIRS['state'], "update_check.json")
-CHECK_INTERVAL_S = 24 * 60 * 60
+CHECK_INTERVAL_S = 7 * 24 * 60 * 60
 NUDGE_TIMEOUT_S = 1.0
 
 # Console scripts shipped in the wheel; each gets a swapped symlink in bin/.

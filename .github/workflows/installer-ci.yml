@@ -78,13 +78,7 @@ jobs:
           name: pr-wheel
           path: dist/vastai-*.whl
 
-  # Footprint report: install THIS PR's closure and report the installed
-  # site-packages size. Informational only for now — never fails the build.
-  # No committed baseline to maintain; compare against recent runs on master
-  # in the Actions history to spot drift. Once this has run stably for a
-  # while we can revisit turning it into an enforced ratchet. The per-package
-  # denylist in tests/cli/test_dependency_budget.py is the hard-fail guard
-  # against a repeat of #424 in the meantime.
+  # Informational only (never fails); reports this PR's site-packages size — tests/cli/test_dependency_budget.py is the hard-fail guard for now.
   footprint-report:
     needs: build-wheel
     runs-on: ubuntu-latest

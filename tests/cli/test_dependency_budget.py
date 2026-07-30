@@ -8,9 +8,10 @@ closure, since that's where the weight hides.
 
 Lives under tests/cli/ so the `pytest cli api sdk` invocation in
 vast-sdk-testing.yml actually collects it. This is the cheap, deterministic,
-platform-agnostic guard (Layer 1); the installed-size ratchet in
-installer-ci.yml (Layer 2) is the complementary backstop for an existing dep
-ballooning without a new package name appearing.
+platform-agnostic guard (Layer 1) and the only hard fail for now; the
+installed-size report in installer-ci.yml (Layer 2) is informational —
+it covers an existing dep ballooning without a new package name appearing,
+but doesn't fail the build until it's proven stable.
 """
 
 import pathlib

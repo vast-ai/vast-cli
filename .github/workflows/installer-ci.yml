@@ -11,13 +11,18 @@ on:
       - "pyproject.toml"
       - "poetry.lock"
       - ".github/workflows/installer-ci.yml"
+  # No path filter (unlike above) — every commit on master gets a footprint-report data point, so the trend line has no gaps.
+  push:
+    branches: [master]
 
 concurrency:
-  group: installer-ci-${{ github.event.pull_request.number }}
+  group: installer-ci-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 jobs:
+  # PR-only gates — already verified before merge, skip on push to master.
   lint:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,6 +37,7 @@ jobs:
   # is what test_tty_install needs to catch set -u empty-array regressions
   # (fatal on bash < 4.4, invisible on Linux CI's modern bash).
   hermetic-tests:
+    if: github.event_name == 'pull_request'
     name: hermetic-tests (${{ matrix.os }})
     strategy:
       fail-fast: false
@@ -44,6 +50,7 @@ jobs:
         run: tests/installer/run_tests.sh
 
   release-scripts:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,9 +63,7 @@ jobs:
       - name: publish_release dry-runs
         run: python3 scripts/publish_release.py 0.0.0 --dry-run
 
-  # Builds THIS PR's wheel so the OS matrix exercises the PR's install.sh AND
-  # its dependency closure (a dep without wheels for a target — e.g. musl —
-  # fails here, the way psutil<7 did).
+  # Builds this commit's wheel (a dep without wheels for a target — e.g. musl — fails here, the way psutil<7 did); feeds os-matrix + footprint-report on PRs, and footprint-report's history on pushes to master.
   build-wheel:
     runs-on: ubuntu-latest
     steps:
@@ -78,7 +83,7 @@ jobs:
           name: pr-wheel
           path: dist/vastai-*.whl
 
-  # Informational only (never fails); reports this PR's site-packages size — tests/cli/test_dependency_budget.py is the hard-fail guard for now.
+  # Informational only (never fails); reports this commit's site-packages size, on both PRs and pushes to master — tests/cli/test_dependency_budget.py is the hard-fail guard for now.
   footprint-report:
     needs: build-wheel
     runs-on: ubuntu-latest
@@ -105,7 +110,7 @@ jobs:
           echo "site-packages footprint: ${MIB} MiB (${BYTES} bytes)"
           {
             echo "### 📦 Dependency footprint"
-            echo "site-packages for this PR's wheel: **${MIB} MiB** (${BYTES} bytes)"
+            echo "site-packages for this commit's wheel: **${MIB} MiB** (${BYTES} bytes)"
             echo
             echo "Informational only — no baseline is enforced yet. Compare against recent \`footprint-report\` runs on \`master\` to spot drift."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -116,6 +121,7 @@ jobs:
   # containers on the ubuntu host (checkout stays on the host, repo is mounted —
   # avoids the actions/checkout-on-musl node problem); macOS runs natively.
   os-matrix:
+    if: github.event_name == 'pull_request'
     needs: build-wheel
     name: install (${{ matrix.name }})
     runs-on: ${{ matrix.os || 'ubuntu-latest' }}

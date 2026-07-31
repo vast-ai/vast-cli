@@ -336,6 +336,9 @@ class hidden_aliases(object):
         self.l.append(x)
 
 def http_request(verb, args, req_url, headers: dict[str, str] | None = None, json_data = None):
+    if not headers:
+        headers = apiheaders(args)
+
     t = 0.15
     for i in range(0, args.retry):
         req = requests.Request(method=verb, url=req_url, headers=headers, json=json_data)
@@ -582,15 +585,13 @@ def apiurl(args: argparse.Namespace, subpath: str, query_args: Dict = None) -> s
 
     :param argparse.Namespace args: Namespace with many fields relevant to the endpoint.
     :param str subpath: added to end of URL to further specify endpoint.
-    :param typing.Dict query_args: specifics such as API key and search parameters that complete the URL.
+    :param typing.Dict query_args: search parameters that complete the URL.
     :rtype str:
     """
     result = None
 
     if query_args is None:
         query_args = {}
-    if args.api_key is not None:
-        query_args["api_key"] = args.api_key
     if not re.match(r"^/api/v(\d)+/", subpath):
         subpath = "/api/v0" + subpath
     

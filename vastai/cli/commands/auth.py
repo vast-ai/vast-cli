@@ -231,11 +231,6 @@ def set__api_key(args):
     epilog=deindent("""
         This only changes what --help and tab completion display — every command
         still runs regardless of role, since the server enforces real permissions.
-
-        The role is auto-detected the first time you run a real command (or
-        'vastai set api-key'), so most people never need to run this manually.
-        Use it to override the detected role — e.g. after your account starts
-        or stops hosting machines.
     """),
 )
 def set__role(args):

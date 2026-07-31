@@ -357,36 +357,38 @@ class TestRole:
 class TestEnsureHostRoleDetected:
     """ensure_host_role_detected — lazy role resolution for pre-existing installs (CLN-3582)."""
 
-    def _client(self, tmp_path, monkeypatch, *, show_machines_result=None, show_machines_raises=None):
+    def _client(self, tmp_path, monkeypatch, *, host_agreement_accepted=None, show_user_raises=None):
         monkeypatch.setattr("vastai.cli.util.ROLE_FILE", str(tmp_path / "vast_role"))
-        if show_machines_raises is not None:
+        if show_user_raises is not None:
             monkeypatch.setattr(
-                "vastai.api.machines.show_machines",
-                lambda client: (_ for _ in ()).throw(show_machines_raises),
+                "vastai.api.billing.show_user",
+                lambda client: (_ for _ in ()).throw(show_user_raises),
             )
         else:
             monkeypatch.setattr(
-                "vastai.api.machines.show_machines",
-                lambda client: show_machines_result,
+                "vastai.api.billing.show_user",
+                lambda client: {"host_agreement_accepted": host_agreement_accepted},
             )
-        return object()  # stand-in "client"; show_machines is patched to ignore it
+        return object()  # stand-in "client"; show_user is patched to ignore it
 
     def test_host_account_caches_host(self, tmp_path, monkeypatch):
+        # host_agreement_accepted flips the moment the hosting agreement is accepted —
+        # independent of whether any machine has been listed yet.
         from vastai.cli.util import ensure_host_role_detected, get_role
-        client = self._client(tmp_path, monkeypatch, show_machines_result=[{"id": 1}])
+        client = self._client(tmp_path, monkeypatch, host_agreement_accepted=True)
         ensure_host_role_detected(client)
         assert get_role() == "host"
 
     def test_client_account_caches_client(self, tmp_path, monkeypatch):
-        # An empty machines list is a real answer, not "still unknown" — it gets cached just like a host does.
+        # An unaccepted agreement is a real answer, not "still unknown" — it gets cached just like a host does.
         from vastai.cli.util import ensure_host_role_detected, get_role
-        client = self._client(tmp_path, monkeypatch, show_machines_result=[])
+        client = self._client(tmp_path, monkeypatch, host_agreement_accepted=False)
         ensure_host_role_detected(client)
         assert get_role() == "client"
 
     def test_network_error_leaves_role_undetected(self, tmp_path, monkeypatch):
         from vastai.cli.util import ensure_host_role_detected, get_role
-        client = self._client(tmp_path, monkeypatch, show_machines_raises=ConnectionError("offline"))
+        client = self._client(tmp_path, monkeypatch, show_user_raises=ConnectionError("offline"))
         ensure_host_role_detected(client)
         assert get_role() is None
 
@@ -396,8 +398,8 @@ class TestEnsureHostRoleDetected:
         set_role_file("client")
         called = []
         monkeypatch.setattr(
-            "vastai.api.machines.show_machines",
-            lambda client: called.append(True) or [{"id": 1}],
+            "vastai.api.billing.show_user",
+            lambda client: called.append(True) or {"host_agreement_accepted": True},
         )
         ensure_host_role_detected(object())
         assert called == []

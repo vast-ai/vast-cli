@@ -226,8 +226,8 @@ def ensure_host_role_detected(client):
     if get_role() is not None:
         return
     try:
-        from vastai.api import machines as machines_api
-        is_host = bool(machines_api.show_machines(client))
+        from vastai.api import billing as billing_api
+        is_host = bool(billing_api.show_user(client).get("host_agreement_accepted"))
     except Exception:
         return
     set_role_file(ROLE_HOST if is_host else ROLE_CLIENT)

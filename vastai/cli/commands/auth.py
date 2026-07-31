@@ -224,7 +224,7 @@ def set__api_key(args):
 
 def _auto_detect_and_announce_role(args):
     """Best-effort: resolve and announce the client/host CLI role for this key; a no-op once the role is already known."""
-    from vastai.cli.util import get_role, ensure_host_role_detected, ROLE_HOST, ROLE_CLIENT, server_url_default
+    from vastai.cli.util import get_role, ensure_host_role_detected, ROLE_HOST, server_url_default
     from vastai.api.client import VastClient
 
     if get_role() is not None:
@@ -243,14 +243,10 @@ def _auto_detect_and_announce_role(args):
 
     ensure_host_role_detected(client)
 
-    role = get_role()
-    if role == ROLE_HOST:
+    if get_role() == ROLE_HOST:
         print(f"\n{INFO} This account has machines listed for rent — enabling the host command view.")
         print("  (Run 'vastai set role client' to hide host-only commands, or 'vastai set role host' to re-enable.)")
-    elif role == ROLE_CLIENT:
-        print(f"\n{INFO} Showing the client command view (host-only commands are hidden from --help).")
-        print("  (Hosting on Vast? Run 'vastai set role host' to show them.)")
-    # else: network/auth error — leave role detection for the next real command
+    # else: client (nothing to announce — it's the default view) or a network/auth error (left for the next real command)
 
 
 # ---------------------------------------------------------------------------

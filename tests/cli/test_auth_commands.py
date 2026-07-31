@@ -149,11 +149,11 @@ class TestAutoDetectHostRoleOnSetApiKey:
         assert role_file.read_text().strip() == "host"
         assert "host command view" in capsys.readouterr().out
 
-    def test_client_account_caches_client_role(self, tmp_path, monkeypatch, capsys):
+    def test_client_account_caches_client_role_silently(self, tmp_path, monkeypatch, capsys):
         # An empty machines list is a real answer, not "still unknown" — cached on the first `set api-key` run.
         role_file = self._set_api_key(tmp_path, monkeypatch, show_machines_result=[])
         assert role_file.read_text().strip() == "client"
-        assert "client command view" in capsys.readouterr().out
+        assert "command view" not in capsys.readouterr().out
 
     def test_network_error_leaves_role_undetected_not_broken(self, tmp_path, monkeypatch):
         # Must not raise out of `set api-key` — the key save is the important part.

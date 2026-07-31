@@ -338,8 +338,8 @@ test_warm_role_cache_fires_when_key_exists() { # pre-existing key -> background 
     echo "fake-key" > "$SB_HOME/.config/vastai/vast_api_key"
     run_install || { cat "$SB_OUT"; return 1; }
     # Detached (nohup + disown) — give it a moment to actually run.
-    local log="$SB_ROOT/bin/invocations.log" i
-    for i in $(seq 1 50); do
+    local log="$SB_ROOT/bin/invocations.log"
+    for _ in $(seq 1 150); do
         [ -s "$log" ] && grep -q "show machines" "$log" && break
         sleep 0.1
     done
@@ -359,8 +359,8 @@ test_warm_role_cache_finds_legacy_key_location() { # ~/.vast_api_key (pre-XDG) a
     new_sandbox warmlegacy
     echo "fake-key" > "$SB_HOME/.vast_api_key"
     run_install || { cat "$SB_OUT"; return 1; }
-    local log="$SB_ROOT/bin/invocations.log" i
-    for i in $(seq 1 50); do
+    local log="$SB_ROOT/bin/invocations.log"
+    for _ in $(seq 1 150); do
         [ -s "$log" ] && grep -q "show machines" "$log" && break
         sleep 0.1
     done

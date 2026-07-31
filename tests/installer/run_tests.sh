@@ -343,6 +343,11 @@ test_warm_role_cache_fires_when_key_exists() { # pre-existing key -> background 
         [ -s "$log" ] && grep -q "show machines" "$log" && break
         sleep 0.1
     done
+    if ! grep -q "show machines --raw" "$log" 2>/dev/null; then
+        echo "    DEBUG bin dir: $(ls -la "$SB_ROOT/bin" 2>&1)"
+        echo "    DEBUG log contents: $(cat "$log" 2>&1 || echo '(missing)')"
+        echo "    DEBUG lingering procs: $(pgrep -af 'vastai|show machines' 2>&1 || echo '(none)')"
+    fi
     assert "install still succeeded" out_contains "vastai 1.2.3 installed" &&
     assert "role-detection call fired" grep -q "show machines --raw" "$log"
 }

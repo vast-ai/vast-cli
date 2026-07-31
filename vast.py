@@ -336,7 +336,7 @@ class hidden_aliases(object):
         self.l.append(x)
 
 def http_request(verb, args, req_url, headers: dict[str, str] | None = None, json_data = None):
-    if headers is None:
+    if not headers:
         headers = apiheaders(args)
 
     t = 0.15

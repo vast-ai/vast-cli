@@ -125,7 +125,11 @@ new_sandbox() {
 
 # run_install [VAR=VAL ...] — real install.sh, detached from any tty
 run_install() {
-    local envs=("HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" "$@")
+    # XDG_CONFIG_HOME must be sandboxed too — warm_role_cache() reads the api
+    # key from there, and an ambient value from the CI runner's own
+    # environment (not just $SB_HOME) would leak the real path in and make
+    # the sandboxed key invisible to it.
+    local envs=("HOME=$SB_HOME" "XDG_CONFIG_HOME=$SB_HOME/.config" "VASTAI_INSTALL_DIR=$SB_ROOT" "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" "$@")
     [ -z "$HAVE_SETSID" ] && envs+=("VASTAI_NO_MODIFY_PATH=1")
     if [ -n "$HAVE_SETSID" ]; then
         setsid -w env "${envs[@]}" bash "$INSTALL_SH" >"$SB_OUT" 2>&1 </dev/null
@@ -138,7 +142,7 @@ run_install() {
 # engages), under ${VASTAI_TEST_TTY_BASH:-/bin/bash} — macOS CI points that at stock bash 3.2,
 # which is the regression guarantee for the TTY-only array and $'...' paths. Needs script(1).
 run_install_tty() {
-    local cmd=(env "HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" \
+    local cmd=(env "HOME=$SB_HOME" "XDG_CONFIG_HOME=$SB_HOME/.config" "VASTAI_INSTALL_DIR=$SB_ROOT" \
         "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" "$@" \
         "${VASTAI_TEST_TTY_BASH:-/bin/bash}" "$INSTALL_SH")
     case "$(uname -s)" in
@@ -339,15 +343,10 @@ test_warm_role_cache_fires_when_key_exists() { # pre-existing key -> background 
     run_install || { cat "$SB_OUT"; return 1; }
     # Detached (nohup + disown) — give it a moment to actually run.
     local log="$SB_ROOT/bin/invocations.log"
-    for _ in $(seq 1 150); do
+    for _ in $(seq 1 50); do
         [ -s "$log" ] && grep -q "show machines" "$log" && break
         sleep 0.1
     done
-    if ! grep -q "show machines --raw" "$log" 2>/dev/null; then
-        echo "    DEBUG bin dir: $(ls -la "$SB_ROOT/bin" 2>&1)"
-        echo "    DEBUG log contents: $(cat "$log" 2>&1 || echo '(missing)')"
-        echo "    DEBUG lingering procs: $(pgrep -af 'vastai|show machines' 2>&1 || echo '(none)')"
-    fi
     assert "install still succeeded" out_contains "vastai 1.2.3 installed" &&
     assert "role-detection call fired" grep -q "show machines --raw" "$log"
 }
@@ -365,7 +364,7 @@ test_warm_role_cache_finds_legacy_key_location() { # ~/.vast_api_key (pre-XDG) a
     echo "fake-key" > "$SB_HOME/.vast_api_key"
     run_install || { cat "$SB_OUT"; return 1; }
     local log="$SB_ROOT/bin/invocations.log"
-    for _ in $(seq 1 150); do
+    for _ in $(seq 1 50); do
         [ -s "$log" ] && grep -q "show machines" "$log" && break
         sleep 0.1
     done

@@ -49,15 +49,7 @@ def complete_sshkeys(prefix=None, action=None, parser=None, parsed_args=None):
 # ---------------------------------------------------------------------------
 
 def build_command_maps(parser, role=None):
-    """Derive (verbs, verb_objs, singles) from a parser's subparser names.
-
-    Commands flagged hidden (see ``is_hidden_command``) are always left out of
-    completion — unreleased/feature-flagged functionality, still fully runnable
-    if typed directly. ``role``: host-only commands are additionally left out
-    unless ``role`` is explicitly ``'host'`` (see
-    ``vastai.cli.util.is_client_view``) — client is the default, matching the
-    client --help view (CLN-3582). Both are display-only, never affect execution.
-    """
+    """Derive (verbs, verb_objs, singles) from a parser's subparser names, excluding hidden and (unless role='host') host-only commands."""
     names = []
     for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
@@ -171,17 +163,7 @@ COMMAND_OVERRIDES = {
     'reports':       'Host machines',
 }
 
-# ---------------------------------------------------------------------------
-# Host-only command classification (CLN-3582)
-#
-# A command is either host-only or not — there's no third state. The client
-# CLI view hides host-only commands from --help, tab completion, and error
-# hints; everything else stays visible to everyone. Unclassified commands
-# default to visible (not host-only), so a module nobody's flagged yet just
-# shows up everywhere rather than needing an entry to "opt in" to visibility.
-# This is a display classification only — it never affects whether a command
-# executes.
-# ---------------------------------------------------------------------------
+# Host-only command classification (CLN-3582): display-only, hides host-only commands from --help/completion/hints for the client role; unclassified defaults to visible.
 
 # Modules where every command is host-only.
 HOST_ONLY_MODULES = {
@@ -189,9 +171,7 @@ HOST_ONLY_MODULES = {
     'vastai.cli.commands.metrics',
 }
 
-# Individual host-only commands in modules that are mostly client-facing.
-# Keyed by the registered "verb object" (or bare verb) name, same shape as
-# COMMAND_OVERRIDES above.
+# Individual host-only commands in modules that are mostly client-facing (same shape as COMMAND_OVERRIDES above).
 HOST_ONLY_COMMANDS = {
     'reports',                # misc.py: machine reports, not instance logs
     'show earnings',          # billing.py: machine earning history
@@ -204,13 +184,7 @@ HOST_ONLY_COMMANDS = {
 
 
 def is_host_only_command(name, module, explicit=None):
-    """Whether a registered command should be hidden from the client CLI view.
-
-    Priority: explicit ``host_only=`` kwarg on the decorator > per-command
-    override > per-module default. Defaults to ``False`` (visible) so an
-    unclassified module or an ad-hoc parser built outside the real command
-    modules (as tests do) never has commands silently disappear.
-    """
+    """Whether a command is hidden from the client CLI view: explicit host_only= kwarg > per-command override > per-module default > False (visible)."""
     if explicit is not None:
         return bool(explicit)
     if name in HOST_ONLY_COMMANDS:
@@ -253,11 +227,7 @@ def is_hidden_command(name, explicit=None):
     return name in HIDDEN_COMMANDS
 
 
-# Well-known client equivalents for commonly-confused host commands. Used to
-# build the "did you mean" 401 hint on the client CLI role — e.g. a renter
-# running 'show machines' (a host command) when they meant 'show instances'.
-# Not exhaustive; commands without an entry get a generic hint instead. See
-# main.py's _emit_error and CLN-3582.
+# Client equivalents for commonly-confused host commands, used to build the "did you mean" 401 hint (main.py's _emit_error, CLN-3582); not exhaustive.
 HOST_COMMAND_CLIENT_HINTS = {
     'show machine':  'show instances',
     'show machines': 'show instances',

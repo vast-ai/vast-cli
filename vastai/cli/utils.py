@@ -18,8 +18,6 @@ def get_client(args):
         curl=getattr(args, 'curl', False),
         client_type="cli",
     )
-    # Lazily resolves the client/host CLI role on a pre-existing install that
-    # never ran `set api-key` since this feature shipped. See CLN-3582 and
-    # ensure_host_role_detected's docstring.
+    # Lazily resolves the client/host CLI role for a pre-existing install that predates this feature (CLN-3582).
     ensure_host_role_detected(client)
     return client

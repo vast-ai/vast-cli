@@ -190,17 +190,7 @@ def format_key_suffix(k):
     return "(empty)"
 
 
-# ---------------------------------------------------------------------------
-# Client / host CLI role (CLN-3582)
-#
-# Purely a display preference — it only affects which commands --help, tab
-# completion, and error hints show. It is never used to gate execution: a
-# host command still runs for anyone who types it, since the server enforces
-# real permissions. Client is the default: host-only commands show only once
-# the role is explicitly resolved to 'host' (via `set role host` or, in the
-# full CLN-3582 rollout, auto-detection) — an unset or unrecognized role
-# means "assume client", not "show everything".
-# ---------------------------------------------------------------------------
+# Client/host CLI role (CLN-3582): display-only (--help/completion/hints), never gates execution; client is the default until the role explicitly resolves to 'host'.
 
 ROLE_FILE = os.path.join(DIRS['config'], "vast_role")
 ROLE_CLIENT = "client"
@@ -209,12 +199,7 @@ VALID_ROLES = {ROLE_CLIENT, ROLE_HOST}
 
 
 def get_role():
-    """Return the stored CLI role ('client' or 'host'), or None if unset/unrecognized.
-
-    Returns ``None`` — never raises — when ``ROLE_FILE`` is missing or holds
-    anything else. Callers should treat ``None`` the same as ``'client'``
-    (see :func:`is_client_view`) rather than checking it separately.
-    """
+    """Return the stored CLI role ('client' or 'host'), or None if ROLE_FILE is missing/unrecognized — never raises."""
     try:
         with open(ROLE_FILE) as f:
             role = f.read().strip().lower()
@@ -224,19 +209,12 @@ def get_role():
 
 
 def is_client_view(role):
-    """Whether ``role`` (as returned by :func:`get_role`) means "show the client view".
-
-    Client is the default: everything except an explicit ``'host'`` counts
-    as client, including ``None`` (unset) and any unrecognized value.
-    """
+    """Whether role (as returned by get_role) means "show the client view" — everything except explicit 'host', including None."""
     return role != ROLE_HOST
 
 
 def set_role_file(role):
-    """Persist ``role`` ('client' or 'host') to ``ROLE_FILE``.
-
-    Raises ValueError for anything else — callers pass user/API-derived input.
-    """
+    """Persist role ('client' or 'host') to ROLE_FILE; raises ValueError for anything else."""
     if role not in VALID_ROLES:
         raise ValueError(f"role must be one of {sorted(VALID_ROLES)}, got {role!r}")
     with open(ROLE_FILE, "w") as f:
@@ -244,21 +222,7 @@ def set_role_file(role):
 
 
 def ensure_host_role_detected(client):
-    """Best-effort: resolve and cache the role via ``client`` if it isn't known yet.
-
-    Called from :func:`vastai.cli.utils.get_client`, so it runs lazily on the
-    next real (authenticated) command a user makes — not on ``--help`` or tab
-    completion, which never build a client and so never pay this cost. This
-    is what brings a pre-existing install (API key saved before this feature
-    shipped, ``ROLE_FILE`` never written) up to date: the first real command
-    after upgrading resolves it once, and every command after that is free.
-
-    Once resolved, the role is cached permanently — 'client' as much as
-    'host' — since a successful check is a real answer, not a guess. Only a
-    failed check (network/auth error) leaves the role undetected, so it's
-    retried on the next call rather than wrongly cached as one or the other.
-    Never raises.
-    """
+    """Best-effort: resolve and permanently cache the role via client if it isn't known yet; never raises (a failed check just leaves it undetected for retry)."""
     if get_role() is not None:
         return
     try:

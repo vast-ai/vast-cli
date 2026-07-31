@@ -150,9 +150,7 @@ class TestAutoDetectHostRoleOnSetApiKey:
         assert "host command view" in capsys.readouterr().out
 
     def test_client_account_caches_client_role(self, tmp_path, monkeypatch, capsys):
-        # An empty machines list is a real answer, not "still unknown" — this
-        # is what brings a pre-existing install (key saved, role never
-        # written) up to date on its very first `set api-key` run.
+        # An empty machines list is a real answer, not "still unknown" — cached on the first `set api-key` run.
         role_file = self._set_api_key(tmp_path, monkeypatch, show_machines_result=[])
         assert role_file.read_text().strip() == "client"
         assert "client command view" in capsys.readouterr().out
@@ -183,10 +181,7 @@ class TestAutoDetectHostRoleOnSetApiKey:
         assert role_file.read_text().strip() == "host"
 
     def test_existing_client_role_is_not_rechecked_or_upgraded(self, tmp_path, monkeypatch):
-        # Symmetric to the host case: once resolved to 'client', a later
-        # `set api-key` run does not silently flip it to 'host' even if this
-        # key now belongs to an account with machines. 'vastai set role host'
-        # is the deliberate override path for that transition.
+        # Symmetric to the host case: once resolved to 'client', a later `set api-key` run never silently flips it to 'host'.
         role_file = tmp_path / "vast_role"
         role_file.write_text("client")
         monkeypatch.setattr("vastai.cli.util.ROLE_FILE", str(role_file))
@@ -205,8 +200,7 @@ class TestAutoDetectHostRoleOnSetApiKey:
         assert role_file.read_text().strip() == "client"
 
     def test_bare_namespace_missing_url_and_retry_does_not_crash(self, tmp_path, monkeypatch):
-        # Direct callers (like the existing TestSetApiKey tests) construct a
-        # bare Namespace(new_api_key=...) with no `url`/`retry` attributes.
+        # Direct callers construct a bare Namespace(new_api_key=...) with no `url`/`retry` attributes.
         role_file = self._set_api_key(tmp_path, monkeypatch, show_machines_result=[{"id": 1}])
         assert role_file.read_text().strip() == "host"
 

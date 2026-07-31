@@ -223,14 +223,7 @@ def set__api_key(args):
 
 
 def _auto_detect_and_announce_role(args):
-    """Best-effort: resolve and announce the client/host CLI role for this key.
-
-    A no-op if the role is already known — once resolved (by this, or by the
-    first real command a pre-existing install runs; see
-    ``vastai.cli.util.ensure_host_role_detected``), it's never silently
-    re-detected or changed. 'vastai set role host|client' is the override
-    path for e.g. a client account that starts hosting later.
-    """
+    """Best-effort: resolve and announce the client/host CLI role for this key; a no-op once the role is already known."""
     from vastai.cli.util import get_role, ensure_host_role_detected, ROLE_HOST, ROLE_CLIENT, server_url_default
     from vastai.api.client import VastClient
 
@@ -238,10 +231,7 @@ def _auto_detect_and_announce_role(args):
         return  # already resolved; nothing to announce
 
     try:
-        # args.api_key was resolved from the OLD saved key before this command
-        # ran (see main.py), so it can't be used here — build a client with
-        # the key that was just written instead. getattr() defaults cover
-        # direct/test calls that construct a bare Namespace(new_api_key=...).
+        # args.api_key is the OLD saved key (see main.py); use the just-written key instead.
         client = VastClient(
             api_key=args.new_api_key,
             server_url=getattr(args, "url", server_url_default),

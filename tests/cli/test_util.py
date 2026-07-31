@@ -378,9 +378,7 @@ class TestEnsureHostRoleDetected:
         assert get_role() == "host"
 
     def test_client_account_caches_client(self, tmp_path, monkeypatch):
-        # This is what brings a pre-existing install (key saved, role never
-        # written) up to date: an empty machines list is a real answer, not
-        # a "still unknown" — so it gets cached just like a host does.
+        # An empty machines list is a real answer, not "still unknown" — it gets cached just like a host does.
         from vastai.cli.util import ensure_host_role_detected, get_role
         client = self._client(tmp_path, monkeypatch, show_machines_result=[])
         ensure_host_role_detected(client)

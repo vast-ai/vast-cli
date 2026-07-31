@@ -208,8 +208,7 @@ class TestBuildCommandMaps:
         assert verb_objs["show"] == {"instances", "env-vars"}
 
     def test_no_role_defaults_to_client_completions(self):
-        # Client is the default: an unset role (no role= passed) hides
-        # host-only commands from completion too, not just 'client'.
+        # Client is the default: an unset role (no role= passed) hides host-only commands too.
         _, verb_objs, _ = build_command_maps(_completion_parser_with_host_cmd().parser)
         assert verb_objs["show"] == {"instances", "env-vars"}
 
@@ -384,15 +383,13 @@ class TestIsHostOnlyCommand:
         ) is True
 
     def test_unmapped_module_and_command_defaults_to_visible(self):
-        # No raise, no "unresolved" state: an unmapped module/command is
-        # simply not host-only, so it's never hidden by mistake.
+        # No raise, no "unresolved" state: an unmapped module/command is simply not host-only.
         assert is_host_only_command("do stuff", "some.made.up.module") is False
 
 
 class TestCommandDecoratorHostOnly:
     def test_unmapped_module_defaults_to_not_host_only(self):
-        # This test file's module isn't in HOST_ONLY_MODULES — the command
-        # is simply visible, not left in some unresolved state.
+        # This test file's module isn't in HOST_ONLY_MODULES — the command is simply visible.
         p = apwrap()
 
         @p.command(help="show items")
@@ -472,8 +469,7 @@ class TestGroupedHelpRoleFiltering:
         return p
 
     def test_unset_role_defaults_to_client_view(self, monkeypatch):
-        # Client is the default: an unset role hides host-only commands too,
-        # not just an explicit 'client' — see test below for that case.
+        # Client is the default: an unset role hides host-only commands too, not just an explicit 'client'.
         monkeypatch.setattr("vastai.cli.parser.get_role", lambda: None)
         help_text = self._parser_with_host_and_client_cmds().parser.format_help()
         assert "show instances" in help_text

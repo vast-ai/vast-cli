@@ -163,8 +163,7 @@ class TestHostCommand401Hint:
         assert "host-only command" not in buf.getvalue()
 
     def test_undetected_role_also_gets_the_hint(self):
-        # Client is the default: an unset role is treated the same as
-        # 'client', not 'host' — so the hint still fires.
+        # Client is the default: an unset role is treated the same as 'client', so the hint still fires.
         args = _args(func=_host_command_func("show machines"))
         buf = io.StringIO()
         with patch("vastai.cli.main.get_role", return_value=None):
@@ -181,8 +180,7 @@ class TestHostCommand401Hint:
         assert "host-only command" not in buf.getvalue()
 
     def test_2fa_message_takes_precedence_over_the_hint(self):
-        # Even for a host command in the client role, an explicit 2FA error
-        # keeps its own (pre-existing) guidance rather than the new hint.
+        # An explicit 2FA error keeps its own guidance rather than the new hint, even for a host command.
         args = _args(func=_host_command_func("show machines"))
         buf = io.StringIO()
         with patch("vastai.cli.main.get_role", return_value="client"):
@@ -203,8 +201,7 @@ class TestHostCommand401Hint:
         assert '"error": true' in out
 
     def test_no_func_on_args_does_not_crash(self):
-        # Defensive: args without a func attribute (shouldn't happen in
-        # practice, but _emit_error must not blow up on missing state).
+        # Defensive: _emit_error must not blow up if args lacks a func attribute.
         args = argparse.Namespace(raw=False)
         buf = io.StringIO()
         with patch("vastai.cli.main.get_role", return_value="client"):

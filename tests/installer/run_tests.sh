@@ -64,8 +64,7 @@ elif [ "$1" = "pip" ]; then
     done
     bindir="$(dirname "$py")"
     for name in vastai serve-vast-deployment register-python-argcomplete; do
-        # Also logs its own invocation args (one line per call) next to the
-        # binary — lets warm_role_cache tests assert on what install.sh ran.
+        # Also logs its own invocation args next to the binary, for warm_role_cache tests to assert on.
         printf '#!/bin/sh\necho "$@" >> "$(dirname "$0")/invocations.log"\necho "%s"\n' "${last#vastai==}" > "$bindir/$name"
         chmod +x "$bindir/$name"
     done
@@ -125,10 +124,7 @@ new_sandbox() {
 
 # run_install [VAR=VAL ...] — real install.sh, detached from any tty
 run_install() {
-    # XDG_CONFIG_HOME must be sandboxed too — warm_role_cache() reads the api
-    # key from there, and an ambient value from the CI runner's own
-    # environment (not just $SB_HOME) would leak the real path in and make
-    # the sandboxed key invisible to it.
+    # XDG_CONFIG_HOME must be sandboxed too — warm_role_cache() reads the api key from there, and an ambient CI value would leak the real path in.
     local envs=("HOME=$SB_HOME" "XDG_CONFIG_HOME=$SB_HOME/.config" "VASTAI_INSTALL_DIR=$SB_ROOT" "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" "$@")
     [ -z "$HAVE_SETSID" ] && envs+=("VASTAI_NO_MODIFY_PATH=1")
     if [ -n "$HAVE_SETSID" ]; then

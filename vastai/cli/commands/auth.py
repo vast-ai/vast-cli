@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from vastai.cli.parser import argument
 from vastai.cli.display import deindent, display_table
 from vastai.api import auth as auth_api
-from vastai.cli.util import SUCCESS, WARN, FAIL, INFO, format_key_suffix
+from vastai.cli.util import SUCCESS, WARN, FAIL, format_key_suffix
 
 
 # ---------------------------------------------------------------------------
@@ -218,35 +218,6 @@ def set__api_key(args):
     if env_key:
         print(f"\n{WARN} VAST_API_KEY is set in your environment (ends in {format_key_suffix(env_key)}) and overrides the key you just saved.")
         print("Unset VAST_API_KEY to use the saved key.")
-
-    _auto_detect_and_announce_role(args)
-
-
-def _auto_detect_and_announce_role(args):
-    """Best-effort: resolve and announce the client/host CLI role for this key; a no-op once the role is already known."""
-    from vastai.cli.util import get_role, ensure_host_role_detected, ROLE_HOST, server_url_default
-    from vastai.api.client import VastClient
-
-    if get_role() is not None:
-        return  # already resolved; nothing to announce
-
-    try:
-        # args.api_key is the OLD saved key (see main.py); use the just-written key instead.
-        client = VastClient(
-            api_key=args.new_api_key,
-            server_url=getattr(args, "url", server_url_default),
-            retry=getattr(args, "retry", 3),
-            client_type="cli",
-        )
-    except Exception:
-        return  # malformed args: leave role detection for the next real command
-
-    ensure_host_role_detected(client)
-
-    if get_role() == ROLE_HOST:
-        print(f"\n{INFO} This account has machines listed for rent — enabling the host command view.")
-        print("  (Run 'vastai set role client' to hide host-only commands, or 'vastai set role host' to re-enable.)")
-    # else: client (nothing to announce — it's the default view) or a network/auth error (left for the next real command)
 
 
 # ---------------------------------------------------------------------------

@@ -64,8 +64,7 @@ elif [ "$1" = "pip" ]; then
     done
     bindir="$(dirname "$py")"
     for name in vastai serve-vast-deployment register-python-argcomplete; do
-        # Also logs its own invocation args next to the binary, for warm_role_cache tests to assert on.
-        printf '#!/bin/sh\necho "$@" >> "$(dirname "$0")/invocations.log"\necho "%s"\n' "${last#vastai==}" > "$bindir/$name"
+        printf '#!/bin/sh\necho "%s"\n' "${last#vastai==}" > "$bindir/$name"
         chmod +x "$bindir/$name"
     done
 fi
@@ -124,8 +123,7 @@ new_sandbox() {
 
 # run_install [VAR=VAL ...] — real install.sh, detached from any tty
 run_install() {
-    # XDG_CONFIG_HOME must be sandboxed too — warm_role_cache() reads the api key from there, and an ambient CI value would leak the real path in.
-    local envs=("HOME=$SB_HOME" "XDG_CONFIG_HOME=$SB_HOME/.config" "VASTAI_INSTALL_DIR=$SB_ROOT" "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" "$@")
+    local envs=("HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" "$@")
     [ -z "$HAVE_SETSID" ] && envs+=("VASTAI_NO_MODIFY_PATH=1")
     if [ -n "$HAVE_SETSID" ]; then
         setsid -w env "${envs[@]}" bash "$INSTALL_SH" >"$SB_OUT" 2>&1 </dev/null
@@ -138,7 +136,7 @@ run_install() {
 # engages), under ${VASTAI_TEST_TTY_BASH:-/bin/bash} — macOS CI points that at stock bash 3.2,
 # which is the regression guarantee for the TTY-only array and $'...' paths. Needs script(1).
 run_install_tty() {
-    local cmd=(env "HOME=$SB_HOME" "XDG_CONFIG_HOME=$SB_HOME/.config" "VASTAI_INSTALL_DIR=$SB_ROOT" \
+    local cmd=(env "HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" \
         "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" "$@" \
         "${VASTAI_TEST_TTY_BASH:-/bin/bash}" "$INSTALL_SH")
     case "$(uname -s)" in
@@ -158,7 +156,6 @@ out_lacks()    { ! grep -qa "$1" "$SB_OUT"; }
 # ..._raw: fixed strings, for escape sequences that BRE would misread.
 out_contains_raw() { grep -qaF "$1" "$SB_OUT"; }
 out_lacks_raw()    { ! grep -qaF "$1" "$SB_OUT"; }
-invocations_lack() { ! grep -qa "$1" "$SB_ROOT/bin/invocations.log" 2>/dev/null; }
 
 # ---------------------------------------------------------------------------
 # Scenarios
@@ -332,41 +329,6 @@ test_completion_files_generated() { # static completion scripts precomputed unde
         [ "$(grep -c 'eval.*register-python-argcomplete' "$SB_ROOT/env.sh")" -eq 0 ]
 }
 
-test_warm_role_cache_fires_when_key_exists() { # pre-existing key -> background role-detection call
-    new_sandbox warmkey
-    mkdir -p "$SB_HOME/.config/vastai"
-    echo "fake-key" > "$SB_HOME/.config/vastai/vast_api_key"
-    run_install || { cat "$SB_OUT"; return 1; }
-    # Detached (nohup + disown) — give it a moment to actually run.
-    local log="$SB_ROOT/bin/invocations.log"
-    for _ in $(seq 1 50); do
-        [ -s "$log" ] && grep -q "show machines" "$log" && break
-        sleep 0.1
-    done
-    assert "install still succeeded" out_contains "vastai 1.2.3 installed" &&
-    assert "role-detection call fired" grep -q "show machines --raw" "$log"
-}
-
-test_warm_role_cache_skips_when_no_key() { # fresh install, no key yet -> no extra call
-    new_sandbox warmnokey
-    run_install || { cat "$SB_OUT"; return 1; }
-    sleep 0.3  # would-be background call has had time to run if it (wrongly) fired
-    assert "install succeeded" out_contains "vastai 1.2.3 installed" &&
-    assert "no role-detection call attempted" invocations_lack "show machines"
-}
-
-test_warm_role_cache_finds_legacy_key_location() { # ~/.vast_api_key (pre-XDG) also counts
-    new_sandbox warmlegacy
-    echo "fake-key" > "$SB_HOME/.vast_api_key"
-    run_install || { cat "$SB_OUT"; return 1; }
-    local log="$SB_ROOT/bin/invocations.log"
-    for _ in $(seq 1 50); do
-        [ -s "$log" ] && grep -q "show machines" "$log" && break
-        sleep 0.1
-    done
-    assert "role-detection call fired for the legacy key path" grep -q "show machines --raw" "$log"
-}
-
 test_tty_install() { # interactive install (stderr on a pty) must survive old bash
     # install.sh empties its pyquiet array with the bar up, and on bash < 4.4 expanding an empty
     # array under `set -u` is fatal ("pyquiet[@]: unbound variable"); detached runs keep it full.
@@ -418,7 +380,7 @@ test_progress_failure_shows_tool_error() { # the bar must not swallow diagnostic
 # Runner
 # ---------------------------------------------------------------------------
 
-ALL_TESTS=(fresh_install pinned_reinstall xdg_data_home_default wheel_url_install wheel_url_pin_fallback checksum_abort truncation_guard glibc_floor rc_safety env_sh pip_shadowing pip_shadowing_quiet pip_shadowing_rerun completion_files_generated warm_role_cache_fires_when_key_exists warm_role_cache_skips_when_no_key warm_role_cache_finds_legacy_key_location tty_install progress_bar progress_opt_out progress_failure_shows_tool_error)
+ALL_TESTS=(fresh_install pinned_reinstall xdg_data_home_default wheel_url_install wheel_url_pin_fallback checksum_abort truncation_guard glibc_floor rc_safety env_sh pip_shadowing pip_shadowing_quiet pip_shadowing_rerun completion_files_generated tty_install progress_bar progress_opt_out progress_failure_shows_tool_error)
 # No "${@:-...}": expanding $@ with zero args under set -u is itself fatal on
 # old bash, and this harness must run under macOS's stock bash 3.2 (see
 # test_tty_install).

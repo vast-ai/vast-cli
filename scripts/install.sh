@@ -486,14 +486,6 @@ check_pip_coexistence() {
     warn "put $LOCAL_BIN first in PATH so this one wins."
 }
 
-# Best-effort: if an API key already exists (a reinstall), resolve the client/host CLI view for it now via a detached, disowned call — never blocks or affects install success.
-warm_role_cache() {
-    local cfg_dir
-    cfg_dir="${XDG_CONFIG_HOME:-$HOME/.config}/vastai"
-    [ -f "$cfg_dir/vast_api_key" ] || [ -f "$HOME/.vast_api_key" ] || return 0
-    ( nohup "$ROOT/bin/vastai" show machines --raw >/dev/null 2>&1 & disown ) 2>/dev/null || true
-}
-
 main() {
     for arg in "$@"; do
         case "$arg" in
@@ -538,7 +530,6 @@ main() {
     ui_end       # the rest prints: PATH hints, coexistence warnings, next steps
     setup_path
     check_pip_coexistence
-    warm_role_cache
 
     printf '\n'
     say "vastai $version installed to $ROOT"

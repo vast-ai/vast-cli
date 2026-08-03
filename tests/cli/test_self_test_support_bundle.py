@@ -41,6 +41,40 @@ def test_support_bundle_contains_redacted_result_and_cli_output(tmp_path):
     assert manifest["includes_local_host_artifacts"] is False
 
 
+def test_support_bundle_recursively_redacts_extra_json_artifacts(tmp_path):
+    bundle = create_support_bundle(
+        machine_id="42",
+        output_dir=str(tmp_path),
+        extra_files={
+            "instance/show-instance.json": json.dumps({
+                "id": 123,
+                "jupyter_token": "j" * 64,
+                "nested": {
+                    "items": [
+                        {"instance_api_key": "instance-secret", "safe": "kept"},
+                    ],
+                },
+            }),
+            "instance/malformed.json": "token=malformed-secret\n{not-json",
+            "instance/container.log": "token=log-secret",
+        },
+        include_local_host_artifacts=False,
+    )
+
+    with tarfile.open(bundle["path"], "r:gz") as tar:
+        instance = json.loads(tar.extractfile("instance/show-instance.json").read().decode())
+        malformed = tar.extractfile("instance/malformed.json").read().decode()
+        container_log = tar.extractfile("instance/container.log").read().decode()
+
+    assert instance["jupyter_token"] == "REDACTED"
+    assert instance["nested"]["items"][0]["instance_api_key"] == "REDACTED"
+    assert instance["nested"]["items"][0]["safe"] == "kept"
+    assert "malformed-secret" not in malformed
+    assert "log-secret" not in container_log
+    assert "token=REDACTED" in malformed
+    assert "token=REDACTED" in container_log
+
+
 def test_support_bundle_sanitizes_archive_names(tmp_path):
     bundle = create_support_bundle(
         machine_id="42",

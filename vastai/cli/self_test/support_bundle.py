@@ -66,6 +66,18 @@ def _redact_json(value: Any, secrets: list[str] | None = None) -> Any:
     return value
 
 
+def _redact_artifact(name: str, content: object, secrets: list[str] | None = None) -> str:
+    """Recursively redact structured JSON artifacts, with safe text fallback."""
+    if JSON_ARTIFACT_RE.search(name):
+        try:
+            parsed = json.loads(content)
+        except (json.JSONDecodeError, TypeError):
+            pass
+        else:
+            return json.dumps(_redact_json(parsed, secrets), indent=2, sort_keys=True)
+    return _redact_text(content, secrets)
+
+
 def _truncate_text(text: str, max_bytes: int) -> str:
     encoded = text.encode("utf-8", errors="replace")
     if len(encoded) <= max_bytes:
@@ -222,7 +234,7 @@ def create_support_bundle(
         files["self-test-result.json"] = json.dumps(_redact_json(result, secrets), indent=2, sort_keys=True)
     if extra_files:
         for name, content in extra_files.items():
-            files[name] = _redact_text(content, secrets)
+            files[name] = _redact_artifact(name, content, secrets)
     if extra_errors:
         errors.extend(_redact_json(extra_errors, secrets))
     if include_local_host_artifacts:

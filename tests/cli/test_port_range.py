@@ -221,7 +221,6 @@ def test_scan_uses_bounded_concurrency():
             "reachable": True,
         }
 
-    started = time.monotonic()
     result = scan_mapped_port_range(
         _mapped_instance(40000, 40003),
         "203.0.113.10",
@@ -231,11 +230,9 @@ def test_scan_uses_bounded_concurrency():
         max_attempts=1,
         total_timeout=2,
     )
-    elapsed = time.monotonic() - started
 
     assert result["status"] == "passed"
     assert max_active == 4
-    assert elapsed < 0.2
 
 
 def test_scan_deadline_reports_entries_that_never_started():

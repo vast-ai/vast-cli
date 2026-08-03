@@ -866,7 +866,7 @@ def self_test__machine(args):
         if bundle:
             for line in format_bundle_summary(bundle):
                 print(line)
-        print(f"Test failed: {result['reason']}")
+        print_failure_reason()
         sys.exit(1)
 
     def set_runtime_failure(diagnostic, fallback_reason=None):
@@ -879,6 +879,13 @@ def self_test__machine(args):
     def safe_error(error):
         return redact_secret_text(error) or ""
 
+    def print_failure_reason():
+        reason = str(result.get("reason") or "").strip()
+        if reason and reason not in cli_output:
+            print(f"Test failed: {reason}")
+        else:
+            print("Test failed.")
+
     def render_runtime_failure():
         diagnostic = result.get("diagnostics", {}).get("runtime_failure")
         if not diagnostic:
@@ -887,8 +894,9 @@ def self_test__machine(args):
         progress_print(f"- code: {diagnostic.get('code')}")
         if diagnostic.get("summary"):
             progress_print(f"- summary: {diagnostic['summary']}")
-        if diagnostic.get("underlying_error"):
-            progress_print(f"- underlying error: {diagnostic['underlying_error']}")
+        underlying_error = diagnostic.get("underlying_error")
+        if underlying_error and underlying_error not in cli_output:
+            progress_print(f"- underlying error: {underlying_error}")
         endpoint = diagnostic.get("progress_endpoint") or result.get("diagnostics", {}).get("progress_endpoint")
         if endpoint:
             if endpoint.get("url"):
@@ -1546,7 +1554,6 @@ def self_test__machine(args):
                                         return True, "", None
                                     elif line.startswith('ERROR'):
                                         progress_print(line)
-                                        progress_print(f"Test failed with error: {line}.")
                                         destroy_instance_silent(inst_id, collect_logs=True)
                                         instance_destroyed = True
                                         return False, line, diagnostic
@@ -1634,7 +1641,7 @@ def self_test__machine(args):
                     finally:
                         if not instance_destroyed and inst_id and instance_exist(inst_id):
                             destroy_instance_silent(inst_id, collect_logs=True)
-                        progress_print(f"Machine: {machine_id} Done with testing remote.py results {message}")
+                        debug_print(f"Machine: {machine_id} Done with testing remote.py.")
                         warnings.simplefilter('default')
 
                 # ----- main orchestration: wait then test -----
@@ -1880,5 +1887,5 @@ def self_test__machine(args):
             if bundle:
                 for line in format_bundle_summary(bundle):
                     print(line)
-            print(f"Test failed: {result['reason']}")
+            print_failure_reason()
             sys.exit(1)

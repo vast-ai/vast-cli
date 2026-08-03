@@ -8,6 +8,7 @@ def test_failure_catalog_contains_stable_runtime_codes():
 
     assert set(diag.RUNTIME_FAILURE_CODES) == set(catalog)
     assert catalog[diag.DOCKER_PULL_FAILED]["code"] == diag.DOCKER_PULL_FAILED
+    assert catalog[diag.CUDA_ERROR_TOO_MANY_PEERS]["code"] == diag.CUDA_ERROR_TOO_MANY_PEERS
     assert catalog[diag.CLEANUP_FAILED]["suggested_steps"]
 
 
@@ -72,6 +73,85 @@ def test_legacy_parser_tracks_stage_and_classifies_nccl_error():
     assert result["code"] == diag.NCCL_FAILED
     assert result["stage"] == diag.STAGE_NCCL
     assert result["underlying_error"] == "ERROR: NCCL unhandled system error during allreduce"
+
+
+@pytest.mark.parametrize(
+    ("line", "stage"),
+    [
+        ("Running ResNet18 test on all GPUs...", diag.STAGE_RESNET),
+        ("Running ECC test on all GPUs...", diag.STAGE_ECC),
+        ("Running NCCL distributed test with 2 GPUs...", diag.STAGE_NCCL),
+        (
+            "Running stress-ng and gpu-burn tests simultaneously for 60 seconds...",
+            diag.STAGE_STRESS_GPU_BURN,
+        ),
+    ],
+)
+def test_legacy_parser_tracks_current_self_test_image_stage_lines(line, stage):
+    parser = diag.LegacyProgressParser()
+
+    assert parser.process_line(line) is None
+
+    assert parser.stage == stage
+
+
+def test_legacy_parser_promotes_known_image_failure_marker_and_stage():
+    parser = diag.LegacyProgressParser()
+    line = (
+        "ERROR 2: Test All GPU ResNet18 failed. "
+        "SELF_TEST_FAILURE[cuda_error_too_many_peers]: "
+        "All-GPU ResNet18 failed on all 10 visible GPUs."
+    )
+
+    parser.process_line("Running system requirements test...")
+    result = parser.process_line(line)
+
+    assert result["code"] == diag.CUDA_ERROR_TOO_MANY_PEERS
+    assert result["stage"] == diag.STAGE_RESNET
+    assert result["underlying_error"] == line
+    assert "peer-mapping resources" in result["summary"]
+
+
+@pytest.mark.parametrize(
+    "marker_code",
+    [
+        diag.CUDA_ERROR_TOO_MANY_PEERS,
+        diag.CUDA_OUT_OF_MEMORY,
+        diag.CUDA_DEVICE_UNAVAILABLE,
+        diag.CUDA_DRIVER_OR_INITIALIZATION_ERROR,
+        diag.CUDA_KERNEL_INCOMPATIBLE,
+        diag.CUDA_DEVICE_EXECUTION_FAILED,
+        diag.CUDA_RUNTIME_ERROR,
+        diag.PYTORCH_RUNTIME_ERROR,
+        diag.RESNET_PROCESS_ERROR,
+    ],
+)
+def test_legacy_parser_preserves_all_known_resnet_failure_markers(marker_code):
+    parser = diag.LegacyProgressParser()
+    line = (
+        "ERROR 2: Test All GPU ResNet18 failed. "
+        f"SELF_TEST_FAILURE[{marker_code}]: captured diagnostic"
+    )
+
+    parser.process_line("Running system requirements test...")
+    result = parser.process_line(line)
+
+    assert result["code"] == marker_code
+    assert result["stage"] == diag.STAGE_RESNET
+    assert result["underlying_error"] == line
+
+
+@pytest.mark.parametrize("marker_code", ["future_untrusted_code", diag.CLEANUP_FAILED])
+def test_legacy_parser_rejects_non_image_failure_marker(marker_code):
+    parser = diag.LegacyProgressParser()
+    parser.process_line("Running ResNet18 test on all GPUs...")
+
+    result = parser.process_line(
+        f"ERROR 2: ResNet failed. SELF_TEST_FAILURE[{marker_code}]: CUDA error"
+    )
+
+    assert result["code"] == diag.RESNET_FAILED
+    assert result["stage"] == diag.STAGE_RESNET
 
 
 def test_legacy_parser_classifies_unknown_error_as_legacy_progress_error():

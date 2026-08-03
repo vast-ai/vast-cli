@@ -1340,6 +1340,154 @@ class TestSelfTestMachineDiagnostics:
         assert result["failure"]["underlying_error"] == status_msg
         assert destroy.call_count == 1
 
+    def test_paid_image_failure_marker_is_preserved_in_structured_result(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer()
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"5000/tcp": [{"HostPort": "45000"}]},
+            "status_msg": "",
+        }
+        marker = (
+            "ERROR 2: Test All GPU ResNet18 failed. "
+            "SELF_TEST_FAILURE[cuda_error_too_many_peers]: "
+            "All-GPU ResNet18 failed on all 10 visible GPUs."
+        )
+        destroyed = set()
+
+        def show_instance(client, id):
+            if id in destroyed:
+                return {"id": id, "actual_status": "destroyed", "intended_status": "destroyed"}
+            return running_instance
+
+        def destroy_instance(client, id):
+            destroyed.add(id)
+            return {"success": True}
+
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            show_instance,
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.destroy_instance",
+            destroy_instance,
+        )
+        monkeypatch.setattr("vastai.cli.commands.machines.time.sleep", lambda *_: None)
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.requests.get",
+            Mock(
+                return_value=SimpleNamespace(
+                    status_code=200,
+                    text="\n".join(
+                        (
+                            "Starting tests...",
+                            "Running system requirements test...",
+                            "TESTED : System requirements test passed.",
+                            "Running ResNet18 test on all GPUs...",
+                            marker,
+                        )
+                    ),
+                )
+            ),
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--raw", "--no-support-bundle"])
+        result = args.func(args)
+
+        assert result["failure_code"] == "cuda_error_too_many_peers"
+        assert result["stage"] == "resnet"
+        assert result["reason"] == marker
+        assert result["diagnostics"]["runtime_failure"]["underlying_error"] == marker
+        assert destroyed == {123}
+
+    def test_paid_image_failure_marker_is_printed_once(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        offer = _self_test_offer()
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"5000/tcp": [{"HostPort": "45000"}]},
+            "status_msg": "",
+        }
+        marker = (
+            "ERROR 2: Test All GPU ResNet18 failed. "
+            "SELF_TEST_FAILURE[cuda_error_too_many_peers]: "
+            "All-GPU ResNet18 failed on all 10 visible GPUs."
+        )
+        destroyed = set()
+
+        def show_instance(client, id):
+            if id in destroyed:
+                return {"id": id, "actual_status": "destroyed", "intended_status": "destroyed"}
+            return running_instance
+
+        def destroy_instance(client, id):
+            destroyed.add(id)
+            return {"success": True}
+
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            show_instance,
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.destroy_instance",
+            destroy_instance,
+        )
+        monkeypatch.setattr("vastai.cli.commands.machines.time.sleep", lambda *_: None)
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.requests.get",
+            Mock(
+                return_value=SimpleNamespace(
+                    status_code=200,
+                    text="\n".join(
+                        (
+                            "Starting tests...",
+                            "Running system requirements test...",
+                            "TESTED : System requirements test passed.",
+                            "Running ResNet18 test on all GPUs...",
+                            marker,
+                        )
+                    ),
+                )
+            ),
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--no-support-bundle"])
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 1
+        assert captured.out.count(marker) == 1
+        assert "- code: cuda_error_too_many_peers" in captured.out
+        assert "Test failed with error:" not in captured.out
+        assert "Done with testing remote.py" not in captured.out
+        assert "- underlying error:" not in captured.out
+        assert destroyed == {123}
+
     def test_progress_endpoint_never_reachable_records_endpoint_diagnostic(
         self, parse_argv, patch_get_client, monkeypatch
     ):

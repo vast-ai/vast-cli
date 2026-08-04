@@ -77,7 +77,10 @@ class TestCreateTemplate:
         patch_get_client.post.return_value = mock_response(200, {
             "success": True, "template": {"id": 1, "hash_id": "abc123"}
         })
-        args = parse_argv(["create", "template", "--name", "Test", "--image", "pytorch/pytorch", "--no-default"])
+        args = parse_argv([
+            "create", "template", "--name", "Test", "--image", "pytorch/pytorch",
+            "--no-default", "--no-verify",
+        ])
         args.func(args)
         patch_get_client.post.assert_called_once()
         call_args = patch_get_client.post.call_args
@@ -85,6 +88,66 @@ class TestCreateTemplate:
         json_data = call_args[1]["json_data"]
         assert json_data["name"] == "Test"
         assert json_data["image"] == "pytorch/pytorch"
+
+    def test_create_template_verifies_image_by_default(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.post.side_effect = [
+            mock_response(200, {"success": True, "tags": ["latest"]}),
+            mock_response(200, {"success": True, "template": {"id": 1}}),
+        ]
+        args = parse_argv(["create", "template", "--name", "Test", "--image", "pytorch/pytorch", "--no-default"])
+        args.func(args)
+        assert patch_get_client.post.call_count == 2
+        first_url = patch_get_client.post.call_args_list[0][0][0]
+        second_url = patch_get_client.post.call_args_list[1][0][0]
+        assert "fetch-tags" in first_url
+        assert "/template/" in second_url
+
+    def test_create_template_aborts_on_bad_credentials(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.post.return_value = mock_response(
+            400, {"success": False, "error": "auth_failed", "msg": "bad creds"}
+        )
+        args = parse_argv([
+            "create", "template", "--name", "Test", "--image", "acme/private", "--no-default",
+            "--docker_login_user", "bob", "--docker_login_pass", "wrong",
+        ])
+        args.func(args)
+        patch_get_client.post.assert_called_once()  # only validate-auth, never the create call
+        assert "validate-auth" in patch_get_client.post.call_args[0][0]
+
+
+class TestUpdateTemplate:
+    def test_update_template_puts_to_v1_with_resolved_id(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.get.return_value = mock_response(200, {"templates": [{"id": 42, "hash_id": "abc123"}]})
+        patch_get_client.put.return_value = mock_response(200, {
+            "success": True, "template": {"id": 42}, "msg": "Template 42 Updated Successfully",
+        })
+        args = parse_argv([
+            "update", "template", "abc123", "--name", "renamed", "--no-default", "--no-verify",
+        ])
+        args.func(args)
+        patch_get_client.put.assert_called_once()
+        call_args = patch_get_client.put.call_args
+        assert call_args[0][0] == "/api/v1/template/"
+        assert call_args[1]["json_data"]["id"] == 42
+
+    def test_update_template_aborts_when_hash_id_not_found(self, parse_argv, patch_get_client, mock_response, capsys):
+        patch_get_client.get.return_value = mock_response(200, {"templates": []})
+        args = parse_argv(["update", "template", "missing-hash", "--no-default", "--no-verify"])
+        args.func(args)
+        patch_get_client.put.assert_not_called()
+        assert "missing-hash" in capsys.readouterr().out
+
+    def test_update_template_aborts_on_bad_credentials(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.get.return_value = mock_response(200, {"templates": [{"id": 42, "hash_id": "abc123"}]})
+        patch_get_client.post.return_value = mock_response(
+            400, {"success": False, "error": "auth_failed", "msg": "bad creds"}
+        )
+        args = parse_argv([
+            "update", "template", "abc123", "--image", "acme/private", "--no-default",
+            "--docker_login_user", "bob", "--docker_login_pass", "wrong",
+        ])
+        args.func(args)
+        patch_get_client.put.assert_not_called()
 
 
 class TestDeleteTemplate:

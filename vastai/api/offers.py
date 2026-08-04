@@ -1,5 +1,75 @@
 """Search offers, templates, benchmarks, volumes, network volumes, and invoices."""
+import requests
+
 from vastai.api.client import VastClient
+
+
+def split_image_tag(image):
+    """Split "image:tag" into (image, tag), unless the colon belongs to a registry:port host."""
+    if not image or ":" not in image:
+        return image, None
+    base, _, tag = image.rpartition(":")
+    if "/" in tag:
+        return image, None
+    return base, tag
+
+
+def fetch_template_tags(client: VastClient, image: str, server: str = None,
+                        username: str = None, token: str = None):
+    """Look up available tags for an image via the template validation API.
+
+    Returns (tags, error_msg). error_msg is set on lookup failure; tags may
+    still be an empty list on success if the registry reports none.
+    """
+    body = {"image": image}
+    if server:
+        body["server"] = server
+    if username:
+        body["username"] = username
+    if token:
+        body["token"] = token
+
+    r = client.post("/api/v1/templates/fetch-tags", json_data=body)
+    try:
+        rj = r.json()
+    except requests.exceptions.JSONDecodeError:
+        return None, f"registry lookup returned status {r.status_code}"
+
+    if r.status_code != 200:
+        return None, rj.get("msg") or rj.get("error") or f"registry lookup returned status {r.status_code}"
+    if not rj.get("success"):
+        return [], rj.get("error") or "No tags found"
+    return rj.get("tags", []), None
+
+
+def validate_template_auth(client: VastClient, server: str, username: str, token: str):
+    """Validate private registry credentials via the template validation API.
+
+    Returns (ok, error_msg).
+    """
+    body = {"server": server or "docker.io", "username": username, "token": token}
+    r = client.post("/api/v1/templates/validate-auth", json_data=body)
+    try:
+        rj = r.json()
+    except requests.exceptions.JSONDecodeError:
+        return False, f"registry auth check returned status {r.status_code}"
+
+    if r.status_code != 200 or not rj.get("success"):
+        return False, rj.get("msg") or rj.get("error") or f"registry auth check returned status {r.status_code}"
+    return True, None
+
+
+def resolve_template_id(client: VastClient, hash_id: str):
+    """Look up a template's numeric id from its hash_id.
+
+    PUT /api/v1/template/ identifies templates by numeric id, not hash_id,
+    so this resolves the id a user-facing hash_id argument refers to.
+    Returns (id, error_msg).
+    """
+    rows = search_templates(client, {"hash_id": {"eq": hash_id}})
+    if not rows:
+        return None, f"no template found for hash_id {hash_id}"
+    return rows[0]["id"], None
 
 
 def search_offers(client: VastClient, query: dict = None, offer_type: str = "on-demand",
@@ -232,7 +302,8 @@ def create_template(client: VastClient, name: str = None, image: str = None,
                     jup_direct: bool = False, ssh_direct: bool = False,
                     use_jupyter_lab: bool = False, runtype: str = "args",
                     use_ssh: bool = False, jupyter_dir: str = None,
-                    docker_login_repo: str = None, extra_filters: dict = None,
+                    docker_login_repo: str = None, docker_login_user: str = None,
+                    docker_login_pass: str = None, extra_filters: dict = None,
                     disk_space: float = None, readme: str = None,
                     readme_visible: bool = True, desc: str = None,
                     private: bool = True) -> dict:
@@ -253,7 +324,9 @@ def create_template(client: VastClient, name: str = None, image: str = None,
         runtype: Run type (jupyter, ssh, args).
         use_ssh: Supports ssh.
         jupyter_dir: Jupyter directory.
-        docker_login_repo: Docker login repository.
+        docker_login_repo: Docker registry server for private images.
+        docker_login_user: Docker registry username.
+        docker_login_pass: Docker registry password/access token.
         extra_filters: Search offer filters dict.
         disk_space: Recommended disk space.
         readme: Readme string.
@@ -279,6 +352,8 @@ def create_template(client: VastClient, name: str = None, image: str = None,
         "use_ssh": use_ssh,
         "jupyter_dir": jupyter_dir,
         "docker_login_repo": docker_login_repo,
+        "docker_login_user": docker_login_user,
+        "docker_login_pass": docker_login_pass,
         "extra_filters": extra_filters or {},
         "recommended_disk_space": disk_space,
         "readme": readme,
@@ -297,11 +372,16 @@ def update_template(client: VastClient, hash_id: str, name: str = None,
                     jup_direct: bool = False, ssh_direct: bool = False,
                     use_jupyter_lab: bool = False, runtype: str = "args",
                     use_ssh: bool = False, jupyter_dir: str = None,
-                    docker_login_repo: str = None, extra_filters: dict = None,
+                    docker_login_repo: str = None, docker_login_user: str = None,
+                    docker_login_pass: str = None, extra_filters: dict = None,
                     disk_space: float = None, readme: str = None,
                     readme_visible: bool = True, desc: str = None,
                     private: bool = True) -> dict:
     """Update an existing template.
+
+    Uses PUT /api/v1/template/ (not the deprecated, buggy v0 endpoint) —
+    the same one the web Template Editor uses. v1 identifies the template
+    by numeric id rather than hash_id, so this resolves that id first.
 
     Args:
         client: VastClient instance.
@@ -309,9 +389,18 @@ def update_template(client: VastClient, hash_id: str, name: str = None,
         (remaining args same as create_template)
 
     Returns:
-        Response dict with updated template info.
+        Response dict with updated template info. If the hash_id can't be
+        resolved to a template id, returns {"success": False, ...} locally
+        without making the write call.
     """
+    template_id = None
+    if not client.curl:
+        template_id, err = resolve_template_id(client, hash_id)
+        if err:
+            return {"success": False, "error": "invalid_args", "msg": err}
+
     template = {
+        "id": template_id,
         "hash_id": hash_id,
         "name": name,
         "image": image,
@@ -327,6 +416,8 @@ def update_template(client: VastClient, hash_id: str, name: str = None,
         "use_ssh": use_ssh,
         "jupyter_dir": jupyter_dir,
         "docker_login_repo": docker_login_repo,
+        "docker_login_user": docker_login_user,
+        "docker_login_pass": docker_login_pass,
         "extra_filters": extra_filters or {},
         "recommended_disk_space": disk_space,
         "readme": readme,
@@ -334,7 +425,7 @@ def update_template(client: VastClient, hash_id: str, name: str = None,
         "desc": desc,
         "private": private,
     }
-    r = client.put("/template/", json_data=template)
+    r = client.put("/api/v1/template/", json_data=template)
     r.raise_for_status()
     return r.json()
 

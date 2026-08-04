@@ -419,6 +419,43 @@ def search__invoices(args):
 # create / update / delete template
 # ---------------------------------------------------------------------------
 
+def _verify_template_image(client, image, image_tag, registry, username, password, no_verify):
+    """Pre-flight-check an image/tag/credential combo before create/update template.
+
+    Mirrors the Template Editor V3 web UI: a bad tag lookup is advisory only
+    (some registries fail tag listing even for a real, pullable image), but
+    bad registry credentials block the write outright. Returns False if the
+    caller should abort before hitting the write endpoint.
+    """
+    if no_verify or client.curl or not image:
+        return True
+
+    if username and password:
+        ok, err = offers_api.validate_template_auth(client, registry, username, password)
+        if not ok:
+            print(f"Docker registry authentication failed: {err}")
+            print("Fix the credentials, or pass --no-verify to skip this check.")
+            return False
+
+    check_image, tag_from_image = offers_api.split_image_tag(image)
+    tag = image_tag or tag_from_image
+    tags, err = offers_api.fetch_template_tags(client, check_image, registry, username, password)
+    if err:
+        print(f"Warning: could not verify image '{image}': {err}")
+    elif tag and tags and tag not in tags:
+        print(f"Warning: tag '{tag}' was not found among {len(tags)} tags reported for '{check_image}'. Continuing anyway.")
+    return True
+
+
+def _template_registry_args():
+    return [
+        argument("--registry", help="container registry server for private images, e.g. ghcr.io (default: docker.io)", type=str),
+        argument("--docker_login_user", help="username for private registry authentication", type=str),
+        argument("--docker_login_pass", help="password or access token for private registry authentication", type=str),
+        argument("--no-verify", action="store_true", help="skip pre-flight validation of image/tag/registry credentials before submitting"),
+    ]
+
+
 @parser.command(
     argument("--name", help="name of the template", type=str),
     argument("--image", help="docker container image to launch", type=str),
@@ -426,6 +463,7 @@ def search__invoices(args):
     argument("--href", help="link you want to provide", type=str),
     argument("--repo", help="link to repository", type=str),
     argument("--login", help="docker login arguments for private repo authentication, surround with ''", type=str),
+    *_template_registry_args(),
     argument("--env", help="Contents of the 'Docker options' field", type=str),
     argument("--ssh", help="Launch as an ssh instance type", action="store_true"),
     argument("--jupyter", help="Launch as a jupyter instance instead of an ssh instance", action="store_true"),
@@ -456,6 +494,8 @@ def create__template(args):
         docker_login_repo = login[0]
     else:
         docker_login_repo = None
+    has_private_creds = bool(args.docker_login_user or args.docker_login_pass)
+    registry = args.registry or docker_login_repo or ("docker.io" if has_private_creds else None)
     default_search_query = {}
     if not args.no_default:
         default_search_query = {"verified": {"eq": True}, "external": {"eq": False}, "rentable": {"eq": True}}
@@ -467,13 +507,16 @@ def create__template(args):
         print({"name": args.name, "image": args.image, "extra_filters": extra_filters})
 
     client = get_client(args)
+    if not _verify_template_image(client, args.image, args.image_tag, registry, args.docker_login_user, args.docker_login_pass, args.no_verify):
+        return
     try:
         rj = offers_api.create_template(
             client, name=args.name, image=args.image, image_tag=args.image_tag,
             href=args.href, repo=args.repo, env=args.env, onstart_cmd=args.onstart_cmd,
             jup_direct=jup_direct, ssh_direct=ssh_direct,
             use_jupyter_lab=args.jupyter_lab, runtype=runtype, use_ssh=use_ssh,
-            jupyter_dir=args.jupyter_dir, docker_login_repo=docker_login_repo,
+            jupyter_dir=args.jupyter_dir, docker_login_repo=registry,
+            docker_login_user=args.docker_login_user, docker_login_pass=args.docker_login_pass,
             extra_filters=extra_filters, disk_space=args.disk_space,
             readme=args.readme, readme_visible=not args.hide_readme,
             desc=args.desc, private=not args.public,
@@ -494,6 +537,7 @@ def create__template(args):
     argument("--href", help="link you want to provide", type=str),
     argument("--repo", help="link to repository", type=str),
     argument("--login", help="docker login arguments for private repo authentication, surround with ''", type=str),
+    *_template_registry_args(),
     argument("--env", help="Contents of the 'Docker options' field", type=str),
     argument("--ssh", help="Launch as an ssh instance type", action="store_true"),
     argument("--jupyter", help="Launch as a jupyter instance instead of an ssh instance", action="store_true"),
@@ -524,6 +568,8 @@ def update__template(args):
         docker_login_repo = login[0]
     else:
         docker_login_repo = None
+    has_private_creds = bool(args.docker_login_user or args.docker_login_pass)
+    registry = args.registry or docker_login_repo or ("docker.io" if has_private_creds else None)
     default_search_query = {}
     if not args.no_default:
         default_search_query = {"verified": {"eq": True}, "external": {"eq": False}, "rentable": {"eq": True}}
@@ -535,21 +581,26 @@ def update__template(args):
         print({"hash_id": args.HASH_ID, "name": args.name, "image": args.image})
 
     client = get_client(args)
+    if not _verify_template_image(client, args.image, args.image_tag, registry, args.docker_login_user, args.docker_login_pass, args.no_verify):
+        return
     try:
         rj = offers_api.update_template(
             client, hash_id=args.HASH_ID, name=args.name, image=args.image,
             image_tag=args.image_tag, href=args.href, repo=args.repo, env=args.env,
             onstart_cmd=args.onstart_cmd, jup_direct=jup_direct, ssh_direct=ssh_direct,
             use_jupyter_lab=args.jupyter_lab, runtype=runtype, use_ssh=use_ssh,
-            jupyter_dir=args.jupyter_dir, docker_login_repo=docker_login_repo,
+            jupyter_dir=args.jupyter_dir, docker_login_repo=registry,
+            docker_login_user=args.docker_login_user, docker_login_pass=args.docker_login_pass,
             extra_filters=extra_filters, disk_space=args.disk_space,
             readme=args.readme, readme_visible=not args.hide_readme,
             desc=args.desc, private=not args.public,
         )
         if rj.get("success"):
+            if rj.get("msg"):
+                print(rj["msg"])
             print(f"updated template: {json.dumps(rj['template'], indent=1)}")
         else:
-            print("template update failed")
+            print(rj.get("msg", "template update failed"))
     except Exception as e:
         print(str(e))
 

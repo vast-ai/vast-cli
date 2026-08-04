@@ -5,6 +5,18 @@ The official Vast.ai Python package — provides both the CLI and SDK for managi
 
 ## Install
 
+**Linux, macOS, or WSL** — install the CLI with no Python required:
+
+```bash
+curl -fsSL https://vast.ai/install.sh | bash
+```
+
+This installs `vastai` into an isolated managed runtime under
+`~/.local/share/vastai`, decoupled from any system or project Python. Update
+anytime with `vastai update`, or pin/roll back with `vastai update --version X`.
+
+**Windows, or using the Python SDK** — install from PyPI instead:
+
 ```bash
 pip install vastai
 ```

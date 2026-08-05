@@ -11,6 +11,8 @@ on:
       - "pyproject.toml"
       - "poetry.lock"
       - ".github/workflows/installer-ci.yml"
+  # Manual escape hatch: the path-filtered pull_request trigger above occasionally drops a run silently (observed on PR #484); this lets it be re-run without an unrelated commit.
+  workflow_dispatch:
 
 concurrency:
   group: installer-ci-${{ github.event.pull_request.number }}

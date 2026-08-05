@@ -190,6 +190,49 @@ def format_key_suffix(k):
     return "(empty)"
 
 
+# Client/host CLI role (CLN-3582): display-only (--help/completion/hints), never gates execution; client is the default until the role explicitly resolves to 'host'.
+
+ROLE_FILE = os.path.join(DIRS['config'], "vast_role")
+ROLE_CLIENT = "client"
+ROLE_HOST = "host"
+VALID_ROLES = {ROLE_CLIENT, ROLE_HOST}
+
+
+def get_role():
+    """Return the stored CLI role ('client' or 'host'), or None if ROLE_FILE is missing/unrecognized — never raises."""
+    try:
+        with open(ROLE_FILE) as f:
+            role = f.read().strip().lower()
+    except OSError:
+        return None
+    return role if role in VALID_ROLES else None
+
+
+def is_client_view(role):
+    """Whether role (as returned by get_role) means "show the client view" — everything except explicit 'host', including None."""
+    return role != ROLE_HOST
+
+
+def set_role_file(role):
+    """Persist role ('client' or 'host') to ROLE_FILE; raises ValueError for anything else."""
+    if role not in VALID_ROLES:
+        raise ValueError(f"role must be one of {sorted(VALID_ROLES)}, got {role!r}")
+    with open(ROLE_FILE, "w") as f:
+        f.write(role)
+
+
+def ensure_host_role_detected(client):
+    """Best-effort: resolve and permanently cache the role via client if it isn't known yet; never raises (a failed check just leaves it undetected for retry)."""
+    if get_role() is not None:
+        return
+    try:
+        from vastai.api import billing as billing_api
+        is_host = bool(billing_api.show_user(client).get("host_agreement_accepted"))
+    except Exception:
+        return
+    set_role_file(ROLE_HOST if is_host else ROLE_CLIENT)
+
+
 # ---------------------------------------------------------------------------
 # Simple utility class
 # ---------------------------------------------------------------------------

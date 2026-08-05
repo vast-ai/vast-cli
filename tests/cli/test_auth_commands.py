@@ -94,6 +94,7 @@ class TestSetApiKey:
         legacy_file = tmp_path / ".vast_api_key"
         monkeypatch.setattr("vastai.cli.util.APIKEY_FILE", str(key_file))
         monkeypatch.setattr("vastai.cli.util.APIKEY_FILE_HOME", str(legacy_file))
+        monkeypatch.setattr("vastai.api.machines.show_machines", lambda client: [])
         from vastai.cli.commands.auth import set__api_key
         set__api_key(argparse.Namespace(new_api_key="test-key-abc-123"))
         assert key_file.read_bytes() == b"test-key-abc-123"
@@ -109,6 +110,7 @@ class TestSetApiKey:
         key_file = xdg_dir / "vast_api_key"
         monkeypatch.setattr("vastai.cli.util.APIKEY_FILE", str(key_file))
         monkeypatch.setattr("vastai.cli.util.APIKEY_FILE_HOME", str(tmp_path / ".vast_api_key"))
+        monkeypatch.setattr("vastai.api.machines.show_machines", lambda client: [])
 
         from vastai.cli.commands.auth import set__api_key
         set__api_key(argparse.Namespace(new_api_key="round-trip-key"))
@@ -117,6 +119,28 @@ class TestSetApiKey:
         with patch("vastai.sdk.VastClient") as MockClient:
             VastAI()
             assert MockClient.call_args[0][0] == "round-trip-key"
+
+
+class TestSetRole:
+    def test_set_role_host(self, tmp_path, monkeypatch, capsys):
+        role_file = tmp_path / "vast_role"
+        monkeypatch.setattr("vastai.cli.util.ROLE_FILE", str(role_file))
+        from vastai.cli.commands.auth import set__role
+        set__role(argparse.Namespace(role="host"))
+        assert role_file.read_text() == "host"
+        assert "host" in capsys.readouterr().out.lower()
+
+    def test_set_role_client(self, tmp_path, monkeypatch, capsys):
+        role_file = tmp_path / "vast_role"
+        monkeypatch.setattr("vastai.cli.util.ROLE_FILE", str(role_file))
+        from vastai.cli.commands.auth import set__role
+        set__role(argparse.Namespace(role="client"))
+        assert role_file.read_text() == "client"
+        assert "hidden" in capsys.readouterr().out.lower()
+
+    def test_only_host_and_client_are_valid_choices(self, cli_parser):
+        with pytest.raises(SystemExit):
+            cli_parser.parse_args(["set", "role", "admin"])
 
 
 class TestTfaStatus:

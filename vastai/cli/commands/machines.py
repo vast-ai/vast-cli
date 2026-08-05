@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import time
+import textwrap
 import warnings
 import argparse
 from contextlib import redirect_stdout, redirect_stderr
@@ -52,6 +53,7 @@ from vastai.cli.self_test.runtime_diagnostics import (
     make_progress_endpoint_diagnostic,
     make_failure,
     redact_secret_text,
+    refine_startup_failure_with_daemon_log,
 )
 from vastai.cli.self_test.support_bundle import (
     create_support_bundle,
@@ -63,6 +65,14 @@ from vastai.cli.self_test.support_bundle import (
 parser = _get_parser()
 SELF_TEST_INSTANCE_LABEL_PREFIX = "vast-self-test-machine"
 INSTANCE_LOG_TAIL_LINES = 1000
+SELF_TEST_LOG_LEVELS = ("critical", "error", "warning", "info", "debug")
+SELF_TEST_LOG_LEVEL_PRIORITY = {
+    "debug": 10,
+    "info": 20,
+    "warning": 30,
+    "error": 40,
+    "critical": 50,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -609,6 +619,22 @@ def collect_instance_log_artifacts(client, instance_id):
     return files, errors
 
 
+def resolve_self_test_log_level(args):
+    """Resolve self-test log level from CLI args, legacy flag, and env."""
+    arg_level = getattr(args, "log_level", None)
+    if arg_level:
+        return arg_level.lower(), "argument"
+    if getattr(args, "debugging", False):
+        return "debug", "debugging"
+    env_level = os.environ.get("VAST_LOG_LEVEL")
+    if env_level:
+        normalized = env_level.strip().lower()
+        if normalized in SELF_TEST_LOG_LEVELS:
+            return normalized, "VAST_LOG_LEVEL"
+        return "info", "default_invalid_VAST_LOG_LEVEL"
+    return "info", "default"
+
+
 @parser.command(
     argument("machine_id", help="Machine ID", type=str),
     argument("--instance-id", help="Instance ID to pull Vast instance logs from", type=int),
@@ -699,11 +725,16 @@ def dump_logs(args):
 @parser.command(
     argument("machine_id", help="Machine ID", type=str),
     argument("--debugging", action="store_true", help="Enable debugging output"),
+    argument(
+        "--log-level",
+        choices=SELF_TEST_LOG_LEVELS,
+        help="Set self-test log level (default: VAST_LOG_LEVEL or info; info is compact, debug shows live diagnostics)",
+    ),
     argument("--ignore-requirements", action="store_true", help="Ignore the minimum system requirements and run the self test regardless"),
     argument("--test-image", help="Use a custom self-test image for testing custom self-test images. Overrides VAST_SELF_TEST_IMAGE and CUDA mapping.", type=str),
     argument("--support-bundle-dir", help="Directory for failure diagnostic bundles (default: /tmp)", type=str),
     argument("--no-support-bundle", action="store_true", help="Do not create a diagnostic tarball when the self-test fails"),
-    usage="vastai self-test machine <machine_id> [--debugging] [--ignore-requirements] [--test-image IMAGE]",
+    usage="vastai self-test machine <machine_id> [--debugging] [--log-level LEVEL] [--ignore-requirements] [--test-image IMAGE]",
     help="[Host] Perform a self-test on the specified machine",
     epilog=deindent("""
         This command tests if a machine meets specific requirements and
@@ -733,12 +764,21 @@ def self_test__machine(args):
 
     if not hasattr(args, 'debugging'):
         args.debugging = False
+    if not hasattr(args, 'log_level'):
+        args.log_level = None
     if not hasattr(args, 'test_image'):
         args.test_image = None
     if not hasattr(args, 'support_bundle_dir'):
         args.support_bundle_dir = None
     if not hasattr(args, 'no_support_bundle'):
         args.no_support_bundle = False
+
+    log_level, log_level_source = resolve_self_test_log_level(args)
+    args.debugging = args.debugging or log_level == "debug"
+    result["diagnostics"]["log_level"] = {
+        "level": log_level,
+        "source": log_level_source,
+    }
     if getattr(args, "ignore_requirements", False):
         result["warning"] = ignore_requirements_warning
         result["diagnostics"]["requirements_ignored"] = True
@@ -746,7 +786,30 @@ def self_test__machine(args):
     def output_line(*args_to_print):
         return " ".join(str(item) for item in args_to_print)
 
+    def should_print(level):
+        return (
+            not args.raw
+            and SELF_TEST_LOG_LEVEL_PRIORITY[level] >= SELF_TEST_LOG_LEVEL_PRIORITY[log_level]
+        )
+
+    def emit(level, *args_to_print):
+        cli_output.append(output_line(*args_to_print))
+        if should_print(level):
+            print(*args_to_print)
+
     def progress_print(*args_to_print):
+        emit("debug", *args_to_print)
+
+    def info_print(*args_to_print):
+        emit("info", *args_to_print)
+
+    def warning_print(*args_to_print):
+        emit("warning", *args_to_print)
+
+    def error_print(*args_to_print):
+        emit("error", *args_to_print)
+
+    def summary_print(*args_to_print):
         cli_output.append(output_line(*args_to_print))
         if not args.raw:
             print(*args_to_print)
@@ -771,6 +834,13 @@ def self_test__machine(args):
             "files": sorted(instance_log_files.keys()),
             "collection_errors": instance_log_errors,
         }
+        runtime_failure = result.get("diagnostics", {}).get("runtime_failure")
+        refined_failure = refine_startup_failure_with_daemon_log(
+            runtime_failure,
+            instance_log_files.get("instance/daemon.log"),
+        )
+        if refined_failure != runtime_failure:
+            set_runtime_failure(refined_failure, result.get("reason"))
 
     def ensure_support_bundle():
         if result.get("success"):
@@ -797,7 +867,7 @@ def self_test__machine(args):
         except Exception as e:
             error = redact_secret_text(e) or ""
             result["diagnostics"]["support_bundle_error"] = error
-            progress_print(f"WARNING: failed to create self-test diagnostic bundle: {error}")
+            warning_print(f"WARNING: failed to create self-test diagnostic bundle: {error}")
             return None
         result["diagnostics"]["support_bundle"] = bundle
         return bundle
@@ -807,16 +877,17 @@ def self_test__machine(args):
             ensure_support_bundle()
             return result
         if result.get("warning"):
-            print(result["warning"])
+            warning_print(result["warning"])
         render_runtime_failure()
         bundle = ensure_support_bundle()
-        if bundle:
-            for line in format_bundle_summary(bundle):
-                print(line)
-        print(f"Test failed: {result['reason']}")
+        render_final_summary(bundle=bundle)
         sys.exit(1)
 
     def set_runtime_failure(diagnostic, fallback_reason=None):
+        diagnostic = refine_startup_failure_with_daemon_log(
+            diagnostic,
+            instance_log_files.get("instance/daemon.log"),
+        )
         result["failure"] = diagnostic
         result["failure_code"] = diagnostic["code"]
         result["stage"] = diagnostic.get("stage") or result.get("stage")
@@ -826,23 +897,103 @@ def self_test__machine(args):
     def safe_error(error):
         return redact_secret_text(error) or ""
 
+    def failure_display_reason():
+        diagnostic = result.get("diagnostics", {}).get("runtime_failure")
+        if diagnostic and diagnostic.get("summary"):
+            return diagnostic["summary"]
+        return result["reason"]
+
+    def render_bundle_summary(bundle):
+        if not bundle:
+            return
+        if log_level == "debug":
+            for line in format_bundle_summary(bundle):
+                summary_print(line)
+            return
+        summary_print(f"Support bundle: {bundle.get('path')}")
+        errors = bundle.get("collection_errors") or []
+        if errors:
+            summary_print(f"Bundle collection warnings: {len(errors)} artifact(s) could not be collected.")
+
+    def render_final_summary(bundle=None):
+        success = bool(result.get("success"))
+        summary_print("")
+        summary_print("Self-test summary")
+        summary_print(f"Status: {'passed' if success else 'failed'}")
+        summary_print(f"Machine: {args.machine_id}")
+        if result.get("stage") and not success:
+            summary_print(f"Failed stage: {result['stage']}")
+        if result.get("warning"):
+            summary_print(f"Warning: {result['warning']}")
+        failed = failed_checks(result.get("checks") or [])
+        if failed:
+            summary_print("Failed checks: " + ", ".join(check["title"] for check in failed))
+        if success:
+            if result.get("diagnostics", {}).get("preflight_failure"):
+                summary_print("Result: runtime checks passed, but requirement checks were ignored.")
+                summary_print("Next: resolve the failed requirement checks before relying on this for verification.")
+            else:
+                summary_print("Result: self-test completed successfully.")
+            return
+        summary_print(f"Reason: {failure_display_reason()}")
+        render_bundle_summary(bundle)
+        if bundle:
+            summary_print("Next: inspect the support bundle or rerun with --log-level debug for live details.")
+        else:
+            summary_print("Next: rerun with --log-level debug for detailed diagnostics.")
+
     def render_runtime_failure():
         diagnostic = result.get("diagnostics", {}).get("runtime_failure")
         if not diagnostic:
             return
-        progress_print("Runtime failure diagnostics:")
-        progress_print(f"- code: {diagnostic.get('code')}")
+
+        def print_wrapped_lines(text, indent=4, width=100):
+            prefix = " " * indent
+            for raw_line in str(text).splitlines() or [""]:
+                if not raw_line:
+                    progress_print("")
+                    continue
+                wrapped = textwrap.wrap(
+                    raw_line,
+                    width=width,
+                    initial_indent=prefix,
+                    subsequent_indent=prefix,
+                    break_long_words=True,
+                    break_on_hyphens=False,
+                )
+                for line in wrapped or [prefix + raw_line]:
+                    progress_print(line)
+
+        progress_print("")
+        progress_print("Runtime failure diagnostics")
+        progress_print("")
+        progress_print("  Result:")
+        progress_print(f"    code: {diagnostic.get('code')}")
         if diagnostic.get("summary"):
-            progress_print(f"- summary: {diagnostic['summary']}")
+            progress_print(f"    summary: {diagnostic['summary']}")
+
+        evidence = diagnostic.get("startup_evidence") or {}
+        findings = evidence.get("findings") if isinstance(evidence, dict) else []
+        if findings:
+            progress_print("")
+            progress_print("  What happened:")
+            for finding in findings:
+                progress_print(f"    - {finding}")
+
         if diagnostic.get("underlying_error"):
-            progress_print(f"- underlying error: {diagnostic['underlying_error']}")
+            progress_print("")
+            progress_print("  Underlying error:")
+            print_wrapped_lines(diagnostic["underlying_error"], indent=4)
+
         endpoint = diagnostic.get("progress_endpoint") or result.get("diagnostics", {}).get("progress_endpoint")
         if endpoint:
+            progress_print("")
+            progress_print("  Connection attempt:")
             if endpoint.get("url"):
-                progress_print(f"- tried: {endpoint['url']}")
+                progress_print(f"    tried: {endpoint['url']}")
             external_port = endpoint.get("external_port") or endpoint.get("host_port")
             if external_port:
-                progress_print(f"- external port tested: {external_port}")
+                progress_print(f"    external port tested: {external_port}")
             last_bits = []
             if endpoint.get("last_status_code") is not None:
                 last_bits.append(f"HTTP {endpoint['last_status_code']}")
@@ -851,17 +1002,29 @@ def self_test__machine(args):
             if endpoint.get("last_error"):
                 last_bits.append(str(endpoint["last_error"]))
             if last_bits:
-                progress_print(f"- last result: {' - '.join(last_bits)}")
+                progress_print(f"    last result: {' - '.join(last_bits)}")
             if endpoint.get("mapped_ports"):
-                progress_print(f"- mapped container ports: {', '.join(endpoint['mapped_ports'])}")
+                progress_print(f"    mapped container ports: {', '.join(endpoint['mapped_ports'])}")
+
         if diagnostic.get("remediation"):
-            progress_print(f"- remediation: {diagnostic['remediation']}")
+            progress_print("")
+            progress_print("  Remediation:")
+            progress_print(f"    {diagnostic['remediation']}")
+
         steps = diagnostic.get("suggested_steps") or []
         if steps:
-            progress_print("- suggested steps:")
+            progress_print("")
+            progress_print("  Suggested steps:")
             for step in steps:
-                progress_print(f"  - {step}")
+                progress_print(f"    - {step}")
 
+        if findings:
+            progress_print("")
+            progress_print("  Where to read next:")
+            progress_print("    - instance/daemon.log in the diagnostic bundle for startup/build details.")
+            progress_print("    - instance/show-instance.json in the diagnostic bundle for the raw instance status.")
+
+    info_print(f"Starting self-test for machine {args.machine_id}.")
     client = get_client(args)
 
     try:
@@ -988,6 +1151,7 @@ def self_test__machine(args):
             result["failure_code"] = failure["code"]
             result["stage"] = "select_offer"
             result["reason"] = failure["summary"]
+            info_print("Preflight failed.")
             render_preflight_failure(args.machine_id, result["checks"], failure, progress_print)
             return finish_failure()
 
@@ -998,6 +1162,7 @@ def self_test__machine(args):
         if unmet_checks:
             failure = requirement_failure(checks)
             result["diagnostics"]["preflight_failure"] = failure
+            info_print("Preflight failed.")
             render_preflight_failure(args.machine_id, checks, failure, progress_print)
             render_preflight_advisories(args.machine_id, checks, progress_print)
             if not args.ignore_requirements:
@@ -1006,12 +1171,13 @@ def self_test__machine(args):
                 result["stage"] = "preflight_requirements"
                 result["reason"] = failure["summary"]
                 return finish_failure()
-            progress_print("Continuing despite unmet requirements because --ignore-requirements is set.")
+            warning_print("Continuing despite unmet requirements because --ignore-requirements is set.")
         else:
+            info_print("Preflight passed.")
             progress_print(f"Machine ID {args.machine_id} meets all the requirements.")
             render_preflight_advisories(args.machine_id, checks, progress_print)
         if args.ignore_requirements:
-            progress_print(ignore_requirements_warning)
+            warning_print(ignore_requirements_warning)
 
         # ----- CUDA version to docker image mapping -----
         def cuda_map_to_image(cuda_version, compute_cap=None):
@@ -1113,6 +1279,7 @@ def self_test__machine(args):
                     "label": self_test_label,
                 }
 
+                info_print("Creating temporary test instance...")
                 progress_print(f"Starting test with {docker_image} ({image_reason})")
                 rj = instances_api.create_instance(
                     client,
@@ -1139,7 +1306,7 @@ def self_test__machine(args):
                 debug_print("Captured instance_info from create_instance:", rj)
             except Exception as e:
                 error = safe_error(e)
-                progress_print(f"Error creating instance: {error}")
+                error_print(f"Error creating instance: {error}")
                 set_runtime_failure(
                     make_failure(
                         INSTANCE_CREATE_FAILED,
@@ -1195,19 +1362,15 @@ def self_test__machine(args):
                                     instances_api.destroy_instance(client, id=inst_id)
                             else:
                                 instances_api.destroy_instance(client, id=inst_id)
-                            if not args.raw:
-                                print(f"Instance {inst_id} destroyed successfully on attempt {attempt}.")
+                            info_print(f"Temporary test instance {inst_id} destroyed.")
                             return {"success": True}
                         except Exception as e:
-                            if not args.raw:
-                                print(f"Error destroying instance {inst_id}: {safe_error(e)}")
+                            warning_print(f"WARNING: error destroying test instance {inst_id}: {safe_error(e)}")
                         if attempt < max_retries:
-                            if not args.raw:
-                                print(f"Retrying in 10 seconds... (Attempt {attempt}/{max_retries})")
+                            progress_print(f"Retrying destroy in 10 seconds... (Attempt {attempt}/{max_retries})")
                             time.sleep(10)
                         else:
-                            if not args.raw:
-                                print(f"Failed to destroy instance {inst_id} after {max_retries} attempts.")
+                            warning_print(f"WARNING: failed to destroy test instance {inst_id} after {max_retries} attempts.")
                             return {"success": False, "error": "Max retries exceeded"}
 
                 # ----- wait for instance to start -----
@@ -1551,6 +1714,7 @@ def self_test__machine(args):
                             delay = "15"
                             result["phase"] = "test"
                             result["stage"] = "run_machinetester"
+                            info_print("Running self-test...")
                             success, reason, runtime_diagnostic = run_machinetester(
                                 ip_address, port, instance_id, args.machine_id, delay, mapped_ports=all_ports,
                             )
@@ -1569,7 +1733,7 @@ def self_test__machine(args):
             "Interrupted by user (Ctrl+C)",
         )
         result["error"] = result["reason"]
-        progress_print("\nInterrupted — cleaning up test instance...")
+        warning_print("\nInterrupted - cleaning up test instance...")
     except Exception as e:
         error = safe_error(e)
         result["success"] = False
@@ -1597,12 +1761,12 @@ def self_test__machine(args):
                 if info and status not in ('destroyed', 'terminated', 'offline'):
                     if not result.get("success"):
                         collect_instance_logs(instance_id)
-                    progress_print(f"Destroying test instance {instance_id} (status: {status})...")
+                    info_print(f"Cleaning up temporary test instance {instance_id} (status: {status})...")
                     instances_api.destroy_instance(client, id=instance_id)
-                    progress_print(f"Test instance {instance_id} destroyed.")
+                    info_print(f"Temporary test instance {instance_id} destroyed.")
             except KeyboardInterrupt:
-                progress_print(
-                    f"\nSecond interrupt during cleanup — instance {instance_id} may still be running.\n"
+                warning_print(
+                    f"\nSecond interrupt during cleanup - instance {instance_id} may still be running.\n"
                     f"  Destroy it manually: vastai destroy instance {instance_id}"
                 )
                 raise
@@ -1610,12 +1774,12 @@ def self_test__machine(args):
                 if e.response is not None and e.response.status_code == 404:
                     debug_print(f"Test instance {instance_id} already gone during cleanup.")
                 else:
-                    progress_print(
+                    warning_print(
                         f"WARNING: failed to destroy test instance {instance_id}: {safe_error(e)}\n"
                         f"  Destroy it manually: vastai destroy instance {instance_id}"
                     )
             except Exception as e:
-                progress_print(
+                warning_print(
                     f"WARNING: failed to destroy test instance {instance_id}: {safe_error(e)}\n"
                     f"  Destroy it manually: vastai destroy instance {instance_id}"
                 )
@@ -1626,19 +1790,11 @@ def self_test__machine(args):
         return result
     else:
         if result.get("warning"):
-            print(result["warning"])
+            warning_print(result["warning"])
         if result["success"]:
-            if result.get("diagnostics", {}).get("preflight_failure"):
-                print("Runtime checks passed, but minimum requirement checks were ignored.")
-                print("This run does not qualify the machine for verification.")
-            else:
-                print("Test completed successfully.")
+            render_final_summary()
             sys.exit(0)
-        else:
-            render_runtime_failure()
-            bundle = ensure_support_bundle()
-            if bundle:
-                for line in format_bundle_summary(bundle):
-                    print(line)
-            print(f"Test failed: {result['reason']}")
-            sys.exit(1)
+        render_runtime_failure()
+        bundle = ensure_support_bundle()
+        render_final_summary(bundle=bundle)
+        sys.exit(1)

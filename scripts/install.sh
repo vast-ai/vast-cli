@@ -37,7 +37,6 @@ LOCAL_BIN="$HOME/.local/bin"
 NO_MODIFY_PATH="${VASTAI_NO_MODIFY_PATH:-}"
 WORKDIR=""
 RC_UPDATED=""
-NEEDS_PATH_HINT=""
 
 # Anything that prints first tears down the live progress region (no-op when it's not up).
 say()  { ui_end; printf '  %s\n' "$*"; }
@@ -446,14 +445,6 @@ setup_path() {
     link_swap "$ROOT/bin/vastai" "$LOCAL_BIN/vastai"
     write_env_sh
 
-    # Hint "Use it now" whenever this shell wouldn't run our vastai (off PATH or outranked, e.g. by a pip install).
-    local existing
-    existing="$(command -v vastai 2>/dev/null || true)"
-    case "$existing" in
-        "$LOCAL_BIN/vastai"|"$ROOT/bin/vastai") ;;
-        *) NEEDS_PATH_HINT=1 ;;
-    esac
-
     local rc_file line
     rc_file="$(rc_file_for_shell)"
     line="[ -f \"$ROOT/env.sh\" ] && . \"$ROOT/env.sh\"  # vastai shell setup"
@@ -470,6 +461,13 @@ setup_path() {
         say "To finish setup, add this line to your shell rc file:"
         printf '\n%s\n\n' "$line"
     fi
+}
+
+# Mirrors the CLI's key lookup (env var, XDG config file, legacy dotfile).
+has_api_key() {
+    [ -n "${VAST_API_KEY:-}" ] && return 0
+    [ -s "${XDG_CONFIG_HOME:-$HOME/.config}/vastai/vast_api_key" ] && return 0
+    [ -s "$HOME/.vast_api_key" ]
 }
 
 check_pip_coexistence() {
@@ -532,16 +530,16 @@ main() {
     check_pip_coexistence
 
     printf '\n'
-    say "vastai $version installed to $ROOT"
-    if [ -n "$RC_UPDATED" ] && [ -n "$NEEDS_PATH_HINT" ]; then
-        say "  Use it now:   start a new shell, or run: export PATH=\"\$HOME/.local/bin:\$PATH\""
+    say "vastai $version installed"
+    # A returning user (key already configured) gets a check instead of the setup hint.
+    if has_api_key; then
+        local check='✓'
+        [ -t 1 ] && [ "${TERM:-dumb}" != dumb ] && check="$(printf '\033[32m✓\033[0m')"
+        say "  API key:       $check found"
+    else
+        say "  Get started:   vastai set api-key YOUR_API_KEY   (https://cloud.vast.ai/manage-keys/?tab=api-keys)"
     fi
-    say "  Get started:  vastai set api-key YOUR_API_KEY   (https://cloud.vast.ai/manage-keys/?tab=api-keys)"
-    say "  All commands: vastai --help"
-    say "  Update later: vastai update"
-    if [ -n "$RC_UPDATED" ]; then
-        say "  Tab completion: start a new shell, then type 'vastai <TAB>'"
-    fi
+    say "  All commands:  vastai --help"
 }
 
 main "$@"

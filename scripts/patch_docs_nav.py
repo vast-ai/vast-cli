@@ -53,6 +53,23 @@ PRESERVE = {
 # group as managed.
 MANAGED_GROUP_THRESHOLD = 0.7
 
+# Every group name ``classify_new`` is allowed to return.  These are
+# exact-match keys into the ``group`` names in vast-ai/docs' docs.json, so
+# this set is a cross-repo contract: renaming a nav group upstream without
+# updating it here would otherwise reroute pages silently.  ``patch_docs_nav``
+# reports any name with no matching managed group instead of quietly rehoming
+# the page, and ``test_patch_docs_nav.py`` pins both invariants.
+GROUPS = frozenset({
+    "Accounts",
+    "Billing",
+    "Host",
+    "Instances",
+    "Search & templates",
+    "Serverless",
+    "Teams",
+    "Volumes",
+})
+
 # Fallback nav group for pages that ``classify_new`` can't categorize.
 # Such pages still land in the nav (visible, never silently orphaned);
 # the patcher emits a WARNING so editorial can add a precise rule later.
@@ -69,24 +86,37 @@ def classify_new(name: str) -> str | None:
     (so it is always visible in the nav) and warns so editorial can add a
     precise rule here later.
 
-    Rules are ordered most-specific-first.  When adding new commands that
-    don't fit, prefer extending this function with a precise rule over
-    leaning on the default bucket — the default keeps pages visible but
-    may land them in a less-than-ideal category.
+    Rules are ordered most-specific-first, and the order is load-bearing:
+    ``search-invoices`` must reach the ``search-`` rule before the ``invoice``
+    one, and ``show-endpt-instances`` must reach the Serverless rules before
+    the ``instance`` one.  ``tests/scripts/test_patch_docs_nav.py`` pins that
+    ordering against the groups vast-ai/docs actually publishes, so inserting
+    a rule that reroutes an existing page fails the suite.
+
+    When adding new commands that don't fit, prefer extending this function
+    with a precise rule over leaning on the default bucket — the default keeps
+    pages visible but may land them in a less-than-ideal category.  Every
+    value returned here must be a member of ``GROUPS``.
     """
+    # `search-*` is a strong prefix signal and outranks the substring rules
+    # below: docs.json files search-invoices and search-volumes under
+    # "Search & templates", not Billing/Volumes.
+    if name.startswith("search-"):
+        return "Search & templates"
     if name.startswith("tfa-"):
         return "Accounts"
     if name.endswith("-api-key"):
-        return "Accounts"
-    if "scheduled-job" in name:
         return "Accounts"
     if "invoice" in name or name == "fetch-contracts":
         return "Billing"
     if "team" in name:
         return "Teams"
-    if "network-disk" in name or "network-volume" in name or "network-volumes" in name:
+    # Covers create/clone/list/show/unlist/delete-volume, the plural
+    # "network-volumes", and the policy-excluded network-disk surface.
+    if "volume" in name or "network-disk" in name:
         return "Volumes"
-    if "cluster" in name or "overlay" in name or name == "remove-machine-from-cluster":
+    # "cluster" also covers "remove-machine-from-cluster".
+    if "cluster" in name or "overlay" in name:
         return "Host"
     if name.startswith("metrics") or "gpu-trends" in name or "gpu-locations" in name:
         # `metrics gpu`/`gpu-trends`/`gpu-locations` are [Host] GPU-market
@@ -95,11 +125,13 @@ def classify_new(name: str) -> str | None:
     if name == "dump-logs" or "self-test" in name:
         # Machine diagnostic commands (machines.py) — host-facing.
         return "Host"
-    if name.startswith("search-"):
-        return "Search & templates"
     if "deployment" in name:
         # show/start/stop/delete-deployment + show-deployment-versions all
         # live with the serverless surface in docs.json.
+        return "Serverless"
+    if "scheduled-job" in name:
+        # docs.json files delete-scheduled-job/show-scheduled-jobs under
+        # Serverless, so the create/update siblings belong there too.
         return "Serverless"
     if "endpt" in name or "endpoint" in name or "workergroup" in name or "wrkgrp" in name:
         return "Serverless"
@@ -193,6 +225,7 @@ def patch_docs_nav(docs: dict, manifest: dict) -> dict:
 
     added: list[str] = []
     uncategorized: list[str] = []  # placed in default/fallback group; want a precise rule
+    unknown_group: list[tuple[str, str]] = []  # (page, group name docs.json lacks)
     for full in sorted(manifest_all):
         if full in existing_loc:
             continue
@@ -204,7 +237,16 @@ def patch_docs_nav(docs: dict, manifest: dict) -> dict:
             # silently orphaned, and flag it so a rule can be added later.
             uncategorized.append(full)
             group_name = DEFAULT_GROUP
-        grp = groups_by_key.get((group_name, prefix)) or fallback_group(prefix)
+
+        grp = groups_by_key.get((group_name, prefix))
+        if grp is None:
+            # classify_new named a group docs.json has no managed group for at
+            # this prefix — the group was renamed upstream, or GROUPS drifted.
+            # Still place the page so it stays visible, but record it: quietly
+            # rehoming every new page into whatever group sorts first is the
+            # exact failure this guards against, and it would leave CI green.
+            unknown_group.append((full, group_name))
+            grp = fallback_group(prefix)
         if grp is None:
             # No managed group exists for this prefix at all — can't place.
             if full not in uncategorized:
@@ -252,6 +294,7 @@ def patch_docs_nav(docs: dict, manifest: dict) -> dict:
         "added": added,
         "removed": removed,
         "uncategorized": uncategorized,
+        "unknown_group": sorted(unknown_group),
         "missing_from_nav": sorted(missing),
         "unexpected_in_nav": sorted(unexpected),
     }
@@ -292,6 +335,20 @@ def main() -> int:
             print(f"  ? {p}")
         print("  → add a precise rule in classify_new() so they land in "
               "the right group.")
+    if summary["unknown_group"]:
+        bad = sorted({g for _p, g in summary["unknown_group"]})
+        print(f"ERROR: classify_new() returned {len(bad)} group name(s) that "
+              f"docs.json has no managed group for: "
+              f"{', '.join(repr(g) for g in bad)}")
+        print(f"  {len(summary['unknown_group'])} page(s) affected. Either the "
+              "group was renamed in vast-ai/docs (update GROUPS and "
+              "classify_new() to match), or the group's pages no longer meet "
+              f"the >={int(MANAGED_GROUP_THRESHOLD * 100)}% managed-group "
+              "threshold. Refusing to file the pages under an arbitrary "
+              "group instead.")
+        for p, g in summary["unknown_group"]:
+            print(f"  ! {p} -> {g!r}")
+        return 2
     if summary["missing_from_nav"]:
         print(f"ERROR: {len(summary['missing_from_nav'])} manifest pages "
               "missing from nav after patch:")

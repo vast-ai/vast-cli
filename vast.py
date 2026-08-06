@@ -336,6 +336,9 @@ class hidden_aliases(object):
         self.l.append(x)
 
 def http_request(verb, args, req_url, headers: dict[str, str] | None = None, json_data = None):
+    if not headers:
+        headers = apiheaders(args)
+
     t = 0.15
     for i in range(0, args.retry):
         req = requests.Request(method=verb, url=req_url, headers=headers, json=json_data)
@@ -582,15 +585,13 @@ def apiurl(args: argparse.Namespace, subpath: str, query_args: Dict = None) -> s
 
     :param argparse.Namespace args: Namespace with many fields relevant to the endpoint.
     :param str subpath: added to end of URL to further specify endpoint.
-    :param typing.Dict query_args: specifics such as API key and search parameters that complete the URL.
+    :param typing.Dict query_args: search parameters that complete the URL.
     :rtype str:
     """
     result = None
 
     if query_args is None:
         query_args = {}
-    if args.api_key is not None:
-        query_args["api_key"] = args.api_key
     if not re.match(r"^/api/v(\d)+/", subpath):
         subpath = "/api/v0" + subpath
     
@@ -1600,6 +1601,7 @@ def clone__volume(args: argparse.Namespace):
          vastai copy local:data/test C.11824:/data/test
          vastai copy drive:/folder/file.txt C.6003036:/workspace/
          vastai copy s3.101:/data/ C.6003036:/workspace/
+         vastai copy hf.101:/my-bucket/data/ C.6003036:/workspace/
          vastai copy V.1234:/file C.5678:/workspace/
          vastai copy V.1234:/file s3.101:/workspace/
 
@@ -1608,12 +1610,15 @@ def clone__volume(args: argparse.Namespace):
         The third example copy syncs files from local to container 11824 using structured syntax.
         The fourth example copy syncs files from Google Drive to an instance.
         The fifth example copy syncs files from S3 bucket with id 101 to an instance.
-        The sixth example copy syncs files from volume 1234 to S3 bucket with id 101.
+        The sixth example copy syncs files from a Hugging Face bucket using connection id 101 to an instance.
+        The seventh example copy syncs files from volume 1234 to instance 5678.
+        The eighth example copy syncs files from volume 1234 to S3 bucket with id 101.
     """),
 )
 def copy(args: argparse.Namespace):
     """
     Transfer data from one instance to another.
+    Hugging Face cloud locations use the hf prefix, for example hf.101:/my-bucket/data/.
 
     @param src: Location of data object to be copied.
     @param dst: Target to copy object to.
@@ -1766,15 +1771,21 @@ def vm__copy(args: argparse.Namespace):
          ID    NAME      Cloud Type
          1001  test_dir  drive 
          1003  data_dir  drive 
+         1004  hf_data   hf
          
          vastai cloud copy --src /folder --dst /workspace --instance 6003036 --connection 1001 --transfer "Instance To Cloud"
+         vastai cloud copy --src my-bucket/data --dst /workspace --instance 6003036 --connection 1004 --transfer "Cloud To Instance"
 
-        The example copies all contents of /folder into /workspace on instance 6003036 from gdrive connection 'test_dir'.
+        The first cloud copy example copies all contents of /folder on instance 6003036 into /workspace in gdrive connection 'test_dir'.
+        The second cloud copy example copies my-bucket/data from Hugging Face connection 'hf_data' into /workspace on the instance.
+
+        Note: Hugging Face cloud destinations must already exist as bucket paths; directories are not created automatically.
     """),
 )
 def cloud__copy(args: argparse.Namespace):
     """
     Transfer data from one instance to another.
+    Supports drive, s3, b2, dropbox, and hf cloud providers.
 
     @param src: Location of data object to be copied.
     @param dst: Target to copy object to.

@@ -257,9 +257,9 @@ Not built in v1.
 > it. Opt out with `VASTAI_NO_UPDATE_CHECK=1` (also off under
 > `--raw`/`CI`/non-TTY).
 
-- Before commands: at most **one manifest GET and one stderr line per 24h**, hard
-  1s timeout, every failure silent with 24h backoff (offline machines pay ≤1s
-  once/day).
+- Before commands: at most **one manifest GET and one stderr line per week**, hard
+  1s timeout, every failure silent with weekly backoff (offline machines pay ≤1s
+  once/week).
 - Suppressed under `--raw`, `CI`, non-TTY, or `VASTAI_NO_UPDATE_CHECK=1`.
 - **No telemetry** — the check is a GET of a static file.
 - The nudge only ever *suggests*; there is no minimum-version gate and no

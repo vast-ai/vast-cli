@@ -42,6 +42,11 @@ jobs:
               - 'tests/cli/**'
               - 'tests/api/**'
               - 'tests/sdk/**'
+              # The docs-generation scripts and their tests. Without these two,
+              # a scripts-only PR filters the job out entirely and tests/scripts
+              # never runs.
+              - 'scripts/**'
+              - 'tests/scripts/**'
 
   # --------------------------------------------------------------------------
   #                      Unit & Integration Tests
@@ -86,10 +91,10 @@ jobs:
         working-directory: tests
         run: poetry install --no-interaction
 
-      - name: Run CLI, API, and SDK tests
+      - name: Run CLI, API, SDK, and docs-script tests
         shell: bash
         working-directory: tests
-        run: poetry run pytest -vvv -s --tb=short cli api sdk
+        run: poetry run pytest -vvv -s --tb=short cli api sdk scripts
 
   # --------------------------------------------------------------------------
   # Branch protection requires a check literally named `unit-and-integration`,

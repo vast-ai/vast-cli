@@ -50,9 +50,10 @@ class TestSearchTemplates:
 
 class TestSearchBenchmarks:
     def test_search_benchmarks(self, parse_argv, patch_get_client, mock_response):
-        patch_get_client.get.return_value = mock_response(200, [
-            {"id": 1, "score": 95.5, "gpu_name": "RTX_3090"}
-        ])
+        patch_get_client.get.return_value = mock_response(200, {
+            "success": True, "benchmarks_found": 1, "next_token": None,
+            "benchmarks": [{"id": 1, "score": 95.5, "gpu_name": "RTX_3090"}],
+        })
         args = parse_argv(["search", "benchmarks"])
         result = args.func(args)
         patch_get_client.get.assert_called_once()

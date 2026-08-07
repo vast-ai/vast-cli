@@ -184,6 +184,7 @@ offers_mult = {
 
 benchmarks_fields = {
     "contract_id",#             int        ID of instance/contract reporting benchmark
+    "dph_base",#                float      gpu $/hr at benchmark time
     "gpu_name",#                string     GPU model benchmarked (e.g. RTX_4090)
     "id",#                      int        benchmark unique ID
     "image",#                   string     image used for benchmark

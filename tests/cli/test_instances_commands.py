@@ -276,6 +276,39 @@ class TestDestroyInstance:
         assert "Aborted" in captured.out
 
 
+class TestDestroyInstances:
+    def test_bulk_destroy_sends_one_request_per_chunk(self, parse_argv, patch_get_client, mock_response, capsys):
+        """A successful bulk destroy must not be retried by exec_with_threads.
+
+        Without a truthy return from destroy_instance_impl the retry loop
+        re-sent the DELETE, and each repeat 404s because the instances are
+        already gone.
+        """
+        patch_get_client.delete.return_value = mock_response(200, {"success": True})
+        args = parse_argv(["destroy", "instances", "123", "456", "789", "--yes"])
+
+        args.func(args)
+
+        patch_get_client.delete.assert_called_once()
+        call_args = patch_get_client.delete.call_args
+        assert "/instances/" in call_args[0][0]
+        assert call_args[1]["json_data"] == {"instance_ids": [123, 456, 789]}
+
+    def test_bulk_destroy_chunks_at_64(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.delete.return_value = mock_response(200, {"success": True})
+        ids = [str(i) for i in range(1, 66)]
+        args = parse_argv(["destroy", "instances", *ids, "--yes"])
+
+        args.func(args)
+
+        assert patch_get_client.delete.call_count == 2
+        sent = sorted(
+            len(c[1]["json_data"]["instance_ids"])
+            for c in patch_get_client.delete.call_args_list
+        )
+        assert sent == [1, 64]
+
+
 class TestStartInstance:
     def test_start_instance(self, parse_argv, patch_get_client, mock_response, capsys):
         patch_get_client.put.return_value = mock_response(200, {"success": True})

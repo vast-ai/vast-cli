@@ -23,6 +23,7 @@ from vastai.api import storage as storage_api
 
 
 from vastai.cli.utils import get_parser as _get_parser, get_client  # noqa: F401
+from vastai.cli.util import VERSION as CLI_VERSION
 from vastai.cli.self_test.machine_diagnostics import (
     base_result,
     compact_offer_metadata,
@@ -52,17 +53,34 @@ from vastai.cli.self_test.runtime_diagnostics import (
     make_progress_endpoint_diagnostic,
     make_failure,
     redact_secret_text,
+    status_message_is_error,
 )
 from vastai.cli.self_test.support_bundle import (
     create_support_bundle,
     format_bundle_summary,
     support_bundles_enabled,
 )
+from vastai.cli.self_test.port_range import (
+    DEFAULT_PROBE_TIMEOUT_SECONDS,
+    DEFAULT_RESPONDER_READY_TIMEOUT_SECONDS,
+    DEFAULT_SCAN_DEADLINE_SECONDS,
+    fixed_port_docker_args,
+    port_range_docker_args,
+    positive_finite_seconds,
+    required_direct_port_count,
+    resolve_port_range,
+    scan_mapped_port_range,
+    wait_for_port_responder_readiness,
+)
 
 
 parser = _get_parser()
 SELF_TEST_INSTANCE_LABEL_PREFIX = "vast-self-test-machine"
+SELF_TEST_MIN_CLI_VERSION = "1.2.3"
+SELF_TEST_CLI_CONTRACT_VERSION = SELF_TEST_MIN_CLI_VERSION
+SELF_TEST_IMAGE_TAG_PREFIX = f"self-test-cli-{SELF_TEST_MIN_CLI_VERSION}-cuda"
 INSTANCE_LOG_TAIL_LINES = 1000
+PORT_SCAN_DETAIL_LIMIT = 50
 
 
 # ---------------------------------------------------------------------------
@@ -701,9 +719,32 @@ def dump_logs(args):
     argument("--debugging", action="store_true", help="Enable debugging output"),
     argument("--ignore-requirements", action="store_true", help="Ignore the minimum system requirements and run the self test regardless"),
     argument("--test-image", help="Use a custom self-test image for testing custom self-test images. Overrides VAST_SELF_TEST_IMAGE and CUDA mapping.", type=str),
+    argument(
+        "--port-scan-timeout",
+        type=positive_finite_seconds,
+        default=DEFAULT_PROBE_TIMEOUT_SECONDS,
+        help="Finite timeout in seconds for each direct-port TCP/UDP probe",
+    ),
+    argument(
+        "--port-scan-deadline",
+        type=positive_finite_seconds,
+        default=DEFAULT_SCAN_DEADLINE_SECONDS,
+        help="Hard total deadline in seconds for the configured direct-port scan",
+    ),
+    argument(
+        "--port-ready-timeout",
+        type=positive_finite_seconds,
+        default=DEFAULT_RESPONDER_READY_TIMEOUT_SECONDS,
+        help="Maximum seconds to wait for image port responders before scanning",
+    ),
     argument("--support-bundle-dir", help="Directory for failure diagnostic bundles (default: /tmp)", type=str),
     argument("--no-support-bundle", action="store_true", help="Do not create a diagnostic tarball when the self-test fails"),
-    usage="vastai self-test machine <machine_id> [--debugging] [--ignore-requirements] [--test-image IMAGE]",
+    usage=(
+        "vastai self-test machine <machine_id> [--debugging] "
+        "[--ignore-requirements] [--test-image IMAGE] "
+        "[--port-scan-timeout SECONDS] [--port-scan-deadline SECONDS] "
+        "[--port-ready-timeout SECONDS]"
+    ),
     help="[Host] Perform a self-test on the specified machine",
     epilog=deindent("""
         This command tests if a machine meets specific requirements and
@@ -735,6 +776,12 @@ def self_test__machine(args):
         args.debugging = False
     if not hasattr(args, 'test_image'):
         args.test_image = None
+    if not hasattr(args, 'port_scan_timeout'):
+        args.port_scan_timeout = DEFAULT_PROBE_TIMEOUT_SECONDS
+    if not hasattr(args, 'port_scan_deadline'):
+        args.port_scan_deadline = DEFAULT_SCAN_DEADLINE_SECONDS
+    if not hasattr(args, 'port_ready_timeout'):
+        args.port_ready_timeout = DEFAULT_RESPONDER_READY_TIMEOUT_SECONDS
     if not hasattr(args, 'support_bundle_dir'):
         args.support_bundle_dir = None
     if not hasattr(args, 'no_support_bundle'):
@@ -742,6 +789,12 @@ def self_test__machine(args):
     if getattr(args, "ignore_requirements", False):
         result["warning"] = ignore_requirements_warning
         result["diagnostics"]["requirements_ignored"] = True
+    result["diagnostics"]["cli"] = {
+        "version": CLI_VERSION,
+        "self_test_contract_version": SELF_TEST_CLI_CONTRACT_VERSION,
+        "self_test_min_cli_version": SELF_TEST_MIN_CLI_VERSION,
+        "self_test_image_tag_prefix": SELF_TEST_IMAGE_TAG_PREFIX,
+    }
 
     def output_line(*args_to_print):
         return " ".join(str(item) for item in args_to_print)
@@ -813,7 +866,7 @@ def self_test__machine(args):
         if bundle:
             for line in format_bundle_summary(bundle):
                 print(line)
-        print(f"Test failed: {result['reason']}")
+        print_failure_reason()
         sys.exit(1)
 
     def set_runtime_failure(diagnostic, fallback_reason=None):
@@ -826,6 +879,13 @@ def self_test__machine(args):
     def safe_error(error):
         return redact_secret_text(error) or ""
 
+    def print_failure_reason():
+        reason = str(result.get("reason") or "").strip()
+        if reason and reason not in cli_output:
+            print(f"Test failed: {reason}")
+        else:
+            print("Test failed.")
+
     def render_runtime_failure():
         diagnostic = result.get("diagnostics", {}).get("runtime_failure")
         if not diagnostic:
@@ -834,8 +894,9 @@ def self_test__machine(args):
         progress_print(f"- code: {diagnostic.get('code')}")
         if diagnostic.get("summary"):
             progress_print(f"- summary: {diagnostic['summary']}")
-        if diagnostic.get("underlying_error"):
-            progress_print(f"- underlying error: {diagnostic['underlying_error']}")
+        underlying_error = diagnostic.get("underlying_error")
+        if underlying_error and underlying_error not in cli_output:
+            progress_print(f"- underlying error: {underlying_error}")
         endpoint = diagnostic.get("progress_endpoint") or result.get("diagnostics", {}).get("progress_endpoint")
         if endpoint:
             if endpoint.get("url"):
@@ -863,6 +924,20 @@ def self_test__machine(args):
                 progress_print(f"  - {step}")
 
     client = get_client(args)
+
+    configured_port_range, port_range_source = resolve_port_range()
+    if configured_port_range is not None:
+        result["port_scan"] = {
+            "status": "pending",
+            "range": configured_port_range.value,
+            "source": port_range_source,
+            "expected_ports": configured_port_range.count,
+        }
+    else:
+        result["port_scan"] = {
+            "status": "skipped",
+            "reason": "No readable host port range was found before instance creation.",
+        }
 
     try:
         def http_status_code(error):
@@ -1013,11 +1088,32 @@ def self_test__machine(args):
         if args.ignore_requirements:
             progress_print(ignore_requirements_warning)
 
+        if result.get("port_scan", {}).get("status") == "pending":
+            try:
+                available_direct_ports = int(float(selected_offer.get("direct_port_count") or 0))
+            except (TypeError, ValueError):
+                available_direct_ports = 0
+            required_direct_ports = required_direct_port_count(configured_port_range)
+            result["port_scan"].update({
+                "available_direct_ports": available_direct_ports,
+                "required_direct_ports": required_direct_ports,
+            })
+            if available_direct_ports < required_direct_ports:
+                reason = (
+                    f"Host advertises {available_direct_ports} direct ports, but the self-test "
+                    f"needs at least {required_direct_ports} for the {configured_port_range.value} "
+                    "range and fixed mappings."
+                )
+                result["port_scan"].update({"status": "unsupported", "reason": reason})
+                result["reason"] = reason
+                progress_print(f"Port-range self-test cannot continue: {reason}")
+                return finish_failure()
+
         # ----- CUDA version to docker image mapping -----
         def cuda_map_to_image(cuda_version, compute_cap=None):
             """Return (image, reason). Reason explains why this image was picked."""
             docker_repo = "vastai/test"
-            image_tag_prefix = "self-test-v2-cuda"
+            image_tag_prefix = SELF_TEST_IMAGE_TAG_PREFIX
 
             def image_for(version):
                 return f"{docker_repo}:{image_tag_prefix}-{version}"
@@ -1103,15 +1199,41 @@ def self_test__machine(args):
                 result["phase"] = "rental"
                 result["stage"] = "create_instance"
                 from vastai.cli.util import parse_env
-                env = parse_env("-e TZ=PDT -e XNAME=XX4 -p 5000:5000 -p 1234:1234")
+                port_args = fixed_port_docker_args(configured_port_range)
+                if (
+                    configured_port_range is not None
+                    and result.get("port_scan", {}).get("status") == "pending"
+                ):
+                    range_args = port_range_docker_args(configured_port_range)
+                    port_args = " ".join(
+                        part for part in (port_args, range_args) if part
+                    )
+                env_args = (
+                    f"-e TZ=PDT -e XNAME=XX4"
+                    f" -e VAST_SELF_TEST_CLI_VERSION={CLI_VERSION}"
+                    f" -e VAST_SELF_TEST_CLI_CONTRACT_VERSION={SELF_TEST_CLI_CONTRACT_VERSION}"
+                    f" {port_args}"
+                )
+                if configured_port_range is not None and result.get("port_scan", {}).get("status") == "pending":
+                    env_args += (
+                        f" -e VAST_SELF_TEST_PORT_START={configured_port_range.start}"
+                        f" -e VAST_SELF_TEST_PORT_END={configured_port_range.end}"
+                    )
+                env = parse_env(env_args)
                 runtype = "ssh_direc ssh_proxy"
                 self_test_label = f"{SELF_TEST_INSTANCE_LABEL_PREFIX}-{args.machine_id}"
                 result["diagnostics"]["launch"] = {
                     "runtype": runtype,
                     "jupyter_lab": False,
-                    "ports": ["5000/tcp", "1234/tcp"],
+                    "ports": ["5000/tcp", "5001/udp"],
                     "label": self_test_label,
                 }
+                if configured_port_range is not None and result.get("port_scan", {}).get("status") == "pending":
+                    result["diagnostics"]["launch"].update({
+                        "port_range": configured_port_range.value,
+                        "port_range_source": port_range_source,
+                        "port_range_protocols": ["tcp", "udp"],
+                    })
 
                 progress_print(f"Starting test with {docker_image} ({image_reason})")
                 rj = instances_api.create_instance(
@@ -1225,37 +1347,19 @@ def self_test__machine(args):
 
                             status_msg = instance_info.get('status_msg', '')
                             status_msg_clean = status_msg.strip() if isinstance(status_msg, str) else ""
-                            status_msg_lower = status_msg_clean.lower()
-                            status_msg_is_error = any(
-                                token in status_msg_lower
-                                for token in (
-                                    "error",
-                                    "failed",
-                                    "failure",
-                                    "exception",
-                                    "traceback",
-                                    "oci runtime",
-                                    "permission denied",
-                                )
-                            )
-                            if status_msg_clean and status_msg_is_error:
-                                diagnostic = classify_status_msg(status_msg_clean) or make_failure(
-                                    DAEMON_STARTUP_FAILED,
-                                    stage="startup",
-                                    error=status_msg_clean,
-                                    underlying_error=status_msg_clean,
-                                )
-                                reason = f"Instance {inst_id} encountered an error: {status_msg_clean}"
-                                progress_print(reason)
-                                if instance_exist(inst_id):
-                                    destroy_instance_silent(inst_id, collect_logs=True)
-                                    progress_print(f"Instance {inst_id} has been destroyed due to error.")
-                                else:
-                                    progress_print(f"Instance {inst_id} could not be destroyed or does not exist.")
-                                return False, reason, diagnostic
+                            actual_status = str(
+                                instance_info.get('actual_status', 'unknown')
+                            ).lower()
+                            intended_status = str(
+                                instance_info.get('intended_status', 'unknown')
+                            ).lower()
 
-                            actual_status = instance_info.get('actual_status', 'unknown')
-                            intended_status = instance_info.get('intended_status', 'unknown')
+                            # A running instance may retain stale build output in
+                            # status_msg. Lifecycle state is authoritative.
+                            if intended_status == 'running' and actual_status == 'running':
+                                debug_print(f"Instance {inst_id} is now running.")
+                                return instance_info, None, None
+
                             if actual_status == 'offline':
                                 reason = "Instance offline during testing"
                                 diagnostic = make_failure(INSTANCE_OFFLINE_BEFORE_TEST, stage="startup")
@@ -1267,8 +1371,24 @@ def self_test__machine(args):
                                     progress_print(f"Instance {inst_id} could not be destroyed or does not exist.")
                                 return False, reason, diagnostic
 
-                            if intended_status in ('stopped', 'exited') or actual_status in ('stopped', 'exited'):
-                                reason = f"Instance {inst_id} stopped before reaching running status"
+                            terminal_statuses = {
+                                'destroyed',
+                                'error',
+                                'exited',
+                                'failed',
+                                'failure',
+                                'stopped',
+                                'terminated',
+                            }
+                            if (
+                                intended_status in terminal_statuses
+                                or actual_status in terminal_statuses
+                            ):
+                                reason = (
+                                    f"Instance {inst_id} entered terminal status "
+                                    f"before reaching running "
+                                    f"(actual={actual_status}, intended={intended_status})"
+                                )
                                 if status_msg_clean:
                                     reason = f"{reason}: {status_msg_clean}"
                                 diagnostic = classify_status_msg(status_msg_clean) if status_msg_clean else None
@@ -1289,9 +1409,27 @@ def self_test__machine(args):
                                     progress_print(f"Instance {inst_id} could not be destroyed or does not exist.")
                                 return False, reason, diagnostic
 
-                            if intended_status == 'running' and actual_status == 'running':
-                                debug_print(f"Instance {inst_id} is now running.")
-                                return instance_info, None, None
+                            # Transitional states carry ordinary Docker build
+                            # progress. Fail early only on explicit error
+                            # markers, not raw substrings in package names.
+                            if (
+                                status_msg_clean
+                                and status_message_is_error(status_msg_clean)
+                            ):
+                                diagnostic = classify_status_msg(status_msg_clean) or make_failure(
+                                    DAEMON_STARTUP_FAILED,
+                                    stage="startup",
+                                    error=status_msg_clean,
+                                    underlying_error=status_msg_clean,
+                                )
+                                reason = f"Instance {inst_id} encountered an error: {status_msg_clean}"
+                                progress_print(reason)
+                                if instance_exist(inst_id):
+                                    destroy_instance_silent(inst_id, collect_logs=True)
+                                    progress_print(f"Instance {inst_id} has been destroyed due to error.")
+                                else:
+                                    progress_print(f"Instance {inst_id} could not be destroyed or does not exist.")
+                                return False, reason, diagnostic
 
                             progress_print(f"Instance {inst_id} status: {actual_status}... waiting for 'running' status.")
                             time.sleep(interval)
@@ -1416,7 +1554,6 @@ def self_test__machine(args):
                                         return True, "", None
                                     elif line.startswith('ERROR'):
                                         progress_print(line)
-                                        progress_print(f"Test failed with error: {line}.")
                                         destroy_instance_silent(inst_id, collect_logs=True)
                                         instance_destroyed = True
                                         return False, line, diagnostic
@@ -1444,7 +1581,7 @@ def self_test__machine(args):
                                     progress_print("  1. TCP firewall/NAT forwarding is blocking the mapped public port")
                                     progress_print("  2. Container did not start or did not bind the progress server")
                                     progress_print("  3. NAT loopback/hairpinning may fail when testing from the same LAN as the host")
-                                    progress_print(f"  4. direct_port_count below the 3 ports/GPU minimum - check with: vastai search offers 'machine_id={machine_id} rentable=any rented=any'")
+                                    progress_print(f"  4. direct_port_count below the 4-port host minimum - check with: vastai search offers 'machine_id={machine_id} rentable=any rented=any'")
                                     return_reason = "Port never reachable within 120 seconds"
                                     diagnostic = make_failure(
                                         PROGRESS_ENDPOINT_UNREACHABLE,
@@ -1504,7 +1641,7 @@ def self_test__machine(args):
                     finally:
                         if not instance_destroyed and inst_id and instance_exist(inst_id):
                             destroy_instance_silent(inst_id, collect_logs=True)
-                        progress_print(f"Machine: {machine_id} Done with testing remote.py results {message}")
+                        debug_print(f"Machine: {machine_id} Done with testing remote.py.")
                         warnings.simplefilter('default')
 
                 # ----- main orchestration: wait then test -----
@@ -1521,6 +1658,116 @@ def self_test__machine(args):
                             "Failed to retrieve public IP address.",
                         )
                     else:
+                        if result.get("port_scan", {}).get("status") == "skipped":
+                            api_port_range, api_range_source = resolve_port_range(
+                                instance_info,
+                                host_path="/nonexistent",
+                            )
+                            if api_port_range is not None:
+                                result["port_scan"].update({
+                                    "range": api_port_range.value,
+                                    "source": api_range_source,
+                                    "note": "The API range was available only after launch; no range mappings were requested.",
+                                })
+
+                        if result.get("port_scan", {}).get("status") == "pending":
+                            try:
+                                urllib3.disable_warnings(
+                                    urllib3.exceptions.InsecureRequestWarning
+                                )
+                                readiness = wait_for_port_responder_readiness(
+                                    instance_info,
+                                    ip_address,
+                                    timeout=args.port_ready_timeout,
+                                    request_timeout=args.port_scan_timeout,
+                                )
+                                result["port_scan"]["readiness"] = readiness
+                                if not readiness.get("ready"):
+                                    result["port_scan"]["status"] = "failed"
+                                    result["reason"] = (
+                                        readiness.get("reason")
+                                        or "Configured-port responders did not become ready."
+                                    )
+                                    progress_print(
+                                        "Port-range scan could not start: "
+                                        f"{result['reason']}"
+                                    )
+                                    if instance_exist(instance_id):
+                                        destroy_instance_silent(
+                                            instance_id,
+                                            collect_logs=True,
+                                        )
+                                    return finish_failure()
+
+                                scan = scan_mapped_port_range(
+                                    instance_info,
+                                    ip_address,
+                                    configured_port_range,
+                                    timeout=args.port_scan_timeout,
+                                    total_timeout=args.port_scan_deadline,
+                                )
+                                result["port_scan"] = {
+                                    **result["port_scan"],
+                                    **scan,
+                                }
+                                progress_print(
+                                    f"Port-range scan {scan['status']}: "
+                                    f"{scan['mapped_entries']} mapped entries for {scan['range']}."
+                                )
+                                for missing in scan["missing_mappings"][:PORT_SCAN_DETAIL_LIMIT]:
+                                    progress_print(
+                                        f"  MISSING {missing['protocol'].upper()} "
+                                        f"{missing['container_port']}/{missing['protocol']} mapping"
+                                    )
+                                omitted_missing = (
+                                    len(scan["missing_mappings"])
+                                    - PORT_SCAN_DETAIL_LIMIT
+                                )
+                                if omitted_missing > 0:
+                                    progress_print(
+                                        f"  ... {omitted_missing} additional missing "
+                                        "mappings omitted from console output; "
+                                        "the structured result contains all entries."
+                                    )
+                                for failed in scan["failed"][:PORT_SCAN_DETAIL_LIMIT]:
+                                    progress_print(
+                                        f"  FAILED {failed['protocol'].upper()} "
+                                        f"{failed['public_ip']}:{failed['host_port']} "
+                                        f"(container {failed['container_port']}/{failed['protocol']}): "
+                                        f"{failed.get('error', 'unreachable')}"
+                                    )
+                                omitted_failed = (
+                                    len(scan["failed"]) - PORT_SCAN_DETAIL_LIMIT
+                                )
+                                if omitted_failed > 0:
+                                    progress_print(
+                                        f"  ... {omitted_failed} additional failed "
+                                        "probes omitted from console output; "
+                                        "the structured result contains all entries."
+                                    )
+                                if scan.get("deadline_exceeded"):
+                                    progress_print(
+                                        "  Scan deadline exceeded after "
+                                        f"{scan['deadline_seconds']} seconds; "
+                                        f"{scan.get('unprobed_count', 0)} mapped entries "
+                                        "were not probed."
+                                    )
+                                if scan["status"] != "passed":
+                                    result["reason"] = f"Port-range connectivity check failed for {scan['range']}."
+                                    if instance_exist(instance_id):
+                                        destroy_instance_silent(instance_id, collect_logs=True)
+                                    return finish_failure()
+                            except Exception as error:
+                                result["port_scan"] = {
+                                    **result["port_scan"],
+                                    "status": "error",
+                                    "reason": str(error),
+                                }
+                                result["reason"] = f"Port-range connectivity check errored: {error}"
+                                if instance_exist(instance_id):
+                                    destroy_instance_silent(instance_id, collect_logs=True)
+                                return finish_failure()
+
                         all_ports = instance_info.get("ports", {})
                         port_mappings = all_ports.get("5000/tcp", [])
                         port = port_mappings[0].get("HostPort") if port_mappings else None
@@ -1536,7 +1783,7 @@ def self_test__machine(args):
                             progress_print(f"Port 5000/tcp not found in mapped ports. Available ports: {list(all_ports.keys())}")
                             progress_print("Possible causes:")
                             progress_print("  1. The instance launch did not map the self-test progress port")
-                            progress_print(f"  2. direct_port_count below the 3 ports/GPU minimum - check with: vastai search offers 'machine_id={args.machine_id} rentable=any rented=any'")
+                            progress_print(f"  2. direct_port_count below the 4-port host minimum - check with: vastai search offers 'machine_id={args.machine_id} rentable=any rented=any'")
                             progress_print("  3. Container is not exposing port 5000/tcp")
                             set_runtime_failure(
                                 make_failure(
@@ -1640,5 +1887,5 @@ def self_test__machine(args):
             if bundle:
                 for line in format_bundle_summary(bundle):
                     print(line)
-            print(f"Test failed: {result['reason']}")
+            print_failure_reason()
             sys.exit(1)

@@ -7,6 +7,8 @@ from unittest.mock import Mock
 import pytest
 import requests
 
+from vastai.cli.self_test.port_range import PortRange
+
 
 class TestShowMachines:
     def test_show_machines_raw(self, parse_argv, patch_get_client, mock_response):
@@ -92,7 +94,7 @@ class TestSelfTestMachineCleanup:
             "compute_cap": 860,
             "dlperf": 1,
             "reliability": 0.99,
-            "direct_port_count": 4,
+            "direct_port_count": 5,
             "pcie_bw": 3.0,
             "gpu_total_ram": 12288,
             "inet_down": 500,
@@ -223,7 +225,7 @@ def _self_test_offer(**overrides):
         "cuda_max_good": 12.8,
         "compute_cap": 890,
         "reliability": 0.99,
-        "direct_port_count": 4,
+        "direct_port_count": 5,
         "pcie_bw": 3.2,
         "inet_down": 200,
         "inet_up": 200,
@@ -524,7 +526,7 @@ class TestSelfTestMachineDiagnostics:
         assert gpu_ram_check["status"] == "pass"
         assert gpu_ram_check["actual"] == 80
 
-    def test_preflight_direct_port_overage_is_advisory_not_gate(self):
+    def test_preflight_direct_port_recommendation_is_advisory_not_gate(self):
         from vastai.cli.self_test.machine_diagnostics import (
             failed_checks,
             informational_checks,
@@ -537,7 +539,7 @@ class TestSelfTestMachineDiagnostics:
             gpu_total_ram=8 * 24 * 1024,
             cpu_ram=256 * 1024,
             cpu_cores=32,
-            direct_port_count=1000,
+            direct_port_count=600,
             inet_down=600,
             inet_up=600,
         )
@@ -547,18 +549,42 @@ class TestSelfTestMachineDiagnostics:
         advisory = next(
             check
             for check in informational_checks(checks)
-            if check["id"] == "network.direct_ports.recommended_max"
+            if check["id"] == "network.direct_ports.recommended"
         )
 
         assert direct_ports["status"] == "pass"
         assert advisory["status"] == "info"
-        assert advisory["actual"] == 1000
-        assert advisory["required"] == 512
-        assert advisory["operator"] == "<="
-        assert "64 ports per listed GPU" in advisory["purpose"]
+        assert advisory["actual"] == 600
+        assert advisory["required"] == 800
+        assert advisory["operator"] == ">="
+        assert "100 direct ports per listed GPU" in advisory["purpose"]
         assert advisory not in failed_checks(checks)
 
-    def test_preflight_direct_port_minimum_scales_by_gpu_count(self):
+    def test_preflight_has_no_direct_port_advisory_at_recommendation(self):
+        from vastai.cli.self_test.machine_diagnostics import (
+            informational_checks,
+            preflight_requirement_checks,
+        )
+
+        offer = _self_test_offer(
+            num_gpus=8,
+            gpu_ram=24 * 1024,
+            gpu_total_ram=8 * 24 * 1024,
+            cpu_ram=256 * 1024,
+            cpu_cores=32,
+            direct_port_count=800,
+            inet_down=600,
+            inet_up=600,
+        )
+
+        checks = preflight_requirement_checks(offer)
+
+        assert all(
+            check["id"] != "network.direct_ports.recommended"
+            for check in informational_checks(checks)
+        )
+
+    def test_preflight_direct_port_minimum_is_four_per_host(self):
         from vastai.cli.self_test.machine_diagnostics import preflight_requirement_checks
 
         offer = _self_test_offer(
@@ -567,7 +593,7 @@ class TestSelfTestMachineDiagnostics:
             gpu_total_ram=8 * 24 * 1024,
             cpu_ram=256 * 1024,
             cpu_cores=32,
-            direct_port_count=20,
+            direct_port_count=3,
             inet_down=600,
             inet_up=600,
         )
@@ -576,12 +602,32 @@ class TestSelfTestMachineDiagnostics:
         direct_ports = next(check for check in checks if check["id"] == "network.direct_ports")
 
         assert direct_ports["status"] == "fail"
-        assert direct_ports["actual"] == 20
-        assert direct_ports["required"] == 24
+        assert direct_ports["actual"] == 3
+        assert direct_ports["required"] == 4
         assert direct_ports["operator"] == ">="
-        assert "3 directly mapped ports per listed GPU" in direct_ports["purpose"]
+        assert "at least 4 directly mapped ports on the host" in direct_ports["purpose"]
 
-    def test_preflight_direct_port_overage_renders_advisory(
+    def test_preflight_direct_port_minimum_does_not_scale_by_gpu_count(self):
+        from vastai.cli.self_test.machine_diagnostics import preflight_requirement_checks
+
+        offer = _self_test_offer(
+            num_gpus=8,
+            gpu_ram=24 * 1024,
+            gpu_total_ram=8 * 24 * 1024,
+            cpu_ram=256 * 1024,
+            cpu_cores=32,
+            direct_port_count=4,
+            inet_down=600,
+            inet_up=600,
+        )
+
+        checks = preflight_requirement_checks(offer)
+        direct_ports = next(check for check in checks if check["id"] == "network.direct_ports")
+
+        assert direct_ports["status"] == "pass"
+        assert direct_ports["required"] == 4
+
+    def test_preflight_direct_port_recommendation_renders_advisory(
         self, parse_argv, patch_get_client, monkeypatch, capsys
     ):
         offer = _self_test_offer(
@@ -590,7 +636,7 @@ class TestSelfTestMachineDiagnostics:
             gpu_total_ram=8 * 24 * 1024,
             cpu_ram=256 * 1024,
             cpu_cores=32,
-            direct_port_count=1000,
+            direct_port_count=600,
             inet_down=600,
             inet_up=600,
             reliability=0.9,
@@ -607,9 +653,9 @@ class TestSelfTestMachineDiagnostics:
         captured = capsys.readouterr()
         assert exc_info.value.code == 1
         assert "Preflight advisory for machine 42:" in captured.out
-        assert "Direct port count advisory" in captured.out
-        assert "actual: 1000.0 ports" in captured.out
-        assert "recommended: <= 512 ports" in captured.out
+        assert "Direct port count recommendation" in captured.out
+        assert "actual: 600.0 ports" in captured.out
+        assert "recommended: >= 800 ports" in captured.out
         assert "This is advisory only, not a self-test gate." in captured.out
 
     def test_preflight_caps_system_ram_requirement_for_huge_vram_hosts(self):
@@ -770,10 +816,172 @@ class TestSelfTestMachineDiagnostics:
         result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
 
         assert result["diagnostics"]["image"]["override"] is False
-        assert create.call_args.kwargs["image"] == "vastai/test:self-test-v2-cuda-12.8"
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.3-cuda-12.8"
         assert create.call_args.kwargs["runtype"] == "ssh_direc ssh_proxy"
         assert create.call_args.kwargs["label"] == "vast-self-test-machine-42"
         assert result["diagnostics"]["launch"]["label"] == "vast-self-test-machine-42"
+        assert result["diagnostics"]["cli"]["self_test_min_cli_version"] == "1.2.3"
+        assert result["diagnostics"]["cli"]["self_test_contract_version"] == "1.2.3"
+        assert (
+            result["diagnostics"]["cli"]["self_test_image_tag_prefix"]
+            == "self-test-cli-1.2.3-cuda"
+        )
+        env = create.call_args.kwargs["env"]
+        assert env["VAST_SELF_TEST_CLI_VERSION"]
+        assert env["VAST_SELF_TEST_CLI_CONTRACT_VERSION"] == "1.2.3"
+        assert "-p 1234:1234" not in env
+
+    def test_configured_hundred_port_range_is_preserved_and_capacity_is_honest(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer(direct_port_count=103)
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.resolve_port_range",
+            Mock(return_value=(PortRange(40000, 40099), "host_port_range")),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        create = Mock(side_effect=RuntimeError("stop before live rental"))
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            create,
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        env = create.call_args.kwargs["env"]
+        assert env["-p 40000-40099:40000-40099/tcp"] == "1"
+        assert env["-p 40000-40099:40000-40099/udp"] == "1"
+        assert "-p 1234:1234" not in env
+        assert result["port_scan"]["expected_ports"] == 100
+        assert result["port_scan"]["required_direct_ports"] == 103
+        assert result["port_scan"]["available_direct_ports"] == 103
+
+    def test_configured_range_dedupes_overlapping_fixed_port_mappings(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer(direct_port_count=5)
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.resolve_port_range",
+            Mock(return_value=(PortRange(5000, 5001), "host_port_range")),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        create = Mock(side_effect=RuntimeError("stop before live rental"))
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            create,
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        env = create.call_args.kwargs["env"]
+        assert env["-p 5000-5001:5000-5001/tcp"] == "1"
+        assert env["-p 5000-5001:5000-5001/udp"] == "1"
+        assert "-p 5000:5000" not in env
+        assert "-p 5001:5001/udp" not in env
+        assert result["port_scan"]["required_direct_ports"] == 3
+
+    @pytest.mark.parametrize(
+        "flag",
+        ["--port-scan-timeout", "--port-scan-deadline", "--port-ready-timeout"],
+    )
+    @pytest.mark.parametrize("value", ["0", "-1", "nan", "inf"])
+    def test_port_timeout_options_reject_invalid_values(
+        self, parse_argv, flag, value
+    ):
+        with pytest.raises(SystemExit) as exc_info:
+            parse_argv(["self-test", "machine", "42", flag, value])
+
+        assert exc_info.value.code == 2
+
+    def test_responder_readiness_failure_cleans_up_without_scanning(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        from vastai.cli.commands import machines
+
+        offer = _self_test_offer(direct_port_count=10)
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "203.0.113.10",
+            "ports": {
+                "5000/tcp": [{"HostPort": "45000"}],
+                "40000/tcp": [{"HostPort": "45001"}],
+                "40000/udp": [{"HostPort": "45002"}],
+            },
+            "status_msg": "",
+        }
+        destroyed = False
+
+        def show_instance(_client, id):
+            assert id == 123
+            if destroyed:
+                return {
+                    "id": 123,
+                    "actual_status": "destroyed",
+                    "intended_status": "destroyed",
+                }
+            return running_instance
+
+        def destroy_instance(_client, id):
+            nonlocal destroyed
+            assert id == 123
+            destroyed = True
+            return {"success": True}
+
+        monkeypatch.setattr(
+            machines,
+            "resolve_port_range",
+            Mock(return_value=(PortRange(40000, 40000), "host_port_range")),
+        )
+        monkeypatch.setattr(
+            machines.offers_api,
+            "search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            machines.instances_api,
+            "create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        monkeypatch.setattr(machines.instances_api, "show_instance", show_instance)
+        destroy = Mock(side_effect=destroy_instance)
+        monkeypatch.setattr(machines.instances_api, "destroy_instance", destroy)
+        monkeypatch.setattr(
+            machines,
+            "wait_for_port_responder_readiness",
+            Mock(return_value={
+                "ready": False,
+                "reason": "responders still starting",
+                "attempts": 3,
+            }),
+        )
+        scan = Mock()
+        monkeypatch.setattr(machines, "scan_mapped_port_range", scan)
+
+        args = parse_argv([
+            "self-test",
+            "machine",
+            "42",
+            "--raw",
+            "--no-support-bundle",
+        ])
+        result = args.func(args)
+
+        assert result["success"] is False
+        assert result["port_scan"]["status"] == "failed"
+        assert result["port_scan"]["readiness"]["attempts"] == 3
+        assert result["reason"] == "responders still starting"
+        scan.assert_not_called()
+        destroy.assert_called_once()
 
     def test_cuda_mapping_selects_cuda_133_exact_match(
         self, parse_argv, patch_get_client, monkeypatch
@@ -782,7 +990,7 @@ class TestSelfTestMachineDiagnostics:
         result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
 
         assert result["diagnostics"]["image"]["override"] is False
-        assert create.call_args.kwargs["image"] == "vastai/test:self-test-v2-cuda-13.3"
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.3-cuda-13.3"
         assert "exact match" in result["diagnostics"]["image"]["reason"]
 
     def test_cuda_mapping_steps_down_to_newest_compatible_image(
@@ -792,7 +1000,7 @@ class TestSelfTestMachineDiagnostics:
         result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
 
         assert result["diagnostics"]["image"]["override"] is False
-        assert create.call_args.kwargs["image"] == "vastai/test:self-test-v2-cuda-13.0"
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.3-cuda-13.0"
         assert "selected newest image <= host CUDA (13.0)" in result["diagnostics"]["image"]["reason"]
 
     def test_cuda_mapping_uses_cuda_133_for_newer_cuda_hosts(
@@ -802,7 +1010,7 @@ class TestSelfTestMachineDiagnostics:
         result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
 
         assert result["diagnostics"]["image"]["override"] is False
-        assert create.call_args.kwargs["image"] == "vastai/test:self-test-v2-cuda-13.3"
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.3-cuda-13.3"
         assert "selected newest image <= host CUDA (13.3)" in result["diagnostics"]["image"]["reason"]
 
     def test_cuda_mapping_still_clamps_volta_to_cuda_128(
@@ -812,14 +1020,14 @@ class TestSelfTestMachineDiagnostics:
         result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
 
         assert result["diagnostics"]["image"]["override"] is False
-        assert create.call_args.kwargs["image"] == "vastai/test:self-test-v2-cuda-12.8"
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.3-cuda-12.8"
         assert "clamped to 12.8" in result["diagnostics"]["image"]["reason"]
 
     def test_startup_status_msg_is_classified_in_raw_output(
         self, parse_argv, patch_get_client, monkeypatch
     ):
         offer = _self_test_offer()
-        status_msg = "Error response from daemon: manifest for vastai/test:self-test-v2-cuda-99 not found"
+        status_msg = "Error response from daemon: manifest for vastai/test:self-test-cli-1.2.3-cuda-99 not found"
         monkeypatch.setattr(
             "vastai.cli.commands.machines.offers_api.search_offers",
             Mock(return_value=[offer]),
@@ -995,6 +1203,290 @@ class TestSelfTestMachineDiagnostics:
         assert endpoint["mapped_ports"] == ["22/tcp"]
         assert result["diagnostics"]["runtime_failure"]["progress_endpoint"] == endpoint
         assert destroy.call_count >= 1
+
+    def test_loading_build_progress_with_liberror_package_is_not_startup_failure(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer()
+        loading_instance = {
+            "id": 123,
+            "actual_status": "loading",
+            "intended_status": "running",
+            "status_msg": (
+                "#7 4.226 Get:70 http://archive.ubuntu.com/ubuntu noble/main "
+                "amd64 liberror-perl all 0.17029-2 [25.6 kB]"
+            ),
+        }
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"22/tcp": [{"HostPort": "40022"}]},
+            "status_msg": "",
+        }
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        show = Mock()
+        show.side_effect = lambda *args, **kwargs: (
+            loading_instance if show.call_count == 1 else running_instance
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            show,
+        )
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.destroy_instance",
+            destroy,
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.time.sleep",
+            lambda *_: None,
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        assert result["failure_code"] == "progress_port_not_mapped"
+        assert result["failure_code"] != "instance_status_error"
+        assert show.call_count >= 2
+        assert destroy.call_count >= 1
+
+    def test_running_state_ignores_stale_startup_error_text(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer()
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"22/tcp": [{"HostPort": "40022"}]},
+            "status_msg": "Error response from daemon: stale build status",
+        }
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            Mock(return_value=running_instance),
+        )
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.destroy_instance",
+            destroy,
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.time.sleep",
+            lambda *_: None,
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        assert result["failure_code"] == "progress_port_not_mapped"
+        assert result["failure_code"] != "docker_pull_failed"
+        assert destroy.call_count >= 1
+
+    def test_terminal_status_fails_even_when_status_text_is_normal_build_progress(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer()
+        status_msg = (
+            "#7 4.226 Get:70 http://archive.ubuntu.com/ubuntu noble/main "
+            "amd64 liberror-perl all 0.17029-2 [25.6 kB]"
+        )
+        terminal_instance = {
+            "id": 123,
+            "actual_status": "error",
+            "intended_status": "running",
+            "status_msg": status_msg,
+        }
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        show = Mock(side_effect=[terminal_instance, terminal_instance, None])
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            show,
+        )
+        destroy = Mock(return_value={"success": True})
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.destroy_instance",
+            destroy,
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        assert result["failure_code"] == "instance_status_error"
+        assert result["failure"]["underlying_error"] == status_msg
+        assert destroy.call_count == 1
+
+    def test_paid_image_failure_marker_is_preserved_in_structured_result(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer()
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"5000/tcp": [{"HostPort": "45000"}]},
+            "status_msg": "",
+        }
+        marker = (
+            "ERROR 2: Test All GPU ResNet18 failed. "
+            "SELF_TEST_FAILURE[cuda_error_too_many_peers]: "
+            "All-GPU ResNet18 failed on all 10 visible GPUs."
+        )
+        destroyed = set()
+
+        def show_instance(client, id):
+            if id in destroyed:
+                return {"id": id, "actual_status": "destroyed", "intended_status": "destroyed"}
+            return running_instance
+
+        def destroy_instance(client, id):
+            destroyed.add(id)
+            return {"success": True}
+
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            show_instance,
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.destroy_instance",
+            destroy_instance,
+        )
+        monkeypatch.setattr("vastai.cli.commands.machines.time.sleep", lambda *_: None)
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.requests.get",
+            Mock(
+                return_value=SimpleNamespace(
+                    status_code=200,
+                    text="\n".join(
+                        (
+                            "Starting tests...",
+                            "Running system requirements test...",
+                            "TESTED : System requirements test passed.",
+                            "Running ResNet18 test on all GPUs...",
+                            marker,
+                        )
+                    ),
+                )
+            ),
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--raw", "--no-support-bundle"])
+        result = args.func(args)
+
+        assert result["failure_code"] == "cuda_error_too_many_peers"
+        assert result["stage"] == "resnet"
+        assert result["reason"] == marker
+        assert result["diagnostics"]["runtime_failure"]["underlying_error"] == marker
+        assert destroyed == {123}
+
+    def test_paid_image_failure_marker_is_printed_once(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        offer = _self_test_offer()
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"5000/tcp": [{"HostPort": "45000"}]},
+            "status_msg": "",
+        }
+        marker = (
+            "ERROR 2: Test All GPU ResNet18 failed. "
+            "SELF_TEST_FAILURE[cuda_error_too_many_peers]: "
+            "All-GPU ResNet18 failed on all 10 visible GPUs."
+        )
+        destroyed = set()
+
+        def show_instance(client, id):
+            if id in destroyed:
+                return {"id": id, "actual_status": "destroyed", "intended_status": "destroyed"}
+            return running_instance
+
+        def destroy_instance(client, id):
+            destroyed.add(id)
+            return {"success": True}
+
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(return_value={"new_contract": 123}),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.show_instance",
+            show_instance,
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.destroy_instance",
+            destroy_instance,
+        )
+        monkeypatch.setattr("vastai.cli.commands.machines.time.sleep", lambda *_: None)
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.requests.get",
+            Mock(
+                return_value=SimpleNamespace(
+                    status_code=200,
+                    text="\n".join(
+                        (
+                            "Starting tests...",
+                            "Running system requirements test...",
+                            "TESTED : System requirements test passed.",
+                            "Running ResNet18 test on all GPUs...",
+                            marker,
+                        )
+                    ),
+                )
+            ),
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--no-support-bundle"])
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 1
+        assert captured.out.count(marker) == 1
+        assert "- code: cuda_error_too_many_peers" in captured.out
+        assert "Test failed with error:" not in captured.out
+        assert "Done with testing remote.py" not in captured.out
+        assert "- underlying error:" not in captured.out
+        assert destroyed == {123}
 
     def test_progress_endpoint_never_reachable_records_endpoint_diagnostic(
         self, parse_argv, patch_get_client, monkeypatch

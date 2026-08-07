@@ -1341,6 +1341,124 @@ def get_ssh_key(argstr):
     return ssh_key
 
 
+SELF_TEST_MIN_CLI_VERSION = "1.2.3"
+SELF_TEST_CLI_CONTRACT_VERSION = SELF_TEST_MIN_CLI_VERSION
+SELF_TEST_IMAGE_TAG_PREFIX = f"self-test-cli-{SELF_TEST_MIN_CLI_VERSION}-cuda"
+_SELF_TEST_STATUS_ERROR_LINE_RE = re.compile(
+    r"^\s*(?:#\d+\s+(?:\d+(?:\.\d+)?\s+)?)?"
+    r"(?:(?:errors?|failed|failures?|exceptions?|tracebacks?)(?=[:\s]|$)|"
+    r"unauthorized(?=:))",
+    re.IGNORECASE | re.MULTILINE,
+)
+_SELF_TEST_STATUS_RECOVERABLE_LINE_RE = re.compile(
+    r"\bfailed to fetch\b[^\r\n]{0,240}"
+    r"\b(?:using cached|ignored|old (?:ones?|indexes?) used)\b",
+    re.IGNORECASE,
+)
+_SELF_TEST_STATUS_FATAL_MARKER_RE = re.compile(
+    r"\b(?:oci runtime|permission denied|pull access denied|"
+    r"repository does not exist|no such image|exec format error|failed to start|"
+    r"invalid reference format|manifest unknown|no matching manifest)\b|"
+    r"\bmanifest\b[^\r\n]{0,160}\bnot found\b|"
+    r"\brequested access\b[^\r\n]{0,160}\bdenied\b|"
+    r"\brpc error(?=[:\s]|$)|"
+    r"\bdocker:\s*error(?=[:\s]|$)|"
+    r"(?:docker_build\(\)|docker pull|containerd|dockerd|nvidia-container(?:-cli)?)"
+    r"[^\r\n]{0,160}\b(?:errors?|failed|failures?)(?=[:\s]|$)",
+    re.IGNORECASE,
+)
+
+
+def self_test_status_message_is_error(status_msg):
+    """Return whether a transitional self-test instance status is fatal."""
+    if not isinstance(status_msg, str):
+        return False
+    status_msg = status_msg.strip()
+    if not status_msg:
+        return False
+    if _SELF_TEST_STATUS_FATAL_MARKER_RE.search(status_msg):
+        return True
+    return any(
+        _SELF_TEST_STATUS_ERROR_LINE_RE.search(line)
+        and not _SELF_TEST_STATUS_RECOVERABLE_LINE_RE.search(line)
+        for line in status_msg.splitlines()
+    )
+
+
+def self_test_cuda_map_to_image(cuda_version, compute_cap=None):
+    """Return the versioned self-test image compatible with a host."""
+    docker_repo = "vastai/test"
+
+    def image_for(version):
+        return f"{docker_repo}:{SELF_TEST_IMAGE_TAG_PREFIX}-{version}"
+
+    if isinstance(cuda_version, float):
+        cuda_version = str(cuda_version)
+    original_cuda = cuda_version
+
+    if compute_cap is not None and compute_cap < 700:
+        return (
+            image_for("11.8"),
+            f"compute_cap={compute_cap} below sm_70 → forced {SELF_TEST_IMAGE_TAG_PREFIX}-11.8",
+        )
+
+    clamped_for_volta = False
+    if compute_cap is not None and compute_cap < 750:
+        if float(cuda_version) > 12.8:
+            cuda_version = "12.8"
+            clamped_for_volta = True
+
+    docker_tag_map = {
+        "11.8": image_for("11.8"),
+        "12.8": image_for("12.8"),
+        "13.0": image_for("13.0"),
+        "13.3": image_for("13.3"),
+    }
+    cap_hint = (
+        f"compute_cap={compute_cap}"
+        if compute_cap is not None
+        else "compute_cap=unknown"
+    )
+    cuda_float = float(cuda_version)
+    compatible_versions = sorted(float(version) for version in docker_tag_map)
+    selected_version = max(
+        (version for version in compatible_versions if version <= cuda_float),
+        default=None,
+    )
+    if selected_version is None:
+        raise KeyError(
+            f"No CUDA version found for {cuda_version} or any lower version"
+        )
+
+    selected_version_str = f"{selected_version:.1f}"
+    image = docker_tag_map[selected_version_str]
+    if clamped_for_volta:
+        reason = (
+            f"{cap_hint} (Volta) + cuda_max_good={original_cuda} → "
+            f"clamped to {cuda_version} → {image}"
+        )
+    elif selected_version_str == cuda_version:
+        reason = (
+            f"{cap_hint}, cuda_max_good={cuda_version} → exact match → {image}"
+        )
+    else:
+        reason = (
+            f"{cap_hint}, cuda_max_good={original_cuda} → "
+            f"selected newest image <= host CUDA ({selected_version_str}) → {image}"
+        )
+    return image, reason
+
+
+def self_test_launch_env(cli_version=VERSION):
+    """Return the legacy launcher's contract-aware self-test environment."""
+    return (
+        f"-e TZ=PDT -e XNAME=XX4 "
+        f"-e VAST_SELF_TEST_CLI_VERSION={cli_version} "
+        f"-e VAST_SELF_TEST_CLI_CONTRACT_VERSION={SELF_TEST_CLI_CONTRACT_VERSION} "
+        "-p 5000:5000 -p 5001:5001/udp"
+    )
+
+
 @parser.command(
     argument("instance_id", help="id of instance to attach to", type=int),
     argument("ssh_key", help="ssh key to attach to instance", type=str),
@@ -3439,21 +3557,33 @@ def _get_gpu_names() -> List[str]:
         return cache_age < CACHE_DURATION
     
     if is_cache_valid():
-        with open(CACHE_FILE, "r") as file:
-            gpu_names = json.load(file)
+        try:
+            with open(CACHE_FILE, "r") as file:
+                gpu_names = json.load(file)
+        except (OSError, json.JSONDecodeError):
+            gpu_names = None
     else:
         endpoint = "/api/v0/gpu_names/unique/"
         url = f"{server_url_default}{endpoint}"
-        r = requests.get(url, headers={})
-        r.raise_for_status()  # Will raise an exception for HTTP errors
-        gpu_names = r.json()
-        with open(CACHE_FILE, "w") as file:
-            json.dump(gpu_names, file)
+        try:
+            r = requests.get(url, headers={})
+            r.raise_for_status()
+            gpu_names = r.json()
+        except (requests.exceptions.RequestException, ValueError):
+            return None
+        try:
+            with open(CACHE_FILE, "w") as file:
+                json.dump(gpu_names, file)
+        except OSError:
+            pass
 
-    formatted_gpu_names = [
-        name.replace(" ", "_").replace("-", "_") for name in gpu_names['gpu_names']
-    ]
-    return formatted_gpu_names
+    try:
+        return [
+            name.replace(" ", "_").replace("-", "_")
+            for name in gpu_names["gpu_names"]
+        ]
+    except (TypeError, KeyError):
+        return None
 
 
 REGIONS = {
@@ -8462,82 +8592,6 @@ def self_test__machine(args):
         if args.ignore_requirements:
             progress_print(args, ignore_requirements_warning)
 
-        def cuda_map_to_image(cuda_version, compute_cap=None):
-            """
-            Map a CUDA version (and optional compute_cap) to (image, reason).
-
-            If compute_cap is below 700 (sm_70 / Volta), the cuda-11.8 image
-            is forced regardless of CUDA version. cuda-12.8 (torch 2.10) still
-            ships sm_70 kernels so Volta hosts land on cuda-12.8 via the
-            version map; cuda-13.0 (torch 2.11) and cuda-12.8 do not ship
-            sm_50/sm_60 kernels, so Maxwell and Pascal must use cuda-11.8.
-
-            Volta hosts whose operator has installed a CUDA 13 driver get the
-            cuda_version clamped down to 12.8 before the version map runs,
-            since cuda-13.0 wheels never built sm_70.
-
-            The returned reason is a short human-readable string so callers
-            can log why a particular image was chosen.
-            """
-            docker_repo = "vastai/test"
-            # Convert float input to string
-            if isinstance(cuda_version, float):
-                cuda_version = str(cuda_version)
-            original_cuda = cuda_version
-
-            # Force the cuda-11.8 legacy image on pre-Volta hardware (sm_50/sm_60).
-            if compute_cap is not None and compute_cap < 700:
-                return (
-                    f"{docker_repo}:self-test-cuda-11.8",
-                    f"compute_cap={compute_cap} below sm_70 → forced cuda-11.8",
-                )
-
-            # Volta sm_70/sm_72: cuda-12.8 has sm_70, cuda-13.0 doesn't. Cap
-            # driver CUDA at 12.8 so the map below picks cuda-12.8 even on a
-            # V100 host with a CUDA 13 driver installed.
-            clamped_for_volta = False
-            if compute_cap is not None and compute_cap < 750:
-                if float(cuda_version) > 12.8:
-                    cuda_version = "12.8"
-                    clamped_for_volta = True
-
-            # Predefined mapping. Tracks PyTorch releases and the docker
-            # images we currently publish (cuda-11.8 / cuda-12.8 / cuda-13.0).
-            docker_tag_map = {
-                "11.8": "cuda-11.8",
-                "12.8": "cuda-12.8",
-                "13.0": "cuda-13.0",
-            }
-
-            cap_hint = f"compute_cap={compute_cap}" if compute_cap is not None else "compute_cap=unknown"
-
-            if cuda_version in docker_tag_map:
-                tag = docker_tag_map[cuda_version]
-                if clamped_for_volta:
-                    reason = f"{cap_hint} (Volta) + cuda_max_good={original_cuda} → clamped to {cuda_version} → {tag}"
-                else:
-                    reason = f"{cap_hint}, cuda_max_good={cuda_version} → exact match → {tag}"
-                return f"{docker_repo}:self-test-{tag}", reason
-
-            # Try to find the next version down
-            cuda_float = float(cuda_version)
-
-            # Try to decrement the version by 0.1 until we find a match or run out of options
-            next_version = round(cuda_float - 0.1, 1)
-            while next_version >= min(float(v) for v in docker_tag_map.keys()):
-                next_version_str = str(next_version)
-                if next_version_str in docker_tag_map:
-                    tag = docker_tag_map[next_version_str]
-                    reason = (
-                        f"{cap_hint}, cuda_max_good={original_cuda} → "
-                        f"stepped down to {next_version_str} → {tag}"
-                    )
-                    return f"{docker_repo}:self-test-{tag}", reason
-                next_version = round(next_version - 0.1, 1)
-
-            raise KeyError(f"No CUDA version found for {cuda_version} or any lower version")
-    
-
         def search_offers_and_get_top(machine_id):
             search_args = argparse.Namespace(
                 query=[f"machine_id={machine_id}", "verified=any", "rentable=true", "rented=any"],
@@ -8580,7 +8634,10 @@ def self_test__machine(args):
             ask_contract_id = top_offer["id"]
             cuda_version = top_offer["cuda_max_good"]
             compute_cap = top_offer.get("compute_cap")
-            docker_image, image_reason = cuda_map_to_image(cuda_version, compute_cap)
+            docker_image, image_reason = self_test_cuda_map_to_image(
+                cuda_version,
+                compute_cap,
+            )
 
             # Prepare arguments for instance creation
             create_args = argparse.Namespace(
@@ -8602,7 +8659,7 @@ def self_test__machine(args):
                 lang_utf8=False,
                 python_utf8=False,
                 extra=None,
-                env="-e TZ=PDT -e XNAME=XX4 -p 5000:5000 -p 1234:1234",
+                env=self_test_launch_env(),
                 args=None,
                 force=False,
                 cancel_unavail=False,
@@ -8668,7 +8725,7 @@ def self_test__machine(args):
                             progress_print(args, f"All mapped ports on instance: {all_ports if all_ports else 'none'}")
                             progress_print(args, f"Possible causes:")
                             progress_print(args, f"  - The machine's firewall is blocking port 5000.")
-                            progress_print(args, f"  - direct_port_count is too low on this machine (must be > 3).")
+                            progress_print(args, f"  - direct_port_count is too low on this machine (must be >= 4).")
                             progress_print(args, f"  - The container failed to expose the port correctly.")
                             progress_print(args, f"Check direct_port_count: vastai search offers 'machine_id={args.machine_id} rentable=any verified=any'")
                             result["reason"] = f"Port 5000/tcp not mapped. Available ports: {all_ports}"
@@ -9471,6 +9528,12 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
         progress_print(args, f"Machine: {machine_id} Done with testing remote.py results {message}")
         warnings.simplefilter('default')
 
+# Keep the deprecated self-test aligned with the packaged CLI. Very large GPU
+# hosts, such as 8x B300 systems, can exceed 2 TB of total VRAM; once a host has
+# about 2 TB of system RAM, do not reject it only for falling slightly below 95%.
+SYSTEM_RAM_REQUIREMENT_CAP_MIB = 2_000_000
+
+
 def safe_float(value):
     """
     Convert value to float, returning 0 if value is None.
@@ -9564,8 +9627,8 @@ def check_requirements(machine_id, api_key, args):
             unmet_reasons.append("Reliability <= 0.90")
 
         # 3. Direct port count
-        if safe_float(top_offer.get('direct_port_count')) <= 3:
-            unmet_reasons.append("Direct port count <= 3")
+        if safe_float(top_offer.get('direct_port_count')) < 4:
+            unmet_reasons.append("Direct port count < 4")
 
         # 4. PCIe bandwidth
         if safe_float(top_offer.get('pcie_bw')) <= 2.85:
@@ -9588,7 +9651,9 @@ def check_requirements(machine_id, api_key, args):
         # 8. System RAM vs. Total GPU RAM
         gpu_total_ram = safe_float(top_offer.get('gpu_total_ram'))  # in MB
         cpu_ram = safe_float(top_offer.get('cpu_ram'))  # in MB
-        if cpu_ram < .95*gpu_total_ram: # .95 to allow for reserved hardware memory
+        uncapped_required_cpu_ram = 0.95 * gpu_total_ram
+        required_cpu_ram = min(uncapped_required_cpu_ram, SYSTEM_RAM_REQUIREMENT_CAP_MIB)
+        if cpu_ram < required_cpu_ram:
             unmet_reasons.append("System RAM is less than total VRAM.")
 
         # Debugging Information for RAM
@@ -9659,23 +9724,23 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
                 time.sleep(interval)
                 continue  # Retry
 
-            # Check for error in status_msg
             status_msg = instance_info.get('status_msg', '')
-            if status_msg and 'Error' in status_msg:
-                reason = f"Instance {instance_id} encountered an error: {status_msg.strip()}"
-                progress_print(args, reason)
-                
-                # Destroy the instance
-                if instance_exist(instance_id, api_key, destroy_args):
-                    destroy_instance_silent(instance_id, destroy_args)
-                    progress_print(args, f"Instance {instance_id} has been destroyed due to error.")
-                else:
-                    progress_print(args, f"Instance {instance_id} could not be destroyed or does not exist.")
-                
-                return False, reason
-            
-            # Check if instance went offline
-            actual_status = instance_info.get('actual_status', 'unknown')
+            status_msg_clean = (
+                status_msg.strip() if isinstance(status_msg, str) else ""
+            )
+            actual_status = str(
+                instance_info.get('actual_status', 'unknown')
+            ).lower()
+            intended_status = str(
+                instance_info.get('intended_status', 'unknown')
+            ).lower()
+
+            # Running lifecycle state wins over stale build output.
+            if intended_status == 'running' and actual_status == 'running':
+                if args.debugging:
+                    debug_print(args, f"Instance {instance_id} is now running.")
+                return instance_info, None
+
             if actual_status == 'offline':
                 reason = "Instance offline during testing"
                 progress_print(args, reason)
@@ -9688,12 +9753,65 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
                     progress_print(args, f"Instance {instance_id} could not be destroyed or does not exist.")
                 
                 return False, reason
-            
-            # Check if instance is running
-            if instance_info.get('intended_status') == 'running' and actual_status == 'running':
-                if args.debugging:
-                    debug_print(args, f"Instance {instance_id} is now running.")
-                return instance_info, None  # Return instance_info with None for reason
+
+            terminal_statuses = {
+                'destroyed',
+                'error',
+                'exited',
+                'failed',
+                'failure',
+                'stopped',
+                'terminated',
+            }
+            if (
+                intended_status in terminal_statuses
+                or actual_status in terminal_statuses
+            ):
+                reason = (
+                    f"Instance {instance_id} entered terminal status before "
+                    f"reaching running (actual={actual_status}, "
+                    f"intended={intended_status})"
+                )
+                if status_msg_clean:
+                    reason = f"{reason}: {status_msg_clean}"
+                progress_print(args, reason)
+                if instance_exist(instance_id, api_key, destroy_args):
+                    destroy_instance_silent(instance_id, destroy_args)
+                    progress_print(
+                        args,
+                        f"Instance {instance_id} has been destroyed due to "
+                        "startup failure.",
+                    )
+                else:
+                    progress_print(
+                        args,
+                        f"Instance {instance_id} could not be destroyed or "
+                        "does not exist.",
+                    )
+                return False, reason
+
+            if (
+                status_msg_clean
+                and self_test_status_message_is_error(status_msg_clean)
+            ):
+                reason = (
+                    f"Instance {instance_id} encountered an error: "
+                    f"{status_msg_clean}"
+                )
+                progress_print(args, reason)
+                if instance_exist(instance_id, api_key, destroy_args):
+                    destroy_instance_silent(instance_id, destroy_args)
+                    progress_print(
+                        args,
+                        f"Instance {instance_id} has been destroyed due to error.",
+                    )
+                else:
+                    progress_print(
+                        args,
+                        f"Instance {instance_id} could not be destroyed or "
+                        "does not exist.",
+                    )
+                return False, reason
             
             # Print feedback about the current status
             progress_print(args, f"Instance {instance_id} status: {actual_status}... waiting for 'running' status.")

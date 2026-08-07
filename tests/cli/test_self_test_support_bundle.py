@@ -178,7 +178,7 @@ def test_self_test_runtime_failure_bundle_includes_instance_logs(
         "compute_cap": 750,
         "dlperf": 1,
         "reliability": 0.99,
-        "direct_port_count": 3,
+        "direct_port_count": 5,
         "pcie_bw": 16.0,
         "gpu_total_ram": 12 * 1024,
         "inet_down": 500,

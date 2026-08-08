@@ -16,7 +16,10 @@ Manage GPU instances, templates, volumes, serverless endpoints, SSH keys, and bi
 ## Install
 
 ```bash
-# PyPI (recommended)
+# Linux/macOS (recommended, no Python required)
+curl -fsSL https://vast.ai/install.sh | bash
+
+# or via PyPI (Windows, or if you'd rather use pip)
 pip install vastai
 ```
 

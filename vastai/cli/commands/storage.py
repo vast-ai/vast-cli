@@ -47,11 +47,11 @@ parser = _get_parser()
         - cloud_service:path              (cloud service format)
         - cloud_service.cloud_service_id:path  (cloud service with ID)
         - local:path                      (explicit local path)
-        - V.volume_id:path                (volume copy, see restrictions)
+        - V.volume_id:path                (volume copy)
 
         You should not copy to /root or / as a destination directory, as this can mess up the permissions on your instance ssh folder, breaking future copy operations (as they use ssh authentication)
         You can see more information about constraints here: https://vast.ai/docs/gpu-instances/data-movement#constraints
-        Volume copy is currently only supported for copying to other volumes or instances, not cloud services or local.
+        Volume copy is currently only supported for copying to other volumes, instances, or cloud services, not local.
 
         Examples:
          vastai copy 6003036:/workspace/ 6003038:/workspace/
@@ -59,13 +59,18 @@ parser = _get_parser()
          vastai copy local:data/test C.11824:/data/test
          vastai copy drive:/folder/file.txt C.6003036:/workspace/
          vastai copy s3.101:/data/ C.6003036:/workspace/
+         vastai copy hf.101:/my-bucket/data/ C.6003036:/workspace/
          vastai copy V.1234:/file C.5678:/workspace/
+         vastai copy V.1234:/file s3.101:/workspace/
 
         The first example copy syncs all files from the absolute directory '/workspace' on instance 6003036 to the directory '/workspace' on instance 6003038.
         The second example copy syncs files from container 11824 to the local machine using structured syntax.
         The third example copy syncs files from local to container 11824 using structured syntax.
         The fourth example copy syncs files from Google Drive to an instance.
         The fifth example copy syncs files from S3 bucket with id 101 to an instance.
+        The sixth example copy syncs files from a Hugging Face bucket using connection id 101 to an instance.
+        The seventh example copy syncs files from volume 1234 to instance 5678.
+        The eighth example copy syncs files from volume 1234 to S3 bucket with id 101.
     """),
 )
 def copy(args):
@@ -216,10 +221,15 @@ def cancel__sync(args):
          ID    NAME      Cloud Type
          1001  test_dir  drive
          1003  data_dir  drive
+         1004  hf_data   hf
 
          vastai cloud copy --src /folder --dst /workspace --instance 6003036 --connection 1001 --transfer "Instance To Cloud"
+         vastai cloud copy --src my-bucket/data --dst /workspace --instance 6003036 --connection 1004 --transfer "Cloud To Instance"
 
-        The example copies all contents of /folder into /workspace on instance 6003036 from gdrive connection 'test_dir'.
+        The first cloud copy example copies all contents of /folder on instance 6003036 into /workspace in gdrive connection 'test_dir'.
+        The second cloud copy example copies my-bucket/data from Hugging Face connection 'hf_data' into /workspace on the instance.
+
+        Note: Hugging Face cloud destinations must already exist as bucket paths; directories are not created automatically.
     """),
 )
 def cloud__copy(args):

@@ -57,8 +57,6 @@ class VastClient:
         """Build full API URL from subpath and optional query args."""
         if query_args is None:
             query_args = {}
-        if self.api_key is not None:
-            query_args["api_key"] = self.api_key
         if not re.match(r"^/api/v(\d)+/", subpath):
             subpath = "/api/v0" + subpath
 

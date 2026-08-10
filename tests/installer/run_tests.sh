@@ -42,13 +42,21 @@ build_fake_uv() {
     mkdir -p "$dir"
     cat > "$dir/uv" <<'EOF'
 #!/bin/sh
-# Fake uv: handles `uv venv DIR ...` and `uv pip install --python PY ... SPEC`
+# Fake uv: handles `uv python install ...`, `uv venv DIR ...` and `uv pip install --python PY
+# ... SPEC`; the chatter mimics real uv's line-per-event output (which the installer tails onto
+# its progress line) and a spec containing "fail-me" fails loudly.
 set -e
-if [ "$1" = "venv" ]; then
+if [ "$1" = "python" ]; then
+    echo "Downloading cpython-fake (32.6MiB)"
+    echo "Installed Python in 1ms"
+elif [ "$1" = "venv" ]; then
     mkdir -p "$2/bin"
     printf '#!/bin/sh\nexit 0\n' > "$2/bin/python"
     chmod +x "$2/bin/python"
 elif [ "$1" = "pip" ]; then
+    case " $* " in *fail-me*) echo "fake uv: no solution found" >&2; exit 1 ;; esac
+    echo "Resolved 3 packages in 1ms"
+    echo " + fake-dep==1.0"
     py="" prev="" last=""
     for a in "$@"; do
         [ "$prev" = "--python" ] && py="$a"
@@ -124,6 +132,20 @@ run_install() {
     fi
 }
 
+# run_install_tty [VAR=VAL ...] — real install.sh with stderr on a pty (so the progress UI
+# engages), under ${VASTAI_TEST_TTY_BASH:-/bin/bash} — macOS CI points that at stock bash 3.2,
+# which is the regression guarantee for the TTY-only array and $'...' paths. Needs script(1).
+run_install_tty() {
+    local cmd=(env "HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" \
+        "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" "$@" \
+        "${VASTAI_TEST_TTY_BASH:-/bin/bash}" "$INSTALL_SH")
+    case "$(uname -s)" in
+        Darwin*) script -q /dev/null "${cmd[@]}" >"$SB_OUT" 2>&1 </dev/null ;;
+        # util-linux script wants one string; sandbox paths contain no spaces.
+        *)       script -qec "${cmd[*]}" /dev/null >"$SB_OUT" 2>&1 </dev/null ;;
+    esac
+}
+
 assert() { # assert DESC command...
     local desc="$1"; shift
     "$@" || { echo "    assert failed: $desc"; return 1; }
@@ -131,6 +153,9 @@ assert() { # assert DESC command...
 
 out_contains() { grep -q "$1" "$SB_OUT"; }
 out_lacks()    { ! grep -qa "$1" "$SB_OUT"; }
+# ..._raw: fixed strings, for escape sequences that BRE would misread.
+out_contains_raw() { grep -qaF "$1" "$SB_OUT"; }
+out_lacks_raw()    { ! grep -qaF "$1" "$SB_OUT"; }
 
 # ---------------------------------------------------------------------------
 # Scenarios
@@ -144,7 +169,8 @@ test_fresh_install() { # happy path: fixed current symlink, runnable CLI, manage
     assert "installed CLI runs" [ "$("$SB_ROOT/bin/vastai" --version)" = "1.2.3" ] &&
     assert "managed-install markers present (current/ + bin/uv)" \
         [ -d "$SB_ROOT/current" ] && [ -x "$SB_ROOT/bin/uv" ] &&
-    assert "local bin link exists" [ -L "$SB_HOME/.local/bin/vastai" ]
+    assert "local bin link exists" [ -L "$SB_HOME/.local/bin/vastai" ] &&
+    assert "no escape codes when detached from a tty" out_lacks_raw "$(printf '\033')"
 }
 
 test_pinned_reinstall() { # VASTAI_VERSION pin replaces current in place, no retention
@@ -265,13 +291,7 @@ test_pip_shadowing_quiet() { # rc update resolves coexistence -> no warning, jus
     chmod +x "$SB/pipbin/vastai"
     # A pty lets the installer write the rc line, settling precedence — no warning.
     # PATH is pinned to sandbox dirs + system bins so the pip fake outranks ours.
-    local cmd=(env "HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" \
-        "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" \
-        "PATH=$SB/pipbin:$SB_HOME/.local/bin:/usr/bin:/bin" /bin/bash "$INSTALL_SH")
-    case "$(uname -s)" in
-        Darwin*) script -q /dev/null "${cmd[@]}" >"$SB_OUT" 2>&1 </dev/null ;;
-        *)       script -qec "${cmd[*]}" /dev/null >"$SB_OUT" 2>&1 </dev/null ;;
-    esac
+    run_install_tty "PATH=$SB/pipbin:$SB_HOME/.local/bin:/usr/bin:/bin"
     assert "rc gained the env.sh line" grep -q 'env\.sh' "$SB_HOME/.bashrc" &&
     assert "no coexistence warning once resolved" out_lacks "another vastai" &&
     assert "current-shell hint printed" out_contains "Use it now"
@@ -284,25 +304,13 @@ test_pip_shadowing_rerun() { # re-run with new shadowing: rc line idempotent, no
     # .bashrc as a symlink (dotfile-manager layout): the append must write through it.
     touch "$SB_HOME/dotfiles/bashrc"
     ln -s dotfiles/bashrc "$SB_HOME/.bashrc"
-    local cmd=(env "HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" \
-        "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" \
-        "PATH=$SB_HOME/.local/bin:/usr/bin:/bin" /bin/bash "$INSTALL_SH")
-    case "$(uname -s)" in
-        Darwin*) script -q /dev/null "${cmd[@]}" >"$SB_OUT" 2>&1 </dev/null ;;
-        *)       script -qec "${cmd[*]}" /dev/null >"$SB_OUT" 2>&1 </dev/null ;;
-    esac
+    run_install_tty "PATH=$SB_HOME/.local/bin:/usr/bin:/bin"
     assert "rc gained the env.sh line" grep -q 'env\.sh' "$SB_HOME/.bashrc" || return 1
     # A pip vastai now outranks ours: the re-run is a quiet no-op (env.sh wins at shell startup).
     printf '#!/bin/sh\necho 1.0.13\n' > "$SB/pipbin/vastai"
     chmod +x "$SB/pipbin/vastai"
     cp "$SB_HOME/dotfiles/bashrc" "$SB/before"
-    local cmd2=(env "HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" \
-        "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" \
-        "PATH=$SB/pipbin:$SB_HOME/.local/bin:/usr/bin:/bin" /bin/bash "$INSTALL_SH")
-    case "$(uname -s)" in
-        Darwin*) script -q /dev/null "${cmd2[@]}" >"$SB_OUT" 2>&1 </dev/null ;;
-        *)       script -qec "${cmd2[*]}" /dev/null >"$SB_OUT" 2>&1 </dev/null ;;
-    esac
+    run_install_tty "PATH=$SB/pipbin:$SB_HOME/.local/bin:/usr/bin:/bin"
     assert "re-run leaves the rc untouched" cmp -s "$SB_HOME/dotfiles/bashrc" "$SB/before" &&
     assert "rc line present exactly once" [ "$(grep -c 'env\.sh' "$SB_HOME/.bashrc")" -eq 1 ] &&
     assert "rc symlink survives" [ -L "$SB_HOME/.bashrc" ] &&
@@ -322,34 +330,57 @@ test_completion_files_generated() { # static completion scripts precomputed unde
 }
 
 test_tty_install() { # interactive install (stderr on a pty) must survive old bash
-    # install.sh empties its pyquiet array at a TTY ([ -t 2 ]), and on bash
-    # < 4.4 expanding an empty array under `set -u` is fatal ("pyquiet[@]:
-    # unbound variable") — macOS's stock /bin/bash is 3.2. The other scenarios
-    # never hit this: they run detached from any tty, so the array stays
-    # non-empty. Runs the real installer on a pty via script(1) under
-    # ${VASTAI_TEST_TTY_BASH:-/bin/bash}; the regression guarantee comes from
-    # hosts whose /bin/bash predates 4.4 (the macOS leg of installer CI).
+    # install.sh empties its pyquiet array with the bar up, and on bash < 4.4 expanding an empty
+    # array under `set -u` is fatal ("pyquiet[@]: unbound variable"); detached runs keep it full.
     new_sandbox tty
     command -v script >/dev/null 2>&1 || { echo "    (skipped: no script(1))"; return 0; }
-    local tty_bash="${VASTAI_TEST_TTY_BASH:-/bin/bash}"
-    local cmd=(env "HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" \
-        "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" \
-        "VASTAI_NO_MODIFY_PATH=1" "$tty_bash" "$INSTALL_SH")
-    case "$(uname -s)" in
-        Darwin*) script -q /dev/null "${cmd[@]}" >"$SB_OUT" 2>&1 </dev/null ;;
-        # util-linux script wants one string; sandbox paths contain no spaces.
-        *)       script -qec "${cmd[*]}" /dev/null >"$SB_OUT" 2>&1 </dev/null ;;
-    esac
+    run_install_tty VASTAI_NO_MODIFY_PATH=1
     assert "no set -u explosion at a TTY" out_lacks "unbound variable" &&
     assert "install completed" out_contains "vastai 1.2.3 installed" &&
     assert "installed CLI runs" [ "$("$SB_ROOT/bin/vastai" --version)" = "1.2.3" ]
+}
+
+test_progress_bar() { # at a TTY: a bar + one live log line, and the hints survive
+    new_sandbox progress
+    command -v script >/dev/null 2>&1 || { echo "    (skipped: no script(1))"; return 0; }
+    run_install_tty VASTAI_NO_MODIFY_PATH=1 TERM=xterm || { cat "$SB_OUT"; return 1; }
+    assert "step labels rendered" out_contains "Downloading runtime" &&
+    assert "bar advances with the steps" out_contains "5%" &&
+    assert "bar reaches the last step" out_contains "95%  Finishing setup" &&
+    assert "tool output reaches the live log line" out_contains "Downloading cpython-fake" &&
+    assert "region torn down, cursor restored" out_contains_raw "$(printf '\033[?25h')" &&
+    # The whole point: a chatty install must not scroll the next steps away.
+    assert "getting-started block still printed" out_contains "Get started" &&
+    assert "installed CLI runs" [ "$("$SB_ROOT/bin/vastai" --version)" = "1.2.3" ]
+}
+
+test_progress_opt_out() { # VASTAI_PROGRESS=0 at a TTY: plain lines, no escape codes
+    new_sandbox noprogress
+    command -v script >/dev/null 2>&1 || { echo "    (skipped: no script(1))"; return 0; }
+    run_install_tty VASTAI_NO_MODIFY_PATH=1 TERM=xterm VASTAI_PROGRESS=0 \
+        || { cat "$SB_OUT"; return 1; }
+    assert "steps print as plain lines" out_contains "Downloading runtime\.\.\." &&
+    assert "no live region" out_lacks_raw "$(printf '\033[?25l')" &&
+    assert "tool output passes straight through" out_contains "Downloading cpython-fake" &&
+    assert "install completed" out_contains "vastai 1.2.3 installed"
+}
+
+test_progress_failure_shows_tool_error() { # the bar must not swallow diagnostics
+    new_sandbox progressfail
+    command -v script >/dev/null 2>&1 || { echo "    (skipped: no script(1))"; return 0; }
+    run_install_tty VASTAI_NO_MODIFY_PATH=1 TERM=xterm VASTAI_PIP_SPEC=fail-me==1.0 \
+        && { echo "    expected failure"; return 1; }
+    assert "replays the tool's own error" out_contains "fake uv: no solution found" &&
+    assert "names the failed spec" out_contains "could not install fail-me==1.0" &&
+    assert "cursor restored on the error path" out_contains_raw "$(printf '\033[?25h')" &&
+    assert "no half-built env left behind" [ ! -e "$SB_ROOT/.current.new" ]
 }
 
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
-ALL_TESTS=(fresh_install pinned_reinstall xdg_data_home_default wheel_url_install wheel_url_pin_fallback checksum_abort truncation_guard glibc_floor rc_safety env_sh pip_shadowing pip_shadowing_quiet pip_shadowing_rerun completion_files_generated tty_install)
+ALL_TESTS=(fresh_install pinned_reinstall xdg_data_home_default wheel_url_install wheel_url_pin_fallback checksum_abort truncation_guard glibc_floor rc_safety env_sh pip_shadowing pip_shadowing_quiet pip_shadowing_rerun completion_files_generated tty_install progress_bar progress_opt_out progress_failure_shows_tool_error)
 # No "${@:-...}": expanding $@ with zero args under set -u is itself fatal on
 # old bash, and this harness must run under macOS's stock bash 3.2 (see
 # test_tty_install).

@@ -20,6 +20,7 @@
 #   VASTAI_PIP_SPEC=...        what to install instead of vastai==VERSION
 #                              (dev/CI only: e.g. a local wheel path)
 #   VASTAI_GLIBC_FLOOR=2.31    minimum glibc; below this, bail to pip
+#   VASTAI_PROGRESS=0|1        force the progress bar off/on (default: on at a TTY)
 #
 # Uninstall:  rm -rf "$XDG_DATA_HOME/vastai" ~/.local/bin/vastai
 #             (default XDG_DATA_HOME is ~/.local/share; use whatever
@@ -38,23 +39,172 @@ WORKDIR=""
 RC_UPDATED=""
 NEEDS_PATH_HINT=""
 
-say()  { printf '  %s\n' "$*"; }
-warn() { printf '  warning: %s\n' "$*" >&2; }
-die()  { printf '  error: %s\n' "$*" >&2; exit 1; }
+# Anything that prints first tears down the live progress region (no-op when it's not up).
+say()  { ui_end; printf '  %s\n' "$*"; }
+warn() { ui_end; printf '  warning: %s\n' "$*" >&2; }
+die()  { ui_end; printf '  error: %s\n' "$*" >&2; exit 1; }
 
-cleanup() { [ -n "$WORKDIR" ] && rm -rf "$WORKDIR"; }
+cleanup() { ui_end; [ -n "$WORKDIR" ] && rm -rf "$WORKDIR"; }
 trap cleanup EXIT
+# Ctrl-C must reach cleanup too, or a hidden cursor and a half-drawn region outlive us.
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
+
+# Progress UI (§"Install output at a terminal" in install-design.md): at a TTY, steps render as
+# a bar plus one live log line, so uv's chatter can't scroll the "Get started" block off the
+# screen; without one, plain step lines. VASTAI_PROGRESS=0 forces plain, =1 forces the bar.
+UI_DIR=""            # non-empty only while the live region is up
+UI_PID=""
+UI_TICK=0.2
+UI_COLS=80
+UI_LOGFILE=""
+UI_FULL='#'; UI_EMPTY='.'; UI_ARROW='>'
+UI_FRAMES=('-' "\\" '|' '/')
+
+ui_on() { [ -n "$UI_DIR" ]; }
+
+ui_wanted() {
+    case "${VASTAI_PROGRESS:-}" in 0) return 1 ;; 1) return 0 ;; esac
+    [ -t 2 ] || return 1
+    case "${TERM:-}" in ''|dumb) return 1 ;; esac
+    return 0
+}
+
+# ui_cols — window width, first plausible probe wins; /dev/tty leads because under
+# `curl | bash` our stdin is the pipe, and a sized-0 pty must fall through to terminfo.
+ui_cols() {
+    local c="" probe
+    for probe in "$({ stty size < /dev/tty 2>/dev/null || true; } | awk '{print $2}')" \
+                 "$({ tput cols 2>/dev/null || true; } | head -1)"; do
+        case "$probe" in ''|0|*[!0-9]*) continue ;; esac
+        c="$probe"; break
+    done
+    [ -n "$c" ] || c=80
+    [ "$c" -ge 40 ] || c=40
+    printf '%s' "$c"
+}
+
+# ui_repeat N CHAR — CHAR N times (built in-shell: `tr` mangles multibyte glyphs).
+ui_repeat() {
+    local n="$1" ch="$2" out="" i=0
+    while [ "$i" -lt "$n" ]; do out="$out$ch"; i=$(( i + 1 )); done
+    printf '%s' "$out"
+}
+
+ui_get() {
+    local v=""
+    [ -f "$UI_DIR/$1" ] && { IFS= read -r v < "$UI_DIR/$1" || true; }
+    printf '%s' "$v"
+}
+
+# ui_set KEY VALUE — rename into place so the ticker never reads a half-written line.
+ui_set() {
+    { printf '%s\n' "$2" > "$UI_DIR/$1.tmp" && mv -f "$UI_DIR/$1.tmp" "$UI_DIR/$1"; } 2>/dev/null || true
+}
+
+# ui_draw — repaint bar + log line; whoever changes state redraws (a sub-tick step still shows)
+# and so does the ticker, so each repaint is one printf and the two writers can't split a frame.
+ui_draw() {
+    local pct step log frame width filled smax lmax
+    pct="$(ui_get pct)"; step="$(ui_get step)"; log="$(ui_get log)"; frame="$(ui_get frame)"
+    case "$pct" in ''|*[!0-9]*) pct=0 ;; esac
+    [ -n "$frame" ] || frame="${UI_FRAMES[0]}"
+    width=$(( UI_COLS / 3 ))
+    [ "$width" -gt 32 ] && width=32
+    [ "$width" -lt 10 ] && width=10
+    filled=$(( pct * width / 100 ))
+    smax=$(( UI_COLS - width - 12 )); [ "$smax" -ge 8 ] || smax=8
+    lmax=$(( UI_COLS - 7 ));          [ "$lmax" -ge 8 ] || lmax=8
+    printf '\r\033[K  %s %s%s %3d%%  %s\n\r\033[K    %s %s\033[A\r' \
+        "$frame" "$(ui_repeat "$filled" "$UI_FULL")" "$(ui_repeat $(( width - filled )) "$UI_EMPTY")" \
+        "$pct" "${step:0:$smax}" "$UI_ARROW" "${log:0:$lmax}" >&2
+}
+
+ui_ticker() {
+    local i=0
+    while [ -f "$UI_DIR/on" ]; do
+        [ $(( i % 20 )) -eq 0 ] && UI_COLS="$(ui_cols)"
+        ui_set frame "${UI_FRAMES[$(( i % ${#UI_FRAMES[@]} ))]}"
+        ui_draw
+        i=$(( i + 1 ))
+        sleep "$UI_TICK"
+    done
+}
+
+ui_start() {
+    ui_wanted || return 0
+    mkdir -p "$WORKDIR/ui" || return 0
+    UI_DIR="$WORKDIR/ui"
+    case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+        *[Uu][Tt][Ff]*8*) UI_FULL='━'; UI_EMPTY='─'; UI_ARROW='↳'
+                          UI_FRAMES=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧') ;;
+    esac
+    # Sub-second sleep is not universal (some minimal /bin/sleep); fall back to 1s ticks.
+    sleep 0.2 2>/dev/null || UI_TICK=1
+    UI_COLS="$(ui_cols)"
+    ui_set pct 0; ui_set step "Starting"; ui_set log ""
+    : > "$UI_DIR/on"
+    printf '\033[?25l' >&2      # cursor hidden until ui_end
+    ui_ticker &
+    UI_PID=$!
+}
+
+# ui_end — stop the ticker, erase the region, restore the cursor; idempotent, and every path
+# that prints (say/warn/die, the EXIT trap) runs it first.
+ui_end() {
+    ui_on || return 0
+    rm -f "$UI_DIR/on"
+    if [ -n "$UI_PID" ]; then
+        kill "$UI_PID" 2>/dev/null || true
+        wait "$UI_PID" 2>/dev/null || true
+        UI_PID=""
+    fi
+    UI_DIR=""       # last: while it's set, a re-entry (signal mid-wait) still restores the cursor
+    printf '\r\033[K\n\r\033[K\033[A\r\033[?25h' >&2
+}
+
+# ui_step PCT LABEL — advance the bar, or announce the step when there's no bar.
+ui_step() {
+    if ui_on; then ui_set pct "$1"; ui_set step "$2"; ui_set log ""; ui_draw
+    else say "$2..."; fi
+}
+
+# ui_log LINE — replace the live log line (no-op without the bar).
+ui_log() { ui_on && { ui_set log "$1"; ui_draw; }; return 0; }
+
+# ui_run CMD... — tail CMD's output onto the log line, keeping a full copy in $UI_LOGFILE for
+# ui_fail; runs CMD untouched without the bar, and exits with CMD's status (pipefail).
+ui_run() {
+    ui_on || { "$@"; return; }
+    local line
+    UI_LOGFILE="$WORKDIR/last-command.log"
+    # No filters in this pipe: tr/sed block-buffer into a pipe, holding every line until CMD exits.
+    "$@" 2>&1 | tee "$UI_LOGFILE" | while IFS= read -r line || [ -n "$line" ]; do
+        line="${line##*$'\r'}"          # redrawn in place: keep only the last segment
+        line="${line//$'\033'/}"        # no escape codes inside our own region
+        case "$line" in *[![:space:]]*) ui_set log "$line"; ui_draw ;; esac
+    done
+}
+
+# ui_fail — tear the region down and replay the failed command's output tail, the real error.
+ui_fail() {
+    local f="$UI_LOGFILE"
+    ui_end
+    [ -n "$f" ] && [ -s "$f" ] && { printf '\n' >&2; tail -n 20 "$f" >&2; printf '\n' >&2; }
+    return 0
+}
 
 need_cmd() {
     command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
 }
 
-# download URL DEST [progress] — non-empty progress shows a bar (TTY only).
+# download URL DEST [progress] — non-empty progress shows curl's bar (TTY only, and never while
+# our own bar owns the screen).
 download() {
     local url="$1" dest="$2" progress="${3:-}"
     if command -v curl >/dev/null 2>&1; then
         local vflags=(-fsS)
-        [ -n "$progress" ] && [ -t 2 ] && vflags=(-f --progress-bar)
+        [ -n "$progress" ] && [ -t 2 ] && ! ui_on && vflags=(-f --progress-bar)
         case "$url" in
             https://*) curl --proto '=https' --tlsv1.2 "${vflags[@]}" -L --retry 3 -o "$dest" "$url" ;;
             *)         curl "${vflags[@]}" -L --retry 3 -o "$dest" "$url" ;;
@@ -177,11 +327,14 @@ install_uv() {
         die "no build available for your platform ($PLATFORM_KEY) — install with pip instead: pip install vastai"
     fi
 
-    say "Downloading runtime..."
+    ui_step 5 "Downloading runtime"
     tarball="$WORKDIR/uv.tar.gz"
+    ui_log "$url"
     download "$url" "$tarball" progress
+    ui_log "verifying checksum"
     verify_sha "$tarball" "$sha" "uv"
 
+    ui_log "unpacking"
     mkdir -p "$WORKDIR/uv-extract"
     tar -xzf "$tarball" -C "$WORKDIR/uv-extract" \
         || die "could not unpack the runtime — tar+gzip required; install them or use pip: pip install vastai"
@@ -203,31 +356,33 @@ install_version() {
     local version="$1" python_pin="$2" wheel_url="${3:-}" wheel_sha="${4:-}"
     local envdir="$ROOT/current" newdir="$ROOT/.current.new"
 
-    say "Installing vastai $version (Python $python_pin) → $ROOT"
     rm -rf "$newdir"
     export UV_PYTHON_INSTALL_DIR="$ROOT/python"
     export UV_PYTHON_PREFERENCE="only-managed"
-    # Provision the managed CPython first — the slow, download-heavy step, so show
-    # its progress at a TTY (quiet in CI). The venv build is then always quiet:
-    # uv venv's own "Activate with: source .../.current.new/..." line is misleading
-    # here — .current.new is renamed to current/ below, and vastai is a symlinked
-    # CLI you run, never a venv you "activate".
+    # Provision the managed CPython first — the slow, download-heavy step, so its
+    # output feeds the live log line (quiet in CI). The venv build is then always
+    # quiet: uv venv's own "Activate with: source .../.current.new/..." line is
+    # misleading here — .current.new is renamed to current/ below, and vastai is a
+    # symlinked CLI you run, never a venv you "activate".
     # ${arr[@]+...} guard: bash 3.2 (macOS default) treats an empty array as
     # unset under `set -u`, so a bare "${pyquiet[@]}" would abort the install.
     # --no-bin: the venv finds the interpreter via UV_PYTHON_INSTALL_DIR;
     # shims in ~/.local/bin would only add uv's misleading PATH warning.
+    ui_step 20 "Installing Python $python_pin"
     local pyquiet=(--quiet)
-    [ -t 2 ] && pyquiet=()
-    if ! "$ROOT/bin/uv" python install "$python_pin" --no-bin ${pyquiet[@]+"${pyquiet[@]}"}; then
+    ui_on && pyquiet=()
+    if ! ui_run "$ROOT/bin/uv" python install "$python_pin" --no-bin ${pyquiet[@]+"${pyquiet[@]}"}; then
+        ui_fail
         rm -rf "$newdir"
         die "could not provision the Python $python_pin runtime"
     fi
     # --relocatable: no hardcoded build path in shebangs (current/ is renamed into place).
-    if ! "$ROOT/bin/uv" venv "$newdir" --python "$python_pin" --relocatable --quiet; then
+    ui_step 55 "Creating environment"
+    if ! ui_run "$ROOT/bin/uv" venv "$newdir" --python "$python_pin" --relocatable --quiet; then
+        ui_fail
         rm -rf "$newdir"
         die "could not set up the Python $python_pin runtime"
     fi
-    # pip install stays quiet always — the per-package "+ pkg==ver" list is noise.
     # Latest installs the release wheel by URL, hash-verified against the
     # manifest — no PyPI index propagation window. A pin to any other
     # version falls back to PyPI (always long-published, so race-free).
@@ -235,10 +390,13 @@ install_version() {
     if [ -z "${VASTAI_PIP_SPEC:-}" ] && [ -n "$wheel_url" ] && [ -n "$wheel_sha" ]; then
         spec="vastai @ ${wheel_url}#sha256=${wheel_sha}"
     fi
-    if ! "$ROOT/bin/uv" pip install --python "$newdir/bin/python" --quiet "$spec"; then
+    ui_step 60 "Installing vastai $version"
+    if ! ui_run "$ROOT/bin/uv" pip install --python "$newdir/bin/python" "$spec"; then
+        ui_fail
         rm -rf "$newdir"
         die "could not install $spec (is the version correct?)"
     fi
+    ui_log "checking the installed CLI"
     "$newdir/bin/vastai" --version >/dev/null \
         || { rm -rf "$newdir"; die "installed CLI failed its smoke test"; }
 
@@ -363,9 +521,13 @@ main() {
         wheel_sha="$(manifest_get WHEEL_SHA256)"
     fi
 
+    say "Installing vastai $version (Python $python_pin) → $ROOT"
+    ui_start
     install_uv
     install_version "$version" "$python_pin" "$wheel_url" "$wheel_sha"
+    ui_step 95 "Finishing setup"
     generate_completions
+    ui_end       # the rest prints: PATH hints, coexistence warnings, next steps
     setup_path
     check_pip_coexistence
 

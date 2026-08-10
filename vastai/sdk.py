@@ -51,15 +51,11 @@ class VastAI:
     # ------------------------------------------------------------------
 
     def show_instances(self) -> list[dict]:
-        """Return all instances for the authenticated user (deprecated; use show_instances_v1)."""
-        warnings.warn(
-            "VastAI.show_instances() is deprecated; use VastAI.show_instances_v1(params) for the paginated v1 API.",
-            DeprecationWarning, stacklevel=2,
-        )
+        """Return all of the authenticated user's instances as a flat list."""
         return instances.show_instances(self.client)
 
     def show_instances_v1(self, params: dict) -> dict:
-        """Return instances using the v1 paginated API."""
+        """Return instances using the paginated v1 API; for filtering, sorting, and manual pagination."""
         return instances.show_instances_v1(self.client, params)
 
     def show_instance_filters(self) -> list:
@@ -643,11 +639,38 @@ class VastAI:
     # ------------------------------------------------------------------
 
     def copy(self, src: str, dst: str) -> dict:
-        """Copy files between instances.
+        """Copy files between instances, volumes, cloud services, and local.
+
+        Supported location formats:
+
+        - ``[instance_id:]path``        legacy format, still supported
+        - ``C.instance_id:path``        container copy format
+        - ``cloud_service:path``        cloud service format
+        - ``cloud_service.id:path``     cloud service with ID
+        - ``local:path``                explicit local path
+        - ``V.volume_id:path``          volume copy
+
+        Volume copy is currently only supported for copying to other volumes,
+        instances, or cloud services, not local.
+
+        Do not copy to /root or / as a destination directory, as this can mess
+        up the permissions on the instance ssh folder, breaking future copy
+        operations (they use ssh authentication). See
+        https://vast.ai/docs/gpu-instances/data-movement#constraints for more
+        information about constraints.
 
         Args:
             src: Source in vast URL format, e.g. "instance_id:/path" or just "/local/path".
             dst: Destination in vast URL format.
+
+        Examples:
+            vast.copy("6003036:/workspace/", "6003038:/workspace/")
+            vast.copy("C.11824:/data/test", "local:data/test")
+            vast.copy("local:data/test", "C.11824:/data/test")
+            vast.copy("drive:/folder/file.txt", "C.6003036:/workspace/")
+            vast.copy("s3.101:/data/", "C.6003036:/workspace/")
+            vast.copy("V.1234:/file", "C.5678:/workspace/")
+            vast.copy("V.1234:/file", "s3.101:/workspace/")
         """
         from vastai.utils import parse_vast_url
         src_id, src_path = parse_vast_url(src)

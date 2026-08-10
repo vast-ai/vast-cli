@@ -33,6 +33,37 @@ The design splits the install into two layers:
   `manifest.json` is for `vastai update`; flat `manifest.env` is for
   `install.sh` (bare machines have no JSON parser).
 
+### Current flow (post-activation)
+
+```
+curl -fsSL https://vast.ai/install.sh | bash
+        │
+        ▼
+  install.sh ──fetch──► manifest.{json,env}      (stable script + per-release manifest:
+  (no versions,         latest ver · py 3.12 pin ·  script holds no version/URLs, so it's
+   no URLs)             per-platform uv + sha256)   written once and rarely touched)
+        │
+        ▼  glibc ≥2.31 / musl check → pinned uv → managed CPython 3.12 → vastai wheel
+           (unsupported platform / bad hash bails to pip before anything lands)
+        │
+        ▼
+  $XDG_DATA_HOME/vastai/            (~/.local/share/vastai, or $VASTAI_INSTALL_DIR)
+   ├── bin/vastai → ../current/bin/vastai   (fixed symlink, never retargeted)
+   ├── bin/uv                                ~/.local/bin/vastai → bin/vastai  (on PATH)
+   ├── current/                              (single active venv; update = build temp → verify → swap)
+   └── python/                               (uv-managed CPython 3.12, shared)
+
+  ~/.config/vastai/        vast_api_key, etc. — untouched by install/uninstall
+  ~/.cache/vastai/         disposable (uv-pruned after each update)
+  ~/.local/state/vastai/   update_check.json (nudge throttle)
+        │
+        ▼
+  vastai update                  ──manifest──►  build temp venv → verify runs → atomic rename
+  (registered in main.py;        `--version X` pins or rolls back (same code path);
+   passive nudge enabled as      pip installs refused with the pip hint, never touched
+   a pre-command hook, §7)
+```
+
 ### Install bootstrap sequence
 
 1. Detect platform (os/arch, musl).
@@ -43,6 +74,26 @@ The design splits the install into two layers:
    and verified against its sha256, so a just-published release is installable
    immediately (no PyPI index propagation window) — into an isolated venv.
    **System Python is never used, even if present.**
+
+### Install output at a terminal
+
+The bootstrap tools are chatty — a 33 MB CPython download, then ~40 `+ pkg==ver`
+lines — and that scrolled the "Get started" block off the screen, which is the
+one thing a first-time installer needs to read. So at a TTY the install renders
+as a fixed two-line region on stderr: a step bar plus a single live log line
+that tails whatever `uv` is doing (`Downloading cpython-… (32.6MiB)`, then
+package names). The region is erased when the install finishes, leaving ~9
+lines total, ending with the next steps.
+
+- A background ticker animates the spinner; steps and tool output reach it
+  through state files under the temp workdir, so a step change repaints
+  immediately and the two writers can never split a frame.
+- Tool output is tailed through `tee`, with the full copy replayed if that step
+  fails — a wrapped command's own diagnostics are the real error, so they must
+  outlive the region.
+- No TTY (CI, pipes) → plain step lines and tool output straight through, as
+  before; `VASTAI_PROGRESS=0|1` forces either mode. Ctrl-C is trapped so the
+  region is erased and the cursor restored on the way out.
 
 ### Fail-closed guarantees
 
@@ -206,9 +257,9 @@ Not built in v1.
 > it. Opt out with `VASTAI_NO_UPDATE_CHECK=1` (also off under
 > `--raw`/`CI`/non-TTY).
 
-- Before commands: at most **one manifest GET and one stderr line per 24h**, hard
-  1s timeout, every failure silent with 24h backoff (offline machines pay ≤1s
-  once/day).
+- Before commands: at most **one manifest GET and one stderr line per week**, hard
+  1s timeout, every failure silent with weekly backoff (offline machines pay ≤1s
+  once/week).
 - Suppressed under `--raw`, `CI`, non-TTY, or `VASTAI_NO_UPDATE_CHECK=1`.
 - **No telemetry** — the check is a GET of a static file.
 - The nudge only ever *suggests*; there is no minimum-version gate and no
@@ -257,6 +308,7 @@ is.
 - `VASTAI_CLI_BASE_URL` — manifest origin (dev/release verification).
 - `VASTAI_PIP_SPEC` — dev/CI: install from a local wheel path/URL.
 - `VASTAI_GLIBC_FLOOR` — override the minimum-glibc gate (default 2.31).
+- `VASTAI_PROGRESS=0|1` — force the progress bar off/on (default: on at a TTY, §2).
 - `VASTAI_NO_UPDATE_CHECK=1` — suppress the nudge.
 - `--no-modify-path` — skip PATH/completion edits.
 

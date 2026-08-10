@@ -236,8 +236,20 @@ def test_scan_uses_bounded_concurrency():
 
 
 def test_scan_deadline_reports_entries_that_never_started():
+    release_probes = threading.Event()
+    probes_started = threading.Event()
+    probe_finished = threading.Event()
+    started_count = 0
+    started_lock = threading.Lock()
+
     def blocking_probe(public_ip, host_port, protocol, timeout):
-        time.sleep(0.2)
+        nonlocal started_count
+        with started_lock:
+            started_count += 1
+            if started_count == 2:
+                probes_started.set()
+        release_probes.wait(timeout=2)
+        probe_finished.set()
         return {
             "public_ip": public_ip,
             "host_port": host_port,
@@ -245,23 +257,35 @@ def test_scan_deadline_reports_entries_that_never_started():
             "reachable": False,
         }
 
-    started = time.monotonic()
-    result = scan_mapped_port_range(
-        _mapped_instance(40000, 40009),
-        "203.0.113.10",
-        PortRange(40000, 40009),
-        probe=blocking_probe,
-        max_workers=2,
-        max_attempts=1,
-        total_timeout=0.05,
-    )
-    elapsed = time.monotonic() - started
+    clock_calls = 0
 
-    assert result["status"] == "failed"
-    assert result["deadline_exceeded"] is True
-    assert result["unprobed_count"] == 18
-    assert all(item["probe_started"] is False for item in result["unprobed"])
-    assert elapsed < 0.15
+    def controlled_clock():
+        nonlocal clock_calls
+        clock_calls += 1
+        if clock_calls <= 3:
+            return 0.0
+        assert probes_started.wait(timeout=1)
+        return 1.0
+
+    try:
+        result = scan_mapped_port_range(
+            _mapped_instance(40000, 40009),
+            "203.0.113.10",
+            PortRange(40000, 40009),
+            probe=blocking_probe,
+            max_workers=2,
+            max_attempts=1,
+            total_timeout=0.05,
+            clock=controlled_clock,
+        )
+
+        assert result["status"] == "failed"
+        assert result["deadline_exceeded"] is True
+        assert result["unprobed_count"] == 18
+        assert all(item["probe_started"] is False for item in result["unprobed"])
+        assert probe_finished.is_set() is False
+    finally:
+        release_probes.set()
 
 
 def test_readiness_retries_until_summary_stage_passes():

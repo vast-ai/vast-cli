@@ -123,7 +123,8 @@ new_sandbox() {
 
 # run_install [VAR=VAL ...] — real install.sh, detached from any tty
 run_install() {
-    local envs=("HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" "$@")
+    # VAST_API_KEY=/XDG_CONFIG_HOME= keep a developer's real key from flipping the api-key hint.
+    local envs=("HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" "VAST_API_KEY=" "XDG_CONFIG_HOME=" "$@")
     [ -z "$HAVE_SETSID" ] && envs+=("VASTAI_NO_MODIFY_PATH=1")
     if [ -n "$HAVE_SETSID" ]; then
         setsid -w env "${envs[@]}" bash "$INSTALL_SH" >"$SB_OUT" 2>&1 </dev/null
@@ -137,7 +138,7 @@ run_install() {
 # which is the regression guarantee for the TTY-only array and $'...' paths. Needs script(1).
 run_install_tty() {
     local cmd=(env "HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" \
-        "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" "$@" \
+        "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" "VAST_API_KEY=" "XDG_CONFIG_HOME=" "$@" \
         "${VASTAI_TEST_TTY_BASH:-/bin/bash}" "$INSTALL_SH")
     case "$(uname -s)" in
         Darwin*) script -q /dev/null "${cmd[@]}" >"$SB_OUT" 2>&1 </dev/null ;;
@@ -283,7 +284,7 @@ test_pip_shadowing() { # pip vastai earlier in PATH -> warning; sourcing env.sh 
         out_lacks "pip uninstall"
 }
 
-test_pip_shadowing_quiet() { # rc update resolves coexistence -> no warning, just the use-it-now hint
+test_pip_shadowing_quiet() { # rc update resolves coexistence -> no warning
     new_sandbox pipquiet
     command -v script >/dev/null 2>&1 || { echo "    (skipped: no script(1))"; return 0; }
     mkdir -p "$SB/pipbin" "$SB_HOME/.local/bin"
@@ -294,7 +295,7 @@ test_pip_shadowing_quiet() { # rc update resolves coexistence -> no warning, jus
     run_install_tty "PATH=$SB/pipbin:$SB_HOME/.local/bin:/usr/bin:/bin"
     assert "rc gained the env.sh line" grep -q 'env\.sh' "$SB_HOME/.bashrc" &&
     assert "no coexistence warning once resolved" out_lacks "another vastai" &&
-    assert "current-shell hint printed" out_contains "Use it now"
+    assert "install completed" out_contains "vastai 1.2.3 installed"
 }
 
 test_pip_shadowing_rerun() { # re-run with new shadowing: rc line idempotent, no spurious warning
@@ -315,7 +316,22 @@ test_pip_shadowing_rerun() { # re-run with new shadowing: rc line idempotent, no
     assert "rc line present exactly once" [ "$(grep -c 'env\.sh' "$SB_HOME/.bashrc")" -eq 1 ] &&
     assert "rc symlink survives" [ -L "$SB_HOME/.bashrc" ] &&
     assert "no spurious warning when rc already resolves precedence" out_lacks "another vastai" &&
-    assert "use-it-now hint printed for the shadowed shell" out_contains "Use it now"
+    assert "install completed" out_contains "vastai 1.2.3 installed"
+}
+
+test_api_key_hint() { # no key -> get-started hint; key on disk -> checkmark instead
+    new_sandbox nokey
+    run_install || { cat "$SB_OUT"; return 1; }
+    assert "fresh install shows the get-started hint" out_contains "Get started" &&
+    assert "no api-key checkmark without a key" out_lacks "API key" &&
+    assert "help hint always printed" out_contains "All commands" || return 1
+    new_sandbox haskey
+    mkdir -p "$SB_HOME/.config/vastai"
+    echo "k3y" > "$SB_HOME/.config/vastai/vast_api_key"
+    run_install || { cat "$SB_OUT"; return 1; }
+    assert "existing key suppresses the get-started hint" out_lacks "Get started" &&
+    assert "checkmark shown for the existing key" out_contains "API key: *✓ found" &&
+    assert "help hint always printed" out_contains "All commands"
 }
 
 test_completion_files_generated() { # static completion scripts precomputed under share/
@@ -380,7 +396,7 @@ test_progress_failure_shows_tool_error() { # the bar must not swallow diagnostic
 # Runner
 # ---------------------------------------------------------------------------
 
-ALL_TESTS=(fresh_install pinned_reinstall xdg_data_home_default wheel_url_install wheel_url_pin_fallback checksum_abort truncation_guard glibc_floor rc_safety env_sh pip_shadowing pip_shadowing_quiet pip_shadowing_rerun completion_files_generated tty_install progress_bar progress_opt_out progress_failure_shows_tool_error)
+ALL_TESTS=(fresh_install pinned_reinstall xdg_data_home_default wheel_url_install wheel_url_pin_fallback checksum_abort truncation_guard glibc_floor rc_safety env_sh pip_shadowing pip_shadowing_quiet pip_shadowing_rerun api_key_hint completion_files_generated tty_install progress_bar progress_opt_out progress_failure_shows_tool_error)
 # No "${@:-...}": expanding $@ with zero args under set -u is itself fatal on
 # old bash, and this harness must run under macOS's stock bash 3.2 (see
 # test_tty_install).

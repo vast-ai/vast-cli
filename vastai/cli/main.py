@@ -135,7 +135,8 @@ def main():
             def _command_maps(self):
                 cached = getattr(self, "_cmd_maps", None)
                 if cached is None:
-                    cached = self._cmd_maps = build_command_maps(self._parser)
+                    from vastai.cli.util import get_role
+                    cached = self._cmd_maps = build_command_maps(self._parser, role=get_role())
                 return cached
 
             def _get_completions(self, comp_words, cword_prefix, cword_prequote, last_wordbreak_pos):

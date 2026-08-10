@@ -324,3 +324,100 @@ class TestRequiredInetMbps:
         from vastai.cli.util import required_inet_mbps
         result = required_inet_mbps(183359)
         assert 460.0 < result < 470.0
+
+
+class TestRole:
+    """get_role / set_role_file — the client/host CLI display preference (CLN-3582)."""
+
+    def test_unset_returns_none(self, tmp_path, monkeypatch):
+        from vastai.cli.util import get_role
+        monkeypatch.setattr("vastai.cli.util.ROLE_FILE", str(tmp_path / "vast_role"))
+        assert get_role() is None
+
+    def test_set_then_get_round_trips(self, tmp_path, monkeypatch):
+        from vastai.cli.util import get_role, set_role_file
+        monkeypatch.setattr("vastai.cli.util.ROLE_FILE", str(tmp_path / "vast_role"))
+        set_role_file("host")
+        assert get_role() == "host"
+
+    def test_invalid_role_raises(self, tmp_path, monkeypatch):
+        from vastai.cli.util import set_role_file
+        monkeypatch.setattr("vastai.cli.util.ROLE_FILE", str(tmp_path / "vast_role"))
+        with pytest.raises(ValueError):
+            set_role_file("admin")
+
+    def test_corrupt_file_contents_return_none_not_raise(self, tmp_path, monkeypatch):
+        from vastai.cli.util import get_role
+        role_file = tmp_path / "vast_role"
+        role_file.write_text("garbage\nbinary\x00data")
+        monkeypatch.setattr("vastai.cli.util.ROLE_FILE", str(role_file))
+        assert get_role() is None
+
+
+class TestDetectRole:
+    """detect_role — lazy role resolution on the user's next real command (CLN-3582)."""
+
+    def _client(self, tmp_path, monkeypatch, *, host_agreement_accepted=None, show_user_raises=None):
+        monkeypatch.setattr("vastai.cli.util.ROLE_FILE", str(tmp_path / "vast_role"))
+        if show_user_raises is not None:
+            monkeypatch.setattr(
+                "vastai.api.billing.show_user",
+                lambda client: (_ for _ in ()).throw(show_user_raises),
+            )
+        else:
+            monkeypatch.setattr(
+                "vastai.api.billing.show_user",
+                lambda client: {"host_agreement_accepted": host_agreement_accepted},
+            )
+        return object()  # stand-in "client"; show_user is patched to ignore it
+
+    def test_host_account_caches_host(self, tmp_path, monkeypatch, capsys):
+        # host_agreement_accepted flips the moment the hosting agreement is accepted —
+        # independent of whether any machine has been listed yet.
+        from vastai.cli.util import detect_role, get_role
+        client = self._client(tmp_path, monkeypatch, host_agreement_accepted=True)
+        detect_role(client)
+        assert get_role() == "host"
+        assert capsys.readouterr().err == "Detecting role.. host\n"
+
+    def test_client_account_caches_client(self, tmp_path, monkeypatch, capsys):
+        # An unaccepted agreement is a real answer, not "still unknown" — it gets cached just like a host does.
+        from vastai.cli.util import detect_role, get_role
+        client = self._client(tmp_path, monkeypatch, host_agreement_accepted=False)
+        detect_role(client)
+        assert get_role() == "client"
+        assert capsys.readouterr().err == "Detecting role.. client\n"
+
+    def test_network_error_leaves_role_undetected(self, tmp_path, monkeypatch, capsys):
+        from vastai.cli.util import detect_role, get_role
+        client = self._client(tmp_path, monkeypatch, show_user_raises=ConnectionError("offline"))
+        detect_role(client)
+        assert get_role() is None
+        assert capsys.readouterr().err == "Detecting role.."
+
+    def test_role_file_write_failure_does_not_raise(self, tmp_path, monkeypatch, capsys):
+        # set_role_file() must be inside the try/except: a disk that can't be written
+        # to (permissions, read-only home, disk full) shouldn't crash the real command
+        # that triggered detection.
+        from vastai.cli.util import detect_role, get_role
+        client = self._client(tmp_path, monkeypatch, host_agreement_accepted=True)
+        monkeypatch.setattr(
+            "vastai.cli.util.set_role_file",
+            lambda role: (_ for _ in ()).throw(OSError("read-only filesystem")),
+        )
+        detect_role(client)  # must not raise
+        assert get_role() is None
+        assert capsys.readouterr().err == "Detecting role.."
+
+    def test_already_resolved_role_is_not_rechecked(self, tmp_path, monkeypatch):
+        from vastai.cli.util import detect_role, set_role_file, get_role
+        monkeypatch.setattr("vastai.cli.util.ROLE_FILE", str(tmp_path / "vast_role"))
+        set_role_file("client")
+        called = []
+        monkeypatch.setattr(
+            "vastai.api.billing.show_user",
+            lambda client: called.append(True) or {"host_agreement_accepted": True},
+        )
+        detect_role(object())
+        assert called == []
+        assert get_role() == "client"  # not flipped to host

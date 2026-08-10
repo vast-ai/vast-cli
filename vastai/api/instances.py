@@ -26,19 +26,19 @@ def _strip_strings(value):
     return value
 
 
-def show_instances(client: VastClient) -> list:
-    """Return all of the user's instances as a flat list.
+def show_instances(client: VastClient, select_filters: Optional[dict] = None, order_by: Optional[list] = None) -> list:
+    """Return all of the user's instances (optionally filtered/sorted) as a flat list.
 
-    The legacy v0 ``/instances`` list endpoint is deprecated, so this pages
-    through the v1 ``/api/v1/instances/`` endpoint instead. ``select_cols`` is
-    omitted on purpose: the backend then returns full instance rows (the same
-    shape the v0 payload produced), so existing callers keep working. v1 caps
-    each page at 25 rows, so we follow ``next_token`` until it is exhausted.
+    Pages through the v1 ``/api/v1/instances/`` endpoint, following
+    ``next_token`` until it is exhausted, and concatenates every page into one
+    flat list. ``select_cols`` is omitted on purpose: the backend then returns
+    full instance rows, matching the shape scripts and the SDK have always
+    depended on for this function's output.
     """
     rows = []
     params = {
-        "select_filters": {},
-        "order_by": [{"col": "id", "dir": "asc"}],
+        "select_filters": select_filters or {},
+        "order_by": order_by or [{"col": "id", "dir": "asc"}],
         "limit": 25,
     }
     while True:

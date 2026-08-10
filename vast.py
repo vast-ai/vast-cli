@@ -336,6 +336,9 @@ class hidden_aliases(object):
         self.l.append(x)
 
 def http_request(verb, args, req_url, headers: dict[str, str] | None = None, json_data = None):
+    if not headers:
+        headers = apiheaders(args)
+
     t = 0.15
     for i in range(0, args.retry):
         req = requests.Request(method=verb, url=req_url, headers=headers, json=json_data)
@@ -552,7 +555,7 @@ class MyWideHelpFormatter(argparse.RawTextHelpFormatter):
 
 
 parser = apwrap(
-    epilog="Use 'vast COMMAND --help' for more info about a command. AI agent? See https://raw.githubusercontent.com/vast-ai/vast-cli/master/vastai/SKILL.md",
+    epilog="Use 'vastai COMMAND --help' for more info about a command. AI agent? See https://raw.githubusercontent.com/vast-ai/vast-cli/master/vastai/SKILL.md",
     formatter_class=MyWideHelpFormatter
 )
 
@@ -582,15 +585,13 @@ def apiurl(args: argparse.Namespace, subpath: str, query_args: Dict = None) -> s
 
     :param argparse.Namespace args: Namespace with many fields relevant to the endpoint.
     :param str subpath: added to end of URL to further specify endpoint.
-    :param typing.Dict query_args: specifics such as API key and search parameters that complete the URL.
+    :param typing.Dict query_args: search parameters that complete the URL.
     :rtype str:
     """
     result = None
 
     if query_args is None:
         query_args = {}
-    if args.api_key is not None:
-        query_args["api_key"] = args.api_key
     if not re.match(r"^/api/v(\d)+/", subpath):
         subpath = "/api/v0" + subpath
     
@@ -1349,9 +1350,9 @@ def get_ssh_key(argstr):
         Attach an ssh key to an instance. This will allow you to connect to the instance with the ssh key.
 
         Examples:
-         vast attach ssh 12371 AAAAB3NzaC1yc2EAAA...
-         vast attach ssh 12371 $(cat ~/.ssh/id_rsa.pub)
-         vast attach ssh 12371 ~/.ssh/id_rsa.pub
+         vastai attach ssh 12371 AAAAB3NzaC1yc2EAAA...
+         vastai attach ssh 12371 $(cat ~/.ssh/id_rsa.pub)
+         vastai attach ssh 12371 ~/.ssh/id_rsa.pub
 
         All examples attaches the ssh key to instance 12371
     """),
@@ -1374,7 +1375,7 @@ def attach__ssh(args):
         Use this command to cancel any/all current remote copy operations copying to a specific named instance, given by DST.
 
         Examples:
-         vast cancel copy 12371
+         vastai cancel copy 12371
 
         The first example cancels all copy operations currently copying data into instance 12371
 
@@ -1417,7 +1418,7 @@ def cancel__copy(args: argparse.Namespace):
         Use this command to cancel any/all current remote cloud sync operations copying to a specific named instance, given by DST.
 
         Examples:
-         vast cancel sync 12371
+         vastai cancel sync 12371
 
         The first example cancels all copy operations currently copying data into instance 12371
 
@@ -1588,30 +1589,36 @@ def clone__volume(args: argparse.Namespace):
         - cloud_service:path              (cloud service format)
         - cloud_service.cloud_service_id:path  (cloud service with ID)
         - local:path                      (explicit local path)
-        - V.volume_id:path                (volume copy, see restrictions)
+        - V.volume_id:path                (volume copy)
 
         You should not copy to /root or / as a destination directory, as this can mess up the permissions on your instance ssh folder, breaking future copy operations (as they use ssh authentication)
         You can see more information about constraints here: https://vast.ai/docs/gpu-instances/data-movement#constraints
-        Volume copy is currently only supported for copying to other volumes or instances, not cloud services or local.
+        Volume copy is currently only supported for copying to other volumes, instances, or cloud services, not local.
 
         Examples:
-         vast copy 6003036:/workspace/ 6003038:/workspace/
-         vast copy C.11824:/data/test local:data/test
-         vast copy local:data/test C.11824:/data/test
-         vast copy drive:/folder/file.txt C.6003036:/workspace/
-         vast copy s3.101:/data/ C.6003036:/workspace/
-         vast copy V.1234:/file C.5678:/workspace/
+         vastai copy 6003036:/workspace/ 6003038:/workspace/
+         vastai copy C.11824:/data/test local:data/test
+         vastai copy local:data/test C.11824:/data/test
+         vastai copy drive:/folder/file.txt C.6003036:/workspace/
+         vastai copy s3.101:/data/ C.6003036:/workspace/
+         vastai copy hf.101:/my-bucket/data/ C.6003036:/workspace/
+         vastai copy V.1234:/file C.5678:/workspace/
+         vastai copy V.1234:/file s3.101:/workspace/
 
         The first example copy syncs all files from the absolute directory '/workspace' on instance 6003036 to the directory '/workspace' on instance 6003038.
         The second example copy syncs files from container 11824 to the local machine using structured syntax.
         The third example copy syncs files from local to container 11824 using structured syntax.
         The fourth example copy syncs files from Google Drive to an instance.
         The fifth example copy syncs files from S3 bucket with id 101 to an instance.
+        The sixth example copy syncs files from a Hugging Face bucket using connection id 101 to an instance.
+        The seventh example copy syncs files from volume 1234 to instance 5678.
+        The eighth example copy syncs files from volume 1234 to S3 bucket with id 101.
     """),
 )
 def copy(args: argparse.Namespace):
     """
     Transfer data from one instance to another.
+    Hugging Face cloud locations use the hf prefix, for example hf.101:/my-bucket/data/.
 
     @param src: Location of data object to be copied.
     @param dst: Target to copy object to.
@@ -1764,15 +1771,21 @@ def vm__copy(args: argparse.Namespace):
          ID    NAME      Cloud Type
          1001  test_dir  drive 
          1003  data_dir  drive 
+         1004  hf_data   hf
          
          vastai cloud copy --src /folder --dst /workspace --instance 6003036 --connection 1001 --transfer "Instance To Cloud"
+         vastai cloud copy --src my-bucket/data --dst /workspace --instance 6003036 --connection 1004 --transfer "Cloud To Instance"
 
-        The example copies all contents of /folder into /workspace on instance 6003036 from gdrive connection 'test_dir'.
+        The first cloud copy example copies all contents of /folder on instance 6003036 into /workspace in gdrive connection 'test_dir'.
+        The second cloud copy example copies my-bucket/data from Hugging Face connection 'hf_data' into /workspace on the instance.
+
+        Note: Hugging Face cloud destinations must already exist as bucket paths; directories are not created automatically.
     """),
 )
 def cloud__copy(args: argparse.Namespace):
     """
     Transfer data from one instance to another.
+    Supports drive, s3, b2, dropbox, and hf cloud providers.
 
     @param src: Location of data object to be copied.
     @param dst: Target to copy object to.
@@ -8381,10 +8394,10 @@ def remove__defjob(args):
         runs a series of tests to ensure it's functioning correctly.
 
         Examples:
-         vast self-test machine 12345
-         vast self-test machine 12345 --debugging
-         vast self-test machine 12345 --explain
-         vast self-test machine 12345 --api_key <YOUR_API_KEY>
+         vastai self-test machine 12345
+         vastai self-test machine 12345 --debugging
+         vastai self-test machine 12345 --explain
+         vastai self-test machine 12345 --api_key <YOUR_API_KEY>
     """),
 )
 
@@ -8415,7 +8428,7 @@ def self_test__machine(args):
                 with open(api_key_file, "r") as reader:
                     args.api_key = reader.read().strip()
             else:
-                progress_print(args, "No API key found. Please set it using 'vast set api-key YOUR_API_KEY_HERE'")
+                progress_print(args, "No API key found. Please set it using 'vastai set api-key YOUR_API_KEY_HERE'")
                 result["reason"] = "API key not found."
         
         api_key = args.api_key
@@ -8627,7 +8640,7 @@ def self_test__machine(args):
                     raise Exception("Unexpected response type from create__instance.")
             except Exception as e:
                 progress_print(args, f"Error creating instance: {e}")
-                result["reason"] = "Failed to create instance. Check the docker configuration. Use the self-test machine function in vast cli "
+                result["reason"] = "Failed to create instance. Check the docker configuration. Use the self-test machine function in the vastai CLI "
                 return result  # Cleanup handled in finally block
 
             # Extract instance ID and proceed
@@ -9313,7 +9326,7 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
         try:
             instance_info = show__instance(show_args)
             if args.debugging:
-                debug_print(args, f"is_instance(): Output from vast show instance: {instance_info}")
+                debug_print(args, f"is_instance(): Output from vastai show instance: {instance_info}")
 
             if not instance_info or not isinstance(instance_info, dict):
                 if args.debugging:
@@ -9693,7 +9706,7 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
             time.sleep(interval)
     
     # Timeout reached without instance running
-    reason = f"Instance did not become running within {timeout} seconds. Verify network configuration. Use the self-test machine function in vast cli"
+    reason = f"Instance did not become running within {timeout} seconds. Verify network configuration. Use the self-test machine function in the vastai CLI"
     progress_print(args, reason)
     return False, reason
 
@@ -9705,7 +9718,7 @@ login_deprecated_message = """
 login via the command line is no longer supported.
 go to https://console.vast.ai/cli in a web browser to get your api key, then run:
 
-    vast set api-key YOUR_API_KEY_HERE
+    vastai set api-key YOUR_API_KEY_HERE
 """
 
 """
@@ -9735,6 +9748,12 @@ except:
 
 def main():
     global ARGS
+    if not os.environ.get("_ARGCOMPLETE") and "--raw" not in sys.argv:
+        print(
+            "WARNING: You are running a deprecated version of the Vast.ai CLI (vast.py).\n"
+            "         Please run `pip install vastai` to install the latest version.\n",
+            file=sys.stderr,
+        )
     parser.add_argument("--url", help="Server REST API URL", default=server_url_default)
     parser.add_argument("--retry", help="Retry limit", default=3)
     parser.add_argument("--explain", action="store_true", help="Output verbose explanation of mapping of CLI calls to HTTPS API endpoints")

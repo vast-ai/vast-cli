@@ -1,7 +1,11 @@
 """Tests for vastai/cli/parser.py — apwrap, command registration, parse_args."""
 
 import pytest
-from vastai.cli.parser import apwrap, argument, hidden_aliases, MyWideHelpFormatter
+from vastai.cli.parser import (
+    apwrap, argument, hidden_aliases, MyWideHelpFormatter,
+    build_command_maps, two_stage_command_completions,
+    is_hidden_command,
+)
 
 
 class TestArgument:
@@ -148,3 +152,180 @@ class TestCliParserReadOnlyCommands:
     def test_parse_readonly_command(self, cli_parser, argv):
         args = cli_parser.parse_args(argv)
         assert callable(args.func)
+
+
+def _completion_parser():
+    p = apwrap()
+
+    @p.command(argument("--quiet", action="store_true"), help="show instances")
+    def show__instances(args):
+        pass
+
+    @p.command(help="show env vars")
+    def show__env_vars(args):
+        pass
+
+    @p.command(help="create an instance")
+    def create__instance(args):
+        pass
+
+    @p.command(argument("--check", action="store_true"), help="self update")
+    def update(args):
+        pass
+
+    return p
+
+
+class TestBuildCommandMaps:
+    def test_splits_verbs_objects_and_singles(self):
+        verbs, verb_objs, singles = build_command_maps(_completion_parser().parser)
+        assert {"show", "create"} <= verbs
+        assert verb_objs["show"] == {"instances", "env-vars"}
+        assert verb_objs["create"] == {"instance"}
+        # bare command + the auto-registered "help" land in singles, not verbs
+        assert "update" in singles and "update" not in verbs
+
+    def test_hidden_command_excluded_from_completion(self):
+        p = _completion_parser()
+
+        @p.command(help="an unreleased thing", hidden=True)
+        def show__unreleased(args):
+            pass
+
+        _, verb_objs, _ = build_command_maps(p.parser)
+        assert verb_objs["show"] == {"instances", "env-vars"}
+
+
+class TestIsHiddenCommand:
+    """Unit tests for the unreleased/feature-flagged command gate."""
+
+    def test_explicit_true_wins(self):
+        assert is_hidden_command("show instances", explicit=True) is True
+
+    def test_explicit_false_wins_over_registry(self):
+        assert is_hidden_command("search network-volumes", explicit=False) is False
+
+    def test_known_unreleased_command_is_hidden(self):
+        assert is_hidden_command("search network-volumes") is True
+        assert is_hidden_command("create network-volume") is True
+        assert is_hidden_command("list network-volume") is True
+        assert is_hidden_command("unlist network-volume") is True
+        assert is_hidden_command("show network-disks") is True
+        assert is_hidden_command("add network-disk") is True
+
+    def test_unregistered_command_defaults_to_visible(self):
+        assert is_hidden_command("show instances") is False
+
+
+class TestCommandDecoratorHidden:
+    def test_hidden_kwarg_is_stored_on_the_subparser(self):
+        p = apwrap()
+
+        @p.command(help="an unreleased thing", hidden=True)
+        def do__unreleased(args):
+            pass
+
+        assert do__unreleased.mysignature.hidden is True
+
+    def test_default_is_not_hidden(self):
+        p = apwrap()
+
+        @p.command(help="a normal thing")
+        def show__thing(args):
+            pass
+
+        assert show__thing.mysignature.hidden is False
+
+    def test_hidden_command_excluded_from_grouped_help(self):
+        p = apwrap(epilog="epilogue text")
+
+        @p.command(help="show instances")
+        def show__instances(args):
+            pass
+
+        @p.command(help="an unreleased thing", hidden=True)
+        def show__unreleased(args):
+            pass
+
+        help_text = p.parser.format_help()
+        assert "show instances" in help_text
+        assert "show unreleased" not in help_text
+
+
+class TestFullCliHiddenCommands:
+    """Sanity check against the real, fully-populated CLI parser."""
+
+    def test_network_volume_commands_are_hidden_from_help(self, cli_parser):
+        help_text = cli_parser.parser.format_help()
+        assert "network-volume" not in help_text
+
+    def test_network_volume_commands_still_parse_directly(self, cli_parser):
+        args = cli_parser.parse_args(["search", "network-volumes"])
+        assert callable(args.func)
+
+    def test_network_disk_commands_are_hidden_from_help(self, cli_parser):
+        help_text = cli_parser.parser.format_help()
+        assert "network-disk" not in help_text
+
+    def test_network_disk_commands_still_parse_directly(self, cli_parser):
+        assert callable(cli_parser.parse_args(["show", "network-disks"]).func)
+        args = cli_parser.parse_args(["add", "network-disk", "1", "/mnt/data"])
+        assert callable(args.func)
+
+    def test_update_is_visible_in_help(self, cli_parser):
+        help_text = cli_parser.parser.format_help()
+        assert "Update the CLI to the latest version" in help_text
+
+    def test_uninstall_is_hidden_from_help(self, cli_parser):
+        help_text = cli_parser.parser.format_help()
+        assert "uninstall" not in help_text
+
+    def test_update_and_uninstall_still_parse_directly(self, cli_parser):
+        assert callable(cli_parser.parse_args(["update", "--check"]).func)
+        assert callable(cli_parser.parse_args(["uninstall", "--yes"]).func)
+
+
+class TestTwoStageCompletions:
+    def setup_method(self):
+        self.maps = build_command_maps(_completion_parser().parser)
+
+    def _complete(self, comp_words, prefix):
+        return two_stage_command_completions(comp_words, prefix, *self.maps)
+
+    def test_first_word_offers_verbs_and_singles(self):
+        cands, merged = self._complete(["vastai"], "")
+        assert merged is None
+        assert {"show", "create", "update"} <= set(cands)
+
+    def test_first_word_narrows_by_prefix(self):
+        cands, _ = self._complete(["vastai"], "sh")
+        assert cands == ["show"]
+
+    def test_object_stage_lists_only_that_verbs_objects(self):
+        cands, merged = self._complete(["vastai", "show"], "")
+        assert merged is None
+        assert cands == ["env-vars", "instances"]  # sorted, no "create" leakage
+
+    def test_object_stage_has_no_escaped_space(self):
+        cands, _ = self._complete(["vastai", "show"], "")
+        assert all(" " not in c and "\\" not in c for c in cands)
+
+    def test_object_stage_narrows_by_prefix(self):
+        cands, _ = self._complete(["vastai", "show"], "env")
+        assert cands == ["env-vars"]
+
+    def test_bare_command_delegates_not_object_stage(self):
+        # "update" is a single command, not a verb -> delegate (no object list)
+        cands, merged = self._complete(["vastai", "update"], "--")
+        assert cands is None
+        assert merged == ["vastai", "update"]
+
+    def test_flag_stage_fuses_verb_object_into_one_token(self):
+        cands, merged = self._complete(["vastai", "show", "instances"], "--")
+        assert cands is None
+        assert merged == ["vastai", "show instances"]
+
+    def test_flag_stage_never_fuses_across_a_flag(self):
+        cands, merged = self._complete(["vastai", "show", "--help"], "")
+        assert cands is None
+        assert merged == ["vastai", "show", "--help"]  # unchanged

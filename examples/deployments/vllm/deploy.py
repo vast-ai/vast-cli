@@ -24,7 +24,11 @@ class VLLMEngine:
         self.engine.shutdown_background_loop()
 
 
-@app.remote(benchmark_dataset=[{"prompt": "Hello"}])
+# Optional: workload = max_tokens, so the autoscaler sizes by total tokens/sec.
+@app.remote(
+    benchmark_dataset=[{"prompt": "Hello"}],
+    workload_calculator=lambda prompt, max_tokens=128: float(max_tokens),
+)
 async def generate(prompt: str, max_tokens: int = 128) -> str:
     from vllm import SamplingParams
     import uuid

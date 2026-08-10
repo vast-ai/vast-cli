@@ -113,17 +113,24 @@ def search_templates(client: VastClient, query: dict = None) -> list:
     return r.json().get("templates", [])
 
 
-def search_benchmarks(client: VastClient, query: dict = None) -> list:
+def search_benchmarks(client: VastClient, query: dict = None, order: list = None,
+                      limit: int = None) -> list:
     """Search for benchmarks using a query dict.
 
     Args:
         client: VastClient instance.
         query: Pre-parsed query dict of select_filters.
+        order: List of {"col": ..., "dir": ...} dicts, e.g. [{"col": "last_update", "dir": "desc"}].
+        limit: Max number of results. Omit for an unbounded result set.
 
     Returns:
         List of benchmark dicts.
     """
     query_args = {"select_cols": ["*"], "select_filters": query or {}}
+    if order is not None:
+        query_args["order_by"] = order
+    if limit is not None:
+        query_args["limit"] = int(limit)
     r = client.get("/benchmarks", query_args=query_args)
     r.raise_for_status()
     return r.json()

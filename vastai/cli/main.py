@@ -16,6 +16,19 @@ except AttributeError:
     JSONDecodeError = ValueError
 
 
+def _is_tfa_session_expired(status_code, errmsg):
+    """True if this error signals an expired 2FA session key.
+
+    401 "Invalid user key" is sent when a deleted API key is used; an expired
+    TFA session instead returns 404 "Session expired. Please log in again."
+    (matches legacy vast.py's handling of both signals).
+    """
+    return (
+        (status_code == 401 and errmsg == "Invalid user key")
+        or (status_code == 404 and errmsg == "Session expired. Please log in again.")
+    )
+
+
 def _emit_error(args, status_code, message):
     """Emit a command error in the appropriate format.
 
@@ -66,7 +79,7 @@ def _emit_error(args, status_code, message):
 
 # Create the global parser instance
 parser = apwrap(
-    epilog="Use 'vast COMMAND --help' for more info about a command. AI agent? See https://raw.githubusercontent.com/vast-ai/vast-cli/master/vastai/SKILL.md",
+    epilog="Use 'vastai COMMAND --help' for more info about a command. AI agent? See https://raw.githubusercontent.com/vast-ai/vast-cli/master/vastai/SKILL.md",
     formatter_class=MyWideHelpFormatter
 )
 
@@ -79,6 +92,8 @@ def main():
         billing, storage, auth, misc, deployments, metrics,
         benchmarks,
         price_increase,
+        update,
+        uninstall,
         # clusters,  # cluster/overlay commands disabled for now
     )
 
@@ -110,9 +125,27 @@ def main():
     # Tab completion
     try:
         import argcomplete
+        import argparse
 
         from typing import List, Optional
+        from vastai.cli.parser import build_command_maps, two_stage_command_completions
         class MyAutocomplete(argcomplete.CompletionFinder):
+            # Two-stage (verb -> object) completion over the flat "verb object"
+            # subparser names. Logic in parser.py (pure + unit-tested).
+            def _command_maps(self):
+                cached = getattr(self, "_cmd_maps", None)
+                if cached is None:
+                    cached = self._cmd_maps = build_command_maps(self._parser)
+                return cached
+
+            def _get_completions(self, comp_words, cword_prefix, cword_prequote, last_wordbreak_pos):
+                verbs, verb_objs, singles = self._command_maps()
+                cands, merged = two_stage_command_completions(
+                    comp_words, cword_prefix, verbs, verb_objs, singles)
+                if cands is not None:
+                    return cands
+                return super()._get_completions(merged, cword_prefix, cword_prequote, last_wordbreak_pos)
+
             def quote_completions(self, completions: List[str], cword_prequote: str, last_wordbreak_pos: Optional[int]) -> List[str]:
                 pre = super().quote_completions(completions, cword_prequote, last_wordbreak_pos)
                 return sorted(pre, key=lambda x: x.startswith('-'))
@@ -124,6 +157,13 @@ def main():
 
     args = parser.parse_args()
 
+    # Passive upgrade nudge: best-effort, ≤1 manifest GET + ≤1 stderr line per
+    # 24h, silent when offline/piped/CI. Never raises. Opt out with
+    # VASTAI_NO_UPDATE_CHECK=1. Runs first so it's visible before any command
+    # output, not buried after it. See selfupdate.py and §7.
+    from vastai.cli.selfupdate import notify_update
+    notify_update(args)
+
     # API key resolution
     if args.api_key is api_key_guard:
         key_file = TFAKEY_FILE if os.path.exists(TFAKEY_FILE) else APIKEY_FILE
@@ -133,10 +173,15 @@ def main():
         else:
             args.api_key = None
 
-    # Execute command with error handling
+    run_command(args)
+
+
+def run_command(args):
+    """Execute ``args.func(args)``, retrying once on an expired 2FA session key."""
     while True:
         try:
             res = args.func(args)
+
             if args.raw and res is not None:
                 try:
                     print(json.dumps(res, indent=1, sort_keys=True))
@@ -154,18 +199,18 @@ def main():
                 else:
                     errmsg = "(no detail message supplied)"
 
-            # 2FA session key expired -> retry with long-lived API key
-            if (e.response.status_code == 401 and errmsg == "Invalid user key"
-                    and os.path.exists(TFAKEY_FILE)):
+            # 2FA session key expired -> retry with long-lived API key.
+            if _is_tfa_session_expired(e.response.status_code, errmsg) and os.path.exists(TFAKEY_FILE):
                 print(f"Failed with error {e.response.status_code}: Your 2FA session has expired.")
                 os.remove(TFAKEY_FILE)
                 if os.path.exists(APIKEY_FILE):
                     with open(APIKEY_FILE, "r") as reader:
                         args.api_key = reader.read().strip()
                         print(f"Trying again with your normal API Key from {APIKEY_FILE}...")
+                        print("To start a new 2FA session, run: vastai tfa login")
                         continue
                 else:
-                    print("Please log in using the `tfa login` command and try again.")
+                    print("Run `vastai tfa login` to start a new 2FA session and try again.")
                     break
 
             _emit_error(args, e.response.status_code, errmsg)

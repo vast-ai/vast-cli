@@ -4,20 +4,51 @@ import time
 
 
 def copy(client, src_id, dst_id, src_path, dst_path):
-    """Copy directories between instances.
+    """Copy directories between instances, volumes, cloud services, and local.
 
     PUT /commands/copy_direct/ (remote-to-remote) or
     PUT /commands/rsync/ (when one side is local/None)
 
+    Each of the source and destination locations can be either local or remote,
+    subject to the read and write permissions required to carry out the action.
+    Location IDs are the parsed form of a vast URL (see
+    ``vastai.utils.parse_vast_url``):
+
+    - instance_id (int)          legacy format, still supported
+    - \"C.instance_id\"            container copy format
+    - \"cloud_service\"            cloud service, e.g. \"drive\"
+    - \"cloud_service.id\"         cloud service with ID, e.g. \"s3.101\" or \"hf.101\"
+    - \"local\" or None            local machine
+    - \"V.volume_id\"              volume copy, e.g. \"V.1234\"
+
+    Volume copy is currently only supported for copying to other volumes,
+    instances, or cloud services, not local.
+
+    You should not copy to /root or / as a destination directory, as this can
+    mess up the permissions on your instance ssh folder, breaking future copy
+    operations (as they use ssh authentication). See
+    https://vast.ai/docs/gpu-instances/data-movement#constraints for more
+    information about constraints.
+
     Args:
         client: VastClient instance.
-        src_id: Source instance ID (or None/\"local\" for local).
-        dst_id: Destination instance ID (or None/\"local\" for local).
+        src_id: Source location ID (or None/\"local\" for local).
+        dst_id: Destination location ID (or None/\"local\" for local).
         src_path (str): Source path.
         dst_path (str): Destination path.
 
     Returns:
-        dict: API response data.
+        dict: API response data. For local transfers this includes the
+            ``src_addr``/``src_port`` or ``dst_addr``/``dst_port`` the caller
+            uses to run rsync.
+
+    Examples:
+        copy(client, 6003036, 6003038, \"/workspace/\", \"/workspace/\")
+        copy(client, \"C.11824\", \"local\", \"/data/test\", \"data/test\")
+        copy(client, \"drive\", \"C.6003036\", \"/folder/file.txt\", \"/workspace/\")
+        copy(client, \"s3.101\", \"C.6003036\", \"/data/\", \"/workspace/\")
+        copy(client, \"V.1234\", \"C.5678\", \"/file\", \"/workspace/\")
+        copy(client, \"V.1234\", \"s3.101\", \"/file\", \"/workspace/\")
     """
     req_json = {
         "client_id": "me",
@@ -77,6 +108,9 @@ def cloud_copy(client, src, dst, instance, connection, transfer, flags=None):
 
     POST /commands/rclone/
 
+    Supported cloud providers include \"drive\", \"s3\", \"b2\", \"dropbox\", and
+    Hugging Face (\"hf\").
+
     Args:
         client: VastClient instance.
         src (str): Path to source of object to copy.
@@ -91,6 +125,10 @@ def cloud_copy(client, src, dst, instance, connection, transfer, flags=None):
 
     Returns:
         dict: API response data.
+
+    Hugging Face example (\"hf\" connection):
+        cloud_copy(client, \"my-bucket/data\", \"/workspace\", \"6003036\",
+                   \"1234\", \"Cloud To Instance\")
     """
     req_json = {
         "src": src,

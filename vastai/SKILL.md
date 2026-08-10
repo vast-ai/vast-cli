@@ -16,7 +16,10 @@ Manage GPU instances, templates, volumes, serverless endpoints, SSH keys, and bi
 ## Install
 
 ```bash
-# PyPI (recommended)
+# Linux/macOS (recommended, no Python required)
+curl -fsSL https://vast.ai/install.sh | bash
+
+# or via PyPI (Windows, or if you'd rather use pip)
 pip install vastai
 ```
 
@@ -74,13 +77,13 @@ Common sort fields: `score` (default — overall value), `dlperf_usd` (DL perf p
 ### Instances
 
 ```bash
-vastai show instances                                    # List all your instances
-vastai show instances-v1                                 # Paginated instances with full filter/sort/cols support
-vastai show instances-v1 --status running loading        # Filter by status
-vastai show instances-v1 --gpu-name 'RTX 4090'           # Filter by GPU
-vastai show instances-v1 --label training                # Filter by label
-vastai show instances-v1 --order-by start_date desc      # Sort by column
-vastai show instances-v1 --cols id,status,gpu,dph        # Custom columns
+vastai show instances                                    # List all your instances (fetches every page, no prompts)
+vastai show instances --status running loading           # Filter by status
+vastai show instances --gpu-name 'RTX 4090'              # Filter by GPU
+vastai show instances --label training                   # Filter by label
+vastai show instances --order-by start_date desc         # Sort by column
+vastai show instances --cols id,status,gpu,dph           # Custom columns
+vastai show instances --raw                              # Flat JSON list of all instances (scripting)
 vastai show instance <id>                                # Poll single instance (use for status checks)
 vastai create instance <offer-id> --image pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime --disk 20 --ssh --direct
 # Response includes "new_contract": <id> — that is your instance ID
@@ -195,6 +198,9 @@ vastai copy <src> <dst>                                  # Copy between instance
 vastai copy local:./data/ <id>:/workspace/data/          # Local → instance (preferred format)
 vastai copy <id>:/workspace/results/ local:./results/    # Instance → local
 vastai copy <id-a>:/workspace/ <id-b>:/workspace/        # Instance → instance
+vastai copy s3.101:/data/ C.<id>:/workspace/             # Cloud service → instance (s3.<connection-id>)
+vastai copy V.1234:/file C.<id>:/workspace/              # Volume → instance
+vastai copy V.1234:/file s3.101:/workspace/              # Volume → cloud service
 # Legacy format also works: vastai copy 12345:./data ./local-data
 vastai cloud copy --src ./data --dst s3://bucket/path \
   --instance 12345 --connection <conn-id> \
@@ -203,6 +209,8 @@ vastai cancel copy <dst-id>                              # Cancel in-progress co
 ```
 
 **cloud copy flags:** `--src`, `--dst`, `--instance`, `--connection`, `--transfer`
+
+**Location formats:** `[instance_id:]path` (legacy), `C.instance_id:path`, `V.volume_id:path`, `cloud_service[.id]:path`, `local:path`. Volume copy is currently only supported for copying to other volumes, instances, or cloud services, not local. Never copy to `/root` or `/` — it breaks ssh permissions on the instance and future copies fail.
 
 ### Logs & Exec
 

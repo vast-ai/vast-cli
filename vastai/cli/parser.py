@@ -39,6 +39,56 @@ def complete_sshkeys(prefix=None, action=None, parser=None, parsed_args=None):
     return [str(m) for m in Path.home().joinpath('.ssh').glob('*.pub')]
 
 
+# ---------------------------------------------------------------------------
+# Two-stage (verb -> object) command-name completion
+#
+# Pure, unit-testable helpers that turn the flat "verb object" subparser names
+# into staged completion. The argcomplete adapter in cli/main.py calls them.
+# ---------------------------------------------------------------------------
+
+def build_command_maps(parser):
+    """Derive (verbs, verb_objs, singles) from a parser's subparser names.
+
+    Commands flagged hidden (see ``is_hidden_command``) are left out of
+    completion — unreleased/feature-flagged functionality, still fully
+    runnable if typed directly.
+    """
+    names = []
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            for name, sp in action.choices.items():
+                if getattr(sp, 'hidden', False):
+                    continue
+                names.append(name)
+            break
+    verbs, verb_objs, singles = set(), {}, set()
+    for name in names:
+        verb, sep, obj = name.partition(" ")
+        if sep:
+            verbs.add(verb)
+            verb_objs.setdefault(verb, set()).add(obj)
+        else:
+            singles.add(verb)
+    return verbs, verb_objs, singles
+
+
+def two_stage_command_completions(comp_words, cword_prefix, verbs, verb_objs, singles):
+    """Stage command-name completion. Returns (candidates, merged): candidates is
+    the verb/object list, or None to delegate flag completion using merged."""
+    n = len(comp_words)
+    if n == 1:  # completing the verb / bare command
+        return sorted(c for c in (verbs | singles) if c.startswith(cword_prefix)), None
+    if n == 2 and comp_words[1] in verbs:  # completing the object for a verb
+        objs = verb_objs.get(comp_words[1], set())
+        return sorted(o for o in objs if o.startswith(cword_prefix)), None
+    # Past the command name: fuse "verb object" so the right subparser is found.
+    # Never fuse across a flag, mirroring apwrap.parse_args.
+    merged = comp_words
+    if n >= 3 and comp_words[1] in verbs and not comp_words[2].startswith("-"):
+        merged = [comp_words[0], comp_words[1] + " " + comp_words[2]] + list(comp_words[3:])
+    return None, merged
+
+
 def set_completers(instance_machine_fn=None, instance_fn=None):
     """
     Wire up the tab-completion functions.  Called once from the CLI
@@ -101,6 +151,7 @@ COMMAND_GROUPS = {
     'vastai.cli.commands.metrics':      'Metrics',
     'vastai.cli.commands.storage':      'Storage volumes',
     'vastai.cli.commands.misc':         'Other',
+    'vastai.cli.commands.update':       'Other',
 }
 
 # Some misc.py commands belong with their target resource section, not Other.
@@ -117,6 +168,35 @@ GROUP_ORDER = [
     'Search', 'Instances', 'Host machines', 'Teams', 'Auth & keys',
     'Billing & account', 'Serverless', 'Metrics', 'Storage volumes', 'Other',
 ]
+
+# ---------------------------------------------------------------------------
+# Unreleased/feature-flagged commands
+#
+# Hidden from --help and tab completion regardless of anything else — a
+# discoverability gate, not an access gate: the command still runs if typed
+# directly, so internal testing keeps working. Remove an entry once the
+# feature is ready to announce.
+# ---------------------------------------------------------------------------
+
+HIDDEN_COMMANDS = {
+    'search network-volumes',  # network volumes are not yet released
+    'create network-volume',
+    'list network-volume',
+    'unlist network-volume',
+    'show network-disks',      # network disks are not yet released
+    'add network-disk',
+}
+
+
+def is_hidden_command(name, explicit=None):
+    """Whether a registered command should be hidden from --help/completion.
+
+    Priority: explicit ``hidden=`` kwarg on the decorator > ``HIDDEN_COMMANDS``.
+    Defaults to ``False`` (visible).
+    """
+    if explicit is not None:
+        return bool(explicit)
+    return name in HIDDEN_COMMANDS
 
 
 class GroupedArgumentParser(argparse.ArgumentParser):
@@ -159,6 +239,8 @@ class GroupedArgumentParser(argparse.ArgumentParser):
         for pseudo in sub_action._choices_actions:
             sp = sub_action.choices.get(pseudo.dest)
             if sp is None:
+                continue
+            if getattr(sp, 'hidden', False):
                 continue
             label = COMMAND_OVERRIDES.get(pseudo.dest)
             if label is None:
@@ -241,7 +323,7 @@ class apwrap(object):
             name = verb
         return name
 
-    def command(self, *arguments, aliases=(), help=None, **kwargs):
+    def command(self, *arguments, aliases=(), help=None, hidden=None, **kwargs):
         help_ = help
         if not self.added_help_cmd:
             self.added_help_cmd = True
@@ -262,6 +344,7 @@ class apwrap(object):
                 kwargs["formatter_class"] = MyWideHelpFormatter
 
             sp = self.subparsers().add_parser(name, aliases=aliases_transformed, help=help_, **kwargs)
+            sp.hidden = is_hidden_command(name, explicit=hidden)
 
             # TODO: Sometimes the parser.command has a help parameter. Ideally
             # I'd extract this during the sdk phase but for the life of me
@@ -287,7 +370,10 @@ class apwrap(object):
             argv = sys.argv[1:]
         argv_ = []
         for x in argv:
-            if argv_ and argv_[-1] in self.verbs:
+            # Merge "verb object" into one command token, but never swallow a
+            # flag: a verb that is also a bare command (e.g. `update`) must
+            # accept options (`vastai update --check`).
+            if argv_ and argv_[-1] in self.verbs and not x.startswith("-"):
                 argv_[-1] += " " + x
             else:
                 argv_.append(x)

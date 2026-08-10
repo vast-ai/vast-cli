@@ -64,7 +64,13 @@ class MNISTModel:
         pass
 
 
-@app.remote(benchmark_dataset=[{"pixel_values": [[0.0] * 28] * 28}])
+# Optional: workload = input pixel count, so bigger images count as more work.
+@app.remote(
+    benchmark_dataset=[{"pixel_values": [[0.0] * 28] * 28}],
+    workload_calculator=lambda pixel_values: float(
+        len(pixel_values) * len(pixel_values[0])
+    ),
+)
 async def infer(pixel_values: list[list[float]]) -> dict:
     """Classify a 28x28 grayscale MNIST image.
 

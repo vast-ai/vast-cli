@@ -64,8 +64,14 @@ try:
 
     DIRS = {
         'config': xdg.xdg_config_home(),
-        'temp': xdg.xdg_cache_home()
+        'temp': xdg.xdg_cache_home(),
+        'state': xdg.xdg_state_home(),
     }
+    # Not part of DIRS: DIRS entries are this CLI's own runtime data and get
+    # auto-created below regardless of install method. DATA_HOME is where a
+    # *managed install* lives (selfupdate.install_root()) — a pip install
+    # must never side-effect that directory into existence just by running.
+    DATA_HOME = xdg.xdg_data_home()
 
 except Exception:
     # Reasonable defaults.
@@ -74,7 +80,9 @@ except Exception:
     DIRS = {
         'config': os.path.join(_home, '.config'),
         'temp': os.path.join(_home, '.cache'),
+        'state': os.path.join(_home, '.local', 'state'),
     }
+    DATA_HOME = os.path.join(_home, '.local', 'share')
 
 for key in DIRS.keys():
     DIRS[key] = path = os.path.join(DIRS[key], APP_NAME)
@@ -82,6 +90,7 @@ for key in DIRS.keys():
         os.makedirs(path)
 
 CACHE_FILE = os.path.join(DIRS['temp'], "gpu_names_cache.json")
+GPU_TYPES_CACHE_FILE = os.path.join(DIRS['temp'], "gpu_types_cache.json")
 CACHE_DURATION = timedelta(hours=24)
 
 
@@ -120,6 +129,47 @@ def _get_gpu_names() -> Optional[List[str]]:
         return [
             name.replace(" ", "_").replace("-", "_") for name in gpu_names['gpu_names']
         ]
+    except (TypeError, KeyError):
+        return None
+
+
+def _get_gpu_types() -> Optional[List[dict]]:
+    """Returns the GPU type catalog from /api/v0/gpu_types/, cached for 24 hours.
+
+    Source of truth for canonical GPU names and per-card VRAM. Returns None on
+    any error so callers fall back to the hardcoded constants (never empty).
+    """
+
+    def is_cache_valid() -> bool:
+        """Checks if the cache file exists and is less than 24 hours old."""
+        if not os.path.exists(GPU_TYPES_CACHE_FILE):
+            return False
+        cache_age = datetime.now() - datetime.fromtimestamp(os.path.getmtime(GPU_TYPES_CACHE_FILE))
+        return cache_age < CACHE_DURATION
+
+    if is_cache_valid():
+        try:
+            with open(GPU_TYPES_CACHE_FILE, "r") as file:
+                payload = json.load(file)
+        except (OSError, json.JSONDecodeError):
+            payload = None
+    else:
+        endpoint = "/api/v0/gpu_types/"
+        url = f"{server_url_default}{endpoint}"
+        try:
+            r = requests.get(url, headers={})
+            r.raise_for_status()
+            payload = r.json()
+        except (requests.exceptions.RequestException, ValueError):
+            return None
+        try:
+            with open(GPU_TYPES_CACHE_FILE, "w") as file:
+                json.dump(payload, file)
+        except OSError:
+            pass
+
+    try:
+        return payload['gpu_types']
     except (TypeError, KeyError):
         return None
 

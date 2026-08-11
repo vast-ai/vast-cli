@@ -218,6 +218,9 @@ def search__offers(args):
         in that mode). The prompt is skipped when output is piped or --raw is used;
         those print the next page token so you can resume with --next-token.
 
+        --raw prints a flat list when fetching every page, and the full response
+        (benchmarks plus next_token) in single-page mode.
+
         Query syntax:
 
             query = comparison comparison...
@@ -280,8 +283,10 @@ def search__benchmarks(args):
         rows = offers_api.search_benchmarks(
             client, query=query, limit=args.limit, after_token=args.next_token)
         if args.raw:
-            return {"success": True, "benchmarks_found": len(rows),
-                    "benchmarks": rows, "next_token": None}
+            # Flat list of every matching row -- the contract scripts have
+            # always depended on for --raw. Single-page mode returns the
+            # envelope instead, since only it has a token worth handing back.
+            return rows
         display_table(rows, benchmarks_displayable_fields)
         return
 

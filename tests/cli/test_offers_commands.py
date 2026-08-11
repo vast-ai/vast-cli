@@ -60,6 +60,29 @@ class TestSearchBenchmarks:
         call_args = patch_get_client.get.call_args
         assert "/benchmarks" in call_args[0][0]
 
+    def test_raw_returns_flat_list_when_fetching_every_page(
+            self, parse_argv, patch_get_client, mock_response):
+        """The shape scripts have always gotten from `search benchmarks --raw`."""
+        patch_get_client.get.return_value = mock_response(200, {
+            "success": True, "benchmarks_found": 1, "next_token": None,
+            "benchmarks": [{"id": 1, "gpu_name": "RTX_3090"}],
+        })
+        args = parse_argv(["search", "benchmarks", "--raw"])
+        result = args.func(args)
+        assert result == [{"id": 1, "gpu_name": "RTX_3090"}]
+
+    def test_raw_returns_envelope_in_single_page_mode(
+            self, parse_argv, patch_get_client, mock_response):
+        """--limit pages manually, so the caller needs next_token back."""
+        patch_get_client.get.return_value = mock_response(200, {
+            "success": True, "benchmarks_found": 1, "next_token": "TOK",
+            "benchmarks": [{"id": 1, "gpu_name": "RTX_3090"}],
+        })
+        args = parse_argv(["search", "benchmarks", "--raw", "--limit", "1"])
+        result = args.func(args)
+        assert result["next_token"] == "TOK"
+        assert result["benchmarks"] == [{"id": 1, "gpu_name": "RTX_3090"}]
+
 
 class TestSearchInvoices:
     def test_search_invoices(self, parse_argv, patch_get_client, mock_response):

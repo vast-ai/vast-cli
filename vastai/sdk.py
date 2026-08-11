@@ -275,11 +275,26 @@ class VastAI:
     def search_benchmarks(self, query: Optional[Union[str, dict]] = None,
                           order: Optional[list] = None,
                           limit: Optional[int] = None,
+                          after_token: Optional[str] = None,
                           all_pages: bool = False) -> list[dict]:
-        """Search for benchmarks."""
-        rows, _ = offers.search_benchmarks(self.client, query=query, order=order,
-                                           limit=limit, all_pages=all_pages)
-        return rows
+        """Search for benchmarks.
+
+        Returns a single page (the backend caps it at 200 rows) so a broad query
+        doesn't scan the whole table. Pass all_pages=True to follow pagination
+        and get every matching row, or use search_benchmarks_v1() to page
+        manually via next_token.
+        """
+        if all_pages:
+            return offers.search_benchmarks(self.client, query=query, order=order,
+                                            limit=limit, after_token=after_token)
+        params = offers.benchmarks_query_args(query=query, order=order,
+                                              limit=limit, after_token=after_token)
+        data = offers.search_benchmarks_v1(self.client, params)
+        return data.get("benchmarks") or []
+
+    def search_benchmarks_v1(self, params: dict) -> dict:
+        """Return benchmarks using the paginated API; for manual pagination."""
+        return offers.search_benchmarks_v1(self.client, params)
 
     def search_volumes(self, query: Optional[str] = None, **kwargs) -> list[dict]:
         """Search for volume offers."""

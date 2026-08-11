@@ -276,18 +276,28 @@ def search__benchmarks(args):
     client = get_client(args)
     # Fetch every page by default; --limit/--next-token opt into manual pagination.
     fetch_all = args.all or (args.limit is None and args.next_token is None)
-    token = args.next_token
+    if fetch_all:
+        rows = offers_api.search_benchmarks(
+            client, query=query, limit=args.limit, after_token=args.next_token)
+        if args.raw:
+            return {"success": True, "benchmarks_found": len(rows),
+                    "benchmarks": rows, "next_token": None}
+        display_table(rows, benchmarks_displayable_fields)
+        return
+
+    params = offers_api.benchmarks_query_args(
+        query=query, limit=args.limit, after_token=args.next_token)
     page = 0
     while True:
         page += 1
-        rows, next_token = offers_api.search_benchmarks(
-            client, query=query, limit=args.limit, after_token=token,
-            all_pages=fetch_all)
+        data = offers_api.search_benchmarks_v1(client, params)
+        rows = data.get("benchmarks") or []
+        next_token = data.get("next_token")
         if args.raw:
             return {"success": True, "benchmarks_found": len(rows),
                     "benchmarks": rows, "next_token": next_token}
         display_table(rows, benchmarks_displayable_fields)
-        if fetch_all or not next_token:
+        if not next_token:
             return
         print(f"Next page token: {next_token}")
         # Never block on a prompt when piped or scripted.
@@ -298,7 +308,7 @@ def search__benchmarks(args):
                 return
         except (EOFError, KeyboardInterrupt):
             return
-        token = next_token
+        params["after_token"] = next_token
 
 
 # ---------------------------------------------------------------------------

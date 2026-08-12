@@ -1346,6 +1346,7 @@ SELF_TEST_CLI_CONTRACT_VERSION = SELF_TEST_MIN_CLI_VERSION
 SELF_TEST_IMAGE_TAG_PREFIX = f"self-test-cli-{SELF_TEST_MIN_CLI_VERSION}-cuda"
 SELF_TEST_INSTANCE_LABEL_PREFIX = "vast-self-test-machine"
 SELF_TEST_INSTANCE_LABEL_OVERRIDE_ENV = "VAST_SELF_TEST_LABEL"
+SELF_TEST_OFFER_ID_OVERRIDE_ENV = "VAST_SELF_TEST_OFFER_ID"
 SELF_TEST_INSTANCE_LABEL_REQUIRED_PREFIX = "vast-self-test-"
 SELF_TEST_INSTANCE_LABEL_MAX_LENGTH = 64
 _SELF_TEST_INSTANCE_LABEL_RE = re.compile(r"vast-self-test-[A-Za-z0-9._-]+")
@@ -1456,6 +1457,36 @@ def resolve_self_test_instance_label(machine_id):
             f"be at most {SELF_TEST_INSTANCE_LABEL_MAX_LENGTH} characters."
         )
     return override
+
+
+def _normalize_self_test_offer_id(value):
+    """Normalize JSON integer IDs without accepting booleans or fractions."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, float):
+        return int(value) if value > 0 and value.is_integer() else None
+    if isinstance(value, str) and re.fullmatch(r"[0-9]+", value):
+        try:
+            normalized = int(value)
+        except (ValueError, OverflowError):
+            return None
+        return normalized if normalized > 0 else None
+    return None
+
+
+def resolve_self_test_offer_id():
+    """Return a validated operator-supplied self-test offer ID, if any."""
+    override = os.environ.get(SELF_TEST_OFFER_ID_OVERRIDE_ENV)
+    if override is None:
+        return None
+    offer_id = _normalize_self_test_offer_id(override)
+    if offer_id is None:
+        raise ValueError(
+            f"{SELF_TEST_OFFER_ID_OVERRIDE_ENV} must be a positive integer."
+        )
+    return offer_id
 
 
 def self_test_status_message_is_error(status_msg):
@@ -8701,6 +8732,11 @@ def self_test__machine(args):
         except ValueError:
             result["stage"] = "validate_label"
             raise
+        try:
+            pinned_offer_id = resolve_self_test_offer_id()
+        except ValueError:
+            result["stage"] = "validate_offer_id"
+            raise
 
         # Load API key
         if not args.api_key:
@@ -8763,6 +8799,8 @@ def self_test__machine(args):
             )
             offers = search__offers(search_args)
             if not offers:
+                if pinned_offer_id is not None:
+                    return None
                 progress_print(args, f"Machine ID {machine_id} not found or not rentable.")
                 progress_print(args, f"Possible reasons and how to investigate:")
                 progress_print(args, f"  1. Already rented — the machine has no remaining capacity.")
@@ -8774,15 +8812,46 @@ def self_test__machine(args):
                 progress_print(args, f"  4. Bid price below ask — your bid may be lower than the host's minimum price.")
                 progress_print(args, f"     Check: vastai search offers 'machine_id={machine_id} rentable=any verified=any' and compare prices.")
                 return None
+            if pinned_offer_id is not None:
+                return next(
+                    (
+                        offer
+                        for offer in offers
+                        if _normalize_self_test_offer_id(offer.get("id"))
+                        == pinned_offer_id
+                    ),
+                    None,
+                )
             sorted_offers = sorted(offers, key=lambda x: x.get("dlperf", 0), reverse=True)
             return sorted_offers[0] if sorted_offers else None
 
         top_offer = search_offers_and_get_top(args.machine_id)
         if not top_offer:
-            progress_print(args, f"No valid offers found for Machine ID {args.machine_id}")
-            result["reason"] = "No valid offers found."
+            if pinned_offer_id is not None:
+                summary = (
+                    f"Offer {pinned_offer_id} from {SELF_TEST_OFFER_ID_OVERRIDE_ENV} "
+                    f"is not a current rentable on-demand offer for machine {args.machine_id}."
+                )
+                remediation = (
+                    f"Re-run the offer search for machine {args.machine_id}, then update "
+                    f"or unset {SELF_TEST_OFFER_ID_OVERRIDE_ENV}."
+                )
+                progress_print(args, summary)
+                result["stage"] = "select_offer"
+                result["failure_code"] = "pinned_offer_not_available"
+                result["failure"] = {
+                    "code": "pinned_offer_not_available",
+                    "stage": "select_offer",
+                    "summary": summary,
+                    "remediation": remediation,
+                    "suggested_steps": [remediation],
+                }
+                result["reason"] = summary
+            else:
+                progress_print(args, f"No valid offers found for Machine ID {args.machine_id}")
+                result["reason"] = "No valid offers found."
         else:
-            ask_contract_id = top_offer["id"]
+            ask_contract_id = pinned_offer_id or top_offer["id"]
             cuda_version = top_offer["cuda_max_good"]
             compute_cap = top_offer.get("compute_cap")
             image_override = getattr(args, "test_image", None) or os.environ.get(

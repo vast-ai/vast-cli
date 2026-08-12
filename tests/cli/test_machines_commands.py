@@ -250,6 +250,7 @@ def _http_error(status_code, message=None):
 def _run_self_test_until_create(parse_argv, monkeypatch, offer):
     monkeypatch.delenv("VAST_SELF_TEST_IMAGE", raising=False)
     monkeypatch.delenv("VAST_SELF_TEST_LABEL", raising=False)
+    monkeypatch.delenv("VAST_SELF_TEST_OFFER_ID", raising=False)
     monkeypatch.setattr(
         "vastai.cli.commands.machines.offers_api.search_offers",
         Mock(return_value=[offer]),
@@ -527,6 +528,7 @@ class TestSelfTestMachineDiagnostics:
     def test_selected_offer_is_reused_for_rental(
         self, parse_argv, patch_get_client, monkeypatch
     ):
+        monkeypatch.delenv("VAST_SELF_TEST_OFFER_ID", raising=False)
         lower_offer = _self_test_offer(id=1001, dlperf=10)
         selected_offer = _self_test_offer(id=2002, dlperf=50)
         search = Mock(return_value=[lower_offer, selected_offer])
@@ -544,6 +546,124 @@ class TestSelfTestMachineDiagnostics:
         assert create.call_args.kwargs["runtype"] == "ssh_direc ssh_proxy"
         assert create.call_args.kwargs["jupyter_lab"] is False
         assert result["diagnostics"]["launch"]["runtype"] == "ssh_direc ssh_proxy"
+
+    def test_default_offer_selection_still_prefers_highest_dlperf(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        monkeypatch.delenv("VAST_SELF_TEST_OFFER_ID", raising=False)
+        lower_offer = _self_test_offer(id=1001, dlperf=10)
+        higher_offer = _self_test_offer(id=2002, dlperf=50)
+        search = Mock(return_value=[lower_offer, higher_offer])
+        create = Mock(side_effect=RuntimeError("stop before live rental"))
+        monkeypatch.setattr("vastai.cli.commands.machines.offers_api.search_offers", search)
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.create_instance", create)
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        assert result["failure_code"] == "instance_create_failed"
+        assert search.call_count == 1
+        assert create.call_args.kwargs["id"] == 2002
+
+    def test_valid_environment_offer_pin_overrides_dlperf_selection(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        pinned_offer = _self_test_offer(id="1001", dlperf=10)
+        higher_offer = _self_test_offer(id=2002, dlperf=50)
+        search = Mock(return_value=[pinned_offer, higher_offer])
+        create = Mock(side_effect=RuntimeError("stop before live rental"))
+        monkeypatch.setenv("VAST_SELF_TEST_OFFER_ID", "001001")
+        monkeypatch.setattr("vastai.cli.commands.machines.offers_api.search_offers", search)
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.create_instance", create)
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        assert result["failure_code"] == "instance_create_failed"
+        assert search.call_count == 1
+        create.assert_called_once()
+        assert create.call_args.kwargs["id"] == 1001
+        assert create.call_args.kwargs["price"] is None
+        assert result["offer"]["id"] == "1001"
+        assert result["diagnostics"]["offer_search"]["requested_offer_id"] == 1001
+        search_kwargs = search.call_args.kwargs
+        assert search_kwargs["query"]["machine_id"] == {"eq": "42"}
+        assert search_kwargs["query"]["rentable"] == {"eq": True}
+        assert search_kwargs["offer_type"] == "on-demand"
+        assert search_kwargs["storage"] == 5.0
+        assert search_kwargs["no_default"] is True
+
+    @pytest.mark.parametrize("invalid_offer_id", ["", "0", "-1", "+1", "1.5", "abc", " 1"])
+    def test_invalid_environment_offer_pin_is_rejected_before_client_and_search(
+        self, parse_argv, monkeypatch, invalid_offer_id
+    ):
+        from vastai.cli.commands import machines
+
+        get_client = Mock()
+        search = Mock()
+        create = Mock()
+        monkeypatch.setenv("VAST_SELF_TEST_OFFER_ID", invalid_offer_id)
+        monkeypatch.setattr(machines, "get_client", get_client)
+        monkeypatch.setattr(machines.offers_api, "search_offers", search)
+        monkeypatch.setattr(machines.instances_api, "create_instance", create)
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        assert result["success"] is False
+        assert result["stage"] == "validate_offer_id"
+        assert result["failure_code"] == "invalid_offer_id"
+        assert result["failure"]["code"] == "invalid_offer_id"
+        assert "VAST_SELF_TEST_OFFER_ID" in result["reason"]
+        get_client.assert_not_called()
+        search.assert_not_called()
+        create.assert_not_called()
+
+    def test_invalid_environment_offer_pin_non_raw_exits_one_before_client(
+        self, parse_argv, monkeypatch, capsys
+    ):
+        from vastai.cli.commands import machines
+
+        get_client = Mock()
+        search = Mock()
+        monkeypatch.setenv("VAST_SELF_TEST_OFFER_ID", "not-an-id")
+        monkeypatch.setattr(machines, "get_client", get_client)
+        monkeypatch.setattr(machines.offers_api, "search_offers", search)
+
+        args = parse_argv(["self-test", "machine", "42"])
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        assert exc_info.value.code == 1
+        assert "VAST_SELF_TEST_OFFER_ID must be a positive integer" in capsys.readouterr().out
+        get_client.assert_not_called()
+        search.assert_not_called()
+
+    def test_absent_environment_offer_pin_fails_before_create(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offers = [
+            _self_test_offer(id=1001, dlperf=10),
+            _self_test_offer(id=2002, dlperf=50),
+        ]
+        search = Mock(return_value=offers)
+        create = Mock()
+        monkeypatch.setenv("VAST_SELF_TEST_OFFER_ID", "3003")
+        monkeypatch.setattr("vastai.cli.commands.machines.offers_api.search_offers", search)
+        monkeypatch.setattr("vastai.cli.commands.machines.instances_api.create_instance", create)
+
+        args = parse_argv(
+            ["self-test", "machine", "42", "--raw", "--no-support-bundle"]
+        )
+        result = args.func(args)
+
+        assert result["success"] is False
+        assert result["stage"] == "select_offer"
+        assert result["failure_code"] == "pinned_offer_not_available"
+        assert result["diagnostics"]["offer_search"]["requested_offer_id"] == 3003
+        assert result["diagnostics"]["offer_search"]["strict_offer_ids"] == [1001, 2002]
+        assert search.call_count == 1
+        create.assert_not_called()
 
     def test_preflight_normalizes_api_gpu_ram_units(
         self, parse_argv, patch_get_client, monkeypatch, capsys

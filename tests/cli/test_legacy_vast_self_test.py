@@ -73,6 +73,7 @@ def test_legacy_system_ram_cap_matches_packaged_cli():
 
 def test_legacy_self_test_contract_matches_packaged_cli(monkeypatch):
     monkeypatch.delenv("VAST_SELF_TEST_LABEL", raising=False)
+    monkeypatch.delenv("VAST_SELF_TEST_OFFER_ID", raising=False)
     assert vast.SELF_TEST_MIN_CLI_VERSION == machines.SELF_TEST_MIN_CLI_VERSION
     assert (
         vast.SELF_TEST_CLI_CONTRACT_VERSION
@@ -99,6 +100,13 @@ def test_legacy_self_test_contract_matches_packaged_cli(monkeypatch):
         == max_length_label
     )
     assert vast.SELF_TEST_CUDA_ERROR_CONTAINED == CUDA_ERROR_CONTAINED
+    assert (
+        vast.SELF_TEST_OFFER_ID_OVERRIDE_ENV
+        == machines.SELF_TEST_OFFER_ID_OVERRIDE_ENV
+        == "VAST_SELF_TEST_OFFER_ID"
+    )
+    assert vast.resolve_self_test_offer_id() is None
+    assert machines.resolve_self_test_offer_id() is None
 
 
 def test_legacy_b300_mapping_uses_the_versioned_contract_image():
@@ -310,6 +318,7 @@ def _patch_legacy_contained_self_test(
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("VAST_SELF_TEST_IMAGE", raising=False)
     monkeypatch.delenv("VAST_SELF_TEST_LABEL", raising=False)
+    monkeypatch.delenv("VAST_SELF_TEST_OFFER_ID", raising=False)
     monkeypatch.setattr(vast, "check_requirements", lambda *_: (True, []))
     monkeypatch.setattr(
         vast,
@@ -328,10 +337,12 @@ def _patch_legacy_contained_self_test(
     create_response._content = b'{"new_contract": 123}'
     created_images = []
     created_labels = []
+    created_offer_ids = []
 
     def create_instance(create_args):
         created_images.append(create_args.image)
         created_labels.append(create_args.label)
+        created_offer_ids.append(create_args.id)
         return create_response
 
     monkeypatch.setattr(vast, "create__instance", create_instance)
@@ -384,13 +395,13 @@ def _patch_legacy_contained_self_test(
     )
     if test_image is not _MISSING:
         args.test_image = test_image
-    return args, destroyed, created_images, created_labels
+    return args, destroyed, created_images, created_labels, created_offer_ids
 
 
 def test_legacy_contained_failure_renders_once_exits_one_and_cleans_up(
     monkeypatch, tmp_path, capsys
 ):
-    args, destroyed, _created_images, _created_labels = _patch_legacy_contained_self_test(
+    args, destroyed, _created_images, _created_labels, _created_offer_ids = _patch_legacy_contained_self_test(
         monkeypatch,
         tmp_path,
         raw=False,
@@ -415,7 +426,7 @@ def test_legacy_contained_failure_renders_once_exits_one_and_cleans_up(
 def test_legacy_contained_failure_raw_preserves_detail_and_exit_contract(
     monkeypatch, tmp_path, capsys
 ):
-    args, destroyed, _created_images, _created_labels = _patch_legacy_contained_self_test(
+    args, destroyed, _created_images, _created_labels, _created_offer_ids = _patch_legacy_contained_self_test(
         monkeypatch,
         tmp_path,
         raw=True,
@@ -438,7 +449,7 @@ def test_legacy_custom_test_image_override_reaches_instance_launch(
     monkeypatch, tmp_path, capsys
 ):
     candidate = "vastai/test@sha256:" + ("a" * 64)
-    args, destroyed, created_images, created_labels = _patch_legacy_contained_self_test(
+    args, destroyed, created_images, created_labels, _created_offer_ids = _patch_legacy_contained_self_test(
         monkeypatch,
         tmp_path,
         raw=True,
@@ -480,7 +491,7 @@ def test_legacy_environment_test_image_override_supports_old_namespace(
     monkeypatch, tmp_path, capsys
 ):
     candidate = "vastai/test@sha256:" + ("d" * 64)
-    args, destroyed, created_images, created_labels = _patch_legacy_contained_self_test(
+    args, destroyed, created_images, created_labels, _created_offer_ids = _patch_legacy_contained_self_test(
         monkeypatch,
         tmp_path,
         raw=True,
@@ -503,7 +514,7 @@ def test_legacy_environment_self_test_label_reaches_launch_and_exact_id_cleanup(
     monkeypatch, tmp_path, capsys
 ):
     label = "vast-self-test-pr458.41526-a1_b2"
-    args, destroyed, _created_images, created_labels = (
+    args, destroyed, _created_images, created_labels, _created_offer_ids = (
         _patch_legacy_contained_self_test(
             monkeypatch,
             tmp_path,
@@ -531,6 +542,143 @@ def test_legacy_environment_self_test_label_reaches_launch_and_exact_id_cleanup(
     assert destroyed == {123}
 
 
+def test_legacy_default_offer_selection_still_prefers_highest_dlperf(
+    monkeypatch, tmp_path, capsys
+):
+    args, destroyed, _images, _labels, created_offer_ids = (
+        _patch_legacy_contained_self_test(monkeypatch, tmp_path, raw=True)
+    )
+    monkeypatch.delenv("VAST_SELF_TEST_OFFER_ID", raising=False)
+    search = Mock(
+        return_value=[
+            {"id": 1001, "cuda_max_good": 12.8, "compute_cap": 800, "dlperf": 10},
+            {"id": 2002, "cuda_max_good": 12.8, "compute_cap": 800, "dlperf": 50},
+        ]
+    )
+    monkeypatch.setattr(vast, "search__offers", search)
+
+    with pytest.raises(SystemExit) as exc_info:
+        vast.self_test__machine(args)
+
+    result = json.loads(capsys.readouterr().out)
+    assert exc_info.value.code == 0
+    assert result["failure_code"] == "cuda_error_contained"
+    assert created_offer_ids == [2002]
+    assert search.call_count == 1
+    assert destroyed == {123}
+
+
+def test_legacy_valid_environment_offer_pin_overrides_dlperf_selection(
+    monkeypatch, tmp_path, capsys
+):
+    args, destroyed, _images, _labels, created_offer_ids = (
+        _patch_legacy_contained_self_test(monkeypatch, tmp_path, raw=True)
+    )
+    search = Mock(
+        return_value=[
+            {"id": "1001", "cuda_max_good": 12.8, "compute_cap": 800, "dlperf": 10},
+            {"id": 2002, "cuda_max_good": 12.8, "compute_cap": 800, "dlperf": 50},
+        ]
+    )
+    monkeypatch.setenv("VAST_SELF_TEST_OFFER_ID", "001001")
+    monkeypatch.setattr(vast, "search__offers", search)
+
+    with pytest.raises(SystemExit) as exc_info:
+        vast.self_test__machine(args)
+
+    result = json.loads(capsys.readouterr().out)
+    assert exc_info.value.code == 0
+    assert result["failure_code"] == "cuda_error_contained"
+    assert created_offer_ids == [1001]
+    assert search.call_count == 1
+    search_args = search.call_args.args[0]
+    assert search_args.query == [
+        "machine_id=42",
+        "verified=any",
+        "rentable=true",
+        "rented=any",
+    ]
+    assert search_args.type == "on-demand"
+    assert search_args.storage == 5.0
+    assert destroyed == {123}
+
+
+@pytest.mark.parametrize("invalid_offer_id", ["", "0", "-1", "+1", "1.5", "abc", " 1"])
+def test_legacy_invalid_environment_offer_pin_is_rejected_before_search(
+    monkeypatch, tmp_path, capsys, invalid_offer_id
+):
+    args, destroyed, _images, _labels, _created_offer_ids = (
+        _patch_legacy_contained_self_test(monkeypatch, tmp_path, raw=True)
+    )
+    search = Mock()
+    create = Mock()
+    monkeypatch.setenv("VAST_SELF_TEST_OFFER_ID", invalid_offer_id)
+    monkeypatch.setattr(vast, "search__offers", search)
+    monkeypatch.setattr(vast, "create__instance", create)
+
+    with pytest.raises(SystemExit) as exc_info:
+        vast.self_test__machine(args)
+
+    result = json.loads(capsys.readouterr().out)
+    assert exc_info.value.code == 0
+    assert result["success"] is False
+    assert result["stage"] == "validate_offer_id"
+    assert "VAST_SELF_TEST_OFFER_ID" in result["reason"]
+    search.assert_not_called()
+    create.assert_not_called()
+    assert destroyed == set()
+
+
+def test_legacy_absent_environment_offer_pin_fails_before_create(
+    monkeypatch, tmp_path, capsys
+):
+    args, destroyed, _images, _labels, _created_offer_ids = (
+        _patch_legacy_contained_self_test(monkeypatch, tmp_path, raw=True)
+    )
+    search = Mock(
+        return_value=[
+            {"id": 1001, "cuda_max_good": 12.8, "compute_cap": 800, "dlperf": 10},
+            {"id": 2002, "cuda_max_good": 12.8, "compute_cap": 800, "dlperf": 50},
+        ]
+    )
+    create = Mock()
+    monkeypatch.setenv("VAST_SELF_TEST_OFFER_ID", "3003")
+    monkeypatch.setattr(vast, "search__offers", search)
+    monkeypatch.setattr(vast, "create__instance", create)
+
+    with pytest.raises(SystemExit) as exc_info:
+        vast.self_test__machine(args)
+
+    result = json.loads(capsys.readouterr().out)
+    assert exc_info.value.code == 0
+    assert result["success"] is False
+    assert result["stage"] == "select_offer"
+    assert result["failure_code"] == "pinned_offer_not_available"
+    assert "Offer 3003" in result["reason"]
+    assert search.call_count == 1
+    create.assert_not_called()
+    assert destroyed == set()
+
+
+def test_legacy_invalid_environment_offer_pin_non_raw_exits_one(
+    monkeypatch, tmp_path, capsys
+):
+    args, destroyed, _images, _labels, _created_offer_ids = (
+        _patch_legacy_contained_self_test(monkeypatch, tmp_path, raw=False)
+    )
+    search = Mock()
+    monkeypatch.setenv("VAST_SELF_TEST_OFFER_ID", "not-an-id")
+    monkeypatch.setattr(vast, "search__offers", search)
+
+    with pytest.raises(SystemExit) as exc_info:
+        vast.self_test__machine(args)
+
+    assert exc_info.value.code == 1
+    assert "VAST_SELF_TEST_OFFER_ID must be a positive integer" in capsys.readouterr().out
+    search.assert_not_called()
+    assert destroyed == set()
+
+
 @pytest.mark.parametrize(
     "invalid_label",
     [
@@ -545,7 +693,7 @@ def test_legacy_environment_self_test_label_reaches_launch_and_exact_id_cleanup(
 def test_legacy_invalid_environment_self_test_label_is_rejected_before_search(
     monkeypatch, tmp_path, capsys, invalid_label
 ):
-    args, destroyed, _created_images, _created_labels = (
+    args, destroyed, _created_images, _created_labels, _created_offer_ids = (
         _patch_legacy_contained_self_test(
             monkeypatch,
             tmp_path,

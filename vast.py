@@ -8776,7 +8776,7 @@ def self_test__machine(args):
                 disk=40,  # Match the disk size from the working command
                 image=docker_image,
                 login=None,
-                label=None,
+                label=f"vast-self-test-machine-{args.machine_id}",
                 onstart=None,
                 onstart_cmd="/verification/remote.sh",
                 entrypoint=None,

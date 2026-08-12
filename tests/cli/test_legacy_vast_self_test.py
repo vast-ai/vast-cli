@@ -307,9 +307,11 @@ def _patch_legacy_contained_self_test(
     create_response.status_code = 200
     create_response._content = b'{"new_contract": 123}'
     created_images = []
+    created_labels = []
 
     def create_instance(create_args):
         created_images.append(create_args.image)
+        created_labels.append(create_args.label)
         return create_response
 
     monkeypatch.setattr(vast, "create__instance", create_instance)
@@ -362,13 +364,13 @@ def _patch_legacy_contained_self_test(
     )
     if test_image is not _MISSING:
         args.test_image = test_image
-    return args, destroyed, created_images
+    return args, destroyed, created_images, created_labels
 
 
 def test_legacy_contained_failure_renders_once_exits_one_and_cleans_up(
     monkeypatch, tmp_path, capsys
 ):
-    args, destroyed, _created_images = _patch_legacy_contained_self_test(
+    args, destroyed, _created_images, _created_labels = _patch_legacy_contained_self_test(
         monkeypatch,
         tmp_path,
         raw=False,
@@ -393,7 +395,7 @@ def test_legacy_contained_failure_renders_once_exits_one_and_cleans_up(
 def test_legacy_contained_failure_raw_preserves_detail_and_exit_contract(
     monkeypatch, tmp_path, capsys
 ):
-    args, destroyed, _created_images = _patch_legacy_contained_self_test(
+    args, destroyed, _created_images, _created_labels = _patch_legacy_contained_self_test(
         monkeypatch,
         tmp_path,
         raw=True,
@@ -416,7 +418,7 @@ def test_legacy_custom_test_image_override_reaches_instance_launch(
     monkeypatch, tmp_path, capsys
 ):
     candidate = "vastai/test@sha256:" + ("a" * 64)
-    args, destroyed, created_images = _patch_legacy_contained_self_test(
+    args, destroyed, created_images, created_labels = _patch_legacy_contained_self_test(
         monkeypatch,
         tmp_path,
         raw=True,
@@ -439,6 +441,7 @@ def test_legacy_custom_test_image_override_reaches_instance_launch(
     assert exc_info.value.code == 0
     assert result["failure_code"] == "cuda_error_contained"
     assert created_images == [candidate]
+    assert created_labels == ["vast-self-test-machine-42"]
     assert destroyed == {123}
 
 
@@ -457,7 +460,7 @@ def test_legacy_environment_test_image_override_supports_old_namespace(
     monkeypatch, tmp_path, capsys
 ):
     candidate = "vastai/test@sha256:" + ("d" * 64)
-    args, destroyed, created_images = _patch_legacy_contained_self_test(
+    args, destroyed, created_images, created_labels = _patch_legacy_contained_self_test(
         monkeypatch,
         tmp_path,
         raw=True,
@@ -472,4 +475,5 @@ def test_legacy_environment_test_image_override_supports_old_namespace(
     assert exc_info.value.code == 0
     assert result["failure_code"] == "cuda_error_contained"
     assert created_images == [candidate]
+    assert created_labels == ["vast-self-test-machine-42"]
     assert destroyed == {123}

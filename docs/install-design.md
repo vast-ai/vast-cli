@@ -8,6 +8,11 @@ curl -fsSL https://vast.ai/install.sh | bash
 testing. This splits the audience (CLI users vs. SDK users); it does not
 replace pip.
 
+> **Visual reference:** a diagrammed walkthrough of the install stages, the
+> on-disk layout, and the `vastai` symlink resolution chain (rc → env.sh →
+> `~/.local/bin/vastai` → `$ROOT/bin/vastai` → `current/`):
+> https://claude.ai/code/artifact/b0a89d3d-1808-48dc-b7bc-1952aa136ed2
+
 ## 1. Goals
 
 - Install the CLI with **no system Python, pip, or sudo** required. Fresh VMs

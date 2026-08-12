@@ -272,10 +272,13 @@ class TestFullCliHiddenCommands:
         args = cli_parser.parse_args(["add", "network-disk", "1", "/mnt/data"])
         assert callable(args.func)
 
-    def test_update_and_uninstall_are_hidden_from_help(self, cli_parser):
+    def test_update_is_visible_in_help(self, cli_parser):
         help_text = cli_parser.parser.format_help()
-        assert "\nupdate " not in help_text
-        assert "\nuninstall " not in help_text
+        assert "Update the CLI to the latest version" in help_text
+
+    def test_uninstall_is_hidden_from_help(self, cli_parser):
+        help_text = cli_parser.parser.format_help()
+        assert "uninstall" not in help_text
 
     def test_update_and_uninstall_still_parse_directly(self, cli_parser):
         assert callable(cli_parser.parse_args(["update", "--check"]).func)

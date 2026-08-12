@@ -261,6 +261,84 @@ def _run_self_test_until_create(parse_argv, monkeypatch, offer):
     return result, create
 
 
+CUDA_ERROR_CONTAINED_MARKER = (
+    "ERROR 2: Contained CUDA device fault in all-GPU ResNet18 "
+    "(possible peer-memory/NVLink access or hardware fault); not CUDA "
+    "out-of-memory/VRAM exhaustion. SELF_TEST_FAILURE[cuda_error_contained]: "
+    "Cause: AcceleratorError: CUDA error: Invalid access of peer GPU memory over "
+    "nvlink or a hardware error cudaErrorContained. Restart the failed "
+    "process/container; then check GPU topology and all-pairs CUDA P2P, "
+    "NVLink/NVSwitch, Fabric Manager/NVLSM, and Xid/ECC/driver logs."
+)
+
+
+def _patch_cuda_error_contained_runtime(monkeypatch):
+    offer = _self_test_offer(
+        gpu_name="A100 SXM4",
+        num_gpus=4,
+        gpu_ram=40,
+        gpu_total_ram=4 * 40 * 1024,
+        cpu_ram=160 * 1024,
+        cpu_cores=16,
+        inet_down=1000,
+        inet_up=1000,
+    )
+    running_instance = {
+        "id": 123,
+        "actual_status": "running",
+        "intended_status": "running",
+        "public_ipaddr": "127.0.0.1",
+        "ports": {"5000/tcp": [{"HostPort": "45000"}]},
+        "status_msg": "",
+    }
+    destroyed = set()
+
+    def show_instance(client, id):
+        if id in destroyed:
+            return {"id": id, "actual_status": "destroyed", "intended_status": "destroyed"}
+        return running_instance
+
+    def destroy_instance(client, id):
+        destroyed.add(id)
+        return {"success": True}
+
+    monkeypatch.setattr(
+        "vastai.cli.commands.machines.offers_api.search_offers",
+        Mock(return_value=[offer]),
+    )
+    monkeypatch.setattr(
+        "vastai.cli.commands.machines.instances_api.create_instance",
+        Mock(return_value={"new_contract": 123}),
+    )
+    monkeypatch.setattr(
+        "vastai.cli.commands.machines.instances_api.show_instance",
+        show_instance,
+    )
+    monkeypatch.setattr(
+        "vastai.cli.commands.machines.instances_api.destroy_instance",
+        destroy_instance,
+    )
+    monkeypatch.setattr("vastai.cli.commands.machines.time.sleep", lambda *_: None)
+    monkeypatch.setattr(
+        "vastai.cli.commands.machines.requests.get",
+        Mock(
+            return_value=SimpleNamespace(
+                status_code=200,
+                text="\n".join(
+                    (
+                        "Starting tests...",
+                        "Running system requirements test...",
+                        "TESTED : System requirements test passed.",
+                        "Running ResNet18 test on all GPUs...",
+                        CUDA_ERROR_CONTAINED_MARKER,
+                    )
+                ),
+            )
+        ),
+    )
+    return destroyed
+
+
 class TestSelfTestMachineDiagnostics:
     def test_no_offer_raw_returns_structured_failure(
         self, parse_argv, patch_get_client, monkeypatch, capsys
@@ -1485,6 +1563,47 @@ class TestSelfTestMachineDiagnostics:
         assert "- code: cuda_error_too_many_peers" in captured.out
         assert "Test failed with error:" not in captured.out
         assert "Done with testing remote.py" not in captured.out
+        assert "- underlying error:" not in captured.out
+        assert destroyed == {123}
+
+    def test_cuda_error_contained_marker_is_preserved_in_structured_result_and_cleans_up(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        destroyed = _patch_cuda_error_contained_runtime(monkeypatch)
+
+        args = parse_argv(["self-test", "machine", "42", "--raw", "--no-support-bundle"])
+        result = args.func(args)
+
+        diagnostic = result["diagnostics"]["runtime_failure"]
+        assert result["success"] is False
+        assert result["failure_code"] == "cuda_error_contained"
+        assert result["stage"] == "resnet"
+        assert result["reason"] == CUDA_ERROR_CONTAINED_MARKER
+        assert result["failure"] == diagnostic
+        assert diagnostic["error"] == CUDA_ERROR_CONTAINED_MARKER
+        assert diagnostic["underlying_error"] == CUDA_ERROR_CONTAINED_MARKER
+        assert "not CUDA out-of-memory or VRAM exhaustion" in diagnostic["summary"]
+        assert "tenant VRAM" in diagnostic["remediation"]
+        assert destroyed == {123}
+
+    def test_cuda_error_contained_marker_prints_once_exits_failure_and_cleans_up(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        destroyed = _patch_cuda_error_contained_runtime(monkeypatch)
+
+        args = parse_argv(["self-test", "machine", "42", "--no-support-bundle"])
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 1
+        assert captured.out.count(CUDA_ERROR_CONTAINED_MARKER) == 1
+        assert "- code: cuda_error_contained" in captured.out
+        assert "not CUDA out-of-memory or VRAM exhaustion" in captured.out
+        assert "tenant VRAM" in captured.out
+        assert "all-pairs P2P" in captured.out
+        assert "Fabric Manager/NVLSM" in captured.out
+        assert "Xid/ECC" in captured.out
         assert "- underlying error:" not in captured.out
         assert destroyed == {123}
 

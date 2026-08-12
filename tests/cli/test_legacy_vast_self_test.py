@@ -1,5 +1,9 @@
 from argparse import Namespace
+import json
+from types import SimpleNamespace
 from unittest.mock import Mock
+
+import pytest
 
 import vast
 
@@ -7,7 +11,21 @@ from vastai.cli.commands import machines
 from vastai.cli.self_test.machine_diagnostics import (
     SYSTEM_RAM_REQUIREMENT_CAP_MIB as PACKAGED_SYSTEM_RAM_REQUIREMENT_CAP_MIB,
 )
-from vastai.cli.self_test.runtime_diagnostics import status_message_is_error
+from vastai.cli.self_test.runtime_diagnostics import (
+    CUDA_ERROR_CONTAINED,
+    status_message_is_error,
+)
+
+
+CUDA_ERROR_CONTAINED_MARKER = (
+    "ERROR 2: Contained CUDA device fault in all-GPU ResNet18 "
+    "(possible peer-memory/NVLink access or hardware fault); not CUDA "
+    "out-of-memory/VRAM exhaustion. SELF_TEST_FAILURE[cuda_error_contained]: "
+    "Cause: AcceleratorError: CUDA error: Invalid access of peer GPU memory over "
+    "nvlink or a hardware error cudaErrorContained. Restart the failed "
+    "process/container; then check GPU topology and all-pairs CUDA P2P, "
+    "NVLink/NVSwitch, Fabric Manager/NVLSM, and Xid/ECC/driver logs."
+)
 
 
 def _args():
@@ -60,6 +78,7 @@ def test_legacy_self_test_contract_matches_packaged_cli():
         == "1.2.3"
     )
     assert vast.SELF_TEST_IMAGE_TAG_PREFIX == machines.SELF_TEST_IMAGE_TAG_PREFIX
+    assert vast.SELF_TEST_CUDA_ERROR_CONTAINED == CUDA_ERROR_CONTAINED
 
 
 def test_legacy_b300_mapping_uses_the_versioned_contract_image():
@@ -239,3 +258,142 @@ def test_legacy_terminal_status_fails_with_normal_build_text(monkeypatch):
     assert instance is False
     assert "actual=error" in reason
     destroy.assert_called_once()
+
+
+def test_legacy_runtime_classifier_handles_contained_marker_and_resnet_precedence():
+    diagnostic = vast.self_test_classify_runtime_failure(
+        CUDA_ERROR_CONTAINED_MARKER,
+        stage="system_requirements",
+    )
+
+    assert diagnostic["code"] == "cuda_error_contained"
+    assert diagnostic["stage"] == "resnet"
+    assert diagnostic["underlying_error"] == CUDA_ERROR_CONTAINED_MARKER
+    assert "not CUDA out-of-memory or VRAM exhaustion" in diagnostic["summary"]
+    assert "tenant VRAM" in diagnostic["remediation"]
+    steps = " ".join(diagnostic["suggested_steps"])
+    assert "all-pairs P2P" in steps
+    assert "Fabric Manager/NVLSM" in steps
+    assert "Xid/ECC" in steps
+
+    generic = vast.self_test_classify_runtime_failure(
+        "ERROR 2: ResNet failed after an otherwise unclassified hardware error",
+        stage="resnet",
+    )
+    assert generic["code"] == "resnet_failed"
+    assert generic["stage"] == "resnet"
+
+
+def _patch_legacy_contained_self_test(monkeypatch, tmp_path, *, raw):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(vast, "check_requirements", lambda *_: (True, []))
+    monkeypatch.setattr(
+        vast,
+        "search__offers",
+        lambda *_: [
+            {
+                "id": 777,
+                "cuda_max_good": 12.8,
+                "compute_cap": 800,
+                "dlperf": 1,
+            }
+        ],
+    )
+    create_response = vast.requests.Response()
+    create_response.status_code = 200
+    create_response._content = b'{"new_contract": 123}'
+    monkeypatch.setattr(vast, "create__instance", lambda *_: create_response)
+
+    instance = {
+        "id": 123,
+        "actual_status": "running",
+        "intended_status": "running",
+        "public_ipaddr": "127.0.0.1",
+        "ports": {"5000/tcp": [{"HostPort": "45000"}]},
+    }
+    monkeypatch.setattr(vast, "wait_for_instance", lambda *_: (instance, None))
+    destroyed = set()
+
+    def show_instance(_args):
+        return None if 123 in destroyed else instance
+
+    def destroy_instance(instance_id, _args):
+        destroyed.add(int(instance_id))
+        return {"success": True}
+
+    monkeypatch.setattr(vast, "show__instance", show_instance)
+    monkeypatch.setattr(vast, "destroy_instance_silent", destroy_instance)
+    monkeypatch.setattr(
+        vast.requests,
+        "get",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            status_code=200,
+            text="\n".join(
+                (
+                    "Starting tests...",
+                    "Running ResNet18 test on all GPUs...",
+                    CUDA_ERROR_CONTAINED_MARKER,
+                )
+            ),
+        ),
+    )
+    monkeypatch.setattr(vast.time, "sleep", lambda *_: None)
+
+    return Namespace(
+        machine_id="42",
+        debugging=False,
+        explain=False,
+        raw=raw,
+        retry=3,
+        url="https://example.invalid",
+        ignore_requirements=False,
+        api_key="test-api-key",
+        curl=False,
+    ), destroyed
+
+
+def test_legacy_contained_failure_renders_once_exits_one_and_cleans_up(
+    monkeypatch, tmp_path, capsys
+):
+    args, destroyed = _patch_legacy_contained_self_test(
+        monkeypatch,
+        tmp_path,
+        raw=False,
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        vast.self_test__machine(args)
+
+    output = capsys.readouterr().out
+    assert exc_info.value.code == 1
+    assert output.count(CUDA_ERROR_CONTAINED_MARKER) == 1
+    assert "- code: cuda_error_contained" in output
+    assert "not CUDA out-of-memory or VRAM exhaustion" in output
+    assert "tenant VRAM" in output
+    assert "all-pairs P2P" in output
+    assert "Fabric Manager/NVLSM" in output
+    assert "Xid/ECC" in output
+    assert "Test failed with error:" not in output
+    assert destroyed == {123}
+
+
+def test_legacy_contained_failure_raw_preserves_detail_and_exit_contract(
+    monkeypatch, tmp_path, capsys
+):
+    args, destroyed = _patch_legacy_contained_self_test(
+        monkeypatch,
+        tmp_path,
+        raw=True,
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        vast.self_test__machine(args)
+
+    result = json.loads(capsys.readouterr().out)
+    assert exc_info.value.code == 0
+    assert result["success"] is False
+    assert result["reason"] == CUDA_ERROR_CONTAINED_MARKER
+    assert result["failure_code"] == "cuda_error_contained"
+    assert result["stage"] == "resnet"
+    assert result["failure"]["underlying_error"] == CUDA_ERROR_CONTAINED_MARKER
+    assert destroyed == {123}

@@ -35,6 +35,7 @@ STRESS_GPU_BURN_FAILED = "stress_gpu_burn_failed"
 INTERRUPTED = "interrupted"
 CLEANUP_FAILED = "cleanup_failed"
 CUDA_ERROR_TOO_MANY_PEERS = "cuda_error_too_many_peers"
+CUDA_ERROR_CONTAINED = "cuda_error_contained"
 CUDA_OUT_OF_MEMORY = "cuda_out_of_memory"
 CUDA_DEVICE_UNAVAILABLE = "cuda_device_unavailable"
 CUDA_DRIVER_OR_INITIALIZATION_ERROR = "cuda_driver_or_initialization_error"
@@ -70,6 +71,7 @@ RUNTIME_FAILURE_CODES = (
     INTERRUPTED,
     CLEANUP_FAILED,
     CUDA_ERROR_TOO_MANY_PEERS,
+    CUDA_ERROR_CONTAINED,
     CUDA_OUT_OF_MEMORY,
     CUDA_DEVICE_UNAVAILABLE,
     CUDA_DRIVER_OR_INITIALIZATION_ERROR,
@@ -239,6 +241,30 @@ FAILURE_CATALOG: dict[str, FailureCatalogEntry] = {
             "Rerun self-test after changing the offered GPU grouping or topology.",
         ),
     ),
+    CUDA_ERROR_CONTAINED: FailureCatalogEntry(
+        CUDA_ERROR_CONTAINED,
+        (
+            "CUDA reported a contained device exception during the all-GPU ResNet test, "
+            "commonly caused by certain invalid peer-memory accesses over NVLink or "
+            "certain hardware errors; this is not CUDA out-of-memory or VRAM exhaustion."
+        ),
+        (
+            "Terminate and relaunch the failed process/container, then diagnose the peer "
+            "fabric and hardware; do not treat this as tenant VRAM exhaustion."
+        ),
+        (
+            "Terminate and relaunch the failed self-test process/container before retrying.",
+            (
+                "Inspect nvidia-smi topo -m and run all-pairs P2P access/bandwidth tests "
+                "for the advertised GPU group."
+            ),
+            "Check NVLink/NVSwitch health plus Fabric Manager/NVLSM status and logs.",
+            (
+                "Review NVIDIA Xid/ECC/driver logs, then repair or isolate the affected "
+                "GPU or fabric path."
+            ),
+        ),
+    ),
     CUDA_OUT_OF_MEMORY: FailureCatalogEntry(
         CUDA_OUT_OF_MEMORY,
         "CUDA memory was exhausted during the all-GPU ResNet test.",
@@ -336,6 +362,7 @@ _SELF_TEST_FAILURE_RE = re.compile(
 )
 _SELF_TEST_RESNET_FAILURE_CODES = (
     CUDA_ERROR_TOO_MANY_PEERS,
+    CUDA_ERROR_CONTAINED,
     CUDA_OUT_OF_MEMORY,
     CUDA_DEVICE_UNAVAILABLE,
     CUDA_DRIVER_OR_INITIALIZATION_ERROR,
@@ -353,6 +380,12 @@ _NVML_RE = re.compile(
     r"nvml|nvidia-smi|driver/library version mismatch|failed to initialize.*nvidia",
     re.IGNORECASE,
 )
+_CUDA_ERROR_CONTAINED_RE = re.compile(
+    r"cudaerrorcontained|"
+    r"invalid access (?:of|to) peer gpu memory(?: over nvlink)?|"
+    r"invalid peer(?:-gpu)?[- ]memory access(?: over nvlink)?",
+    re.IGNORECASE,
+)
 _RESNET_RE = re.compile(
     r"resnet|torch|pytorch|cuda out of memory|outofmemory|cudnn|cublas|cuda error|runtimeerror",
     re.IGNORECASE,
@@ -360,6 +393,11 @@ _RESNET_RE = re.compile(
 _ECC_RE = re.compile(r"\becc\b|volatile double bit|aggregate single bit", re.IGNORECASE)
 _NCCL_RE = re.compile(r"\bnccl\b|unhandled system error|connection timed out|allreduce|peer access", re.IGNORECASE)
 _STRESS_RE = re.compile(r"stress-ng|gpu-burn|xid|thermal|power limit|burn-in|hardware error", re.IGNORECASE)
+_EXPLICIT_STRESS_RE = re.compile(r"stress-ng|gpu-burn|burn-in", re.IGNORECASE)
+_EXPLICIT_RESNET_RE = re.compile(
+    r"\bresnet(?:18|50)?\b|\btorch\b|\bpytorch\b|\bcudnn\b|\bcublas\b",
+    re.IGNORECASE,
+)
 
 _DOCKER_PULL_RE = re.compile(
     r"pull|manifest|not found|unauthorized|denied|repository does not exist|no such image|"
@@ -520,15 +558,39 @@ def classify_legacy_error_line(line: str, stage: str | None = None) -> dict[str,
         stage = _SELF_TEST_FAILURE_STAGES.get(code, stage)
     else:
         code = LEGACY_PROGRESS_ERROR
-        if _NVML_RE.search(stripped):
+        if _CUDA_ERROR_CONTAINED_RE.search(stripped):
+            code = CUDA_ERROR_CONTAINED
+            stage = STAGE_RESNET
+        elif _NVML_RE.search(stripped):
             code = NVML_FAILED
-        elif _NCCL_RE.search(stripped) or lowered_stage == STAGE_NCCL:
+        # Explicit test names beat remembered progress state. The legacy
+        # endpoint can replace several stage lines between 20-second polls, so
+        # that state may be stale by the time its ERROR line arrives.
+        elif _NCCL_RE.search(stripped):
             code = NCCL_FAILED
-        elif _ECC_RE.search(stripped) or lowered_stage == STAGE_ECC:
+            stage = STAGE_NCCL
+        elif _ECC_RE.search(stripped):
             code = ECC_FAILED
-        elif _STRESS_RE.search(stripped) or lowered_stage == STAGE_STRESS_GPU_BURN:
+            stage = STAGE_ECC
+        elif _EXPLICIT_STRESS_RE.search(stripped):
             code = STRESS_GPU_BURN_FAILED
-        elif _RESNET_RE.search(stripped) or lowered_stage == STAGE_RESNET:
+            stage = STAGE_STRESS_GPU_BURN
+        elif _EXPLICIT_RESNET_RE.search(stripped):
+            code = RESNET_FAILED
+            stage = STAGE_RESNET
+        # Use remembered stage for ambiguous text (for example, bare
+        # "hardware error") before applying broad compatibility heuristics.
+        elif lowered_stage == STAGE_NCCL:
+            code = NCCL_FAILED
+        elif lowered_stage == STAGE_ECC:
+            code = ECC_FAILED
+        elif lowered_stage == STAGE_STRESS_GPU_BURN:
+            code = STRESS_GPU_BURN_FAILED
+        elif lowered_stage == STAGE_RESNET:
+            code = RESNET_FAILED
+        elif _STRESS_RE.search(stripped):
+            code = STRESS_GPU_BURN_FAILED
+        elif _RESNET_RE.search(stripped):
             code = RESNET_FAILED
 
     return make_failure(
@@ -627,6 +689,7 @@ __all__ = [
     "CUDA_DEVICE_EXECUTION_FAILED",
     "CUDA_DEVICE_UNAVAILABLE",
     "CUDA_DRIVER_OR_INITIALIZATION_ERROR",
+    "CUDA_ERROR_CONTAINED",
     "CUDA_ERROR_TOO_MANY_PEERS",
     "CUDA_KERNEL_INCOMPATIBLE",
     "CUDA_OUT_OF_MEMORY",

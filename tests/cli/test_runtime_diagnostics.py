@@ -3,12 +3,22 @@ import pytest
 from vastai.cli.self_test import runtime_diagnostics as diag
 
 
+CUDA_ERROR_CONTAINED_CODE = "cuda_error_contained"
+CUDA_ERROR_CONTAINED_TEXT = (
+    "torch.AcceleratorError: CUDA error: Invalid access of peer GPU memory "
+    "over nvlink or a hardware error (cudaErrorContained). Next: inspect "
+    "NVLink/NVSwitch, Fabric Manager/NVLSM, and Xid/ECC/driver logs"
+)
+
+
 def test_failure_catalog_contains_stable_runtime_codes():
     catalog = diag.failure_catalog()
 
     assert set(diag.RUNTIME_FAILURE_CODES) == set(catalog)
     assert catalog[diag.DOCKER_PULL_FAILED]["code"] == diag.DOCKER_PULL_FAILED
     assert catalog[diag.CUDA_ERROR_TOO_MANY_PEERS]["code"] == diag.CUDA_ERROR_TOO_MANY_PEERS
+    assert catalog[CUDA_ERROR_CONTAINED_CODE]["code"] == CUDA_ERROR_CONTAINED_CODE
+    assert diag.CUDA_ERROR_CONTAINED == CUDA_ERROR_CONTAINED_CODE
     assert catalog[diag.CLEANUP_FAILED]["suggested_steps"]
 
 
@@ -112,10 +122,36 @@ def test_legacy_parser_promotes_known_image_failure_marker_and_stage():
     assert "peer-mapping resources" in result["summary"]
 
 
+def test_legacy_parser_promotes_cuda_error_contained_marker_with_exact_detail():
+    parser = diag.LegacyProgressParser()
+    line = (
+        "ERROR 2: Test All GPU ResNet18 failed. "
+        f"SELF_TEST_FAILURE[{CUDA_ERROR_CONTAINED_CODE}]: "
+        f"{CUDA_ERROR_CONTAINED_TEXT}"
+    )
+
+    parser.process_line("Running ResNet18 test on all GPUs...")
+    result = parser.process_line(line)
+
+    assert result["code"] == CUDA_ERROR_CONTAINED_CODE
+    assert result["stage"] == diag.STAGE_RESNET
+    assert result["error"] == line
+    assert result["underlying_error"] == line
+    assert "NVLink" in result["summary"]
+    assert "not CUDA out-of-memory or VRAM exhaustion" in result["summary"]
+    assert "terminate" in result["remediation"].lower()
+    assert "relaunch" in result["remediation"].lower()
+    steps = " ".join(result["suggested_steps"])
+    assert "all-pairs P2P" in steps
+    assert "Fabric Manager/NVLSM" in steps
+    assert "Xid/ECC" in steps
+
+
 @pytest.mark.parametrize(
     "marker_code",
     [
         diag.CUDA_ERROR_TOO_MANY_PEERS,
+        CUDA_ERROR_CONTAINED_CODE,
         diag.CUDA_OUT_OF_MEMORY,
         diag.CUDA_DEVICE_UNAVAILABLE,
         diag.CUDA_DRIVER_OR_INITIALIZATION_ERROR,
@@ -195,6 +231,62 @@ def test_legacy_parser_classifies_resnet_torch_oom():
 
     assert result[0]["code"] == diag.RESNET_FAILED
     assert result[0]["stage"] == diag.STAGE_RESNET
+
+
+def test_legacy_parser_recognizes_unmarked_cuda_error_contained_signature():
+    parser = diag.LegacyProgressParser()
+    parser.process_line("Running ResNet18 test on all GPUs...")
+
+    result = parser.process_line(f"ERROR 2: ResNet failed. {CUDA_ERROR_CONTAINED_TEXT}")
+
+    assert result["code"] == CUDA_ERROR_CONTAINED_CODE
+    assert result["stage"] == diag.STAGE_RESNET
+    assert result["underlying_error"].endswith(CUDA_ERROR_CONTAINED_TEXT)
+
+
+def test_legacy_parser_active_resnet_stage_beats_broad_hardware_error_pattern():
+    parser = diag.LegacyProgressParser()
+    parser.process_line("Running ResNet18 test on all GPUs...")
+
+    result = parser.process_line(
+        "ERROR 2: ResNet failed after an otherwise unclassified hardware error"
+    )
+
+    assert result["code"] == diag.RESNET_FAILED
+    assert result["stage"] == diag.STAGE_RESNET
+
+
+@pytest.mark.parametrize(
+    ("line", "expected_code", "expected_stage"),
+    [
+        ("ERROR 4: NCCL distributed test failed.", diag.NCCL_FAILED, diag.STAGE_NCCL),
+        ("ERROR 3: ECC test failed.", diag.ECC_FAILED, diag.STAGE_ECC),
+        (
+            "ERROR 6: gpu-burn test failed with a hardware error.",
+            diag.STRESS_GPU_BURN_FAILED,
+            diag.STAGE_STRESS_GPU_BURN,
+        ),
+    ],
+)
+def test_legacy_parser_explicit_failure_beats_stale_resnet_stage(
+    line, expected_code, expected_stage
+):
+    result = diag.classify_legacy_error_line(line, stage=diag.STAGE_RESNET)
+
+    assert result["code"] == expected_code
+    assert result["stage"] == expected_stage
+
+
+def test_unmarked_cuda_error_contained_beats_overlapping_nvml_text():
+    line = (
+        "ERROR 2: cudaErrorContained after invalid access of peer GPU memory over "
+        "NVLink; secondary log text: driver/library version mismatch"
+    )
+
+    result = diag.classify_legacy_error_line(line, stage=diag.STAGE_RESNET)
+
+    assert result["code"] == CUDA_ERROR_CONTAINED_CODE
+    assert result["stage"] == diag.STAGE_RESNET
 
 
 def test_legacy_parser_classifies_ecc_error():

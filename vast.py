@@ -1344,6 +1344,72 @@ def get_ssh_key(argstr):
 SELF_TEST_MIN_CLI_VERSION = "1.2.3"
 SELF_TEST_CLI_CONTRACT_VERSION = SELF_TEST_MIN_CLI_VERSION
 SELF_TEST_IMAGE_TAG_PREFIX = f"self-test-cli-{SELF_TEST_MIN_CLI_VERSION}-cuda"
+SELF_TEST_CUDA_ERROR_CONTAINED = "cuda_error_contained"
+_SELF_TEST_FAILURE_MARKER_RE = re.compile(
+    r"\bSELF_TEST_FAILURE\[([a-z0-9_]+)\]",
+    re.IGNORECASE,
+)
+_SELF_TEST_CUDA_ERROR_CONTAINED_RE = re.compile(
+    r"cudaerrorcontained|"
+    r"invalid access (?:of|to) peer gpu memory(?: over nvlink)?|"
+    r"invalid peer(?:-gpu)?[- ]memory access(?: over nvlink)?",
+    re.IGNORECASE,
+)
+_SELF_TEST_RUNTIME_STAGE_PATTERNS = (
+    (
+        re.compile(
+            r"^\s*Running ResNet(?:50/ResNet18|18)(?: test(?: on all GPUs)?)?\.\.\.\s*$",
+            re.IGNORECASE,
+        ),
+        "resnet",
+    ),
+    (re.compile(r"^\s*Running ECC test(?: on all GPUs)?\.\.\.\s*$", re.IGNORECASE), "ecc"),
+    (
+        re.compile(
+            r"^\s*Running NCCL distributed test(?: with \d+ GPUs)?\.\.\.\s*$",
+            re.IGNORECASE,
+        ),
+        "nccl",
+    ),
+    (
+        re.compile(
+            r"^\s*Running stress-ng and gpu-burn(?: tests simultaneously for \d+ seconds)?\.\.\.\s*$",
+            re.IGNORECASE,
+        ),
+        "stress_gpu_burn",
+    ),
+)
+_SELF_TEST_STAGE_FAILURE_CODES = {
+    "resnet": "resnet_failed",
+    "ecc": "ecc_failed",
+    "nccl": "nccl_failed",
+    "stress_gpu_burn": "stress_gpu_burn_failed",
+}
+_SELF_TEST_CUDA_ERROR_CONTAINED_ENTRY = {
+    "code": SELF_TEST_CUDA_ERROR_CONTAINED,
+    "stage": "resnet",
+    "summary": (
+        "CUDA reported a contained device exception during the all-GPU ResNet test, "
+        "commonly caused by certain invalid peer-memory accesses over NVLink or certain "
+        "hardware errors; this is not CUDA out-of-memory or VRAM exhaustion."
+    ),
+    "remediation": (
+        "Terminate and relaunch the failed process/container, then diagnose the peer "
+        "fabric and hardware; do not treat this as tenant VRAM exhaustion."
+    ),
+    "suggested_steps": [
+        "Terminate and relaunch the failed self-test process/container before retrying.",
+        (
+            "Inspect nvidia-smi topo -m and run all-pairs P2P access/bandwidth tests for "
+            "the advertised GPU group."
+        ),
+        "Check NVLink/NVSwitch health plus Fabric Manager/NVLSM status and logs.",
+        (
+            "Review NVIDIA Xid/ECC/driver logs, then repair or isolate the affected GPU "
+            "or fabric path."
+        ),
+    ],
+}
 _SELF_TEST_STATUS_ERROR_LINE_RE = re.compile(
     r"^\s*(?:#\d+\s+(?:\d+(?:\.\d+)?\s+)?)?"
     r"(?:(?:errors?|failed|failures?|exceptions?|tracebacks?)(?=[:\s]|$)|"
@@ -1383,6 +1449,61 @@ def self_test_status_message_is_error(status_msg):
         and not _SELF_TEST_STATUS_RECOVERABLE_LINE_RE.search(line)
         for line in status_msg.splitlines()
     )
+
+
+def self_test_progress_stage(line):
+    """Return the runtime stage introduced by a legacy progress line."""
+    for pattern, stage in _SELF_TEST_RUNTIME_STAGE_PATTERNS:
+        if pattern.search(line):
+            return stage
+    return None
+
+
+def self_test_classify_runtime_failure(line, stage=None):
+    """Classify standalone self-test output while preserving the image detail."""
+    stripped = str(line or "").strip()
+    if not stripped:
+        return None
+
+    marker = _SELF_TEST_FAILURE_MARKER_RE.search(stripped)
+    marker_code = marker.group(1).lower() if marker else None
+    if (
+        marker_code == SELF_TEST_CUDA_ERROR_CONTAINED
+        or _SELF_TEST_CUDA_ERROR_CONTAINED_RE.search(stripped)
+    ):
+        diagnostic = deepcopy(_SELF_TEST_CUDA_ERROR_CONTAINED_ENTRY)
+        diagnostic["error"] = stripped
+        diagnostic["underlying_error"] = stripped
+        return diagnostic
+
+    normalized_stage = str(stage or "").lower()
+    code = _SELF_TEST_STAGE_FAILURE_CODES.get(normalized_stage)
+    if not code:
+        return None
+    return {
+        "code": code,
+        "stage": normalized_stage,
+        "summary": f"The {normalized_stage.replace('_', ' ')} runtime test failed.",
+        "remediation": "Inspect the original error and active test stage before retrying.",
+        "suggested_steps": ["Inspect the complete container log and host GPU health logs."],
+        "error": stripped,
+        "underlying_error": stripped,
+    }
+
+
+def self_test_render_runtime_failure(args, diagnostic):
+    """Render a standalone runtime diagnostic without repeating the raw error."""
+    progress_print(args, "Runtime failure diagnostics:")
+    progress_print(args, f"- code: {diagnostic.get('code')}")
+    if diagnostic.get("summary"):
+        progress_print(args, f"- summary: {diagnostic['summary']}")
+    if diagnostic.get("remediation"):
+        progress_print(args, f"- remediation: {diagnostic['remediation']}")
+    steps = diagnostic.get("suggested_steps") or []
+    if steps:
+        progress_print(args, "- suggested steps:")
+        for step in steps:
+            progress_print(args, f"  - {step}")
 
 
 def self_test_cuda_map_to_image(cuda_version, compute_cap=None):
@@ -8736,6 +8857,12 @@ def self_test__machine(args):
                             )
                             result["success"] = success
                             result["reason"] = reason
+                            if not success:
+                                diagnostic = self_test_classify_runtime_failure(reason)
+                                if diagnostic:
+                                    result["failure_code"] = diagnostic["code"]
+                                    result["stage"] = diagnostic["stage"]
+                                    result["failure"] = diagnostic
 
     except KeyboardInterrupt:
         result["success"] = False
@@ -8796,7 +8923,10 @@ def self_test__machine(args):
             print("Test completed successfully.")
             sys.exit(0)
         else:
-            print(f"Test failed: {result['reason']}")
+            if result.get("failure"):
+                print("Test failed.")
+            else:
+                print(f"Test failed: {result['reason']}")
             sys.exit(1)
 
 
@@ -9414,6 +9544,8 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
     printed_lines = set()
     first_connection_established = False  # Flag to track first successful connection
     instance_destroyed = False  # Track whether the instance has been destroyed
+    current_stage = None
+    runtime_diagnostic = None
     try:
         while time.time() - start_time < 600:
             # Check instance status with high priority for offline status
@@ -9453,6 +9585,9 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
                 lines = message.split('\n')
                 new_lines = [line for line in lines if line not in printed_lines]
                 for line in new_lines:
+                    reported_stage = self_test_progress_stage(line)
+                    if reported_stage:
+                        current_stage = reported_stage
                     if line == 'DONE':
                         progress_print(args, "Test completed successfully.")
                         with open("Pass_testresults.log", "a") as f:
@@ -9462,10 +9597,21 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
                         instance_destroyed = True
                         return True, ""
                     elif line.startswith('ERROR'):
+                        runtime_diagnostic = self_test_classify_runtime_failure(
+                            line,
+                            stage=current_stage,
+                        )
                         progress_print(args, line)
                         with open("Error_testresults.log", "a") as f:
                             f.write(f"{machine_id}:{instance_id} {line}\n")
-                        progress_print(args, f"Test failed with error: {line}.")
+                        if (
+                            runtime_diagnostic
+                            and runtime_diagnostic.get("code")
+                            == SELF_TEST_CUDA_ERROR_CONTAINED
+                        ):
+                            self_test_render_runtime_failure(args, runtime_diagnostic)
+                        else:
+                            progress_print(args, f"Test failed with error: {line}.")
                         destroy_instance_silent(instance_id, destroy_args)
                         instance_destroyed = True
                         return False, line
@@ -9525,7 +9671,13 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
         # Ensure instance cleanup
         if not instance_destroyed and instance_id and instance_exist(instance_id, api_key, destroy_args):
            destroy_instance_silent(instance_id, destroy_args)
-        progress_print(args, f"Machine: {machine_id} Done with testing remote.py results {message}")
+        if (
+            runtime_diagnostic
+            and runtime_diagnostic.get("code") == SELF_TEST_CUDA_ERROR_CONTAINED
+        ):
+            progress_print(args, f"Machine: {machine_id} Done with testing remote.py.")
+        else:
+            progress_print(args, f"Machine: {machine_id} Done with testing remote.py results {message}")
         warnings.simplefilter('default')
 
 # Keep the deprecated self-test aligned with the packaged CLI. Very large GPU

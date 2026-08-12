@@ -26,6 +26,7 @@ CUDA_ERROR_CONTAINED_MARKER = (
     "process/container; then check GPU topology and all-pairs CUDA P2P, "
     "NVLink/NVSwitch, Fabric Manager/NVLSM, and Xid/ECC/driver logs."
 )
+_MISSING = object()
 
 
 def _args():
@@ -284,8 +285,11 @@ def test_legacy_runtime_classifier_handles_contained_marker_and_resnet_precedenc
     assert generic["stage"] == "resnet"
 
 
-def _patch_legacy_contained_self_test(monkeypatch, tmp_path, *, raw):
+def _patch_legacy_contained_self_test(
+    monkeypatch, tmp_path, *, raw, test_image=_MISSING
+):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("VAST_SELF_TEST_IMAGE", raising=False)
     monkeypatch.setattr(vast, "check_requirements", lambda *_: (True, []))
     monkeypatch.setattr(
         vast,
@@ -302,7 +306,13 @@ def _patch_legacy_contained_self_test(monkeypatch, tmp_path, *, raw):
     create_response = vast.requests.Response()
     create_response.status_code = 200
     create_response._content = b'{"new_contract": 123}'
-    monkeypatch.setattr(vast, "create__instance", lambda *_: create_response)
+    created_images = []
+
+    def create_instance(create_args):
+        created_images.append(create_args.image)
+        return create_response
+
+    monkeypatch.setattr(vast, "create__instance", create_instance)
 
     instance = {
         "id": 123,
@@ -339,7 +349,7 @@ def _patch_legacy_contained_self_test(monkeypatch, tmp_path, *, raw):
     )
     monkeypatch.setattr(vast.time, "sleep", lambda *_: None)
 
-    return Namespace(
+    args = Namespace(
         machine_id="42",
         debugging=False,
         explain=False,
@@ -349,13 +359,16 @@ def _patch_legacy_contained_self_test(monkeypatch, tmp_path, *, raw):
         ignore_requirements=False,
         api_key="test-api-key",
         curl=False,
-    ), destroyed
+    )
+    if test_image is not _MISSING:
+        args.test_image = test_image
+    return args, destroyed, created_images
 
 
 def test_legacy_contained_failure_renders_once_exits_one_and_cleans_up(
     monkeypatch, tmp_path, capsys
 ):
-    args, destroyed = _patch_legacy_contained_self_test(
+    args, destroyed, _created_images = _patch_legacy_contained_self_test(
         monkeypatch,
         tmp_path,
         raw=False,
@@ -380,7 +393,7 @@ def test_legacy_contained_failure_renders_once_exits_one_and_cleans_up(
 def test_legacy_contained_failure_raw_preserves_detail_and_exit_contract(
     monkeypatch, tmp_path, capsys
 ):
-    args, destroyed = _patch_legacy_contained_self_test(
+    args, destroyed, _created_images = _patch_legacy_contained_self_test(
         monkeypatch,
         tmp_path,
         raw=True,
@@ -396,4 +409,67 @@ def test_legacy_contained_failure_raw_preserves_detail_and_exit_contract(
     assert result["failure_code"] == "cuda_error_contained"
     assert result["stage"] == "resnet"
     assert result["failure"]["underlying_error"] == CUDA_ERROR_CONTAINED_MARKER
+    assert destroyed == {123}
+
+
+def test_legacy_custom_test_image_override_reaches_instance_launch(
+    monkeypatch, tmp_path, capsys
+):
+    candidate = "vastai/test@sha256:" + ("a" * 64)
+    args, destroyed, created_images = _patch_legacy_contained_self_test(
+        monkeypatch,
+        tmp_path,
+        raw=True,
+        test_image=candidate,
+    )
+    monkeypatch.setenv(
+        "VAST_SELF_TEST_IMAGE",
+        "vastai/test@sha256:" + ("b" * 64),
+    )
+    monkeypatch.setattr(
+        vast,
+        "self_test_cuda_map_to_image",
+        lambda *_: (_ for _ in ()).throw(AssertionError("mapping should be bypassed")),
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        vast.self_test__machine(args)
+
+    result = json.loads(capsys.readouterr().out)
+    assert exc_info.value.code == 0
+    assert result["failure_code"] == "cuda_error_contained"
+    assert created_images == [candidate]
+    assert destroyed == {123}
+
+
+def test_legacy_parser_accepts_custom_test_image_option():
+    candidate = "vastai/test@sha256:" + ("c" * 64)
+
+    args = vast.parser.parse_args(
+        ["self-test", "machine", "42", "--test-image", candidate, "--raw"]
+    )
+
+    assert args.test_image == candidate
+    assert args.func is vast.self_test__machine
+
+
+def test_legacy_environment_test_image_override_supports_old_namespace(
+    monkeypatch, tmp_path, capsys
+):
+    candidate = "vastai/test@sha256:" + ("d" * 64)
+    args, destroyed, created_images = _patch_legacy_contained_self_test(
+        monkeypatch,
+        tmp_path,
+        raw=True,
+    )
+    assert not hasattr(args, "test_image")
+    monkeypatch.setenv("VAST_SELF_TEST_IMAGE", candidate)
+
+    with pytest.raises(SystemExit) as exc_info:
+        vast.self_test__machine(args)
+
+    result = json.loads(capsys.readouterr().out)
+    assert exc_info.value.code == 0
+    assert result["failure_code"] == "cuda_error_contained"
+    assert created_images == [candidate]
     assert destroyed == {123}

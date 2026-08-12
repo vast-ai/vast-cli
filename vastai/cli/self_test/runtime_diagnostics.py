@@ -14,6 +14,7 @@ from typing import Iterable
 
 INSTANCE_CREATE_FAILED = "instance_create_failed"
 INSTANCE_CREATE_MISSING_CONTRACT = "instance_create_missing_contract"
+INSTANCE_ID_HANDOFF_FAILED = "instance_id_handoff_failed"
 INSTANCE_STATUS_ERROR = "instance_status_error"
 INSTANCE_STATUS_POLL_FAILED = "instance_status_poll_failed"
 INSTANCE_START_TIMEOUT = "instance_start_timeout"
@@ -50,6 +51,7 @@ PROGRESS_CONTAINER_PORT = "5000/tcp"
 RUNTIME_FAILURE_CODES = (
     INSTANCE_CREATE_FAILED,
     INSTANCE_CREATE_MISSING_CONTRACT,
+    INSTANCE_ID_HANDOFF_FAILED,
     INSTANCE_STATUS_ERROR,
     INSTANCE_STATUS_POLL_FAILED,
     INSTANCE_START_TIMEOUT,
@@ -103,6 +105,15 @@ FAILURE_CATALOG: dict[str, FailureCatalogEntry] = {
         "Instance creation did not return a new contract id.",
         "Treat the create response as malformed or incomplete.",
         ("Inspect the raw create-instance response.", "Retry after confirming the offer is still rentable."),
+    ),
+    INSTANCE_ID_HANDOFF_FAILED: FailureCatalogEntry(
+        INSTANCE_ID_HANDOFF_FAILED,
+        "The instance was created, but the CLI could not durably publish its ID.",
+        "Verify the configured instance-ID handoff path is an absolute writable file path, then retry.",
+        (
+            "Confirm the CLI reported that cleanup destroyed the exact created instance.",
+            "Fix or remove VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE before retrying.",
+        ),
     ),
     INSTANCE_STATUS_ERROR: FailureCatalogEntry(
         INSTANCE_STATUS_ERROR,
@@ -701,6 +712,7 @@ __all__ = [
     "FailureCatalogEntry",
     "INSTANCE_CREATE_FAILED",
     "INSTANCE_CREATE_MISSING_CONTRACT",
+    "INSTANCE_ID_HANDOFF_FAILED",
     "INSTANCE_OFFLINE_BEFORE_TEST",
     "INSTANCE_START_TIMEOUT",
     "INSTANCE_STATUS_ERROR",

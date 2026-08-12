@@ -251,6 +251,7 @@ def _run_self_test_until_create(parse_argv, monkeypatch, offer):
     monkeypatch.delenv("VAST_SELF_TEST_IMAGE", raising=False)
     monkeypatch.delenv("VAST_SELF_TEST_LABEL", raising=False)
     monkeypatch.delenv("VAST_SELF_TEST_OFFER_ID", raising=False)
+    monkeypatch.delenv("VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE", raising=False)
     monkeypatch.setattr(
         "vastai.cli.commands.machines.offers_api.search_offers",
         Mock(return_value=[offer]),
@@ -275,6 +276,7 @@ CUDA_ERROR_CONTAINED_MARKER = (
 
 
 def _patch_cuda_error_contained_runtime(monkeypatch):
+    monkeypatch.delenv("VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE", raising=False)
     offer = _self_test_offer(
         gpu_name="A100 SXM4",
         num_gpus=4,
@@ -1048,6 +1050,250 @@ class TestSelfTestMachineDiagnostics:
         assert create.call_args.kwargs["label"] == label
         assert create.call_args.kwargs["price"] is None
         assert destroyed == {123}
+
+    def test_created_instance_id_handoff_is_published_before_status_polling(
+        self, parse_argv, patch_get_client, monkeypatch, tmp_path
+    ):
+        from vastai.cli.commands import machines
+
+        handoff_path = tmp_path / "created-instance-id"
+        handoff_path.touch(mode=0o600)
+        if machines.os.name == "posix":
+            handoff_path.chmod(0o600)
+        monkeypatch.setenv(
+            "VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE", str(handoff_path)
+        )
+        destroyed, _create = _patch_cuda_error_contained_runtime(monkeypatch)
+        # The setup intentionally clears opt-in environment state for isolation.
+        monkeypatch.setenv(
+            "VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE", str(handoff_path)
+        )
+        original_show = machines.instances_api.show_instance
+        handoff_contents_at_status = []
+
+        def show_after_handoff(*args, **kwargs):
+            handoff_contents_at_status.append(
+                handoff_path.read_bytes() if handoff_path.exists() else None
+            )
+            return original_show(*args, **kwargs)
+
+        monkeypatch.setattr(
+            machines.instances_api, "show_instance", show_after_handoff
+        )
+
+        args = parse_argv(
+            ["self-test", "machine", "42", "--raw", "--no-support-bundle"]
+        )
+        result = args.func(args)
+
+        assert result["failure_code"] == "cuda_error_contained"
+        assert handoff_contents_at_status
+        assert handoff_contents_at_status[0] == b"123\n"
+        assert handoff_path.read_bytes() == b"123\n"
+        if machines.os.name == "posix":
+            assert handoff_path.stat().st_mode & 0o777 == 0o600
+        assert destroyed == {123}
+
+    def test_created_instance_id_handoff_failure_is_typed_and_cleans_exact_id(
+        self, parse_argv, patch_get_client, monkeypatch, tmp_path
+    ):
+        from vastai.cli.commands import machines
+
+        handoff_path = tmp_path / "created-instance-id"
+        handoff_path.touch(mode=0o600)
+        if machines.os.name == "posix":
+            handoff_path.chmod(0o600)
+        destroyed, _create = _patch_cuda_error_contained_runtime(monkeypatch)
+        monkeypatch.setenv(
+            "VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE", str(handoff_path)
+        )
+        monkeypatch.setattr(
+            machines.os,
+            "replace",
+            Mock(side_effect=OSError("simulated durable replace failure")),
+        )
+        original_show = machines.instances_api.show_instance
+        show = Mock(side_effect=original_show)
+        monkeypatch.setattr(machines.instances_api, "show_instance", show)
+
+        args = parse_argv(
+            ["self-test", "machine", "42", "--raw", "--no-support-bundle"]
+        )
+        result = args.func(args)
+
+        assert result["success"] is False
+        assert result["failure_code"] == "instance_id_handoff_failed"
+        assert result["stage"] == "instance_id_handoff_failed"
+        assert result["failure"] == result["diagnostics"]["runtime_failure"]
+        assert "publish" in result["failure"]["summary"].lower()
+        assert machines.requests.get.call_count == 0
+        # The only status lookup belongs to finally cleanup; normal polling did not start.
+        assert show.call_count == 1
+        assert destroyed == {123}
+        assert handoff_path.read_bytes() == b""
+        assert list(tmp_path.glob(".created-instance-id.*.tmp")) == []
+
+    @pytest.mark.parametrize(
+        ("destroy_result", "cleanup_success"),
+        [
+            ({"success": True}, True),
+            ({"success": False, "msg": "simulated destroy refusal"}, False),
+        ],
+    )
+    def test_created_instance_id_handoff_cleanup_destroys_exact_id_after_status_lookup_error(
+        self,
+        parse_argv,
+        patch_get_client,
+        monkeypatch,
+        tmp_path,
+        destroy_result,
+        cleanup_success,
+    ):
+        from vastai.cli.commands import machines
+
+        handoff_path = tmp_path / "created-instance-id"
+        handoff_path.touch(mode=0o600)
+        if machines.os.name == "posix":
+            handoff_path.chmod(0o600)
+        _destroyed, _create = _patch_cuda_error_contained_runtime(monkeypatch)
+        monkeypatch.setenv(
+            "VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE", str(handoff_path)
+        )
+        monkeypatch.setattr(
+            machines.os,
+            "replace",
+            Mock(side_effect=OSError("simulated durable replace failure")),
+        )
+        show = Mock(side_effect=RuntimeError("simulated transient status failure"))
+        destroy = Mock(return_value=destroy_result)
+        monkeypatch.setattr(machines.instances_api, "show_instance", show)
+        monkeypatch.setattr(machines.instances_api, "destroy_instance", destroy)
+
+        args = parse_argv(
+            ["self-test", "machine", "42", "--raw", "--no-support-bundle"]
+        )
+        result = args.func(args)
+
+        assert result["failure_code"] == "instance_id_handoff_failed"
+        show.assert_called_once_with(patch_get_client, id=123)
+        destroy.assert_called_once_with(patch_get_client, id=123)
+        assert result["diagnostics"]["cleanup"]["instance_id"] == 123
+        assert result["diagnostics"]["cleanup"]["success"] is cleanup_success
+        if cleanup_success:
+            assert "error" not in result["diagnostics"]["cleanup"]
+        else:
+            assert "simulated destroy refusal" in result["diagnostics"]["cleanup"]["error"]
+
+    def test_created_instance_id_handoff_failure_non_raw_exits_one_and_cleans(
+        self, parse_argv, patch_get_client, monkeypatch, tmp_path
+    ):
+        handoff_path = tmp_path / "not-a-file"
+        handoff_path.mkdir()
+        destroyed, _create = _patch_cuda_error_contained_runtime(monkeypatch)
+        monkeypatch.setenv(
+            "VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE", str(handoff_path)
+        )
+
+        args = parse_argv(
+            ["self-test", "machine", "42", "--no-support-bundle"]
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        assert exc_info.value.code == 1
+        assert destroyed == {123}
+
+    def test_successful_runtime_with_destroy_refusal_is_typed_cleanup_failure(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        from vastai.cli.commands import machines
+
+        _destroyed, _create = _patch_cuda_error_contained_runtime(monkeypatch)
+        running_instance = {
+            "id": 123,
+            "actual_status": "running",
+            "intended_status": "running",
+            "public_ipaddr": "127.0.0.1",
+            "ports": {"5000/tcp": [{"HostPort": "45000"}]},
+            "status_msg": "",
+        }
+        monkeypatch.setattr(
+            machines.instances_api,
+            "show_instance",
+            Mock(return_value=running_instance),
+        )
+        monkeypatch.setattr(
+            machines.requests,
+            "get",
+            Mock(return_value=SimpleNamespace(status_code=200, text="DONE")),
+        )
+        destroy = Mock(
+            return_value={
+                "success": False,
+                "msg": "simulated destroy refusal",
+            }
+        )
+        monkeypatch.setattr(machines.instances_api, "destroy_instance", destroy)
+
+        args = parse_argv(
+            ["self-test", "machine", "42", "--no-support-bundle"]
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        output = capsys.readouterr().out
+        assert exc_info.value.code == 1
+        assert destroy.call_count >= 10
+        assert "Test completed successfully." not in output
+        assert "Test passed." not in output
+        assert "Exact created test instance 123 destroyed." not in output
+        assert "- code: cleanup_failed" in output
+        assert "Test failed." in output
+
+    @pytest.mark.parametrize(
+        "invalid_contract",
+        [None, 0, -1, True, 1.0, "+123", "-1", "not-an-id"],
+    )
+    def test_invalid_created_contract_does_not_publish_or_poll(
+        self,
+        parse_argv,
+        patch_get_client,
+        monkeypatch,
+        tmp_path,
+        invalid_contract,
+    ):
+        from vastai.cli.commands import machines
+
+        handoff_path = tmp_path / "created-instance-id"
+        monkeypatch.setenv(
+            "VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE", str(handoff_path)
+        )
+        monkeypatch.setattr(
+            machines.offers_api,
+            "search_offers",
+            Mock(return_value=[_self_test_offer()]),
+        )
+        monkeypatch.setattr(
+            machines.instances_api,
+            "create_instance",
+            Mock(return_value={"new_contract": invalid_contract}),
+        )
+        show = Mock()
+        destroy = Mock()
+        monkeypatch.setattr(machines.instances_api, "show_instance", show)
+        monkeypatch.setattr(machines.instances_api, "destroy_instance", destroy)
+
+        args = parse_argv(
+            ["self-test", "machine", "42", "--raw", "--no-support-bundle"]
+        )
+        result = args.func(args)
+
+        assert result["success"] is False
+        assert result["failure_code"] == "instance_create_missing_contract"
+        assert result["stage"] == "create_instance"
+        assert not handoff_path.exists()
+        show.assert_not_called()
+        destroy.assert_not_called()
 
     @pytest.mark.parametrize(
         "invalid_label",

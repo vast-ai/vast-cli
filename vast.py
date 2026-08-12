@@ -10,7 +10,10 @@ import re
 import json
 import sys
 import argparse
+import errno
 import os
+import stat
+import tempfile
 import time
 from typing import Dict, List, Tuple, Optional
 from datetime import date, datetime, timedelta, timezone
@@ -1347,10 +1350,13 @@ SELF_TEST_IMAGE_TAG_PREFIX = f"self-test-cli-{SELF_TEST_MIN_CLI_VERSION}-cuda"
 SELF_TEST_INSTANCE_LABEL_PREFIX = "vast-self-test-machine"
 SELF_TEST_INSTANCE_LABEL_OVERRIDE_ENV = "VAST_SELF_TEST_LABEL"
 SELF_TEST_OFFER_ID_OVERRIDE_ENV = "VAST_SELF_TEST_OFFER_ID"
+SELF_TEST_CREATED_INSTANCE_ID_FILE_ENV = "VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE"
 SELF_TEST_INSTANCE_LABEL_REQUIRED_PREFIX = "vast-self-test-"
 SELF_TEST_INSTANCE_LABEL_MAX_LENGTH = 64
 _SELF_TEST_INSTANCE_LABEL_RE = re.compile(r"vast-self-test-[A-Za-z0-9._-]+")
 SELF_TEST_CUDA_ERROR_CONTAINED = "cuda_error_contained"
+SELF_TEST_INSTANCE_ID_HANDOFF_FAILED = "instance_id_handoff_failed"
+SELF_TEST_CLEANUP_FAILED = "cleanup_failed"
 _SELF_TEST_FAILURE_MARKER_RE = re.compile(
     r"\bSELF_TEST_FAILURE\[([a-z0-9_]+)\]",
     re.IGNORECASE,
@@ -1489,6 +1495,235 @@ def resolve_self_test_offer_id():
     return offer_id
 
 
+def _normalize_self_test_created_instance_id(value):
+    """Return a strict positive instance ID from a create response."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, str) and re.fullmatch(r"[0-9]+", value):
+        try:
+            normalized = int(value)
+        except (ValueError, OverflowError):
+            return None
+        return normalized if normalized > 0 else None
+    return None
+
+
+def _read_existing_self_test_instance_id_handoff(path):
+    """Read an existing regular, non-symlink handoff target without following links."""
+    target_stat = os.lstat(path)
+    if not stat.S_ISREG(target_stat.st_mode):
+        raise ValueError("The configured instance-ID handoff target is not a regular file.")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags)
+    try:
+        opened_stat = os.fstat(fd)
+        if not stat.S_ISREG(opened_stat.st_mode):
+            raise ValueError("The configured instance-ID handoff target is not a regular file.")
+        chunks = []
+        remaining = 129
+        while remaining:
+            chunk = os.read(fd, remaining)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        return b"".join(chunks), opened_stat
+    finally:
+        os.close(fd)
+
+
+def _fsync_self_test_handoff_directory(directory):
+    """Fsync a containing directory on platforms that support directory fsync."""
+    if os.name != "posix":
+        return
+    fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        try:
+            os.fsync(fd)
+        except OSError as error:
+            unsupported = {
+                errno.EBADF,
+                errno.EINVAL,
+                getattr(errno, "ENOTSUP", errno.EINVAL),
+                getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+            }
+            if error.errno not in unsupported:
+                raise
+    finally:
+        os.close(fd)
+
+
+def _self_test_handoff_stat_is_private(existing_stat):
+    """Return whether a handoff file has the enforceable private-file contract."""
+    if os.name != "posix":
+        return True
+    return (
+        stat.S_IMODE(existing_stat.st_mode) == 0o600
+        and existing_stat.st_uid == os.geteuid()
+    )
+
+
+def _self_test_precreated_handoff_is_safe(existing):
+    """Allow only the harness's owner-owned, mode-0600 empty placeholder."""
+    existing_payload, existing_stat = existing
+    return existing_payload == b"" and _self_test_handoff_stat_is_private(
+        existing_stat
+    )
+
+
+def publish_self_test_created_instance_id(instance_id):
+    """Durably publish a created self-test instance ID for an external watchdog.
+
+    The caller is expected to place the target in a caller-owned private run
+    directory (the paid-test harness uses mode 0700). This keeps the final
+    recheck-and-replace interval out of reach of untrusted concurrent writers.
+    """
+    handoff_path = os.environ.get(SELF_TEST_CREATED_INSTANCE_ID_FILE_ENV)
+    if handoff_path is None:
+        return False
+    normalized = _normalize_self_test_created_instance_id(instance_id)
+    if normalized is None:
+        raise ValueError("The created instance ID must be a positive integer.")
+    if not handoff_path or not os.path.isabs(handoff_path):
+        raise ValueError(
+            f"{SELF_TEST_CREATED_INSTANCE_ID_FILE_ENV} must name an absolute file path."
+        )
+    directory = os.path.dirname(handoff_path)
+    basename = os.path.basename(handoff_path)
+    if not basename:
+        raise ValueError(
+            f"{SELF_TEST_CREATED_INSTANCE_ID_FILE_ENV} must name a file, not a directory."
+        )
+    try:
+        directory_stat = os.stat(directory)
+    except OSError:
+        raise ValueError("The instance-ID handoff parent directory is unavailable.") from None
+    if not stat.S_ISDIR(directory_stat.st_mode):
+        raise ValueError("The instance-ID handoff parent is not a directory.")
+
+    payload = f"{normalized}\n".encode("ascii")
+    try:
+        existing = _read_existing_self_test_instance_id_handoff(handoff_path)
+    except FileNotFoundError:
+        existing = None
+    if existing is not None:
+        existing_payload, existing_stat = existing
+        if existing_payload == payload:
+            if not _self_test_handoff_stat_is_private(existing_stat):
+                raise ValueError(
+                    "The matching instance-ID handoff target is not an owner-owned "
+                    "private mode-0600 file."
+                )
+            return True
+        if not _self_test_precreated_handoff_is_safe(
+            (existing_payload, existing_stat)
+        ):
+            raise ValueError(
+                "The instance-ID handoff target already contains a different or invalid value."
+            )
+
+    fd = None
+    temporary_path = None
+    try:
+        fd, temporary_path = tempfile.mkstemp(
+            prefix=f".{basename}.", suffix=".tmp", dir=directory
+        )
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "wb") as writer:
+            fd = None
+            writer.write(payload)
+            writer.flush()
+            os.fsync(writer.fileno())
+
+        try:
+            existing = _read_existing_self_test_instance_id_handoff(handoff_path)
+        except FileNotFoundError:
+            existing = None
+        if existing is not None:
+            existing_payload, existing_stat = existing
+            if existing_payload == payload:
+                if not _self_test_handoff_stat_is_private(existing_stat):
+                    raise ValueError(
+                        "The matching instance-ID handoff target is not an owner-owned "
+                        "private mode-0600 file."
+                    )
+                return True
+            if not _self_test_precreated_handoff_is_safe(
+                (existing_payload, existing_stat)
+            ):
+                raise ValueError(
+                    "The instance-ID handoff target appeared with a different or invalid value."
+                )
+
+        os.replace(temporary_path, handoff_path)
+        temporary_path = None
+        _fsync_self_test_handoff_directory(directory)
+        return True
+    finally:
+        if fd is not None:
+            os.close(fd)
+        if temporary_path is not None:
+            try:
+                os.unlink(temporary_path)
+            except FileNotFoundError:
+                pass
+
+
+def _self_test_instance_id_handoff_error(error):
+    """Format a handoff failure without exposing a configured filesystem path."""
+    if isinstance(error, OSError):
+        detail = error.strerror or "filesystem operation failed"
+    else:
+        detail = str(error)
+    return f"{type(error).__name__}: {detail}"
+
+
+def _self_test_destroy_result_error(response):
+    """Return a concise error unless a destroy response explicitly confirms success."""
+    payload = response
+    response_json = getattr(response, "json", None)
+    if callable(response_json):
+        try:
+            payload = response_json()
+        except Exception:
+            return "The destroy API response was not valid JSON."
+    if not isinstance(payload, dict):
+        return "The destroy API response did not confirm success."
+    if payload.get("success") is True:
+        return None
+    return str(
+        payload.get("msg")
+        or payload.get("error")
+        or "The destroy API returned success=false."
+    )
+
+
+def _self_test_cleanup_failure_diagnostic(error):
+    """Build the standalone CLI's typed cleanup-failure payload."""
+    detail = str(error)
+    return {
+        "code": SELF_TEST_CLEANUP_FAILED,
+        "stage": "cleanup",
+        "summary": "Runtime test cleanup failed.",
+        "error": detail,
+        "underlying_error": detail,
+        "remediation": (
+            "Destroy the temporary test instance manually to avoid continued billing."
+        ),
+        "suggested_steps": [
+            "Run destroy instance for the temporary contract.",
+            "Retry cleanup after checking API connectivity.",
+        ],
+    }
+
+
+class _SelfTestInstanceIdHandoffFailure(Exception):
+    """Internal control-flow signal after a typed, cleanup-safe handoff failure."""
+
+
 def self_test_status_message_is_error(status_msg):
     """Return whether a transitional self-test instance status is fatal."""
     if not isinstance(status_msg, str):
@@ -1521,6 +1756,8 @@ def self_test_classify_runtime_failure(line, stage=None):
 
     marker = _SELF_TEST_FAILURE_MARKER_RE.search(stripped)
     marker_code = marker.group(1).lower() if marker else None
+    if marker_code == SELF_TEST_CLEANUP_FAILED:
+        return _self_test_cleanup_failure_diagnostic(stripped)
     if (
         marker_code == SELF_TEST_CUDA_ERROR_CONTAINED
         or _SELF_TEST_CUDA_ERROR_CONTAINED_RE.search(stripped)
@@ -8714,6 +8951,29 @@ def self_test__machine(args):
     """
     instance_id = None  # Store instance ID for cleanup if needed
     result = {"success": False, "reason": ""}
+
+    def record_cleanup_failure(error):
+        """Attach typed cleanup evidence and fail an otherwise successful run."""
+        diagnostic = _self_test_cleanup_failure_diagnostic(error)
+        cleanup_state = result.setdefault("diagnostics", {}).setdefault(
+            "cleanup", {}
+        )
+        cleanup_state.update(
+            {
+                "instance_id": instance_id,
+                "success": False,
+                "failure": diagnostic,
+            }
+        )
+        result["diagnostics"]["cleanup_failure"] = diagnostic
+        if not result.get("failure_code"):
+            result["success"] = False
+            result["failure_code"] = SELF_TEST_CLEANUP_FAILED
+            result["stage"] = "cleanup"
+            result["failure"] = diagnostic
+            result["reason"] = diagnostic["summary"]
+        return str(error)
+
     ignore_requirements_warning = (
         "WARNING: --ignore-requirements is set. Requirement checks are skipped as a "
         "pass/fail gate, and passing this self-test does not qualify this machine for verification."
@@ -8911,8 +9171,6 @@ def self_test__machine(args):
                     if response.status_code == 200:
                         try:
                             instance_info = response.json()  # Parse JSON
-                            if args.debugging:
-                                debug_print(args, "Captured instance_info from create__instance:", instance_info)
                         except json.JSONDecodeError as e:
                             progress_print(args, f"Error parsing JSON response: {e}")
                             debug_print(args, f"Raw response content: {response.text}")
@@ -8929,11 +9187,53 @@ def self_test__machine(args):
                 return result  # Cleanup handled in finally block
 
             # Extract instance ID and proceed
-            instance_id = instance_info.get("new_contract")
-            if not instance_id:
+            instance_id = _normalize_self_test_created_instance_id(
+                instance_info.get("new_contract")
+            )
+            if instance_id is None:
                 progress_print(args, "Instance creation response did not contain 'new_contract'.")
                 result["reason"] = "Instance creation failed."
             else:
+                try:
+                    publish_self_test_created_instance_id(instance_id)
+                except Exception as e:
+                    error = _self_test_instance_id_handoff_error(e)
+                    summary = (
+                        "The instance was created, but the CLI could not durably publish "
+                        "its ID."
+                    )
+                    remediation = (
+                        "Verify VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE is an absolute "
+                        "writable file path, then retry only after confirming exact cleanup."
+                    )
+                    result["success"] = False
+                    result["failure_code"] = SELF_TEST_INSTANCE_ID_HANDOFF_FAILED
+                    result["stage"] = SELF_TEST_INSTANCE_ID_HANDOFF_FAILED
+                    result["failure"] = {
+                        "code": SELF_TEST_INSTANCE_ID_HANDOFF_FAILED,
+                        "stage": SELF_TEST_INSTANCE_ID_HANDOFF_FAILED,
+                        "summary": summary,
+                        "error": error,
+                        "underlying_error": error,
+                        "remediation": remediation,
+                        "suggested_steps": [
+                            "Confirm cleanup destroyed the exact created instance.",
+                            remediation,
+                        ],
+                    }
+                    result["reason"] = summary
+                    progress_print(
+                        args,
+                        f"SELF_TEST_FAILURE[{SELF_TEST_INSTANCE_ID_HANDOFF_FAILED}]: "
+                        f"{summary} Stopping before status polling so exact cleanup can run.",
+                    )
+                    raise _SelfTestInstanceIdHandoffFailure from None
+                if args.debugging:
+                    debug_print(
+                        args,
+                        "Captured instance_info from create__instance:",
+                        instance_info,
+                    )
                 # Wait for the instance to start
                 instance_info, wait_reason = wait_for_instance(instance_id, api_key, args, destroy_args)
                 if not instance_info:
@@ -8971,6 +9271,8 @@ def self_test__machine(args):
                                     result["stage"] = diagnostic["stage"]
                                     result["failure"] = diagnostic
 
+    except _SelfTestInstanceIdHandoffFailure:
+        pass
     except KeyboardInterrupt:
         result["success"] = False
         result["reason"] = "Interrupted by user (Ctrl+C)"
@@ -8985,39 +9287,134 @@ def self_test__machine(args):
         # typed except above and lands here. Surface failures loudly: a
         # silently-leaked instance keeps billing the host.
         if instance_id:
-            try:
-                show_args = argparse.Namespace(
-                    id=instance_id,
-                    api_key=api_key,
-                    url=args.url,
-                    retry=args.retry,
-                    explain=False,
-                    raw=True,
-                    debugging=args.debugging,
-                    internal=True,
-                )
-                info = show__instance(show_args)
-                if not info:
-                    debug_print(args, f"Test instance {instance_id} is already gone.")
-                else:
-                    status = info.get('intended_status') or info.get('actual_status')
-                    if status not in ('destroyed', 'terminated', 'offline'):
-                        progress_print(args, f"Destroying test instance {instance_id} (status: {status})...")
-                        destroy_instance_silent(instance_id, destroy_args)
-                        progress_print(args, f"Test instance {instance_id} destroyed.")
-            except KeyboardInterrupt:
-                progress_print(
-                    args,
-                    f"\nSecond interrupt during cleanup — instance {instance_id} may still be running.\n"
-                    f"  Destroy it manually: vastai destroy instance {instance_id}"
-                )
-                raise
-            except Exception as e:
-                progress_print(
-                    args,
-                    f"WARNING: failed to destroy test instance {instance_id}: {e}\n"
-                    f"  Destroy it manually: vastai destroy instance {instance_id}"
-                )
+            show_args = argparse.Namespace(
+                id=instance_id,
+                api_key=api_key,
+                url=args.url,
+                retry=args.retry,
+                explain=False,
+                raw=True,
+                debugging=args.debugging,
+                internal=True,
+            )
+            handoff_cleanup = (
+                result.get("failure_code")
+                == SELF_TEST_INSTANCE_ID_HANDOFF_FAILED
+            )
+            if handoff_cleanup:
+                cleanup = {
+                    "instance_id": instance_id,
+                    "strategy": "exact_id_after_handoff_failure",
+                    "success": False,
+                }
+                result.setdefault("diagnostics", {})["cleanup"] = cleanup
+                confirmed_gone = False
+                try:
+                    info = show__instance(show_args)
+                    cleanup["status_lookup"] = "found" if info else "empty"
+                    if info:
+                        cleanup["status"] = (
+                            info.get("intended_status") or info.get("actual_status")
+                        )
+                except KeyboardInterrupt:
+                    progress_print(
+                        args,
+                        f"\nSecond interrupt during cleanup — instance {instance_id} may still be running.\n"
+                        f"  Destroy it manually: vastai destroy instance {instance_id}"
+                    )
+                    raise
+                except requests.exceptions.HTTPError as e:
+                    if e.response is not None and e.response.status_code == 404:
+                        confirmed_gone = True
+                        cleanup.update(
+                            {"success": True, "status_lookup": "not_found"}
+                        )
+                        debug_print(
+                            args,
+                            f"Test instance {instance_id} already gone during exact cleanup.",
+                        )
+                    else:
+                        cleanup["status_lookup"] = "error"
+                        progress_print(
+                            args,
+                            "WARNING: could not look up the exact created test instance "
+                            f"{instance_id}; attempting direct destruction anyway.",
+                        )
+                except Exception:
+                    cleanup["status_lookup"] = "error"
+                    progress_print(
+                        args,
+                        "WARNING: could not look up the exact created test instance "
+                        f"{instance_id}; attempting direct destruction anyway.",
+                    )
+
+                if not confirmed_gone:
+                    try:
+                        progress_print(
+                            args,
+                            "Destroying exact created test instance "
+                            f"{instance_id} after instance-ID handoff failure...",
+                        )
+                        destroy_result = destroy_instance_silent(
+                            instance_id, destroy_args
+                        )
+                        destroy_error = _self_test_destroy_result_error(
+                            destroy_result
+                        )
+                        if destroy_error:
+                            raise RuntimeError(destroy_error)
+                        cleanup["success"] = True
+                        progress_print(
+                            args,
+                            f"Exact created test instance {instance_id} destroyed.",
+                        )
+                    except KeyboardInterrupt:
+                        progress_print(
+                            args,
+                            f"\nSecond interrupt during cleanup — instance {instance_id} may still be running.\n"
+                            f"  Destroy it manually: vastai destroy instance {instance_id}"
+                        )
+                        raise
+                    except Exception as e:
+                        cleanup["error"] = record_cleanup_failure(e)
+                        progress_print(
+                            args,
+                            "WARNING: failed to destroy exact created test instance "
+                            f"{instance_id}: {cleanup['error']}\n"
+                            f"  Destroy it manually: vastai destroy instance {instance_id}",
+                        )
+            else:
+                try:
+                    info = show__instance(show_args)
+                    if not info:
+                        debug_print(args, f"Test instance {instance_id} is already gone.")
+                    else:
+                        status = info.get('intended_status') or info.get('actual_status')
+                        if status not in ('destroyed', 'terminated', 'offline'):
+                            progress_print(args, f"Destroying test instance {instance_id} (status: {status})...")
+                            destroy_result = destroy_instance_silent(
+                                instance_id, destroy_args
+                            )
+                            destroy_error = _self_test_destroy_result_error(
+                                destroy_result
+                            )
+                            if destroy_error:
+                                raise RuntimeError(destroy_error)
+                            progress_print(args, f"Test instance {instance_id} destroyed.")
+                except KeyboardInterrupt:
+                    progress_print(
+                        args,
+                        f"\nSecond interrupt during cleanup — instance {instance_id} may still be running.\n"
+                        f"  Destroy it manually: vastai destroy instance {instance_id}"
+                    )
+                    raise
+                except Exception as e:
+                    error = record_cleanup_failure(e)
+                    progress_print(
+                        args,
+                        f"WARNING: failed to destroy test instance {instance_id}: {error}\n"
+                        f"  Destroy it manually: vastai destroy instance {instance_id}"
+                    )
 
     # Output results
     if args.raw:
@@ -9031,6 +9428,14 @@ def self_test__machine(args):
             sys.exit(0)
         else:
             if result.get("failure"):
+                if (
+                    result.get("failure_code")
+                    in (
+                        SELF_TEST_INSTANCE_ID_HANDOFF_FAILED,
+                        SELF_TEST_CLEANUP_FAILED,
+                    )
+                ):
+                    self_test_render_runtime_failure(args, result["failure"])
                 print("Test failed.")
             else:
                 print(f"Test failed: {result['reason']}")
@@ -9455,23 +9860,39 @@ def destroy_instance_silent(id, args):
         dict: A dictionary with a success status and error message, if any.
     """
     max_retries = 10
+    destroy_args = argparse.Namespace(**vars(args))
+    # Always request the response object so an HTTP-200 body with
+    # ``success: false`` cannot be mistaken for a successful cleanup.
+    destroy_args.raw = True
     for attempt in range(1, max_retries + 1):
         try:
             # Suppress output if args.raw is True
             if args.raw:
                 with open(os.devnull, 'w') as devnull, redirect_stdout(devnull), redirect_stderr(devnull):
-                    destroy_instance(id, args)
+                    response = destroy_instance(id, destroy_args)
             else:
-                destroy_instance(id, args)
+                response = destroy_instance(id, destroy_args)
+
+            response_error = _self_test_destroy_result_error(response)
+            if response_error:
+                raise RuntimeError(response_error)
 
             # If successful, exit the loop and return success
             if not args.raw:
                 print(f"Instance {id} destroyed successfully on attempt {attempt}.")
             return {"success": True}
 
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 404:
+                if not args.raw:
+                    print(f"Instance {id} is already gone.")
+                return {"success": True, "already_gone": True}
+            error = str(e)
         except Exception as e:
-            if not args.raw:
-                print(f"Error destroying instance {id}: {e}")
+            error = str(e)
+
+        if not args.raw:
+            print(f"Error destroying instance {id}: {error}")
 
         # Wait before retrying if the attempt failed
         if attempt < max_retries:
@@ -9481,7 +9902,10 @@ def destroy_instance_silent(id, args):
         else:
             if not args.raw:
                 print(f"Failed to destroy instance {id} after {max_retries} attempts.")
-            return {"success": False, "error": "Max retries exceeded"}
+            return {
+                "success": False,
+                "error": f"Max retries exceeded: {error}",
+            }
 
 
 def progress_print(args, *args_to_print):
@@ -9696,12 +10120,25 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
                     if reported_stage:
                         current_stage = reported_stage
                     if line == 'DONE':
+                        cleanup_result = destroy_instance_silent(
+                            instance_id, destroy_args
+                        )
+                        cleanup_error = _self_test_destroy_result_error(
+                            cleanup_result
+                        )
+                        if cleanup_error:
+                            reason = (
+                                f"SELF_TEST_FAILURE[{SELF_TEST_CLEANUP_FAILED}]: "
+                                "Runtime checks passed, but exact test-instance "
+                                f"cleanup failed: {cleanup_error}"
+                            )
+                            progress_print(args, reason)
+                            return False, reason
+                        instance_destroyed = True
                         progress_print(args, "Test completed successfully.")
                         with open("Pass_testresults.log", "a") as f:
                             f.write(f"{machine_id}\n")
                         progress_print(args, f"Test passed.")
-                        destroy_instance_silent(instance_id, destroy_args)
-                        instance_destroyed = True
                         return True, ""
                     elif line.startswith('ERROR'):
                         runtime_diagnostic = self_test_classify_runtime_failure(

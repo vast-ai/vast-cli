@@ -1,4 +1,5 @@
 from argparse import Namespace
+import inspect
 import json
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -12,6 +13,7 @@ from vastai.cli.self_test.machine_diagnostics import (
     SYSTEM_RAM_REQUIREMENT_CAP_MIB as PACKAGED_SYSTEM_RAM_REQUIREMENT_CAP_MIB,
 )
 from vastai.cli.self_test.runtime_diagnostics import (
+    CLEANUP_FAILED,
     CUDA_ERROR_CONTAINED,
     status_message_is_error,
 )
@@ -100,10 +102,17 @@ def test_legacy_self_test_contract_matches_packaged_cli(monkeypatch):
         == max_length_label
     )
     assert vast.SELF_TEST_CUDA_ERROR_CONTAINED == CUDA_ERROR_CONTAINED
+    assert vast.SELF_TEST_CLEANUP_FAILED == CLEANUP_FAILED == "cleanup_failed"
+    assert vast.SELF_TEST_INSTANCE_ID_HANDOFF_FAILED == "instance_id_handoff_failed"
     assert (
         vast.SELF_TEST_OFFER_ID_OVERRIDE_ENV
         == machines.SELF_TEST_OFFER_ID_OVERRIDE_ENV
         == "VAST_SELF_TEST_OFFER_ID"
+    )
+    assert (
+        vast.SELF_TEST_CREATED_INSTANCE_ID_FILE_ENV
+        == machines.SELF_TEST_CREATED_INSTANCE_ID_FILE_ENV
+        == "VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE"
     )
     assert vast.resolve_self_test_offer_id() is None
     assert machines.resolve_self_test_offer_id() is None
@@ -319,6 +328,7 @@ def _patch_legacy_contained_self_test(
     monkeypatch.delenv("VAST_SELF_TEST_IMAGE", raising=False)
     monkeypatch.delenv("VAST_SELF_TEST_LABEL", raising=False)
     monkeypatch.delenv("VAST_SELF_TEST_OFFER_ID", raising=False)
+    monkeypatch.delenv("VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE", raising=False)
     monkeypatch.setattr(vast, "check_requirements", lambda *_: (True, []))
     monkeypatch.setattr(
         vast,
@@ -540,6 +550,428 @@ def test_legacy_environment_self_test_label_reaches_launch_and_exact_id_cleanup(
     assert created_labels == [label]
     assert created_bid_prices == [None]
     assert destroyed == {123}
+
+
+def test_legacy_created_instance_id_handoff_precedes_wait_and_is_mode_0600(
+    monkeypatch, tmp_path, capsys
+):
+    args, destroyed, _images, _labels, _offer_ids = (
+        _patch_legacy_contained_self_test(monkeypatch, tmp_path, raw=True)
+    )
+    handoff_path = tmp_path / "created-instance-id"
+    handoff_path.touch(mode=0o600)
+    if vast.os.name == "posix":
+        handoff_path.chmod(0o600)
+    monkeypatch.setenv(
+        "VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE", str(handoff_path)
+    )
+    instance = {
+        "id": 123,
+        "actual_status": "running",
+        "intended_status": "running",
+        "public_ipaddr": "127.0.0.1",
+        "ports": {"5000/tcp": [{"HostPort": "45000"}]},
+    }
+
+    def wait_after_handoff(*_args, **_kwargs):
+        assert handoff_path.read_bytes() == b"123\n"
+        return instance, None
+
+    monkeypatch.setattr(vast, "wait_for_instance", wait_after_handoff)
+
+    with pytest.raises(SystemExit) as exc_info:
+        vast.self_test__machine(args)
+
+    result = json.loads(capsys.readouterr().out)
+    assert exc_info.value.code == 0
+    assert result["failure_code"] == "cuda_error_contained"
+    assert handoff_path.read_bytes() == b"123\n"
+    if vast.os.name == "posix":
+        assert handoff_path.stat().st_mode & 0o777 == 0o600
+    assert destroyed == {123}
+
+
+def test_legacy_created_instance_handoff_failure_is_typed_and_cleans_exact_id(
+    monkeypatch, tmp_path, capsys
+):
+    args, destroyed, _images, _labels, _offer_ids = (
+        _patch_legacy_contained_self_test(monkeypatch, tmp_path, raw=True)
+    )
+    handoff_path = tmp_path / "created-instance-id"
+    handoff_path.touch(mode=0o600)
+    if vast.os.name == "posix":
+        handoff_path.chmod(0o600)
+    monkeypatch.setenv(
+        "VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE", str(handoff_path)
+    )
+    monkeypatch.setattr(
+        vast.os,
+        "replace",
+        Mock(side_effect=OSError("simulated durable replace failure")),
+    )
+    wait = Mock()
+    monkeypatch.setattr(vast, "wait_for_instance", wait)
+
+    with pytest.raises(SystemExit) as exc_info:
+        vast.self_test__machine(args)
+
+    result = json.loads(capsys.readouterr().out)
+    assert exc_info.value.code == 0
+    assert result["success"] is False
+    assert result["failure_code"] == "instance_id_handoff_failed"
+    assert result["stage"] == "instance_id_handoff_failed"
+    assert "publish" in result["failure"]["summary"].lower()
+    wait.assert_not_called()
+    assert destroyed == {123}
+    assert handoff_path.read_bytes() == b""
+    assert list(tmp_path.glob(".created-instance-id.*.tmp")) == []
+
+
+@pytest.mark.parametrize(
+    ("destroy_payload", "cleanup_success", "expected_attempts"),
+    [
+        ({"success": True}, True, 1),
+        ({"success": False, "msg": "simulated destroy refusal"}, False, 10),
+    ],
+)
+def test_legacy_created_instance_handoff_cleanup_destroys_exact_id_after_status_lookup_error(
+    monkeypatch,
+    tmp_path,
+    capsys,
+    destroy_payload,
+    cleanup_success,
+    expected_attempts,
+):
+    actual_destroy_silent = vast.destroy_instance_silent
+    args, _destroyed, _images, _labels, _offer_ids = (
+        _patch_legacy_contained_self_test(monkeypatch, tmp_path, raw=True)
+    )
+    handoff_path = tmp_path / "created-instance-id"
+    handoff_path.touch(mode=0o600)
+    if vast.os.name == "posix":
+        handoff_path.chmod(0o600)
+    monkeypatch.setenv(
+        "VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE", str(handoff_path)
+    )
+    monkeypatch.setattr(
+        vast.os,
+        "replace",
+        Mock(side_effect=OSError("simulated durable replace failure")),
+    )
+    show = Mock(side_effect=RuntimeError("simulated transient status failure"))
+    response = Mock()
+    response.json.return_value = destroy_payload
+    destroy = Mock(return_value=response)
+    monkeypatch.setattr(vast, "show__instance", show)
+    monkeypatch.setattr(vast, "destroy_instance", destroy)
+    monkeypatch.setattr(vast, "destroy_instance_silent", actual_destroy_silent)
+
+    with pytest.raises(SystemExit) as exc_info:
+        vast.self_test__machine(args)
+
+    result = json.loads(capsys.readouterr().out)
+    assert exc_info.value.code == 0
+    assert result["failure_code"] == "instance_id_handoff_failed"
+    assert show.call_count == 1
+    assert destroy.call_count == expected_attempts
+    assert all(call.args[0] == 123 for call in destroy.call_args_list)
+    assert result["diagnostics"]["cleanup"]["instance_id"] == 123
+    assert result["diagnostics"]["cleanup"]["success"] is cleanup_success
+    if cleanup_success:
+        assert "error" not in result["diagnostics"]["cleanup"]
+    else:
+        assert "simulated destroy refusal" in result["diagnostics"]["cleanup"]["error"]
+
+
+def test_legacy_created_instance_handoff_failure_non_raw_exits_one_and_cleans(
+    monkeypatch, tmp_path, capsys
+):
+    args, destroyed, _images, _labels, _offer_ids = (
+        _patch_legacy_contained_self_test(monkeypatch, tmp_path, raw=False)
+    )
+    handoff_path = tmp_path / "not-a-file"
+    handoff_path.mkdir()
+    monkeypatch.setenv(
+        "VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE", str(handoff_path)
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        vast.self_test__machine(args)
+
+    assert exc_info.value.code == 1
+    assert "instance_id_handoff_failed" in capsys.readouterr().out
+    assert destroyed == {123}
+
+
+@pytest.mark.parametrize(
+    "invalid_contract",
+    [None, 0, -1, True, 1.0, "+123", "-1", "not-an-id"],
+)
+def test_legacy_invalid_created_contract_does_not_publish_wait_or_cleanup(
+    monkeypatch, tmp_path, capsys, invalid_contract
+):
+    args, destroyed, _images, _labels, _offer_ids = (
+        _patch_legacy_contained_self_test(monkeypatch, tmp_path, raw=True)
+    )
+    handoff_path = tmp_path / "created-instance-id"
+    monkeypatch.setenv(
+        "VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE", str(handoff_path)
+    )
+    create_response = vast.requests.Response()
+    create_response.status_code = 200
+    create_response._content = json.dumps(
+        {"new_contract": invalid_contract}
+    ).encode("utf-8")
+    monkeypatch.setattr(vast, "create__instance", Mock(return_value=create_response))
+    wait = Mock()
+    show = Mock()
+    destroy = Mock()
+    monkeypatch.setattr(vast, "wait_for_instance", wait)
+    monkeypatch.setattr(vast, "show__instance", show)
+    monkeypatch.setattr(vast, "destroy_instance_silent", destroy)
+
+    with pytest.raises(SystemExit) as exc_info:
+        vast.self_test__machine(args)
+
+    result = json.loads(capsys.readouterr().out)
+    assert exc_info.value.code == 0
+    assert result["success"] is False
+    assert result["reason"] == "Instance creation failed."
+    assert not handoff_path.exists()
+    wait.assert_not_called()
+    show.assert_not_called()
+    destroy.assert_not_called()
+    assert destroyed == set()
+
+
+@pytest.mark.parametrize(
+    "publisher",
+    [
+        machines.publish_self_test_created_instance_id,
+        vast.publish_self_test_created_instance_id,
+    ],
+    ids=["packaged", "standalone"],
+)
+def test_created_instance_handoff_is_opt_in(monkeypatch, tmp_path, publisher):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE", raising=False)
+
+    assert publisher(123) is False
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "publisher",
+    [
+        machines.publish_self_test_created_instance_id,
+        vast.publish_self_test_created_instance_id,
+    ],
+    ids=["packaged", "standalone"],
+)
+def test_created_instance_handoff_is_canonical_and_same_id_idempotent(
+    monkeypatch, tmp_path, publisher
+):
+    handoff_path = tmp_path / "created-instance-id"
+    monkeypatch.setenv(
+        "VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE", str(handoff_path)
+    )
+
+    assert publisher("00123") is True
+    first_stat = handoff_path.stat()
+    assert handoff_path.read_bytes() == b"123\n"
+    if vast.os.name == "posix":
+        assert first_stat.st_mode & 0o777 == 0o600
+
+    assert publisher(123) is True
+    second_stat = handoff_path.stat()
+    assert second_stat.st_ino == first_stat.st_ino
+    assert handoff_path.read_bytes() == b"123\n"
+    assert list(tmp_path.glob(".created-instance-id.*.tmp")) == []
+
+
+@pytest.mark.parametrize(
+    "publisher",
+    [
+        machines.publish_self_test_created_instance_id,
+        vast.publish_self_test_created_instance_id,
+    ],
+    ids=["packaged", "standalone"],
+)
+def test_created_instance_handoff_refuses_existing_different_value(
+    monkeypatch, tmp_path, publisher
+):
+    handoff_path = tmp_path / "created-instance-id"
+    handoff_path.write_bytes(b"456\n")
+    monkeypatch.setenv(
+        "VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE", str(handoff_path)
+    )
+
+    with pytest.raises(ValueError, match="different or invalid"):
+        publisher(123)
+
+    assert handoff_path.read_bytes() == b"456\n"
+    assert list(tmp_path.glob(".created-instance-id.*.tmp")) == []
+
+
+@pytest.mark.parametrize(
+    "publisher",
+    [
+        machines.publish_self_test_created_instance_id,
+        vast.publish_self_test_created_instance_id,
+    ],
+    ids=["packaged", "standalone"],
+)
+def test_created_instance_handoff_refuses_symlink_target(
+    monkeypatch, tmp_path, publisher
+):
+    target = tmp_path / "real-target"
+    target.write_bytes(b"123\n")
+    handoff_path = tmp_path / "created-instance-id"
+    try:
+        handoff_path.symlink_to(target)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are unavailable on this platform")
+    monkeypatch.setenv(
+        "VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE", str(handoff_path)
+    )
+
+    with pytest.raises(ValueError, match="not a regular file"):
+        publisher(123)
+
+    assert handoff_path.is_symlink()
+    assert target.read_bytes() == b"123\n"
+
+
+@pytest.mark.parametrize(
+    "publisher",
+    [
+        machines.publish_self_test_created_instance_id,
+        vast.publish_self_test_created_instance_id,
+    ],
+    ids=["packaged", "standalone"],
+)
+def test_created_instance_handoff_requires_absolute_path(
+    monkeypatch, tmp_path, publisher
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(
+        "VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE", "created-instance-id"
+    )
+
+    with pytest.raises(ValueError, match="absolute file path"):
+        publisher(123)
+
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.skipif(vast.os.name != "posix", reason="POSIX mode/owner contract")
+@pytest.mark.parametrize(
+    "publisher",
+    [
+        machines.publish_self_test_created_instance_id,
+        vast.publish_self_test_created_instance_id,
+    ],
+    ids=["packaged", "standalone"],
+)
+def test_created_instance_handoff_refuses_insecure_empty_precreated_file(
+    monkeypatch, tmp_path, publisher
+):
+    handoff_path = tmp_path / "created-instance-id"
+    handoff_path.touch(mode=0o644)
+    handoff_path.chmod(0o644)
+    monkeypatch.setenv(
+        "VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE", str(handoff_path)
+    )
+
+    with pytest.raises(ValueError, match="different or invalid"):
+        publisher(123)
+
+    assert handoff_path.read_bytes() == b""
+
+
+@pytest.mark.skipif(vast.os.name != "posix", reason="POSIX mode/owner contract")
+@pytest.mark.parametrize(
+    "publisher",
+    [
+        machines.publish_self_test_created_instance_id,
+        vast.publish_self_test_created_instance_id,
+    ],
+    ids=["packaged", "standalone"],
+)
+def test_created_instance_handoff_refuses_same_id_in_insecure_existing_file(
+    monkeypatch, tmp_path, publisher
+):
+    handoff_path = tmp_path / "created-instance-id"
+    handoff_path.write_bytes(b"123\n")
+    handoff_path.chmod(0o644)
+    monkeypatch.setenv(
+        "VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE", str(handoff_path)
+    )
+
+    with pytest.raises(ValueError, match="private mode-0600"):
+        publisher(123)
+
+    assert handoff_path.read_bytes() == b"123\n"
+    assert handoff_path.stat().st_mode & 0o777 == 0o644
+
+
+def test_created_instance_handoff_precedes_debug_and_status_in_both_surfaces():
+    for self_test in (machines.self_test__machine, vast.self_test__machine):
+        source = inspect.getsource(self_test)
+        extract_position = source.index("_normalize_self_test_created_instance_id")
+        publish_position = source.index(
+            "publish_self_test_created_instance_id", extract_position
+        )
+        debug_position = source.index("Captured instance_info", extract_position)
+        if self_test is machines.self_test__machine:
+            status_position = source.index("def wait_for_instance", extract_position)
+        else:
+            status_position = source.index("wait_for_instance(", extract_position)
+
+        assert extract_position < publish_position < debug_position
+        assert publish_position < status_position
+
+
+def test_legacy_successful_runtime_with_destroy_refusal_is_typed_cleanup_failure(
+    monkeypatch, tmp_path, capsys
+):
+    actual_destroy_silent = vast.destroy_instance_silent
+    args, _destroyed, _images, _labels, _offer_ids = (
+        _patch_legacy_contained_self_test(monkeypatch, tmp_path, raw=False)
+    )
+    instance = {
+        "id": 123,
+        "actual_status": "running",
+        "intended_status": "running",
+        "public_ipaddr": "127.0.0.1",
+        "ports": {"5000/tcp": [{"HostPort": "45000"}]},
+    }
+    monkeypatch.setattr(vast, "show__instance", Mock(return_value=instance))
+    monkeypatch.setattr(
+        vast.requests,
+        "get",
+        Mock(return_value=SimpleNamespace(status_code=200, text="DONE")),
+    )
+    response = Mock()
+    response.json.return_value = {
+        "success": False,
+        "msg": "simulated destroy refusal",
+    }
+    destroy = Mock(return_value=response)
+    monkeypatch.setattr(vast, "destroy_instance", destroy)
+    monkeypatch.setattr(vast, "destroy_instance_silent", actual_destroy_silent)
+
+    with pytest.raises(SystemExit) as exc_info:
+        vast.self_test__machine(args)
+
+    output = capsys.readouterr().out
+    assert exc_info.value.code == 1
+    assert destroy.call_count >= 10
+    assert "Test completed successfully." not in output
+    assert "Test passed." not in output
+    assert "Exact created test instance 123 destroyed." not in output
+    assert "- code: cleanup_failed" in output
+    assert "Test failed." in output
 
 
 def test_legacy_default_offer_selection_still_prefers_highest_dlperf(

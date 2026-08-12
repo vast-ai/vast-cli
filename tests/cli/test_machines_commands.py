@@ -249,6 +249,7 @@ def _http_error(status_code, message=None):
 
 def _run_self_test_until_create(parse_argv, monkeypatch, offer):
     monkeypatch.delenv("VAST_SELF_TEST_IMAGE", raising=False)
+    monkeypatch.delenv("VAST_SELF_TEST_LABEL", raising=False)
     monkeypatch.setattr(
         "vastai.cli.commands.machines.offers_api.search_offers",
         Mock(return_value=[offer]),
@@ -306,9 +307,10 @@ def _patch_cuda_error_contained_runtime(monkeypatch):
         "vastai.cli.commands.machines.offers_api.search_offers",
         Mock(return_value=[offer]),
     )
+    create = Mock(return_value={"new_contract": 123})
     monkeypatch.setattr(
         "vastai.cli.commands.machines.instances_api.create_instance",
-        Mock(return_value={"new_contract": 123}),
+        create,
     )
     monkeypatch.setattr(
         "vastai.cli.commands.machines.instances_api.show_instance",
@@ -336,7 +338,7 @@ def _patch_cuda_error_contained_runtime(monkeypatch):
             )
         ),
     )
-    return destroyed
+    return destroyed, create
 
 
 class TestSelfTestMachineDiagnostics:
@@ -908,6 +910,57 @@ class TestSelfTestMachineDiagnostics:
         assert env["VAST_SELF_TEST_CLI_VERSION"]
         assert env["VAST_SELF_TEST_CLI_CONTRACT_VERSION"] == "1.2.3"
         assert "-p 1234:1234" not in env
+
+    def test_environment_self_test_label_reaches_launch_and_exact_id_cleanup(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        label = "vast-self-test-pr458.41526-a1_b2"
+        monkeypatch.setenv("VAST_SELF_TEST_LABEL", label)
+        destroyed, create = _patch_cuda_error_contained_runtime(monkeypatch)
+
+        args = parse_argv(
+            ["self-test", "machine", "42", "--raw", "--no-support-bundle"]
+        )
+        result = args.func(args)
+
+        assert result["failure_code"] == "cuda_error_contained"
+        assert result["diagnostics"]["launch"]["label"] == label
+        assert create.call_args.kwargs["label"] == label
+        assert create.call_args.kwargs["price"] is None
+        assert destroyed == {123}
+
+    @pytest.mark.parametrize(
+        "invalid_label",
+        [
+            "",
+            "self-test-missing-prefix",
+            "vast-self-test-has space",
+            "vast-self-test-has/slash",
+            "vast-self-test-non-ascii-é",
+            "vast-self-test-" + ("a" * 50),
+        ],
+    )
+    def test_invalid_environment_self_test_label_is_rejected_before_search(
+        self, parse_argv, patch_get_client, monkeypatch, invalid_label
+    ):
+        search = Mock(return_value=[])
+        create = Mock()
+        monkeypatch.setenv("VAST_SELF_TEST_LABEL", invalid_label)
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers", search
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance", create
+        )
+
+        args = parse_argv(["self-test", "machine", "42", "--raw"])
+        result = args.func(args)
+
+        assert result["success"] is False
+        assert result["stage"] == "validate_label"
+        assert "VAST_SELF_TEST_LABEL" in result["reason"]
+        search.assert_not_called()
+        create.assert_not_called()
 
     def test_configured_hundred_port_range_is_preserved_and_capacity_is_honest(
         self, parse_argv, patch_get_client, monkeypatch
@@ -1569,7 +1622,7 @@ class TestSelfTestMachineDiagnostics:
     def test_cuda_error_contained_marker_is_preserved_in_structured_result_and_cleans_up(
         self, parse_argv, patch_get_client, monkeypatch
     ):
-        destroyed = _patch_cuda_error_contained_runtime(monkeypatch)
+        destroyed, _create = _patch_cuda_error_contained_runtime(monkeypatch)
 
         args = parse_argv(["self-test", "machine", "42", "--raw", "--no-support-bundle"])
         result = args.func(args)
@@ -1589,7 +1642,7 @@ class TestSelfTestMachineDiagnostics:
     def test_cuda_error_contained_marker_prints_once_exits_failure_and_cleans_up(
         self, parse_argv, patch_get_client, monkeypatch, capsys
     ):
-        destroyed = _patch_cuda_error_contained_runtime(monkeypatch)
+        destroyed, _create = _patch_cuda_error_contained_runtime(monkeypatch)
 
         args = parse_argv(["self-test", "machine", "42", "--no-support-bundle"])
         with pytest.raises(SystemExit) as exc_info:

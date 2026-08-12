@@ -1344,6 +1344,11 @@ def get_ssh_key(argstr):
 SELF_TEST_MIN_CLI_VERSION = "1.2.3"
 SELF_TEST_CLI_CONTRACT_VERSION = SELF_TEST_MIN_CLI_VERSION
 SELF_TEST_IMAGE_TAG_PREFIX = f"self-test-cli-{SELF_TEST_MIN_CLI_VERSION}-cuda"
+SELF_TEST_INSTANCE_LABEL_PREFIX = "vast-self-test-machine"
+SELF_TEST_INSTANCE_LABEL_OVERRIDE_ENV = "VAST_SELF_TEST_LABEL"
+SELF_TEST_INSTANCE_LABEL_REQUIRED_PREFIX = "vast-self-test-"
+SELF_TEST_INSTANCE_LABEL_MAX_LENGTH = 64
+_SELF_TEST_INSTANCE_LABEL_RE = re.compile(r"vast-self-test-[A-Za-z0-9._-]+")
 SELF_TEST_CUDA_ERROR_CONTAINED = "cuda_error_contained"
 _SELF_TEST_FAILURE_MARKER_RE = re.compile(
     r"\bSELF_TEST_FAILURE\[([a-z0-9_]+)\]",
@@ -1433,6 +1438,24 @@ _SELF_TEST_STATUS_FATAL_MARKER_RE = re.compile(
     r"[^\r\n]{0,160}\b(?:errors?|failed|failures?)(?=[:\s]|$)",
     re.IGNORECASE,
 )
+
+
+def resolve_self_test_instance_label(machine_id):
+    """Return the default or validated operator-supplied self-test label."""
+    override = os.environ.get(SELF_TEST_INSTANCE_LABEL_OVERRIDE_ENV)
+    if override is None:
+        return f"{SELF_TEST_INSTANCE_LABEL_PREFIX}-{machine_id}"
+    if (
+        len(override) > SELF_TEST_INSTANCE_LABEL_MAX_LENGTH
+        or _SELF_TEST_INSTANCE_LABEL_RE.fullmatch(override) is None
+    ):
+        raise ValueError(
+            f"{SELF_TEST_INSTANCE_LABEL_OVERRIDE_ENV} must start with "
+            f"'{SELF_TEST_INSTANCE_LABEL_REQUIRED_PREFIX}', contain only ASCII "
+            "letters, digits, '.', '_', or '-', include a non-empty suffix, and "
+            f"be at most {SELF_TEST_INSTANCE_LABEL_MAX_LENGTH} characters."
+        )
+    return override
 
 
 def self_test_status_message_is_error(status_msg):
@@ -8673,6 +8696,12 @@ def self_test__machine(args):
         result["warning"] = ignore_requirements_warning
     
     try:
+        try:
+            self_test_label = resolve_self_test_instance_label(args.machine_id)
+        except ValueError:
+            result["stage"] = "validate_label"
+            raise
+
         # Load API key
         if not args.api_key:
             api_key_file = os.path.expanduser("~/.vast_api_key")
@@ -8776,7 +8805,7 @@ def self_test__machine(args):
                 disk=40,  # Match the disk size from the working command
                 image=docker_image,
                 login=None,
-                label=f"vast-self-test-machine-{args.machine_id}",
+                label=self_test_label,
                 onstart=None,
                 onstart_cmd="/verification/remote.sh",
                 entrypoint=None,
@@ -8799,7 +8828,8 @@ def self_test__machine(args):
                 url=args.url,
                 retry=args.retry,
                 debugging=args.debugging,
-                bid_price=None,  # Ensure bid_price is None
+                # ``bid_price`` creates an interruptible rental; it is not a ceiling.
+                bid_price=None,
                 create_volume=None,
                 link_volume=None,
             )

@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import sys
 import time
 import warnings
@@ -76,11 +77,33 @@ from vastai.cli.self_test.port_range import (
 
 parser = _get_parser()
 SELF_TEST_INSTANCE_LABEL_PREFIX = "vast-self-test-machine"
+SELF_TEST_INSTANCE_LABEL_OVERRIDE_ENV = "VAST_SELF_TEST_LABEL"
+SELF_TEST_INSTANCE_LABEL_REQUIRED_PREFIX = "vast-self-test-"
+SELF_TEST_INSTANCE_LABEL_MAX_LENGTH = 64
+_SELF_TEST_INSTANCE_LABEL_RE = re.compile(r"vast-self-test-[A-Za-z0-9._-]+")
 SELF_TEST_MIN_CLI_VERSION = "1.2.3"
 SELF_TEST_CLI_CONTRACT_VERSION = SELF_TEST_MIN_CLI_VERSION
 SELF_TEST_IMAGE_TAG_PREFIX = f"self-test-cli-{SELF_TEST_MIN_CLI_VERSION}-cuda"
 INSTANCE_LOG_TAIL_LINES = 1000
 PORT_SCAN_DETAIL_LIMIT = 50
+
+
+def resolve_self_test_instance_label(machine_id):
+    """Return the default or validated operator-supplied self-test label."""
+    override = os.environ.get(SELF_TEST_INSTANCE_LABEL_OVERRIDE_ENV)
+    if override is None:
+        return f"{SELF_TEST_INSTANCE_LABEL_PREFIX}-{machine_id}"
+    if (
+        len(override) > SELF_TEST_INSTANCE_LABEL_MAX_LENGTH
+        or _SELF_TEST_INSTANCE_LABEL_RE.fullmatch(override) is None
+    ):
+        raise ValueError(
+            f"{SELF_TEST_INSTANCE_LABEL_OVERRIDE_ENV} must start with "
+            f"'{SELF_TEST_INSTANCE_LABEL_REQUIRED_PREFIX}', contain only ASCII "
+            "letters, digits, '.', '_', or '-', include a non-empty suffix, and "
+            f"be at most {SELF_TEST_INSTANCE_LABEL_MAX_LENGTH} characters."
+        )
+    return override
 
 
 # ---------------------------------------------------------------------------
@@ -923,6 +946,16 @@ def self_test__machine(args):
             for step in steps:
                 progress_print(f"  - {step}")
 
+    try:
+        self_test_label = resolve_self_test_instance_label(args.machine_id)
+    except ValueError as error:
+        result["stage"] = "validate_label"
+        result["reason"] = str(error)
+        if args.raw:
+            return result
+        print_failure_reason()
+        sys.exit(1)
+
     client = get_client(args)
 
     configured_port_range, port_range_source = resolve_port_range()
@@ -1221,7 +1254,6 @@ def self_test__machine(args):
                     )
                 env = parse_env(env_args)
                 runtype = "ssh_direc ssh_proxy"
-                self_test_label = f"{SELF_TEST_INSTANCE_LABEL_PREFIX}-{args.machine_id}"
                 result["diagnostics"]["launch"] = {
                     "runtype": runtype,
                     "jupyter_lab": False,
@@ -1242,6 +1274,7 @@ def self_test__machine(args):
                     image=docker_image,
                     disk=40,
                     env=env,
+                    # ``price`` is an interruptible bid, not an on-demand ceiling.
                     price=None,
                     label=self_test_label,
                     extra=None,

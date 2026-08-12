@@ -71,7 +71,8 @@ def test_legacy_system_ram_cap_matches_packaged_cli():
     )
 
 
-def test_legacy_self_test_contract_matches_packaged_cli():
+def test_legacy_self_test_contract_matches_packaged_cli(monkeypatch):
+    monkeypatch.delenv("VAST_SELF_TEST_LABEL", raising=False)
     assert vast.SELF_TEST_MIN_CLI_VERSION == machines.SELF_TEST_MIN_CLI_VERSION
     assert (
         vast.SELF_TEST_CLI_CONTRACT_VERSION
@@ -79,6 +80,24 @@ def test_legacy_self_test_contract_matches_packaged_cli():
         == "1.2.3"
     )
     assert vast.SELF_TEST_IMAGE_TAG_PREFIX == machines.SELF_TEST_IMAGE_TAG_PREFIX
+    assert (
+        vast.SELF_TEST_INSTANCE_LABEL_MAX_LENGTH
+        == machines.SELF_TEST_INSTANCE_LABEL_MAX_LENGTH
+        == 64
+    )
+    assert (
+        vast.resolve_self_test_instance_label("42")
+        == machines.resolve_self_test_instance_label("42")
+        == "vast-self-test-machine-42"
+    )
+    max_length_label = "vast-self-test-" + ("a" * 49)
+    monkeypatch.setenv("VAST_SELF_TEST_LABEL", max_length_label)
+    assert len(max_length_label) == 64
+    assert (
+        vast.resolve_self_test_instance_label("42")
+        == machines.resolve_self_test_instance_label("42")
+        == max_length_label
+    )
     assert vast.SELF_TEST_CUDA_ERROR_CONTAINED == CUDA_ERROR_CONTAINED
 
 
@@ -290,6 +309,7 @@ def _patch_legacy_contained_self_test(
 ):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("VAST_SELF_TEST_IMAGE", raising=False)
+    monkeypatch.delenv("VAST_SELF_TEST_LABEL", raising=False)
     monkeypatch.setattr(vast, "check_requirements", lambda *_: (True, []))
     monkeypatch.setattr(
         vast,
@@ -477,3 +497,75 @@ def test_legacy_environment_test_image_override_supports_old_namespace(
     assert created_images == [candidate]
     assert created_labels == ["vast-self-test-machine-42"]
     assert destroyed == {123}
+
+
+def test_legacy_environment_self_test_label_reaches_launch_and_exact_id_cleanup(
+    monkeypatch, tmp_path, capsys
+):
+    label = "vast-self-test-pr458.41526-a1_b2"
+    args, destroyed, _created_images, created_labels = (
+        _patch_legacy_contained_self_test(
+            monkeypatch,
+            tmp_path,
+            raw=True,
+        )
+    )
+    monkeypatch.setenv("VAST_SELF_TEST_LABEL", label)
+    original_create = vast.create__instance
+    created_bid_prices = []
+
+    def create_with_recorded_price(create_args):
+        created_bid_prices.append(create_args.bid_price)
+        return original_create(create_args)
+
+    monkeypatch.setattr(vast, "create__instance", create_with_recorded_price)
+
+    with pytest.raises(SystemExit) as exc_info:
+        vast.self_test__machine(args)
+
+    result = json.loads(capsys.readouterr().out)
+    assert exc_info.value.code == 0
+    assert result["failure_code"] == "cuda_error_contained"
+    assert created_labels == [label]
+    assert created_bid_prices == [None]
+    assert destroyed == {123}
+
+
+@pytest.mark.parametrize(
+    "invalid_label",
+    [
+        "",
+        "self-test-missing-prefix",
+        "vast-self-test-has space",
+        "vast-self-test-has/slash",
+        "vast-self-test-non-ascii-é",
+        "vast-self-test-" + ("a" * 50),
+    ],
+)
+def test_legacy_invalid_environment_self_test_label_is_rejected_before_search(
+    monkeypatch, tmp_path, capsys, invalid_label
+):
+    args, destroyed, _created_images, _created_labels = (
+        _patch_legacy_contained_self_test(
+            monkeypatch,
+            tmp_path,
+            raw=True,
+        )
+    )
+    search = Mock(return_value=[])
+    create = Mock()
+    monkeypatch.setenv("VAST_SELF_TEST_LABEL", invalid_label)
+    monkeypatch.setattr(vast, "search__offers", search)
+    monkeypatch.setattr(vast, "create__instance", create)
+
+    with pytest.raises(SystemExit) as exc_info:
+        vast.self_test__machine(args)
+
+    result = json.loads(capsys.readouterr().out)
+    assert exc_info.value.code == 0
+    assert result["success"] is False
+    assert result["stage"] == "validate_label"
+    assert "VAST_SELF_TEST_LABEL" in result["reason"]
+    search.assert_not_called()
+    create.assert_not_called()
+    assert destroyed == set()

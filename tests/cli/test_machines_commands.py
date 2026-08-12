@@ -977,6 +977,7 @@ class TestSelfTestMachineDiagnostics:
     def test_test_image_option_overrides_default_mapping(
         self, parse_argv, patch_get_client, monkeypatch
     ):
+        candidate = "vastai/test@sha256:" + ("a" * 64)
         offer = _self_test_offer()
         monkeypatch.setattr(
             "vastai.cli.commands.machines.offers_api.search_offers",
@@ -985,12 +986,25 @@ class TestSelfTestMachineDiagnostics:
         create = Mock(side_effect=RuntimeError("stop before live rental"))
         monkeypatch.setattr("vastai.cli.commands.machines.instances_api.create_instance", create)
 
-        args = parse_argv(["self-test", "machine", "42", "--test-image", "vastai/test:p3-dogfood", "--raw"])
+        args = parse_argv(
+            ["self-test", "machine", "42", "--test-image", candidate, "--raw"]
+        )
         result = args.func(args)
 
         assert result["diagnostics"]["image"]["override"] is True
-        assert create.call_args.kwargs["image"] == "vastai/test:p3-dogfood"
+        assert create.call_args.kwargs["image"] == candidate
         assert create.call_args.kwargs["runtype"] == "ssh_direc ssh_proxy"
+
+    def test_test_image_help_recommends_an_immutable_digest(self):
+        from vastai.cli.commands import machines
+
+        action = machines.self_test__machine.mysignature._option_string_actions[
+            "--test-image"
+        ]
+
+        assert "exact candidate image reference" in action.help
+        assert "repository@sha256:digest" in action.help
+        assert "production CUDA mapping" in action.help
 
     def test_env_test_image_overrides_default_mapping(
         self, parse_argv, patch_get_client, monkeypatch

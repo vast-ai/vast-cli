@@ -990,7 +990,14 @@ def dump_logs(args):
     argument("machine_id", help="Machine ID", type=str),
     argument("--debugging", action="store_true", help="Enable debugging output"),
     argument("--ignore-requirements", action="store_true", help="Ignore the minimum system requirements and run the self test regardless"),
-    argument("--test-image", help="Use a custom self-test image for testing custom self-test images. Overrides VAST_SELF_TEST_IMAGE and CUDA mapping.", type=str),
+    argument(
+        "--test-image",
+        help=(
+            "Use an exact candidate image reference (prefer repository@sha256:digest). "
+            "Overrides VAST_SELF_TEST_IMAGE and the production CUDA mapping."
+        ),
+        type=str,
+    ),
     argument(
         "--port-scan-timeout",
         type=positive_finite_seconds,

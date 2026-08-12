@@ -497,6 +497,14 @@ def test_legacy_parser_accepts_custom_test_image_option():
     assert args.func is vast.self_test__machine
 
 
+def test_legacy_test_image_help_recommends_an_immutable_digest():
+    action = vast.self_test__machine.mysignature._option_string_actions["--test-image"]
+
+    assert "exact candidate image reference" in action.help
+    assert "repository@sha256:digest" in action.help
+    assert "production CUDA mapping" in action.help
+
+
 def test_legacy_environment_test_image_override_supports_old_namespace(
     monkeypatch, tmp_path, capsys
 ):

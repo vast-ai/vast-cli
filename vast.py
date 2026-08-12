@@ -8926,7 +8926,13 @@ def remove__defjob(args):
     argument("--debugging", action="store_true", help="Enable debugging output"),
     argument("--explain", action="store_true", help="Output verbose explanation of mapping of CLI calls to HTTPS API endpoints"),
     argument("--raw", action="store_true", help="Output machine-readable JSON"), 
-    argument("--test-image", help="Use a custom self-test image. Overrides VAST_SELF_TEST_IMAGE and CUDA mapping."),
+    argument(
+        "--test-image",
+        help=(
+            "Use an exact candidate image reference (prefer repository@sha256:digest). "
+            "Overrides VAST_SELF_TEST_IMAGE and the production CUDA mapping."
+        ),
+    ),
     argument("--url", help="Server REST API URL", default="https://console.vast.ai"),
     argument("--retry", help="Retry limit", type=int, default=3),
     argument("--ignore-requirements", action="store_true", help="Ignore the minimum system requirements and run the self test regardless"),

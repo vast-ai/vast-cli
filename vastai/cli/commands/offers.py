@@ -1,6 +1,7 @@
 """CLI commands for searching offers, templates, and benchmarks."""
 
 import json
+import sys
 import time
 
 from vastai.cli.parser import argument, hidden_aliases
@@ -205,9 +206,21 @@ def search__offers(args):
 
 @parser.command(
     argument("query", help="Search query in simple query syntax (see below)", nargs="*", default=None),
-    usage="vastai search benchmarks [--help] [--api-key API_KEY] [--raw] <query>",
+    argument("-a", "--all",        action="store_true", help="force fetching every page, even with --limit/--next-token (fetching everything is already the default otherwise)"),
+    argument("-l", "--limit",      type=int, default=None, help="max results per page; passing this switches to single-page mode instead of fetching everything"),
+    argument("-t", "--next-token", dest="next_token",   help="resume from a pagination token (implies single-page mode)"),
+    usage="vastai search benchmarks [--help] [--api-key API_KEY] [--raw] [--limit N] [--next-token TOKEN] <query>",
     help="Search for benchmark results using custom query",
     epilog=deindent("""
+        By default this fetches every page and prints one combined result. Passing
+        --limit or --next-token switches to single-page mode, which prints a page
+        and asks whether to fetch the next one (add --all to still fetch every page
+        in that mode). The prompt is skipped when output is piped or --raw is used;
+        those print the next page token so you can resume with --next-token.
+
+        --raw prints a flat list when fetching every page, and the full response
+        (benchmarks plus next_token) in single-page mode.
+
         Query syntax:
 
             query = comparison comparison...
@@ -225,11 +238,15 @@ def search__offers(args):
             # search for benchmarks with value > 100 on RTX 4090s for 2 specific machines
             vastai search benchmarks 'value > 100.0  gpu_name=RTX_4090  machine_id in [302,402]'
 
+            # a page at a time, prompting between pages
+            vastai search benchmarks 'gpu_name=RTX_5090' --limit 50
+
         Available fields:
 
               Name                  Type       Description
 
             contract_id             int        ID of instance/contract reporting benchmark
+            dph_base                float      gpu $/hr at the time of the benchmark
             gpu_name                string     GPU model benchmarked (e.g. RTX_4090)
             id                      int        benchmark unique ID
             image                   string     image used for benchmark
@@ -260,10 +277,43 @@ def search__benchmarks(args):
         return 1
 
     client = get_client(args)
-    rows = offers_api.search_benchmarks(client, query=query)
-    if args.raw:
-        return rows
-    display_table(rows, benchmarks_displayable_fields)
+    # Fetch every page by default; --limit/--next-token opt into manual pagination.
+    fetch_all = args.all or (args.limit is None and args.next_token is None)
+    if fetch_all:
+        rows = offers_api.search_benchmarks(
+            client, query=query, limit=args.limit, after_token=args.next_token)
+        if args.raw:
+            # Flat list of every matching row -- the contract scripts have
+            # always depended on for --raw. Single-page mode returns the
+            # envelope instead, since only it has a token worth handing back.
+            return rows
+        display_table(rows, benchmarks_displayable_fields)
+        return
+
+    params = offers_api.benchmarks_query_args(
+        query=query, limit=args.limit, after_token=args.next_token)
+    page = 0
+    while True:
+        page += 1
+        data = offers_api.search_benchmarks_v1(client, params)
+        rows = data.get("benchmarks") or []
+        next_token = data.get("next_token")
+        if args.raw:
+            return {"success": True, "benchmarks_found": len(rows),
+                    "benchmarks": rows, "next_token": next_token}
+        display_table(rows, benchmarks_displayable_fields)
+        if not next_token:
+            return
+        print(f"Next page token: {next_token}")
+        # Never block on a prompt when piped or scripted.
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            return
+        try:
+            if input(f"Fetch next page? (page {page + 1}) (y/N): ").strip().lower() != "y":
+                return
+        except (EOFError, KeyboardInterrupt):
+            return
+        params["after_token"] = next_token
 
 
 # ---------------------------------------------------------------------------

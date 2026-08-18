@@ -113,25 +113,61 @@ def search_templates(client: VastClient, query: dict = None) -> list:
     return r.json().get("templates", [])
 
 
-def search_benchmarks(client: VastClient, query: dict = None, order: list = None,
-                      limit: int = None) -> list:
-    """Search for benchmarks using a query dict.
-
-    Args:
-        client: VastClient instance.
-        query: Pre-parsed query dict of select_filters.
-        order: List of {"col": ..., "dir": ...} dicts, e.g. [{"col": "last_update", "dir": "desc"}].
-        limit: Max number of results. Omit for an unbounded result set.
-
-    Returns:
-        List of benchmark dicts.
-    """
+def benchmarks_query_args(query: dict = None, order: list = None,
+                          limit: int = None, after_token: str = None) -> dict:
+    """Build the query args for a ``/benchmarks`` request."""
     query_args = {"select_cols": ["*"], "select_filters": query or {}}
     if order is not None:
         query_args["order_by"] = order
     if limit is not None:
         query_args["limit"] = int(limit)
-    r = client.get("/benchmarks", query_args=query_args)
+    if after_token:
+        query_args["after_token"] = after_token
+    return query_args
+
+
+def search_benchmarks(client: VastClient, query: dict = None, order: list = None,
+                      limit: int = None, after_token: str = None) -> list:
+    """Search for benchmarks using a query dict, as a flat list.
+
+    Pages through ``/benchmarks``, following ``next_token`` until it is
+    exhausted, and concatenates every page. The backend caps a page at 200 rows
+    by default, so callers that want one page at a time should use
+    :func:`search_benchmarks_v1` instead.
+
+    Args:
+        client: VastClient instance.
+        query: Pre-parsed query dict of select_filters.
+        order: List of {"col": ..., "dir": ...} dicts, e.g. [{"col": "last_update", "dir": "desc"}].
+        limit: Max number of results per page.
+        after_token: Pagination token to resume from.
+
+    Returns:
+        List of benchmark dicts.
+    """
+    rows = []
+    params = benchmarks_query_args(query=query, order=order, limit=limit,
+                                   after_token=after_token)
+    while True:
+        data = search_benchmarks_v1(client, params)
+        rows.extend(data.get("benchmarks") or [])
+        next_token = data.get("next_token")
+        if not next_token:
+            return rows
+        params["after_token"] = next_token
+
+
+def search_benchmarks_v1(client: VastClient, params: dict) -> dict:
+    """Fetch one page of benchmarks using the paginated API.
+
+    Args:
+        client: VastClient instance.
+        params: Dict with select_cols, select_filters, order_by, limit, after_token.
+
+    Returns:
+        Full response dict (benchmarks, benchmarks_found, next_token).
+    """
+    r = client.get("/benchmarks", query_args=params)
     r.raise_for_status()
     return r.json()
 

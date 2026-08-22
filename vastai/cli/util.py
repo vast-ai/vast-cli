@@ -25,7 +25,7 @@ from typing import Dict, List, Optional
 
 # Re-export string_to_unix_epoch so CLI command modules can import from here
 from vastai.api.query import string_to_unix_epoch  # noqa: F401
-from vastai.utils import VERSION, parse_version  # noqa: F401
+from vastai.utils import VERSION, parse_version, parse_env, smart_split  # noqa: F401
 
 
 # Server URL default — canonical definition lives in api/client.py
@@ -420,71 +420,6 @@ def generate_ssh_key(auto_yes=False):
 
 
 # ---------------------------------------------------------------------------
-# Environment / Docker option parsing
-# ---------------------------------------------------------------------------
-
-def smart_split(s, char):
-    in_double_quotes = False
-    in_single_quotes = False  # note that isn't designed to work with nested quotes within the env
-    parts = []
-    current = []
-
-    for c in s:
-        if c == char and not (in_double_quotes or in_single_quotes):
-            parts.append(''.join(current))
-            current = []
-        elif c == '\'':
-            in_single_quotes = not in_single_quotes
-            current.append(c)
-        elif c == '\"':
-            in_double_quotes = not in_double_quotes
-            current.append(c)
-        else:
-            current.append(c)
-    parts.append(''.join(current))  # add last part
-    return parts
-
-
-def parse_env(envs):
-    result = {}
-    if (envs is None):
-        return result
-    env = smart_split(envs, ' ')
-    prev = None
-    for e in env:
-        if (prev is None):
-            if (e in {"-e", "-p", "-h", "-v", "-n"}):
-                prev = e
-            else:
-                pass
-        else:
-            if (prev == "-p"):
-                if set(e).issubset(set("0123456789:tcp/udp")):
-                    result["-p " + e] = "1"
-                else:
-                    pass
-            elif (prev == "-e"):
-                kv = e.split('=')
-                if len(kv) >= 2:
-                    val = kv[1]
-                    if len(kv) > 2:
-                        val = '='.join(kv[1:])
-                    result[kv[0]] = val.strip("'\"")
-                else:
-                    pass
-            elif (prev == "-v"):
-                if (set(e).issubset(set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:./_"))):
-                    result["-v " + e] = "1"
-            elif (prev == "-n"):
-                if (set(e).issubset(set("abcdefghijklmnopqrstuvwxyz0123456789-"))):
-                    result["-n " + e] = "1"
-            else:
-                result[prev] = e
-            prev = None
-    return result
-
-
-# ---------------------------------------------------------------------------
 # List / threading helpers
 # ---------------------------------------------------------------------------
 
@@ -693,70 +628,6 @@ def update_scheduled_job(client, cli_command, schedule_job_path, frequency, star
 def load_permissions_from_file(file_path):
     with open(file_path, 'r') as file:
         return json.load(file)
-
-
-# ---------------------------------------------------------------------------
-# Instance creation helpers
-# ---------------------------------------------------------------------------
-
-def get_runtype(args):
-    runtype = 'ssh'
-    if args.args:
-        runtype = 'args'
-    if (args.args == '') or (args.args == ['']) or (args.args == []):
-        runtype = 'args'
-        args.args = None
-    if not args.jupyter and (args.jupyter_dir or args.jupyter_lab):
-        args.jupyter = True
-    if args.jupyter and runtype == 'args':
-        print("Error: Can't use --jupyter and --args together. Try --onstart or --onstart-cmd instead of --args.", file=sys.stderr)
-        return 1
-
-    if args.jupyter:
-        runtype = 'jupyter_direc ssh_direc ssh_proxy' if args.direct else 'jupyter_proxy ssh_proxy'
-    elif args.ssh:
-        runtype = 'ssh_direc ssh_proxy' if args.direct else 'ssh_proxy'
-
-    return runtype
-
-def validate_volume_params(args):
-    if args.volume_size and not args.create_volume:
-        raise argparse.ArgumentTypeError("Error: --volume-size can only be used with --create-volume. Please specify a volume ask ID to create a new volume of that size.")
-    if (args.create_volume or args.link_volume) and not args.mount_path:
-        raise argparse.ArgumentTypeError("Error: --mount-path is required when creating or linking a volume.")
-
-    # This regex matches absolute or relative Linux file paths (no null bytes)
-    valid_linux_path_regex = re.compile(r'^(/)?([^/\0]+(/)?)+$')
-    if not valid_linux_path_regex.match(args.mount_path):
-        raise argparse.ArgumentTypeError(f"Error: --mount-path '{args.mount_path}' is not a valid Linux file path.")
-
-    volume_info = {
-        "mount_path": args.mount_path,
-        "create_new": True if args.create_volume else False,
-        "volume_id": args.create_volume if args.create_volume else args.link_volume
-    }
-    if args.volume_label:
-        volume_info["name"] = args.volume_label
-    if args.volume_size:
-        volume_info["size"] = args.volume_size
-    elif args.create_volume:  # If creating a new volume and size is not passed in, default size is 15GB
-        volume_info["size"] = 15
-
-    return volume_info
-
-def validate_portal_config(json_blob):
-    # jupyter runtypes already self-correct
-    if 'jupyter' in json_blob['runtype']:
-        return
-
-    # remove jupyter configs from portal_config if not a jupyter runtype
-    portal_config = json_blob['env']['PORTAL_CONFIG'].split("|")
-    filtered_config = [config_str for config_str in portal_config if 'jupyter' not in config_str.lower()]
-
-    if not filtered_config:
-        raise ValueError("Error: env variable PORTAL_CONFIG must contain at least one non-jupyter related config string if runtype is not jupyter")
-    else:
-        json_blob['env']['PORTAL_CONFIG'] = "|".join(filtered_config)
 
 
 def get_template_arguments():

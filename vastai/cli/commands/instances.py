@@ -3,7 +3,6 @@
 import json
 import sys
 import time
-import re
 import argparse
 import subprocess
 
@@ -70,59 +69,15 @@ def show__instance(args):
 # create instance
 # ---------------------------------------------------------------------------
 
-def get_runtype(args):
-    runtype = 'ssh'
-    if args.args:
-        runtype = 'args'
-    if (args.args == '') or (args.args == ['']) or (args.args == []):
-        runtype = 'args'
-        args.args = None
-    if not args.jupyter and (args.jupyter_dir or args.jupyter_lab):
-        args.jupyter = True
-    if args.jupyter and runtype == 'args':
-        print("Error: Can't use --jupyter and --args together. Try --onstart or --onstart-cmd instead of --args.", file=sys.stderr)
-        return 1
-    if args.jupyter:
-        runtype = 'jupyter_direc ssh_direc ssh_proxy' if args.direct else 'jupyter_proxy ssh_proxy'
-    elif args.ssh:
-        runtype = 'ssh_direc ssh_proxy' if args.direct else 'ssh_proxy'
+def cli_runtype(args):
+    """Resolve the runtype from the CLI flags, keeping the CLI's 'ssh' default."""
+    if args.template_hash is not None:
+        return None
+    runtype, args.args = instances_api.resolve_runtype(
+        ssh=args.ssh, jupyter=args.jupyter, direct=args.direct, args=args.args,
+        jupyter_lab=args.jupyter_lab, jupyter_dir=args.jupyter_dir, default='ssh',
+    )
     return runtype
-
-
-def validate_volume_params(args):
-    if args.volume_size and not args.create_volume:
-        raise argparse.ArgumentTypeError("Error: --volume-size can only be used with --create-volume.")
-    if (args.create_volume or args.link_volume) and not args.mount_path:
-        raise argparse.ArgumentTypeError("Error: --mount-path is required when creating or linking a volume.")
-
-    valid_linux_path_regex = re.compile(r'^(/)?([^/\0]+(/)?)+$')
-    if not valid_linux_path_regex.match(args.mount_path):
-        raise argparse.ArgumentTypeError(f"Error: --mount-path '{args.mount_path}' is not a valid Linux file path.")
-
-    volume_info = {
-        "mount_path": args.mount_path,
-        "create_new": True if args.create_volume else False,
-        "volume_id": args.create_volume if args.create_volume else args.link_volume
-    }
-    if args.volume_label:
-        volume_info["name"] = args.volume_label
-    if args.volume_size:
-        volume_info["size"] = args.volume_size
-    elif args.create_volume:
-        volume_info["size"] = 15
-    return volume_info
-
-
-def validate_portal_config(json_blob):
-    runtype = json_blob.get('runtype')
-    if runtype and 'jupyter' in runtype:
-        return
-    portal_config = json_blob['env']['PORTAL_CONFIG'].split("|")
-    filtered_config = [config_str for config_str in portal_config if 'jupyter' not in config_str.lower()]
-    if not filtered_config:
-        raise ValueError("Error: env variable PORTAL_CONFIG must contain at least one non-jupyter related config string if runtype is not jupyter")
-    else:
-        json_blob['env']['PORTAL_CONFIG'] = "|".join(filtered_config)
 
 
 def create_instance_impl(id, args):
@@ -132,64 +87,30 @@ def create_instance_impl(id, args):
     if args.onstart_cmd is None:
         args.onstart_cmd = args.entrypoint
 
-    env = parse_env(args.env)
-    runtype = None
-    if args.template_hash is None:
-        runtype = get_runtype(args)
-        if runtype == 1:
-            return 1
+    try:
+        runtype = cli_runtype(args)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
-    volume_info = None
-    if args.create_volume or args.link_volume:
-        volume_info = validate_volume_params(args)
-
-    # Validate portal config before sending to API
-    if "PORTAL_CONFIG" in env:
-        temp_blob = {"runtype": runtype, "env": env}
-        validate_portal_config(temp_blob)
-        env = temp_blob["env"]
-
-    json_blob = {
-        "client_id": "me",
-        "image": args.image,
-        "env": env,
-        "price": args.bid_price,
-        "disk": args.disk,
-        "label": args.label,
-        "extra": args.extra,
-        "onstart": args.onstart_cmd,
-        "image_login": args.login,
-        "python_utf8": args.python_utf8,
-        "lang_utf8": args.lang_utf8,
-        "use_jupyter_lab": args.jupyter_lab,
-        "jupyter_dir": args.jupyter_dir,
-        "force": args.force,
-        "cancel_unavail": args.cancel_unavail,
-        "template_hash_id": args.template_hash,
-        "user": args.user,
-    }
-    if runtype:
-        json_blob["runtype"] = runtype
-    if args.args is not None:
-        json_blob["args"] = args.args
-    if volume_info:
-        json_blob["volume_info"] = volume_info
+    json_blob = instances_api.build_create_instance_payload(
+        image=args.image, disk=args.disk, env=args.env, bid_price=args.bid_price,
+        label=args.label, extra=args.extra, onstart_cmd=args.onstart_cmd,
+        login=args.login, python_utf8=args.python_utf8, lang_utf8=args.lang_utf8,
+        jupyter_lab=args.jupyter_lab, jupyter_dir=args.jupyter_dir,
+        force=args.force, cancel_unavail=args.cancel_unavail,
+        template_hash=args.template_hash, user=args.user, runtype=runtype,
+        args=args.args, create_volume=args.create_volume,
+        link_volume=args.link_volume, volume_size=args.volume_size,
+        mount_path=args.mount_path, volume_label=args.volume_label,
+    )
 
     if args.explain:
         print("request json: ")
         print(json_blob)
 
     client = get_client(args)
-    rj = instances_api.create_instance(
-        client, id=id, image=args.image, disk=args.disk, env=env,
-        price=args.bid_price, label=args.label, extra=args.extra,
-        onstart_cmd=args.onstart_cmd, login=args.login,
-        python_utf8=args.python_utf8, lang_utf8=args.lang_utf8,
-        jupyter_lab=args.jupyter_lab, jupyter_dir=args.jupyter_dir,
-        force=args.force, cancel_unavail=args.cancel_unavail,
-        template_hash=args.template_hash, user=args.user,
-        runtype=runtype, args=args.args, volume_info=volume_info,
-    )
+    rj = instances_api.create_instance_from_payload(client, id, json_blob)
 
     if args.raw:
         return rj
@@ -690,11 +611,11 @@ def launch__instance(args):
     if args.onstart_cmd is None:
         args.onstart_cmd = args.entrypoint
 
-    runtype = None
-    if args.template_hash is None:
-        runtype = get_runtype(args)
-        if runtype == 1:
-            return 1
+    try:
+        runtype = cli_runtype(args)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
     client = get_client(args)
     try:

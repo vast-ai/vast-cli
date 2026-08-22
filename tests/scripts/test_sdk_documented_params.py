@@ -41,21 +41,18 @@ KNOWN_UNBINDABLE = {
     "show_invoices": "HOST-3719: --quiet is CLI printing, never an SDK concern",
 }
 
-XFAIL_3728 = pytest.mark.xfail(strict=True, reason="HOST-3728: CLI-only translation "
-                               "is not shared with the SDK yet")
-
 # Documented create_instance parameters and the payload effect each must have.
 PAYLOAD_EFFECTS = [
-    pytest.param("jupyter", True, "runtype", "jupyter_proxy ssh_proxy", marks=XFAIL_3728),
-    pytest.param("ssh", True, "runtype", "ssh_proxy", marks=XFAIL_3728),
-    pytest.param("bid_price", 0.25, "price", 0.25, marks=XFAIL_3728),
-    pytest.param("label", "mine", "label", "mine"),
-    pytest.param("disk", 32, "disk", 32),
-    pytest.param("jupyter_lab", True, "use_jupyter_lab", True),
-    pytest.param("jupyter_dir", "/", "jupyter_dir", "/"),
-    pytest.param("onstart_cmd", "echo hi", "onstart", "echo hi"),
-    pytest.param("login", "docker.io u p", "image_login", "docker.io u p"),
-    pytest.param("user", "root", "user", "root"),
+    ("jupyter", True, "runtype", "jupyter_proxy ssh_proxy"),
+    ("ssh", True, "runtype", "ssh_proxy"),
+    ("bid_price", 0.25, "price", 0.25),
+    ("label", "mine", "label", "mine"),
+    ("disk", 32, "disk", 32),
+    ("jupyter_lab", True, "use_jupyter_lab", True),
+    ("jupyter_dir", "/", "jupyter_dir", "/"),
+    ("onstart_cmd", "echo hi", "onstart", "echo hi"),
+    ("login", "docker.io u p", "image_login", "docker.io u p"),
+    ("user", "root", "user", "root"),
 ]
 
 
@@ -171,7 +168,6 @@ def test_known_unbindable_list_stays_honest(method_name, documented_methods, sdk
     )
 
 
-@XFAIL_3728
 def test_documented_params_bind(documented_methods, sdk, stub_transport):
     """No published parameter may be rejected by the method it is published on."""
     failures = {}
@@ -187,7 +183,7 @@ def test_documented_params_bind(documented_methods, sdk, stub_transport):
 
 
 @pytest.mark.parametrize("kwarg,value,payload_key,expected", PAYLOAD_EFFECTS,
-                         ids=[e.values[0] for e in PAYLOAD_EFFECTS])
+                         ids=[e[0] for e in PAYLOAD_EFFECTS])
 def test_documented_param_reaches_payload(kwarg, value, payload_key, expected,
                                           sdk, stub_transport):
     """Accepting a parameter and dropping it is not a fix."""
@@ -206,7 +202,6 @@ def test_runtype_absent_when_unspecified(sdk, stub_transport):
     assert "runtype" not in stub_transport[-1]
 
 
-@XFAIL_3728
 def test_env_string_is_parsed_into_a_dict(sdk, stub_transport):
     """The wire wants a dict; the docs type the parameter off the CLI flag."""
     sdk.create_instance(id=1, image="img", env="-e FOO=bar -p 8080:8080")
@@ -218,14 +213,12 @@ def test_env_dict_is_passed_through(sdk, stub_transport):
     assert stub_transport[-1]["env"] == {"FOO": "bar"}
 
 
-@XFAIL_3728
 def test_create_template_translates_search_params(sdk, stub_transport):
     """search_params must become extra_filters, not be silently discarded."""
     sdk.create_template(image="img", search_params="num_gpus=2")
     assert stub_transport[-1]["extra_filters"].get("num_gpus") == {"eq": "2"}
 
 
-@XFAIL_3728
 def test_signature_is_closed_for_create_instance():
     """Closed signatures are what make the generated docs correct by construction."""
     from vastai.sdk import VastAI

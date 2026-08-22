@@ -66,9 +66,38 @@ class VastAI:
         """Return details of a single instance."""
         return instances.show_instance(self.client, id)
 
-    def create_instance(self, id: int, image: Optional[str] = None, disk: float = 10, **kwargs) -> dict:
-        """Create a new instance from a contract offer ID."""
-        return instances.create_instance(self.client, id, image=image, disk=disk, **kwargs)
+    def create_instance(
+        self, id: int, image: Optional[str] = None, disk: float = 10,
+        env: Optional[Union[str, dict]] = None, price: Optional[float] = None,
+        bid_price: Optional[float] = None, label: Optional[str] = None,
+        extra: Optional[str] = None, onstart_cmd: Optional[str] = None,
+        login: Optional[str] = None, python_utf8: bool = False,
+        lang_utf8: bool = False, jupyter_lab: bool = False,
+        jupyter_dir: Optional[str] = None, force: bool = False,
+        cancel_unavail: bool = False, template_hash: Optional[str] = None,
+        user: Optional[str] = None, runtype: Optional[str] = None,
+        ssh: bool = False, jupyter: bool = False, direct: bool = False,
+        args: Optional[list] = None, volume_info: Optional[dict] = None,
+        create_volume: Optional[int] = None, link_volume: Optional[int] = None,
+        volume_size: Optional[float] = None, mount_path: Optional[str] = None,
+        volume_label: Optional[str] = None,
+    ) -> dict:
+        """Create a new instance from a contract offer ID.
+
+        ``runtype`` is left out of the request when neither it nor the
+        ssh/jupyter/direct flags are given, so the backend picks the default.
+        """
+        return instances.create_instance(
+            self.client, id,
+            image=image, disk=disk, env=env, price=price, bid_price=bid_price,
+            label=label, extra=extra, onstart_cmd=onstart_cmd, login=login,
+            python_utf8=python_utf8, lang_utf8=lang_utf8, jupyter_lab=jupyter_lab,
+            jupyter_dir=jupyter_dir, force=force, cancel_unavail=cancel_unavail,
+            template_hash=template_hash, user=user, runtype=runtype, ssh=ssh,
+            jupyter=jupyter, direct=direct, args=args, volume_info=volume_info,
+            create_volume=create_volume, link_volume=link_volume,
+            volume_size=volume_size, mount_path=mount_path, volume_label=volume_label,
+        )
 
     def destroy_instance(self, id: int) -> dict:
         """Destroy an instance."""
@@ -374,9 +403,29 @@ class VastAI:
 
         return results
 
-    def launch_instance(self, gpu_name: str, num_gpus: str, image: str, **kwargs) -> dict:
+    def launch_instance(
+        self, gpu_name: str, num_gpus: str, image: str,
+        region: Optional[str] = None, disk: float = 10, order: str = "score-",
+        limit: Optional[int] = None, env: Optional[Union[str, dict]] = None,
+        label: Optional[str] = None, extra: Optional[str] = None,
+        onstart_cmd: Optional[str] = None, login: Optional[str] = None,
+        python_utf8: bool = False, lang_utf8: bool = False,
+        jupyter_lab: bool = False, jupyter_dir: Optional[str] = None,
+        cancel_unavail: bool = False, template_hash: Optional[str] = None,
+        runtype: Optional[str] = None, ssh: bool = False, jupyter: bool = False,
+        direct: bool = False, args: Optional[list] = None,
+        query: Optional[dict] = None,
+    ) -> dict:
         """Launch the top instance from search offers matching the given criteria."""
-        return offers.launch_instance(self.client, gpu_name, num_gpus, image, **kwargs)
+        return offers.launch_instance(
+            self.client, gpu_name, num_gpus, image, region=region, disk=disk,
+            order=order, limit=limit, env=env, label=label, extra=extra,
+            onstart_cmd=onstart_cmd, login=login, python_utf8=python_utf8,
+            lang_utf8=lang_utf8, jupyter_lab=jupyter_lab, jupyter_dir=jupyter_dir,
+            cancel_unavail=cancel_unavail, template_hash=template_hash,
+            runtype=runtype, ssh=ssh, jupyter=jupyter, direct=direct, args=args,
+            query=query,
+        )
 
     # ------------------------------------------------------------------
     # Machine methods
@@ -852,60 +901,96 @@ class VastAI:
         """Delete a scheduled job."""
         return auth.delete_scheduled_job(self.client, id)
 
-    def create_template(self, **kwargs) -> dict:
+    def create_template(
+        self, name: Optional[str] = None, image: Optional[str] = None,
+        image_tag: Optional[str] = None, href: Optional[str] = None,
+        repo: Optional[str] = None, login: Optional[str] = None,
+        env: Optional[str] = None, ssh: bool = False, jupyter: bool = False,
+        direct: bool = False, jupyter_dir: Optional[str] = None,
+        jupyter_lab: bool = False, onstart_cmd: Optional[str] = None,
+        search_params: Optional[str] = None, no_default: bool = False,
+        disk_space: Optional[float] = None, readme: Optional[str] = None,
+        hide_readme: bool = False, desc: Optional[str] = None,
+        public: bool = False,
+    ) -> dict:
         """Create a new template.
 
-        Accepts user-friendly kwargs (jupyter, ssh, direct, login, etc.)
-        and translates them to the API parameters.
+        ``search_params`` is parsed into the template's offer filters, the same
+        way ``vastai create template --search_params`` does it.
         """
-        jupyter = kwargs.pop("jupyter", False)
-        ssh = kwargs.pop("ssh", False)
-        direct = kwargs.pop("direct", False)
-        login = kwargs.pop("login", None)
-        hide_readme = kwargs.pop("hide_readme", False)
-        public = kwargs.pop("public", False)
-        jupyter_lab = kwargs.pop("jupyter_lab", False)
-        # Remove kwargs not accepted by offers.create_template
-        kwargs.pop("search_params", None)
-        kwargs.pop("no_default", None)
-
-        jup_direct = jupyter and direct
-        ssh_direct = ssh and direct
-        use_ssh = ssh or jupyter
-        runtype = "jupyter" if jupyter else ("ssh" if ssh else "args")
-
-        docker_login_repo = None
-        if login:
-            docker_login_repo = login.split(" ")[0]
-
         return offers.create_template(
             self.client,
-            jup_direct=jup_direct,
-            ssh_direct=ssh_direct,
-            use_ssh=use_ssh,
-            use_jupyter_lab=jupyter_lab,
-            runtype=runtype,
-            docker_login_repo=docker_login_repo,
-            readme_visible=not hide_readme,
-            private=not public,
-            **kwargs,
+            name=name, image=image, image_tag=image_tag, href=href,
+            repo=repo, env=env, onstart_cmd=onstart_cmd, jupyter_dir=jupyter_dir,
+            disk_space=disk_space, readme=readme, desc=desc,
+            **offers.template_fields_from_flags(
+                ssh=ssh, jupyter=jupyter, direct=direct, jupyter_lab=jupyter_lab,
+                login=login, hide_readme=hide_readme, public=public,
+                search_params=search_params, no_default=no_default,
+            ),
         )
 
     def delete_template(self, template_id: Optional[int] = None, hash_id: Optional[str] = None) -> dict:
         """Delete a template by ID or hash."""
         return offers.delete_template(self.client, template_id=template_id, hash_id=hash_id)
 
-    def update_template(self, hash_id: str, **kwargs) -> dict:
+    def update_template(
+        self, hash_id: str, name: Optional[str] = None, image: Optional[str] = None,
+        image_tag: Optional[str] = None, href: Optional[str] = None,
+        repo: Optional[str] = None, login: Optional[str] = None,
+        env: Optional[str] = None, ssh: bool = False, jupyter: bool = False,
+        direct: bool = False, jupyter_dir: Optional[str] = None,
+        jupyter_lab: bool = False, onstart_cmd: Optional[str] = None,
+        search_params: Optional[str] = None, no_default: bool = False,
+        disk_space: Optional[float] = None, readme: Optional[str] = None,
+        hide_readme: bool = False, desc: Optional[str] = None,
+        public: bool = False,
+    ) -> dict:
         """Update an existing template."""
-        return offers.update_template(self.client, hash_id=hash_id, **kwargs)
+        return offers.update_template(
+            self.client, hash_id=hash_id,
+            name=name, image=image, image_tag=image_tag, href=href,
+            repo=repo, env=env, onstart_cmd=onstart_cmd, jupyter_dir=jupyter_dir,
+            disk_space=disk_space, readme=readme, desc=desc,
+            **offers.template_fields_from_flags(
+                ssh=ssh, jupyter=jupyter, direct=direct, jupyter_lab=jupyter_lab,
+                login=login, hide_readme=hide_readme, public=public,
+                search_params=search_params, no_default=no_default,
+            ),
+        )
 
     # ------------------------------------------------------------------
     # Batch instance methods
     # ------------------------------------------------------------------
 
-    def create_instances(self, ids: List[int], **kwargs) -> dict:
+    def create_instances(
+        self, ids: List[int], image: Optional[str] = None, disk: float = 10,
+        env: Optional[Union[str, dict]] = None, price: Optional[float] = None,
+        bid_price: Optional[float] = None, label: Optional[str] = None,
+        extra: Optional[str] = None, onstart_cmd: Optional[str] = None,
+        login: Optional[str] = None, python_utf8: bool = False,
+        lang_utf8: bool = False, jupyter_lab: bool = False,
+        jupyter_dir: Optional[str] = None, force: bool = False,
+        cancel_unavail: bool = False, template_hash: Optional[str] = None,
+        user: Optional[str] = None, runtype: Optional[str] = None,
+        ssh: bool = False, jupyter: bool = False, direct: bool = False,
+        args: Optional[list] = None, volume_info: Optional[dict] = None,
+        create_volume: Optional[int] = None, link_volume: Optional[int] = None,
+        volume_size: Optional[float] = None, mount_path: Optional[str] = None,
+        volume_label: Optional[str] = None,
+    ) -> dict:
         """Create multiple instances from a list of offer IDs."""
-        return instances.create_instance(self.client, id=ids, **kwargs)
+        return instances.create_instance(
+            self.client, ids,
+            image=image, disk=disk, env=env, price=price, bid_price=bid_price,
+            label=label, extra=extra, onstart_cmd=onstart_cmd, login=login,
+            python_utf8=python_utf8, lang_utf8=lang_utf8, jupyter_lab=jupyter_lab,
+            jupyter_dir=jupyter_dir, force=force, cancel_unavail=cancel_unavail,
+            template_hash=template_hash, user=user, runtype=runtype, ssh=ssh,
+            jupyter=jupyter, direct=direct, args=args, volume_info=volume_info,
+            create_volume=create_volume, link_volume=link_volume,
+            volume_size=volume_size, mount_path=mount_path, volume_label=volume_label,
+        )
 
     def destroy_instances(self, ids: List[int]) -> dict:
         """Destroy multiple instances."""

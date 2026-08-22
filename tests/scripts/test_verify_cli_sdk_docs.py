@@ -300,9 +300,12 @@ def test_variadic_markers_are_not_treated_as_parameters():
     methods, open_signatures = verifier.get_sdk_methods()
 
     assert methods, "expected to introspect at least one SDK method"
-    for name, params in methods.items():
-        assert "kwargs" not in params, f"{name} still reports kwargs as a parameter"
-        assert "args" not in params, f"{name} still reports args as a parameter"
+    for name in open_signatures:
+        assert "kwargs" not in methods[name], f"{name} still reports kwargs as a parameter"
+
+    # Filtering is by parameter kind, not by name: create_instance takes a real
+    # keyword parameter called args (the container arguments).
+    assert "args" in methods["create_instance"]
 
     assert open_signatures, "expected at least one **kwargs method"
     assert open_signatures <= set(methods)

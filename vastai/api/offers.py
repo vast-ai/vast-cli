@@ -262,6 +262,35 @@ def search_invoices(client: VastClient, query: dict = None) -> list:
     return r.json()
 
 
+def template_fields_from_flags(*, ssh=False, jupyter=False, direct=False,
+                               jupyter_lab=False, login=None, hide_readme=False,
+                               public=False, search_params=None,
+                               no_default=False) -> dict:
+    """Translate the friendly template flags into api-layer template fields.
+
+    Shared by the CLI commands and the SDK so both publish the same surface.
+    """
+    from vastai.api.query import parse_query, offers_fields, offers_alias, offers_mult
+
+    default_search_query = {}
+    if not no_default:
+        default_search_query = {"verified": {"eq": True}, "external": {"eq": False},
+                                "rentable": {"eq": True}}
+
+    return {
+        "jup_direct": jupyter and direct,
+        "ssh_direct": ssh and direct,
+        "use_ssh": ssh or jupyter,
+        "use_jupyter_lab": jupyter_lab,
+        "runtype": "jupyter" if jupyter else ("ssh" if ssh else "args"),
+        "docker_login_repo": login.split(" ")[0] if login else None,
+        "extra_filters": parse_query(search_params, default_search_query,
+                                     offers_fields, offers_alias, offers_mult),
+        "readme_visible": not hide_readme,
+        "private": not public,
+    }
+
+
 def create_template(client: VastClient, name: str = None, image: str = None,
                     image_tag: str = None, href: str = None, repo: str = None,
                     env: str = None, onstart_cmd: str = None,
@@ -405,6 +434,7 @@ def launch_instance(client: VastClient, gpu_name: str, num_gpus: str, image: str
                     jupyter_lab: bool = False, jupyter_dir: str = None,
                     cancel_unavail: bool = False,
                     template_hash: str = None, runtype: str = None,
+                    ssh: bool = False, jupyter: bool = False, direct: bool = False,
                     args: str = None, query: dict = None) -> dict:
     """Launch the top instance from search offers matching the given criteria.
 
@@ -431,6 +461,9 @@ def launch_instance(client: VastClient, gpu_name: str, num_gpus: str, image: str
         cancel_unavail: Cancel if unavailable.
         template_hash: Template hash ID.
         runtype: Run type (jupyter, ssh, args).
+        ssh: Launch as an ssh instance type.
+        jupyter: Launch as a jupyter instance instead of an ssh instance.
+        direct: Use (faster) direct connections for jupyter & ssh.
         args: Container arguments.
         query: Pre-built query dict (overrides auto-built query from gpu_name/num_gpus).
 
@@ -438,6 +471,16 @@ def launch_instance(client: VastClient, gpu_name: str, num_gpus: str, image: str
         Response dict with launch result.
     """
     from vastai.api.query import parse_query, offers_fields, offers_alias, offers_mult
+    from vastai.api.instances import resolve_runtype
+    from vastai.utils import parse_env
+
+    if isinstance(env, str):
+        env = parse_env(env)
+    if template_hash is None:
+        runtype, args = resolve_runtype(runtype, ssh=ssh, jupyter=jupyter,
+                                        direct=direct, args=args,
+                                        jupyter_lab=jupyter_lab,
+                                        jupyter_dir=jupyter_dir)
 
     REGIONS = {
         "North_America": "[AG, BS, BB, BZ, CA, CR, CU, DM, DO, SV, GD, GT, HT, HN, JM, MX, NI, PA, KN, LC, VC, TT, US]",

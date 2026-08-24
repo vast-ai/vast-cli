@@ -13,6 +13,22 @@ from vastai.cli.utils import get_parser as _get_parser, get_client  # noqa: F401
 
 parser = _get_parser()
 
+def _build_scaling_config(args):
+    if args.scaling_mode is None:
+        return None
+    config = {"mode": args.scaling_mode}
+    if args.scaler is not None:
+        config["scaler"] = args.scaler
+    if args.requests_per_worker is not None:
+        config["requests_per_worker"] = args.requests_per_worker
+    if args.queue_delay_target is not None:
+        config["queue_delay_target"] = args.queue_delay_target
+    if args.idle_timeout is not None:
+        config["idle_timeout"] = args.idle_timeout
+    if args.cold_ttl is not None:
+        config["cold_ttl"] = args.cold_ttl
+    return config
+
 
 # ---------------------------------------------------------------------------
 # endpoints
@@ -29,6 +45,12 @@ parser = _get_parser()
     argument("--max_queue_time", help="maximum seconds requests may be queued on each worker (default 30.0)", type=float),
     argument("--target_queue_time", help="target seconds for the queue to be cleared (default 10.0)", type=float),
     argument("--inactivity_timeout", help="seconds of no traffic before the endpoint can scale to zero active workers", type=int),
+    argument("--scaling_mode", help="autoscaling strategy: 'target' (classic load/perf based) or 'queue' (request-queue based, one task per worker slot)", type=str, choices=["target", "queue"]),
+    argument("--scaler", help="queue mode: scale on 'request_count' (default) or 'queue_delay'", type=str, choices=["request_count", "queue_delay"]),
+    argument("--requests_per_worker", help="queue mode: tasks per worker (also per-worker concurrency, default 1)", type=int),
+    argument("--queue_delay_target", help="queue mode: seconds a task may wait before it counts toward scale-up (queue_delay scaler, default 5.0)", type=float),
+    argument("--idle_timeout", help="queue mode: seconds a worker may sit idle before being stopped (default 60.0)", type=float),
+    argument("--cold_ttl", help="queue mode: seconds stopped beyond the cold_workers floor before destroy; 0 disables (default 3600.0)", type=float),
     argument("--auto_instance", help=argparse.SUPPRESS, type=str, default="prod"),
     usage="vastai create endpoint [OPTIONS]",
     help="Create a new endpoint group",
@@ -57,6 +79,7 @@ def create__endpoint(args):
         endpoint_name=args.endpoint_name, auto_instance=args.auto_instance,
         max_queue_time=args.max_queue_time, target_queue_time=args.target_queue_time,
         inactivity_timeout=args.inactivity_timeout,
+        scaling_config=_build_scaling_config(args),
     )
     if args.raw:
         return result
@@ -103,6 +126,12 @@ def show__endpoints(args):
     argument("--max_queue_time", help="maximum seconds requests may be queued on each worker (default 30.0)", type=float),
     argument("--target_queue_time", help="target seconds for the queue to be cleared (default 10.0)", type=float),
     argument("--inactivity_timeout", help="seconds of no traffic before the endpoint can scale to zero active workers", type=int),
+    argument("--scaling_mode", help="autoscaling strategy: 'target' (classic load/perf based) or 'queue' (request-queue based, one task per worker slot)", type=str, choices=["target", "queue"]),
+    argument("--scaler", help="queue mode: scale on 'request_count' (default) or 'queue_delay'", type=str, choices=["request_count", "queue_delay"]),
+    argument("--requests_per_worker", help="queue mode: tasks per worker (also per-worker concurrency, default 1)", type=int),
+    argument("--queue_delay_target", help="queue mode: seconds a task may wait before it counts toward scale-up (queue_delay scaler, default 5.0)", type=float),
+    argument("--idle_timeout", help="queue mode: seconds a worker may sit idle before being stopped (default 60.0)", type=float),
+    argument("--cold_ttl", help="queue mode: seconds stopped beyond the cold_workers floor before destroy; 0 disables (default 3600.0)", type=float),
     usage="vastai update endpoint ID [OPTIONS]",
     help="Update an existing endpoint group",
     epilog=deindent("""
@@ -121,6 +150,7 @@ def update__endpoint(args):
         auto_instance=args.auto_instance,
         max_queue_time=args.max_queue_time, target_queue_time=args.target_queue_time,
         inactivity_timeout=args.inactivity_timeout,
+        scaling_config=_build_scaling_config(args),
     )
     if args.raw:
         return result

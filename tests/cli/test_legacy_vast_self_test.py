@@ -80,9 +80,14 @@ def test_legacy_self_test_contract_matches_packaged_cli(monkeypatch):
     assert (
         vast.SELF_TEST_CLI_CONTRACT_VERSION
         == machines.SELF_TEST_CLI_CONTRACT_VERSION
-        == "1.2.3"
+        == "1.2.4"
     )
     assert vast.SELF_TEST_IMAGE_TAG_PREFIX == machines.SELF_TEST_IMAGE_TAG_PREFIX
+    assert (
+        vast.SELF_TEST_IGNORE_RELIABILITY_ENV
+        == machines.SELF_TEST_IGNORE_RELIABILITY_ENV
+        == "VAST_SELF_TEST_IGNORE_RELIABILITY"
+    )
     assert (
         vast.SELF_TEST_INSTANCE_LABEL_MAX_LENGTH
         == machines.SELF_TEST_INSTANCE_LABEL_MAX_LENGTH
@@ -121,7 +126,7 @@ def test_legacy_self_test_contract_matches_packaged_cli(monkeypatch):
 def test_legacy_b300_mapping_uses_the_versioned_contract_image():
     image, reason = vast.self_test_cuda_map_to_image(13.2, compute_cap=1030)
 
-    assert image == "vastai/test:self-test-cli-1.2.3-cuda-13.0"
+    assert image == "vastai/test:self-test-cli-1.2.4-cuda-13.0"
     assert "selected newest image <= host CUDA (13.0)" in reason
 
 
@@ -129,9 +134,16 @@ def test_legacy_launch_passes_the_image_contract():
     env = vast.self_test_launch_env("1.4.4")
 
     assert "-e VAST_SELF_TEST_CLI_VERSION=1.4.4" in env
-    assert "-e VAST_SELF_TEST_CLI_CONTRACT_VERSION=1.2.3" in env
+    assert "-e VAST_SELF_TEST_CLI_CONTRACT_VERSION=1.2.4" in env
+    assert "-e VAST_SELF_TEST_IGNORE_RELIABILITY=0" in env
     assert "-p 5001:5001/udp" in env
     assert "-p 1234:1234" not in env
+
+
+def test_legacy_launch_hands_ignore_reliability_to_image():
+    env = vast.self_test_launch_env("1.4.4", ignore_reliability=True)
+
+    assert "-e VAST_SELF_TEST_IGNORE_RELIABILITY=1" in env
 
 
 def test_legacy_gpu_name_lookup_is_safe_when_offline(monkeypatch, tmp_path):
@@ -495,6 +507,65 @@ def test_legacy_parser_accepts_custom_test_image_option():
 
     assert args.test_image == candidate
     assert args.func is vast.self_test__machine
+
+
+def test_legacy_parser_accepts_ignore_reliability_option():
+    args = vast.parser.parse_args(
+        ["self-test", "machine", "42", "--ignore-reliability", "--raw"]
+    )
+
+    assert args.ignore_reliability is True
+    assert args.func is vast.self_test__machine
+
+
+def test_legacy_ignore_reliability_continues_and_hands_option_to_image(
+    monkeypatch, tmp_path, capsys
+):
+    args, destroyed, created_images, _labels, _offer_ids = _patch_legacy_contained_self_test(
+        monkeypatch,
+        tmp_path,
+        raw=True,
+    )
+    args.ignore_reliability = True
+    monkeypatch.setattr(
+        vast,
+        "check_requirements",
+        lambda *_: (False, ["Reliability <= 0.90"]),
+    )
+    launch_env = Mock(return_value="-e VAST_SELF_TEST_IGNORE_RELIABILITY=1")
+    monkeypatch.setattr(vast, "self_test_launch_env", launch_env)
+
+    with pytest.raises(SystemExit) as exc_info:
+        vast.self_test__machine(args)
+
+    result = json.loads(capsys.readouterr().out)
+    assert exc_info.value.code == 0
+    assert "--ignore-reliability is set" in result["warning"]
+    launch_env.assert_called_once_with(ignore_reliability=True)
+    assert created_images == ["vastai/test:self-test-cli-1.2.4-cuda-12.8"]
+    assert destroyed == {123}
+
+
+def test_legacy_ignore_reliability_does_not_bypass_other_requirements(
+    monkeypatch, tmp_path
+):
+    args, _destroyed, created_images, _labels, _offer_ids = _patch_legacy_contained_self_test(
+        monkeypatch,
+        tmp_path,
+        raw=True,
+    )
+    args.ignore_reliability = True
+    monkeypatch.setattr(
+        vast,
+        "check_requirements",
+        lambda *_: (False, ["Reliability <= 0.90", "CUDA version < 11.8"]),
+    )
+
+    result = vast.self_test__machine(args)
+
+    assert result["success"] is False
+    assert result["reason"] == "CUDA version < 11.8"
+    assert created_images == []
 
 
 def test_legacy_test_image_help_recommends_an_immutable_digest():

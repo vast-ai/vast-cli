@@ -247,7 +247,7 @@ def _http_error(status_code, message=None):
     return error
 
 
-def _run_self_test_until_create(parse_argv, monkeypatch, offer):
+def _run_self_test_until_create(parse_argv, monkeypatch, offer, extra_args=()):
     monkeypatch.delenv("VAST_SELF_TEST_IMAGE", raising=False)
     monkeypatch.delenv("VAST_SELF_TEST_LABEL", raising=False)
     monkeypatch.delenv("VAST_SELF_TEST_OFFER_ID", raising=False)
@@ -259,7 +259,7 @@ def _run_self_test_until_create(parse_argv, monkeypatch, offer):
     create = Mock(side_effect=RuntimeError("stop before live rental"))
     monkeypatch.setattr("vastai.cli.commands.machines.instances_api.create_instance", create)
 
-    args = parse_argv(["self-test", "machine", "42", "--raw"])
+    args = parse_argv(["self-test", "machine", "42", "--raw", *extra_args])
     result = args.func(args)
     return result, create
 
@@ -974,6 +974,101 @@ class TestSelfTestMachineDiagnostics:
             "gpu.ram",
         }
 
+    def test_ignore_reliability_continues_only_past_reliability_gate(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer(reliability=0.9)
+
+        result, create = _run_self_test_until_create(
+            parse_argv,
+            monkeypatch,
+            offer,
+            ["--ignore-reliability"],
+        )
+
+        create.assert_called_once()
+        reliability = next(check for check in result["checks"] if check["id"] == "reliability")
+        assert reliability["status"] == "fail"
+        assert reliability["ignored"] is True
+        assert reliability["ignored_by"] == "--ignore-reliability"
+        assert result["diagnostics"]["reliability_ignored"] is True
+        assert result["diagnostics"]["ignored_preflight_check_ids"] == ["reliability"]
+        assert "preflight_failure" not in result["diagnostics"]
+        assert "--ignore-reliability is set" in result["warning"]
+        env = create.call_args.kwargs["env"]
+        assert env["VAST_SELF_TEST_IGNORE_RELIABILITY"] == "1"
+
+    def test_reliability_still_blocks_without_ignore_reliability(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer(reliability=0.9)
+
+        result, create = _run_self_test_until_create(
+            parse_argv,
+            monkeypatch,
+            offer,
+        )
+
+        create.assert_not_called()
+        assert result["failure_code"] == "preflight_requirements_failed"
+        assert result["diagnostics"]["preflight_failure"]["failed_check_ids"] == [
+            "reliability"
+        ]
+        reliability = next(check for check in result["checks"] if check["id"] == "reliability")
+        assert reliability["status"] == "fail"
+        assert "ignored" not in reliability
+
+    def test_ignore_reliability_can_be_combined_with_ignore_requirements(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer(inet_up=98, reliability=0.9)
+
+        result, create = _run_self_test_until_create(
+            parse_argv,
+            monkeypatch,
+            offer,
+            ["--ignore-reliability", "--ignore-requirements"],
+        )
+
+        create.assert_called_once()
+        assert result["diagnostics"]["requirements_ignored"] is True
+        assert result["diagnostics"]["reliability_ignored"] is True
+        assert set(
+            result["diagnostics"]["preflight_failure"]["failed_check_ids"]
+        ) == {"network.upload", "reliability"}
+        assert "--ignore-requirements is set" in result["warning"]
+        assert create.call_args.kwargs["env"]["VAST_SELF_TEST_IGNORE_RELIABILITY"] == "1"
+
+    def test_ignore_reliability_does_not_bypass_other_requirements(
+        self, parse_argv, patch_get_client, monkeypatch
+    ):
+        offer = _self_test_offer(cuda_max_good=11.7, reliability=0.9)
+
+        result, create = _run_self_test_until_create(
+            parse_argv,
+            monkeypatch,
+            offer,
+            ["--ignore-reliability"],
+        )
+
+        create.assert_not_called()
+        assert result["failure_code"] == "preflight_requirements_failed"
+        assert result["diagnostics"]["preflight_failure"]["failed_check_ids"] == [
+            "cuda.version"
+        ]
+        reliability = next(check for check in result["checks"] if check["id"] == "reliability")
+        assert reliability["status"] == "fail"
+        assert reliability["ignored"] is True
+
+    def test_ignore_reliability_help_describes_narrow_scope(self):
+        from vastai.cli.commands import machines
+
+        action = machines.self_test__machine.mysignature._option_string_actions[
+            "--ignore-reliability"
+        ]
+
+        assert "only the reliability preflight requirement" in action.help
+
     def test_test_image_option_overrides_default_mapping(
         self, parse_argv, patch_get_client, monkeypatch
     ):
@@ -1032,19 +1127,20 @@ class TestSelfTestMachineDiagnostics:
         result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
 
         assert result["diagnostics"]["image"]["override"] is False
-        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.3-cuda-12.8"
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.4-cuda-12.8"
         assert create.call_args.kwargs["runtype"] == "ssh_direc ssh_proxy"
         assert create.call_args.kwargs["label"] == "vast-self-test-machine-42"
         assert result["diagnostics"]["launch"]["label"] == "vast-self-test-machine-42"
-        assert result["diagnostics"]["cli"]["self_test_min_cli_version"] == "1.2.3"
-        assert result["diagnostics"]["cli"]["self_test_contract_version"] == "1.2.3"
+        assert result["diagnostics"]["cli"]["self_test_min_cli_version"] == "1.2.4"
+        assert result["diagnostics"]["cli"]["self_test_contract_version"] == "1.2.4"
         assert (
             result["diagnostics"]["cli"]["self_test_image_tag_prefix"]
-            == "self-test-cli-1.2.3-cuda"
+            == "self-test-cli-1.2.4-cuda"
         )
         env = create.call_args.kwargs["env"]
         assert env["VAST_SELF_TEST_CLI_VERSION"]
-        assert env["VAST_SELF_TEST_CLI_CONTRACT_VERSION"] == "1.2.3"
+        assert env["VAST_SELF_TEST_CLI_CONTRACT_VERSION"] == "1.2.4"
+        assert env["VAST_SELF_TEST_IGNORE_RELIABILITY"] == "0"
         assert "-p 1234:1234" not in env
 
     def test_environment_self_test_label_reaches_launch_and_exact_id_cleanup(
@@ -1501,7 +1597,7 @@ class TestSelfTestMachineDiagnostics:
         result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
 
         assert result["diagnostics"]["image"]["override"] is False
-        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.3-cuda-13.3"
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.4-cuda-13.3"
         assert "exact match" in result["diagnostics"]["image"]["reason"]
 
     def test_cuda_mapping_steps_down_to_newest_compatible_image(
@@ -1511,7 +1607,7 @@ class TestSelfTestMachineDiagnostics:
         result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
 
         assert result["diagnostics"]["image"]["override"] is False
-        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.3-cuda-13.0"
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.4-cuda-13.0"
         assert "selected newest image <= host CUDA (13.0)" in result["diagnostics"]["image"]["reason"]
 
     def test_cuda_mapping_uses_cuda_133_for_newer_cuda_hosts(
@@ -1521,7 +1617,7 @@ class TestSelfTestMachineDiagnostics:
         result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
 
         assert result["diagnostics"]["image"]["override"] is False
-        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.3-cuda-13.3"
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.4-cuda-13.3"
         assert "selected newest image <= host CUDA (13.3)" in result["diagnostics"]["image"]["reason"]
 
     def test_cuda_mapping_still_clamps_volta_to_cuda_128(
@@ -1531,14 +1627,14 @@ class TestSelfTestMachineDiagnostics:
         result, create = _run_self_test_until_create(parse_argv, monkeypatch, offer)
 
         assert result["diagnostics"]["image"]["override"] is False
-        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.3-cuda-12.8"
+        assert create.call_args.kwargs["image"] == "vastai/test:self-test-cli-1.2.4-cuda-12.8"
         assert "clamped to 12.8" in result["diagnostics"]["image"]["reason"]
 
     def test_startup_status_msg_is_classified_in_raw_output(
         self, parse_argv, patch_get_client, monkeypatch
     ):
         offer = _self_test_offer()
-        status_msg = "Error response from daemon: manifest for vastai/test:self-test-cli-1.2.3-cuda-99 not found"
+        status_msg = "Error response from daemon: manifest for vastai/test:self-test-cli-1.2.4-cuda-99 not found"
         monkeypatch.setattr(
             "vastai.cli.commands.machines.offers_api.search_offers",
             Mock(return_value=[offer]),

@@ -88,9 +88,10 @@ SELF_TEST_CREATED_INSTANCE_ID_FILE_ENV = "VAST_SELF_TEST_CREATED_INSTANCE_ID_FIL
 SELF_TEST_INSTANCE_LABEL_REQUIRED_PREFIX = "vast-self-test-"
 SELF_TEST_INSTANCE_LABEL_MAX_LENGTH = 64
 _SELF_TEST_INSTANCE_LABEL_RE = re.compile(r"vast-self-test-[A-Za-z0-9._-]+")
-SELF_TEST_MIN_CLI_VERSION = "1.2.3"
+SELF_TEST_MIN_CLI_VERSION = "1.2.4"
 SELF_TEST_CLI_CONTRACT_VERSION = SELF_TEST_MIN_CLI_VERSION
 SELF_TEST_IMAGE_TAG_PREFIX = f"self-test-cli-{SELF_TEST_MIN_CLI_VERSION}-cuda"
+SELF_TEST_IGNORE_RELIABILITY_ENV = "VAST_SELF_TEST_IGNORE_RELIABILITY"
 INSTANCE_LOG_TAIL_LINES = 1000
 PORT_SCAN_DETAIL_LIMIT = 50
 
@@ -991,6 +992,11 @@ def dump_logs(args):
     argument("--debugging", action="store_true", help="Enable debugging output"),
     argument("--ignore-requirements", action="store_true", help="Ignore the minimum system requirements and run the self test regardless"),
     argument(
+        "--ignore-reliability",
+        action="store_true",
+        help="Ignore only the reliability preflight requirement and run the self test regardless",
+    ),
+    argument(
         "--test-image",
         help=(
             "Use an exact candidate image reference (prefer repository@sha256:digest). "
@@ -1020,7 +1026,7 @@ def dump_logs(args):
     argument("--no-support-bundle", action="store_true", help="Do not create a diagnostic tarball when the self-test fails"),
     usage=(
         "vastai self-test machine <machine_id> [--debugging] "
-        "[--ignore-requirements] [--test-image IMAGE] "
+        "[--ignore-requirements] [--ignore-reliability] [--test-image IMAGE] "
         "[--port-scan-timeout SECONDS] [--port-scan-deadline SECONDS] "
         "[--port-ready-timeout SECONDS]"
     ),
@@ -1032,6 +1038,7 @@ def dump_logs(args):
         Examples:
          vastai self-test machine 12345
          vastai self-test machine 12345 --debugging
+         vastai self-test machine 12345 --ignore-reliability
     """),
 )
 def self_test__machine(args):
@@ -1050,9 +1057,15 @@ def self_test__machine(args):
         "WARNING: --ignore-requirements is set. Requirement checks are skipped as a "
         "pass/fail gate, and passing this self-test does not qualify this machine for verification."
     )
+    ignore_reliability_warning = (
+        "WARNING: --ignore-reliability is set. The reliability check is skipped as a "
+        "pass/fail gate, and passing this self-test does not qualify this machine for verification."
+    )
 
     if not hasattr(args, 'debugging'):
         args.debugging = False
+    if not hasattr(args, 'ignore_reliability'):
+        args.ignore_reliability = False
     if not hasattr(args, 'test_image'):
         args.test_image = None
     if not hasattr(args, 'port_scan_timeout'):
@@ -1068,6 +1081,10 @@ def self_test__machine(args):
     if getattr(args, "ignore_requirements", False):
         result["warning"] = ignore_requirements_warning
         result["diagnostics"]["requirements_ignored"] = True
+    elif args.ignore_reliability:
+        result["warning"] = ignore_reliability_warning
+    if args.ignore_reliability:
+        result["diagnostics"]["reliability_ignored"] = True
     result["diagnostics"]["cli"] = {
         "version": CLI_VERSION,
         "self_test_contract_version": SELF_TEST_CLI_CONTRACT_VERSION,
@@ -1472,23 +1489,45 @@ def self_test__machine(args):
         checks = preflight_requirement_checks(selected_offer)
         result["checks"] = checks
         unmet_checks = failed_checks(checks)
+        ignored_reliability_checks = []
+        if args.ignore_reliability:
+            ignored_reliability_checks = [
+                check for check in unmet_checks if check.get("id") == "reliability"
+            ]
+            for check in ignored_reliability_checks:
+                check["ignored"] = True
+                check["ignored_by"] = "--ignore-reliability"
+            if ignored_reliability_checks:
+                result["diagnostics"]["ignored_preflight_check_ids"] = [
+                    "reliability"
+                ]
+        blocking_checks = [
+            check for check in unmet_checks if check not in ignored_reliability_checks
+        ]
         if unmet_checks:
-            failure = requirement_failure(checks)
-            result["diagnostics"]["preflight_failure"] = failure
+            failure_checks = unmet_checks if args.ignore_requirements else blocking_checks
+            failure = requirement_failure(failure_checks) if failure_checks else None
+            if failure is not None:
+                result["diagnostics"]["preflight_failure"] = failure
             render_preflight_failure(args.machine_id, checks, failure, progress_print)
             render_preflight_advisories(args.machine_id, checks, progress_print)
-            if not args.ignore_requirements:
+            if blocking_checks and not args.ignore_requirements:
                 result["failure"] = failure
                 result["failure_code"] = failure["code"]
                 result["stage"] = "preflight_requirements"
                 result["reason"] = failure["summary"]
                 return finish_failure()
-            progress_print("Continuing despite unmet requirements because --ignore-requirements is set.")
+            if blocking_checks:
+                progress_print("Continuing despite unmet requirements because --ignore-requirements is set.")
+            if ignored_reliability_checks:
+                progress_print("Continuing despite low reliability because --ignore-reliability is set.")
         else:
             progress_print(f"Machine ID {args.machine_id} meets all the requirements.")
             render_preflight_advisories(args.machine_id, checks, progress_print)
         if args.ignore_requirements:
             progress_print(ignore_requirements_warning)
+        elif args.ignore_reliability:
+            progress_print(ignore_reliability_warning)
 
         if result.get("port_scan", {}).get("status") == "pending":
             try:
@@ -1614,6 +1653,7 @@ def self_test__machine(args):
                     f"-e TZ=PDT -e XNAME=XX4"
                     f" -e VAST_SELF_TEST_CLI_VERSION={CLI_VERSION}"
                     f" -e VAST_SELF_TEST_CLI_CONTRACT_VERSION={SELF_TEST_CLI_CONTRACT_VERSION}"
+                    f" -e {SELF_TEST_IGNORE_RELIABILITY_ENV}={int(args.ignore_reliability)}"
                     f" {port_args}"
                 )
                 if configured_port_range is not None and result.get("port_scan", {}).get("status") == "pending":

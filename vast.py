@@ -1344,9 +1344,10 @@ def get_ssh_key(argstr):
     return ssh_key
 
 
-SELF_TEST_MIN_CLI_VERSION = "1.2.3"
+SELF_TEST_MIN_CLI_VERSION = "1.2.4"
 SELF_TEST_CLI_CONTRACT_VERSION = SELF_TEST_MIN_CLI_VERSION
 SELF_TEST_IMAGE_TAG_PREFIX = f"self-test-cli-{SELF_TEST_MIN_CLI_VERSION}-cuda"
+SELF_TEST_IGNORE_RELIABILITY_ENV = "VAST_SELF_TEST_IGNORE_RELIABILITY"
 SELF_TEST_INSTANCE_LABEL_PREFIX = "vast-self-test-machine"
 SELF_TEST_INSTANCE_LABEL_OVERRIDE_ENV = "VAST_SELF_TEST_LABEL"
 SELF_TEST_OFFER_ID_OVERRIDE_ENV = "VAST_SELF_TEST_OFFER_ID"
@@ -1861,12 +1862,13 @@ def self_test_cuda_map_to_image(cuda_version, compute_cap=None):
     return image, reason
 
 
-def self_test_launch_env(cli_version=VERSION):
+def self_test_launch_env(cli_version=VERSION, ignore_reliability=False):
     """Return the legacy launcher's contract-aware self-test environment."""
     return (
         f"-e TZ=PDT -e XNAME=XX4 "
         f"-e VAST_SELF_TEST_CLI_VERSION={cli_version} "
         f"-e VAST_SELF_TEST_CLI_CONTRACT_VERSION={SELF_TEST_CLI_CONTRACT_VERSION} "
+        f"-e {SELF_TEST_IGNORE_RELIABILITY_ENV}={int(ignore_reliability)} "
         "-p 5000:5000 -p 5001:5001/udp"
     )
 
@@ -8936,7 +8938,12 @@ def remove__defjob(args):
     argument("--url", help="Server REST API URL", default="https://console.vast.ai"),
     argument("--retry", help="Retry limit", type=int, default=3),
     argument("--ignore-requirements", action="store_true", help="Ignore the minimum system requirements and run the self test regardless"),
-    usage="vastai self-test machine <machine_id> [--debugging] [--explain] [--api_key API_KEY] [--url URL] [--retry RETRY] [--raw] [--ignore-requirements] [--test-image IMAGE]",
+    argument(
+        "--ignore-reliability",
+        action="store_true",
+        help="Ignore only the reliability preflight requirement and run the self test regardless",
+    ),
+    usage="vastai self-test machine <machine_id> [--debugging] [--explain] [--api_key API_KEY] [--url URL] [--retry RETRY] [--raw] [--ignore-requirements] [--ignore-reliability] [--test-image IMAGE]",
     help="[Host] Perform a self-test on the specified machine",
     epilog=deindent("""
         This command tests if a machine meets specific requirements and 
@@ -8945,6 +8952,7 @@ def remove__defjob(args):
         Examples:
          vastai self-test machine 12345
          vastai self-test machine 12345 --debugging
+         vastai self-test machine 12345 --ignore-reliability
          vastai self-test machine 12345 --explain
          vastai self-test machine 12345 --api_key <YOUR_API_KEY>
     """),
@@ -8984,13 +8992,21 @@ def self_test__machine(args):
         "WARNING: --ignore-requirements is set. Requirement checks are skipped as a "
         "pass/fail gate, and passing this self-test does not qualify this machine for verification."
     )
+    ignore_reliability_warning = (
+        "WARNING: --ignore-reliability is set. The reliability check is skipped as a "
+        "pass/fail gate, and passing this self-test does not qualify this machine for verification."
+    )
     
     # Ensure debugging attribute exists in args
     if not hasattr(args, 'debugging'):
         args.debugging = False
+    if not hasattr(args, 'ignore_reliability'):
+        args.ignore_reliability = False
 
     if args.ignore_requirements:
         result["warning"] = ignore_requirements_warning
+    elif args.ignore_reliability:
+        result["warning"] = ignore_reliability_warning
     
     try:
         try:
@@ -9030,20 +9046,37 @@ def self_test__machine(args):
 
         # Check requirements
         meets_requirements, unmet_reasons = check_requirements(args.machine_id, api_key, args)
-        if not meets_requirements and not args.ignore_requirements:
+        ignored_reliability_reasons = []
+        if args.ignore_reliability:
+            ignored_reliability_reasons = [
+                reason
+                for reason in unmet_reasons
+                if reason == RELIABILITY_REQUIREMENT_REASON
+            ]
+        blocking_reasons = [
+            reason for reason in unmet_reasons if reason not in ignored_reliability_reasons
+        ]
+        if blocking_reasons and not args.ignore_requirements:
             # immediately fail
             progress_print(args, f"Machine ID {args.machine_id} does not meet the following requirements:")
-            for reason in unmet_reasons:
+            for reason in blocking_reasons:
                 progress_print(args, f"- {reason}")
-            result["reason"] = "; ".join(unmet_reasons)
+            result["reason"] = "; ".join(blocking_reasons)
             return result
-        if not meets_requirements and args.ignore_requirements:
+        if blocking_reasons and args.ignore_requirements:
             progress_print(args, f"Machine ID {args.machine_id} does not meet the following requirements:")
-            for reason in unmet_reasons:
+            for reason in blocking_reasons:
                 progress_print(args, f"- {reason}")
             progress_print(args, "Continuing despite unmet requirements because --ignore-requirements is set.")
+        if ignored_reliability_reasons:
+            progress_print(args, f"Machine ID {args.machine_id} does not meet the reliability requirement:")
+            for reason in ignored_reliability_reasons:
+                progress_print(args, f"- {reason}")
+            progress_print(args, "Continuing despite low reliability because --ignore-reliability is set.")
         if args.ignore_requirements:
             progress_print(args, ignore_requirements_warning)
+        elif args.ignore_reliability:
+            progress_print(args, ignore_reliability_warning)
 
         def search_offers_and_get_top(machine_id):
             search_args = argparse.Namespace(
@@ -9152,7 +9185,7 @@ def self_test__machine(args):
                 lang_utf8=False,
                 python_utf8=False,
                 extra=None,
-                env=self_test_launch_env(),
+                env=self_test_launch_env(ignore_reliability=args.ignore_reliability),
                 args=None,
                 force=False,
                 cancel_unavail=False,
@@ -10234,6 +10267,7 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
 # hosts, such as 8x B300 systems, can exceed 2 TB of total VRAM; once a host has
 # about 2 TB of system RAM, do not reject it only for falling slightly below 95%.
 SYSTEM_RAM_REQUIREMENT_CAP_MIB = 2_000_000
+RELIABILITY_REQUIREMENT_REASON = "Reliability <= 0.90"
 
 
 def safe_float(value):
@@ -10326,7 +10360,7 @@ def check_requirements(machine_id, api_key, args):
 
         # 2. Reliability
         if safe_float(top_offer.get('reliability')) <= 0.90:
-            unmet_reasons.append("Reliability <= 0.90")
+            unmet_reasons.append(RELIABILITY_REQUIREMENT_REASON)
 
         # 3. Direct port count
         if safe_float(top_offer.get('direct_port_count')) < 4:

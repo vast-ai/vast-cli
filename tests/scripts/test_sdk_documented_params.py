@@ -31,16 +31,6 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
 
-# Parameters that are still published but cannot bind. HOST-3728 empties the
-# create/update entries; the rest are triaged separately and stay listed so the
-# probe is green on what it owns.
-KNOWN_UNBINDABLE = {
-    "cloud_copy": "HOST-3719: schedule/day/hour route to add_scheduled_job, a missing SDK method",
-    "search_offers": "HOST-3719: --new is a CLI display flag",
-    "show_earnings": "HOST-3719: --quiet is CLI printing, never an SDK concern",
-    "show_invoices": "HOST-3719: --quiet is CLI printing, never an SDK concern",
-}
-
 # Documented create_instance parameters and the payload effect each must have.
 PAYLOAD_EFFECTS = [
     ("jupyter", True, "runtype", "jupyter_proxy ssh_proxy"),
@@ -156,24 +146,10 @@ def test_probe_covers_the_whole_published_surface(documented_methods):
     assert {"create_instance", "launch_instance", "update_template"} <= names
 
 
-@pytest.mark.parametrize("method_name", sorted(KNOWN_UNBINDABLE))
-def test_known_unbindable_list_stays_honest(method_name, documented_methods, sdk,
-                                            stub_transport):
-    """A listed method that has been fixed must be removed from the list."""
-    method = next(m for m in documented_methods if m.name == method_name)
-    rejected = [r for r in (_probe(sdk, method, p) for p in method.params) if r]
-    assert rejected, (
-        f"{method_name} no longer rejects anything -- drop it from "
-        f"KNOWN_UNBINDABLE so the probe covers it"
-    )
-
-
 def test_documented_params_bind(documented_methods, sdk, stub_transport):
     """No published parameter may be rejected by the method it is published on."""
     failures = {}
     for method in documented_methods:
-        if method.name in KNOWN_UNBINDABLE:
-            continue
         if not hasattr(sdk, method.name):
             continue
         rejected = [r for r in (_probe(sdk, method, p) for p in method.params) if r]
@@ -229,3 +205,17 @@ def test_signature_is_closed_for_create_instance():
         var_kw = [p for p in sig.parameters.values()
                   if p.kind == inspect.Parameter.VAR_KEYWORD]
         assert not var_kw, f"VastAI.{name} still has **kwargs; docs get fabricated"
+
+
+def test_cloud_copy_flags_reach_the_payload(sdk, stub_transport):
+    """The rclone flags are the same CLI-side translation as the runtype flags."""
+    sdk.cloud_copy(src="/data", dst="/workspace", instance="1", connection="2",
+                   dry_run=True, size_only=True)
+    assert stub_transport[-1]["flags"] == ["--dry-run", "--size-only"]
+
+
+def test_cloud_copy_no_longer_publishes_scheduling(documented_methods):
+    """Scheduling posts to add_scheduled_job, so it must not be documented here."""
+    method = next(m for m in documented_methods if m.name == "cloud_copy")
+    published = {p.name for p in method.params}
+    assert not published & {"schedule", "day", "hour", "start_date", "end_date"}

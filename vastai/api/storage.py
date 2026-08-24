@@ -103,6 +103,23 @@ def cancel_sync(client, dst_id):
     return r.json()
 
 
+def rclone_flags(*, dry_run=False, size_only=False, ignore_existing=False,
+                 update=False, delete_excluded=False) -> list:
+    """Translate the friendly copy options into the rclone flag list."""
+    flags = []
+    if dry_run:
+        flags.append("--dry-run")
+    if size_only:
+        flags.append("--size-only")
+    if ignore_existing:
+        flags.append("--ignore-existing")
+    if update:
+        flags.append("--update")
+    if delete_excluded:
+        flags.append("--delete-excluded")
+    return flags
+
+
 def cloud_copy(client, src, dst, instance, connection, transfer, flags=None):
     """Copy files/folders to and from cloud providers.
 

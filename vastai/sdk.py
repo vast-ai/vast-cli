@@ -234,7 +234,7 @@ class VastAI:
         limit: Optional[int] = None,
         storage: float = 5.0,
         no_default: bool = False,
-        **kwargs,
+        disable_bundling: bool = False,
     ) -> list:
         """Search for GPU offers.
 
@@ -245,6 +245,7 @@ class VastAI:
             limit: Max results.
             storage: Allocated storage in GiB for pricing.
             no_default: Skip default filters (verified, rentable, etc.).
+            disable_bundling: Return unbundled offers (one row per machine).
         """
         from vastai.api.query import parse_query, offers_fields, offers_alias, offers_mult
         from vastai.utils import preprocess_search_query, postprocess_search_results
@@ -289,7 +290,8 @@ class VastAI:
         results = offers.search_offers(
             self.client, query=query, offer_type=type, order=order_list,
             limit=limit, storage=storage,
-            no_default=(no_default or defaults_applied), **kwargs,
+            no_default=(no_default or defaults_applied),
+            disable_bundling=disable_bundling,
         )
 
         if isinstance(results, list):
@@ -345,7 +347,7 @@ class VastAI:
         limit: Optional[int] = None,
         storage: float = 5.0,
         no_default: bool = False,
-        **kwargs,
+        disable_bundling: bool = False,
     ) -> list:
         """Search for GPU offers using the new /search/asks/ endpoint.
 
@@ -356,6 +358,7 @@ class VastAI:
             limit: Max results.
             storage: Allocated storage in GiB for pricing.
             no_default: Skip default filters (verified, rentable, etc.).
+            disable_bundling: Return unbundled offers (one row per machine).
         """
         from vastai.api.query import parse_query, offers_fields, offers_alias, offers_mult
         from vastai.utils import preprocess_search_query, postprocess_search_results
@@ -395,7 +398,8 @@ class VastAI:
         results = offers.search_offers_new(
             self.client, query=query, offer_type=type, order=order_list,
             limit=limit, storage=storage,
-            no_default=(no_default or defaults_applied), **kwargs,
+            no_default=(no_default or defaults_applied),
+            disable_bundling=disable_bundling,
         )
 
         if isinstance(results, list):
@@ -646,7 +650,10 @@ class VastAI:
     # Billing methods
     # ------------------------------------------------------------------
 
-    def show_invoices(self, **kwargs) -> dict:
+    def show_invoices(
+        self, start_date: Optional[str] = None, end_date: Optional[str] = None,
+        only_charges: bool = False, only_credits: bool = False,
+    ) -> dict:
         """Show invoice details (deprecated; use show_invoices_v1).
 
         Returns dict with 'invoices' list and 'current' charges.
@@ -655,15 +662,24 @@ class VastAI:
             "VastAI.show_invoices() is deprecated; use VastAI.show_invoices_v1(**params) for the paginated v1 API.",
             DeprecationWarning, stacklevel=2,
         )
-        return billing.show_invoices(self.client, **kwargs)
+        return billing.show_invoices(
+            self.client, start_date=start_date, end_date=end_date,
+            only_charges=only_charges, only_credits=only_credits,
+        )
 
     def show_invoices_v1(self, **kwargs) -> dict:
         """Get billing history reports with advanced filtering and pagination."""
         return billing.show_invoices_v1(self.client, kwargs)
 
-    def show_earnings(self, **kwargs) -> list[dict]:
+    def show_earnings(
+        self, start_date: Optional[str] = None, end_date: Optional[str] = None,
+        machine_id: Optional[int] = None,
+    ) -> list[dict]:
         """Show earnings information."""
-        return billing.show_earnings(self.client, **kwargs)
+        return billing.show_earnings(
+            self.client, start_date=start_date, end_date=end_date,
+            machine_id=machine_id,
+        )
 
     def show_deposit(self, id: int) -> dict:
         """Show deposit details."""
@@ -751,9 +767,28 @@ class VastAI:
         """Cancel a file sync operation."""
         return storage.cancel_sync(self.client, dst_id)
 
-    def cloud_copy(self, **kwargs) -> dict:
-        """Copy files between cloud and instance."""
-        return storage.cloud_copy(self.client, **kwargs)
+    def cloud_copy(
+        self, src: str, dst: str = "/workspace", instance: Optional[str] = None,
+        connection: Optional[str] = None, transfer: str = "Instance to Cloud",
+        dry_run: bool = False, size_only: bool = False,
+        ignore_existing: bool = False, update: bool = False,
+        delete_excluded: bool = False, flags: Optional[list] = None,
+    ) -> dict:
+        """Copy files between cloud and instance.
+
+        Scheduling (the CLI's --schedule/--day/--hour) is not available here;
+        it posts to a different endpoint than this one.
+        """
+        if flags is None:
+            flags = storage.rclone_flags(
+                dry_run=dry_run, size_only=size_only,
+                ignore_existing=ignore_existing, update=update,
+                delete_excluded=delete_excluded,
+            )
+        return storage.cloud_copy(
+            self.client, src=src, dst=dst, instance=instance,
+            connection=connection, transfer=transfer, flags=flags,
+        )
 
     def clone_volume(self, source: int, dest: int, **kwargs) -> dict:
         """Clone an existing volume."""

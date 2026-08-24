@@ -485,3 +485,93 @@ class TestRouteResponse:
 
     def test_waiting_repr_contains_status(self) -> None:
         assert "WAITING" in repr(RouteResponse({"pending": True}))
+
+    def test_queued_status_from_queue_mode_body(self) -> None:
+        """
+        Verifies RouteResponse surfaces queue-mode responses as QUEUED.
+
+        This test verifies by:
+        1. Constructing RouteResponse from a body with status "queued" and no url
+        2. Asserting status QUEUED with queue_position/queue_depth exposed
+
+        Assumptions:
+        - Queue-mode autoscaler sets status "queued" plus position/depth fields
+        """
+        r = RouteResponse({"request_idx": 7, "status": "queued", "queue_position": 2, "queue_depth": 5})
+        assert r.status == "QUEUED"
+        assert r.request_idx == 7
+        assert r.queue_position == 2
+        assert r.queue_depth == 5
+        assert r.get_url() is None
+
+    def test_queued_position_defaults_none_when_absent(self) -> None:
+        """
+        Verifies queue_position/queue_depth are None outside queue mode.
+
+        This test verifies by:
+        1. Constructing a WAITING response without queue fields
+        2. Asserting both properties are None
+
+        Assumptions:
+        - Properties read straight from the body dict
+        """
+        r = RouteResponse({"request_idx": 1})
+        assert r.status == "WAITING"
+        assert r.queue_position is None
+        assert r.queue_depth is None
+
+    def test_url_wins_over_queued_status(self) -> None:
+        """
+        Verifies READY takes precedence when a url is present.
+
+        This test verifies by:
+        1. Constructing a body with both url and status fields
+        2. Asserting READY
+
+        Assumptions:
+        - Assigned tasks always carry the worker url
+        """
+        r = RouteResponse({"url": "https://worker", "status": "queued"})
+        assert r.status == "READY"
+
+
+class TestEndpointSubmitTaskStatus:
+    """Endpoint.submit / task_status delegation to _route."""
+
+    @pytest.mark.asyncio
+    async def test_submit_routes_with_idx_zero(self, make_delegate_endpoint) -> None:
+        """
+        Verifies submit() delegates to _route with req_idx 0.
+
+        This test verifies by:
+        1. Patching _route with an AsyncMock
+        2. Calling submit and asserting the delegated arguments
+
+        Assumptions:
+        - submit is a thin wrapper over _route
+        """
+        ep = make_delegate_endpoint(name="n", endpoint_id=1, api_key="k")
+        ep._route = AsyncMock(return_value=RouteResponse({"request_idx": 3, "status": "queued"}))
+        r = await ep.submit(timeout=45.0)
+        ep._route.assert_awaited_once_with(cost=0.0, req_idx=0, timeout=45.0)
+        assert r.status == "QUEUED"
+        assert r.request_idx == 3
+
+    @pytest.mark.asyncio
+    async def test_task_status_routes_with_given_idx(self, make_delegate_endpoint) -> None:
+        """
+        Verifies task_status() polls _route with the task's request_idx.
+
+        This test verifies by:
+        1. Patching _route with an AsyncMock returning a READY body
+        2. Calling task_status(3) and asserting delegation and READY result
+
+        Assumptions:
+        - task_status is a thin wrapper over _route
+        """
+        ep = make_delegate_endpoint(name="n", endpoint_id=1, api_key="k")
+        ep._route = AsyncMock(return_value=RouteResponse({"request_idx": 3, "url": "https://worker"}))
+        r = await ep.task_status(3)
+        ep._route.assert_awaited_once_with(cost=0.0, req_idx=3, timeout=60.0)
+        assert r.status == "READY"
+        assert r.get_url() == "https://worker"

@@ -164,6 +164,16 @@ class Endpoint_(Generic[R]):
     def get_workers(self):
         return self.client.get_endpoint_workers(self)
 
+    async def submit(self, timeout: float = 60.0) -> "RouteResponse":
+        """Submit a task to a queue-mode endpoint. Returns a RouteResponse whose
+        request_idx identifies the task for subsequent task_status polls."""
+        return await self._route(cost=0.0, req_idx=0, timeout=timeout)
+
+    async def task_status(self, request_idx: int, timeout: float = 60.0) -> "RouteResponse":
+        """Poll a previously submitted task. READY means a worker was assigned and
+        the response body carries its url; QUEUED carries queue_position/queue_depth."""
+        return await self._route(cost=0.0, req_idx=request_idx, timeout=timeout)
+
     async def _route(
         self, cost: float = 0.0, req_idx: int = 0, timeout: float = 60.0
     ) -> "RouteResponse":
@@ -219,13 +229,22 @@ class RouteResponse:
             self.request_idx = 0
         if "url" in body.keys():
             self.status = "READY"
-            self.body = body
+        elif body.get("status") == "queued":
+            self.status = "QUEUED"
         else:
             self.status = "WAITING"
-            self.body = body
+        self.body = body
 
     def get_url(self):
         return self.body.get("url")
+
+    @property
+    def queue_position(self):
+        return self.body.get("queue_position")
+
+    @property
+    def queue_depth(self):
+        return self.body.get("queue_depth")
 
 
 # Backward-compatible alias — works for instantiation at runtime.

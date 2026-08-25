@@ -154,6 +154,13 @@ class TestSearchOffers:
             assert "disable_bundling" in inspect.signature(
                 getattr(offers_api, name)).parameters
 
+        # SyncClient and AsyncClient are public entry points too, so the flag
+        # has to be gone from all three or the surfaces disagree again.
+        from vastai import AsyncClient, SyncClient
+
+        for client in (SyncClient, AsyncClient):
+            assert "disable_bundling" not in inspect.signature(client.search).parameters
+
     def test_type_and_order_still_positional(self, sdk, sent):
         sdk.search_offers("num_gpus=2", "bid")
         assert sent

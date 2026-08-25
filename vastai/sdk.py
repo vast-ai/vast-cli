@@ -275,7 +275,6 @@ class VastAI:
         limit: Optional[int] = None,
         storage: float = 5.0,
         no_default: bool = False,
-        disable_bundling: bool = False,
     ) -> list:
         """Search for GPU offers.
 
@@ -286,7 +285,6 @@ class VastAI:
             limit: Max results.
             storage: Allocated storage in GiB for pricing.
             no_default: Skip default filters (verified, rentable, etc.).
-            disable_bundling: Return unbundled offers (one row per machine).
         """
         from vastai.api.query import parse_query, offers_fields, offers_alias, offers_mult
         from vastai.utils import preprocess_search_query, postprocess_search_results
@@ -313,7 +311,6 @@ class VastAI:
             self.client, query=query, offer_type=type, order=order_list,
             limit=limit, storage=storage,
             no_default=(no_default or defaults_applied),
-            disable_bundling=disable_bundling,
         )
 
         if isinstance(results, list):
@@ -408,7 +405,6 @@ class VastAI:
         limit: Optional[int] = None,
         storage: float = 5.0,
         no_default: bool = False,
-        disable_bundling: bool = False,
     ) -> list:
         """Search for GPU offers using the new /search/asks/ endpoint.
 
@@ -419,7 +415,6 @@ class VastAI:
             limit: Max results.
             storage: Allocated storage in GiB for pricing.
             no_default: Skip default filters (verified, rentable, etc.).
-            disable_bundling: Return unbundled offers (one row per machine).
         """
         from vastai.api.query import parse_query, offers_fields, offers_alias, offers_mult
         from vastai.utils import preprocess_search_query, postprocess_search_results
@@ -441,7 +436,6 @@ class VastAI:
             self.client, query=query, offer_type=type, order=order_list,
             limit=limit, storage=storage,
             no_default=(no_default or defaults_applied),
-            disable_bundling=disable_bundling,
         )
 
         if isinstance(results, list):

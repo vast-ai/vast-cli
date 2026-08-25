@@ -136,9 +136,23 @@ class TestTemplateRawFields:
 
 
 class TestSearchOffers:
-    def test_disable_bundling_still_accepted(self, sdk, sent):
-        sdk.search_offers(query="num_gpus=2", disable_bundling=True)
-        assert sent
+    def test_disable_bundling_is_no_longer_exposed(self, sdk):
+        """Deliberate removal, not an oversight.
+
+        It was reachable through **kwargs before, but the flag is deprecated:
+        CLN-2792 took it out of the CLI and the OpenAPI specs, so the SDK should
+        not be the one surface still advertising it. The api layer keeps the
+        plumbing for internal use.
+        """
+        import inspect
+
+        from vastai.api import offers as offers_api
+
+        for name in ("search_offers", "search_offers_new"):
+            params = inspect.signature(getattr(VastAI, name)).parameters
+            assert "disable_bundling" not in params
+            assert "disable_bundling" in inspect.signature(
+                getattr(offers_api, name)).parameters
 
     def test_type_and_order_still_positional(self, sdk, sent):
         sdk.search_offers("num_gpus=2", "bid")

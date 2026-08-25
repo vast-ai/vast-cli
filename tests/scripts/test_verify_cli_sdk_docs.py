@@ -256,7 +256,7 @@ def test_open_signature_suppresses_stale_params_only():
     binds every published parameter against the real method: what the verifier
     declines to judge here, the probe checks there. It used to cover
     create_instance and friends too, which is how 50 parameters that raise
-    TypeError stayed published (HOST-3719); those have closed signatures now.
+    TypeError stayed published; those have closed signatures now.
     """
     actual = {"update_endpoint": ["id"]}
     documented = {"update-endpoint": ["id", "cold_mult", "min_load"]}
@@ -283,7 +283,7 @@ def test_open_signature_still_reports_missing_params():
 
 
 def test_converted_method_is_no_longer_suppressed():
-    """HOST-3719 regression: create_instance is closed, so it must be judged.
+    """Regression: create_instance is closed, so it must be judged.
 
     If it ever goes back to **kwargs, this is the test that notices.
     """

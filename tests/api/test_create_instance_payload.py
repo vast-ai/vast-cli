@@ -1,4 +1,4 @@
-"""The shared create-instance payload builder (HOST-3728).
+"""The shared create-instance payload builder.
 
 The CLI used to own the friendly-option translation, so the SDK published
 parameters it could not take. These cover the library functions both layers now
@@ -143,3 +143,18 @@ class TestBuildCreateInstancePayload:
             env={"PORTAL_CONFIG": "localhost:8080:18080:/:Jupyter|localhost:1:2:/:App"},
         )
         assert payload["env"]["PORTAL_CONFIG"] == "localhost:1:2:/:App"
+
+
+class TestBillingDateParsing:
+    """A malformed date used to fall back to yesterday and return wrong data."""
+
+    def test_bad_date_raises_naming_the_argument(self):
+        from vastai.api.billing import parse_date_arg
+
+        with pytest.raises(ValueError, match="end_date: could not parse"):
+            parse_date_arg("not-a-date", "end_date")
+
+    def test_valid_date_parses(self):
+        from vastai.api.billing import parse_date_arg
+
+        assert parse_date_arg("2026-08-24", "start_date").year == 2026

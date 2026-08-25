@@ -1,4 +1,4 @@
-"""Call shapes that worked before HOST-3728 must keep working.
+"""Call shapes that worked before the signatures were closed must keep working.
 
 Closing the **kwargs signatures is what makes the docs honest, but a closed
 signature also stops accepting anything it does not name. These pin the shapes
@@ -146,7 +146,7 @@ class TestSearchOffers:
 
 
 class TestSearchQueryStrings:
-    """HOST-3684: the search wrappers advertise CLI-style strings.
+    """The search wrappers advertise CLI-style strings.
 
     They used to forward the string straight into a layer contracted on dicts,
     so it landed on the wire as a filter value and the search silently ignored
@@ -169,13 +169,17 @@ class TestSearchQueryStrings:
         sdk.search_network_volumes("disk_space>=100")
         assert sent[-1]["disk_space"] == {"gte": "100"}
 
+    def test_search_benchmarks_parses_the_string(self, sdk, sent):
+        sdk.search_benchmarks("gpu_name=RTX_4090")
+        assert sent[-1]["select_filters"] == {"gpu_name": {"eq": "RTX 4090"}}
+
     def test_order_string_becomes_pairs(self, sdk, sent):
         sdk.search_volumes("disk_space>=100", order="dph-")
         assert sent[-1]["order"] == [["dph_total", "desc"]]
 
     @pytest.mark.parametrize("method", [
         "search_templates", "search_invoices", "search_volumes",
-        "search_network_volumes",
+        "search_network_volumes", "search_benchmarks",
     ])
     def test_a_dict_still_passes_through_untouched(self, method, sdk, sent):
         """Callers already passing dicts are the ones who worked; keep them."""

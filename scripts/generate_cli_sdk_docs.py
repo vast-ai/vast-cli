@@ -56,6 +56,9 @@ GLOBAL_CLI_OPTIONS = {
 #
 # Names are doc_names (kebab-case, no extension). The same set applies to
 # both CLI and SDK because the kebab-case is identical across surfaces.
+# Surface that ships in the CLI/SDK but is not GA, so it must not be published.
+# Mintlify serves an unlisted page at its direct URL and to llms.txt, so leaving
+# a page out of the nav is not the same as not publishing it.
 EXCLUDED_NAMES = {
     "add-network-disk",
     "create-network-volume",
@@ -63,6 +66,18 @@ EXCLUDED_NAMES = {
     "search-network-volumes",
     "show-network-disks",
     "unlist-network-volume",
+    # clusters / overlays
+    "create-cluster",
+    "create-overlay",
+    "delete-cluster",
+    "delete-overlay",
+    "join-cluster",
+    "join-overlay",
+    "remove-machine-from-cluster",
+    "show-clusters",
+    "show-overlays",
+    # snapshots
+    "take-snapshot",
 }
 
 # Hardcoded markdown block to render at the bottom of every CLI page so the

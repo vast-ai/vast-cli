@@ -3,6 +3,23 @@
 import time
 
 
+def parse_date_arg(value, param):
+    """Parse a user-supplied date, or raise saying which argument was bad.
+
+    Falling back to a default on an unparseable date returns plausible-looking
+    data for a range the caller never asked for.
+    """
+    from dateutil import parser as dateutil_parser
+
+    try:
+        return dateutil_parser.parse(str(value))
+    except (ValueError, OverflowError) as exc:
+        raise ValueError(
+            f"{param}: could not parse {value!r} as a date. Use a format like "
+            "'2026-08-24' or '2026-08-24 13:00:00'."
+        ) from exc
+
+
 def show_invoices(client, start_date=None, end_date=None, only_charges=False, only_credits=False):
     """Get billing history reports (deprecated endpoint).
 
@@ -21,24 +38,10 @@ def show_invoices(client, start_date=None, end_date=None, only_charges=False, on
     end_timestamp = time.time()
     start_timestamp = time.time() - (24 * 60 * 60)
 
-    try:
-        from dateutil import parser as dateutil_parser
-
-        if end_date:
-            try:
-                parsed_end = dateutil_parser.parse(str(end_date))
-                end_timestamp = parsed_end.timestamp()
-            except ValueError:
-                pass
-
-        if start_date:
-            try:
-                parsed_start = dateutil_parser.parse(str(start_date))
-                start_timestamp = parsed_start.timestamp()
-            except ValueError:
-                pass
-    except ImportError:
-        pass
+    if end_date:
+        end_timestamp = parse_date_arg(end_date, "end_date").timestamp()
+    if start_date:
+        start_timestamp = parse_date_arg(start_date, "start_date").timestamp()
 
     query_args = {
         "owner": "me",
@@ -190,25 +193,10 @@ def show_earnings(client, start_date=None, end_date=None, machine_id=None):
     sday = cday - 1.0
     eday = cday - 1.0
 
-    try:
-        import dateutil
-        from dateutil import parser as dateutil_parser
-
-        if end_date:
-            try:
-                parsed_end = dateutil_parser.parse(str(end_date))
-                eday = parsed_end.timestamp() / Days
-            except ValueError:
-                pass
-
-        if start_date:
-            try:
-                parsed_start = dateutil_parser.parse(str(start_date))
-                sday = parsed_start.timestamp() / Days
-            except ValueError:
-                pass
-    except ImportError:
-        pass
+    if end_date:
+        eday = parse_date_arg(end_date, "end_date").timestamp() / Days
+    if start_date:
+        sday = parse_date_arg(start_date, "start_date").timestamp() / Days
 
     query_args = {
         "owner": "me",

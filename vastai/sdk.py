@@ -330,6 +330,7 @@ class VastAI:
         and get every matching row, or use search_benchmarks_v1() to page
         manually via next_token.
         """
+        query = self._benchmarks_query(query)
         if all_pages:
             return offers.search_benchmarks(self.client, query=query, order=order,
                                             limit=limit, after_token=after_token)
@@ -337,6 +338,16 @@ class VastAI:
                                               limit=limit, after_token=after_token)
         data = offers.search_benchmarks_v1(self.client, params)
         return data.get("benchmarks") or []
+
+    @staticmethod
+    def _benchmarks_query(query):
+        """Parse a benchmarks query string into the filter dict the API wants."""
+        from vastai.api.query import parse_query, benchmarks_fields, fix_date_fields
+
+        if isinstance(query, str):
+            query = parse_query(query, {}, benchmarks_fields)
+            return fix_date_fields(query, ["last_update"])
+        return query
 
     def search_benchmarks_v1(self, params: dict) -> dict:
         """Return benchmarks using the paginated API; for manual pagination."""

@@ -92,6 +92,16 @@ What the checker deliberately does *not* report:
   what they accept, and the generator fills the parameters in from the matching
   CLI command, so extra documented parameters cannot be judged stale. Genuinely
   *missing* parameters are still reported.
+
+  This carve-out is narrow on purpose. It used to cover `create_instance`,
+  `create_instances`, `launch_instance` and `update_template`, which is how 50
+  parameters that raise `TypeError` stayed published (HOST-3719). Those have
+  closed signatures now and are checked like anything else. What the verifier
+  still declines to judge, `tests/scripts/test_sdk_documented_params.py` checks
+  instead: it binds every published parameter against the real method with the
+  transport stubbed, so a fabricated parameter on a genuinely open signature
+  fails CI there. Closing a signature is always preferable to relying on the
+  carve-out.
 - **Positional arguments, on CLI parameter checks.** The code-side inventory is
   scraped from `--help` flags, so positionals only ever appear on the docs side.
 

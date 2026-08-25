@@ -251,6 +251,12 @@ def test_open_signature_suppresses_stale_params_only():
     Methods ending in **kwargs do not enumerate what they accept; the generator
     fills those parameters in from the matching CLI command. Calling them stale
     flagged correct documentation -- this was the bulk of the parameter noise.
+
+    The suppression is only sound because tests/scripts/test_sdk_documented_params.py
+    binds every published parameter against the real method: what the verifier
+    declines to judge here, the probe checks there. It used to cover
+    create_instance and friends too, which is how 50 parameters that raise
+    TypeError stayed published (HOST-3719); those have closed signatures now.
     """
     actual = {"update_endpoint": ["id"]}
     documented = {"update-endpoint": ["id", "cold_mult", "min_load"]}
@@ -274,6 +280,40 @@ def test_open_signature_still_reports_missing_params():
     assert mismatches == {
         "update-endpoint": {"missing_from_docs": ["undocumented_arg"]}
     }
+
+
+def test_converted_method_is_no_longer_suppressed():
+    """HOST-3719 regression: create_instance is closed, so it must be judged.
+
+    If it ever goes back to **kwargs, this is the test that notices.
+    """
+    methods, open_signatures = verifier.get_sdk_methods()
+
+    assert "create_instance" not in open_signatures
+    assert "create_instances" not in open_signatures
+    assert "launch_instance" not in open_signatures
+    assert "update_template" not in open_signatures
+
+
+def test_snippet_imports_are_followed(tmp_path):
+    """Host pages are one-line wrappers; their params live in the snippet.
+
+    Reading only the wrapper made every parameter on those pages invisible, so
+    a wrong one there could never be reported.
+    """
+    (tmp_path / "snippets" / "host" / "sdk").mkdir(parents=True)
+    (tmp_path / "snippets" / "host" / "sdk" / "show-machine.mdx").write_text(
+        '<ParamField path="id" type="int" required>\n  Machine ID.\n</ParamField>\n'
+    )
+    page_dir = tmp_path / "sdk" / "python" / "reference"
+    page_dir.mkdir(parents=True)
+    page = page_dir / "show-machine.mdx"
+    page.write_text(
+        "import ShowMachineSDK from '/snippets/host/sdk/show-machine.mdx';\n\n"
+        "<ShowMachineSDK />\n"
+    )
+
+    assert verifier._parse_mdx_params(page, param_type="param") == ["id"]
 
 
 def test_closed_signature_still_reports_stale_params():

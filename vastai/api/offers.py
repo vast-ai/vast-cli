@@ -1,5 +1,9 @@
 """Search offers, templates, benchmarks, volumes, network volumes, and invoices."""
 from vastai.api.client import VastClient
+from vastai.api.instances import resolve_runtype
+from vastai.api.query import (parse_order, parse_query, offers_alias,
+                              offers_fields, offers_mult)
+from vastai.utils import parse_env
 
 
 def search_offers(client: VastClient, query: dict = None, offer_type: str = "on-demand",
@@ -276,8 +280,6 @@ def template_fields_from_flags(*, ssh=False, jupyter=False, direct=False,
     without search params, and quietly starting to attach three would change
     templates that existing scripts create.
     """
-    from vastai.api.query import parse_query, offers_fields, offers_alias, offers_mult
-
     default_search_query = {}
     if not no_default and (always_default or search_params is not None):
         default_search_query = {"verified": {"eq": True}, "external": {"eq": False},
@@ -477,11 +479,6 @@ def launch_instance(client: VastClient, gpu_name: str, num_gpus: str, image: str
     Returns:
         Response dict with launch result.
     """
-    from vastai.api.query import (parse_query, parse_order, offers_fields,
-                                  offers_alias, offers_mult)
-    from vastai.api.instances import resolve_runtype
-    from vastai.utils import parse_env
-
     if isinstance(env, str):
         env = parse_env(env)
     if template_hash is None:

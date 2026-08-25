@@ -7,7 +7,10 @@ from typing import Dict, List, Optional, Union
 
 from vastai._base import _resolve_api_key, _APIKEY_SENTINEL
 from vastai.api.client import VastClient
-from vastai.api.query import parse_order
+from vastai.api.query import (parse_order, parse_query, benchmarks_fields,
+                              fix_date_fields, invoices_fields,
+                              offers_mult, templates_fields,
+                              vol_offers_fields)
 from vastai.api import instances, offers, machines, teams, keys, endpoints, billing, storage, clusters, auth, deployments
 
 
@@ -21,9 +24,7 @@ def _template_fields(*, runtype=None, use_ssh=None, jup_direct=None,
     field names are what every working script uses today -- the friendly ones
     all raised TypeError. Both spellings have to keep working.
     """
-    from vastai.api import offers as _offers
-
-    fields = _offers.template_fields_from_flags(**flags)
+    fields = offers.template_fields_from_flags(**flags)
     overrides = {
         "runtype": runtype, "use_ssh": use_ssh, "jup_direct": jup_direct,
         "ssh_direct": ssh_direct, "use_jupyter_lab": use_jupyter_lab,
@@ -311,8 +312,6 @@ class VastAI:
         ``query`` takes the same string syntax as ``vastai search templates``
         (e.g. "name=pytorch"), or an already-parsed filter dict.
         """
-        from vastai.api.query import parse_query, templates_fields, fix_date_fields
-
         if isinstance(query, str):
             query = parse_query(query, {}, templates_fields)
             query = fix_date_fields(query, ["created_at", "recent_create_date"])
@@ -342,8 +341,6 @@ class VastAI:
     @staticmethod
     def _benchmarks_query(query):
         """Parse a benchmarks query string into the filter dict the API wants."""
-        from vastai.api.query import parse_query, benchmarks_fields, fix_date_fields
-
         if isinstance(query, str):
             query = parse_query(query, {}, benchmarks_fields)
             return fix_date_fields(query, ["last_update"])
@@ -388,8 +385,6 @@ class VastAI:
     @staticmethod
     def _volume_query(query):
         """Parse a volume query string; the api layer seeds the defaults."""
-        from vastai.api.query import parse_query, vol_offers_fields, offers_mult
-
         if isinstance(query, str):
             return parse_query(query, {}, vol_offers_fields, {}, offers_mult)
         return query
@@ -400,8 +395,6 @@ class VastAI:
         ``query`` takes the same string syntax as ``vastai search invoices``,
         or an already-parsed filter dict.
         """
-        from vastai.api.query import parse_query, invoices_fields, fix_date_fields
-
         if isinstance(query, str):
             query = parse_query(query, {}, invoices_fields)
             query = fix_date_fields(query, ["when", "paid_on", "payment_expected"])

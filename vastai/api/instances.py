@@ -197,7 +197,7 @@ def build_create_instance_payload(
     cancel_unavail=False, template_hash=None, user=None, runtype=None,
     ssh=False, jupyter=False, direct=False, args=None, volume_info=None,
     create_volume=None, link_volume=None, volume_size=None, mount_path=None,
-    volume_label=None, runtype_default=None,
+    volume_label=None,
 ) -> dict:
     """Build the JSON body for a create-instance request.
 
@@ -217,7 +217,6 @@ def build_create_instance_payload(
         runtype, args = resolve_runtype(
             runtype, ssh=ssh, jupyter=jupyter, direct=direct, args=args,
             jupyter_lab=jupyter_lab, jupyter_dir=jupyter_dir,
-            default=runtype_default,
         )
     env = apply_portal_config(env, runtype)
 

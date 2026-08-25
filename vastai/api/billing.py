@@ -1,16 +1,11 @@
 """Billing, user, and account API functions for the Vast.ai SDK."""
 
 import time
+from dateutil import parser as dateutil_parser
 
 
 def parse_date_arg(value, param):
-    """Parse a user-supplied date, or raise saying which argument was bad.
-
-    Falling back to a default on an unparseable date returns plausible-looking
-    data for a range the caller never asked for.
-    """
-    from dateutil import parser as dateutil_parser
-
+    """Parse a user-supplied date, or raise naming the argument."""
     try:
         return dateutil_parser.parse(str(value))
     except (ValueError, OverflowError) as exc:

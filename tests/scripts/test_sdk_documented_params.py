@@ -219,3 +219,25 @@ def test_cloud_copy_no_longer_publishes_scheduling(documented_methods):
     method = next(m for m in documented_methods if m.name == "cloud_copy")
     published = {p.name for p in method.params}
     assert not published & {"schedule", "day", "hour", "start_date", "end_date"}
+
+
+def test_converted_methods_are_not_open_signatures():
+    """The docs verifier cannot judge extra params on a **kwargs method.
+
+    These four were open signatures, which is why fabricated parameters stayed
+    published unchallenged. Closing them is what puts them back under the
+    checker; reopening one would silently exempt it again.
+    """
+    import importlib.util
+
+    path = SCRIPTS_DIR / "verify_cli_sdk_docs.py"
+    spec = importlib.util.spec_from_file_location("verify_cli_sdk_docs", path)
+    verifier = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = verifier
+    spec.loader.exec_module(verifier)
+
+    _, open_signatures = verifier.get_sdk_methods()
+
+    for name in ("create_instance", "create_instances", "launch_instance",
+                 "update_template"):
+        assert name not in open_signatures, f"{name} is open again; docs get fabricated"

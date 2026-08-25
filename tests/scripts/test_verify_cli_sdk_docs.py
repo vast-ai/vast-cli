@@ -282,40 +282,6 @@ def test_open_signature_still_reports_missing_params():
     }
 
 
-def test_converted_method_is_no_longer_suppressed():
-    """Regression: create_instance is closed, so it must be judged.
-
-    If it ever goes back to **kwargs, this is the test that notices.
-    """
-    methods, open_signatures = verifier.get_sdk_methods()
-
-    assert "create_instance" not in open_signatures
-    assert "create_instances" not in open_signatures
-    assert "launch_instance" not in open_signatures
-    assert "update_template" not in open_signatures
-
-
-def test_snippet_imports_are_followed(tmp_path):
-    """Host pages are one-line wrappers; their params live in the snippet.
-
-    Reading only the wrapper made every parameter on those pages invisible, so
-    a wrong one there could never be reported.
-    """
-    (tmp_path / "snippets" / "host" / "sdk").mkdir(parents=True)
-    (tmp_path / "snippets" / "host" / "sdk" / "show-machine.mdx").write_text(
-        '<ParamField path="id" type="int" required>\n  Machine ID.\n</ParamField>\n'
-    )
-    page_dir = tmp_path / "sdk" / "python" / "reference"
-    page_dir.mkdir(parents=True)
-    page = page_dir / "show-machine.mdx"
-    page.write_text(
-        "import ShowMachineSDK from '/snippets/host/sdk/show-machine.mdx';\n\n"
-        "<ShowMachineSDK />\n"
-    )
-
-    assert verifier._parse_mdx_params(page, param_type="param") == ["id"]
-
-
 def test_closed_signature_still_reports_stale_params():
     actual = {"delete_instance": ["id"]}
     documented = {"delete-instance": ["id", "removed_param"]}

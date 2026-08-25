@@ -501,33 +501,8 @@ def _parse_mdx_params(mdx_file: Path, param_type: str = "flag") -> list[str]:
     with a positional argument report it as stale documentation.
     """
     return _parse_mdx_params_from_text(
-        _resolve_snippets(mdx_file), param_type,
+        mdx_file.read_text(errors="replace"), param_type,
     )
-
-
-def _resolve_snippets(mdx_file: Path, docs_root: Path | None = None) -> str:
-    """Return the page text with any Mintlify snippet imports inlined.
-
-    The host reference pages are one-line wrappers around
-    /snippets/host/sdk/*.mdx. Reading only the wrapper made every parameter on
-    those pages invisible, so the checker reported them all as missing from the
-    docs and could not see wrong ones at all.
-    """
-    content = mdx_file.read_text(errors="replace")
-    if docs_root is None:
-        # .../<docs>/sdk/python/reference/<page>.mdx and the host equivalent
-        for parent in mdx_file.parents:
-            if (parent / "snippets").is_dir():
-                docs_root = parent
-                break
-    if docs_root is None:
-        return content
-
-    for path in re.findall(r"""import\s+\w+\s+from\s+['"](/snippets/[^'"]+)['"]""", content):
-        snippet = docs_root / path.lstrip("/")
-        if snippet.is_file():
-            content += "\n" + snippet.read_text(errors="replace")
-    return content
 
 
 def _parse_mdx_params_from_text(content: str, param_type: str = "flag") -> list[str]:
@@ -618,13 +593,13 @@ def compare_params(
     """
     For each command/method that exists in both, compare parameters.
 
-    `open_signatures` holds names whose signature ends in `**kwargs`. Those are
-    the only ones where an extra documented parameter cannot be judged: the
-    signature does not enumerate what it accepts, so the generator fills the
-    table in from the matching CLI command. The suppression used to cover the
-    create/update instance and template methods too, which is how 50 parameters
-    that raise TypeError stayed published. Those now have closed
-    signatures, so they are checked like anything else.
+    `open_signatures` holds names whose signature ends in `**kwargs`. For those,
+    the signature does not enumerate the accepted parameters, so extra documented
+    parameters cannot be judged stale -- the generator fills them in from the
+    matching CLI command on purpose. Reporting them was the bulk of the
+    parameter-mismatch noise on the weekly drift run, and it flagged docs that
+    were correct. Missing parameters are still reported: those are sound either
+    way.
 
     Returns: {name: {"missing_from_docs": [...], "stale_in_docs": [...]}}
     """

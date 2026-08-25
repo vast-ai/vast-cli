@@ -147,7 +147,7 @@ def resolve_runtype(runtype=None, *, ssh=False, jupyter=False, direct=False,
 def build_volume_info(*, create_volume=None, link_volume=None, volume_size=None,
                       mount_path=None, volume_label=None):
     """Build the volume_info blob, or None when no volume was requested."""
-    if volume_size and not create_volume:
+    if volume_size is not None and not create_volume:
         raise ValueError("volume_size can only be used with create_volume.")
     if not (create_volume or link_volume):
         if mount_path or volume_label:

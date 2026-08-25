@@ -233,3 +233,10 @@ class TestEveryParameterLands:
     def test_direct_lands(self):
         assert build_create_instance_payload(ssh=True, direct=True)["runtype"] == \
             "ssh_direc ssh_proxy"
+
+
+class TestVolumeSizeIsNotSilentlyDropped:
+    def test_zero_size_without_create_volume_still_raises(self):
+        """0 is falsy but still a value the caller passed, so it must not vanish."""
+        with pytest.raises(ValueError, match="volume_size"):
+            build_volume_info(volume_size=0)

@@ -251,8 +251,8 @@ templates_fields = {
 def parse_order(order, field_alias: Dict = None) -> List:
     """Turn a comma-separated order string into [[field, direction], ...].
 
-    ``-`` suffixes descending, ``+`` ascending. A list is returned unchanged so
-    callers can pass either spelling.
+    A leading or trailing ``-`` means descending, ``+`` ascending. A list is
+    returned unchanged so callers can pass either spelling.
     """
     if order is None:
         return None

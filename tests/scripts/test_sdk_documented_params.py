@@ -124,7 +124,14 @@ def _bind_kwargs(method, param):
 
 
 def _probe(sdk, method, param):
-    """Return the rejection reason for one documented parameter, or None."""
+    """Return the rejection reason for one documented parameter, or None.
+
+    A TypeError is a binding failure and always counts. Only two shapes of it
+    are understood; any other shape is reported rather than waved through,
+    because a positional-arity TypeError also means the call never bound and
+    silently passing it would hide exactly what this test exists to find.
+    Non-TypeError failures happen past the signature and are not policed here.
+    """
     try:
         getattr(sdk, method.name)(**_bind_kwargs(method, param))
     except TypeError as exc:
@@ -132,9 +139,13 @@ def _probe(sdk, method, param):
             return f"{param.name}: rejected"
         if "multiple values for" in str(exc):
             return f"{param.name}: shadowed by the wrapper"
+        if "required positional argument" in str(exc):
+            # The parameter under test bound; the delegate is complaining about
+            # a different argument this probe did not supply, because an open
+            # signature gives it no way to know which ones are mandatory.
+            return None
+        return f"{param.name}: unclassifiable TypeError ({exc})"
     except Exception:
-        # Anything else means the parameter bound; the call then failed
-        # somewhere past the signature, which this probe does not police.
         pass
     return None
 

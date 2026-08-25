@@ -158,3 +158,78 @@ class TestBillingDateParsing:
         from vastai.api.billing import parse_date_arg
 
         assert parse_date_arg("2026-08-24", "start_date").year == 2026
+
+
+class TestEveryParameterLands:
+    """Exhaustive map: every create_instance parameter must change the payload.
+
+    The probe test proves a documented parameter binds. This proves each one is
+    actually wired to something, so a parameter cannot be quietly accepted and
+    then ignored -- which is the failure mode that is invisible from the outside.
+    """
+
+    # param -> (value, payload key, expected value in the payload)
+    EFFECTS = {
+        "image": ("img", "image", "img"),
+        "disk": (32, "disk", 32),
+        "env": ({"A": "B"}, "env", {"A": "B"}),
+        "price": (0.2, "price", 0.2),
+        "bid_price": (0.25, "price", 0.25),
+        "label": ("l", "label", "l"),
+        "extra": ("x", "extra", "x"),
+        "onstart_cmd": ("echo", "onstart", "echo"),
+        "login": ("u p", "image_login", "u p"),
+        "python_utf8": (True, "python_utf8", True),
+        "lang_utf8": (True, "lang_utf8", True),
+        "jupyter_lab": (True, "use_jupyter_lab", True),
+        "jupyter_dir": ("/", "jupyter_dir", "/"),
+        "force": (True, "force", True),
+        "cancel_unavail": (True, "cancel_unavail", True),
+        "template_hash": ("h", "template_hash_id", "h"),
+        "user": ("root", "user", "root"),
+        "runtype": ("ssh_proxy", "runtype", "ssh_proxy"),
+        "args": (["a"], "args", ["a"]),
+        "volume_info": ({"mount_path": "/v"}, "volume_info", {"mount_path": "/v"}),
+        "ssh": (True, "runtype", "ssh_proxy"),
+        "jupyter": (True, "runtype", "jupyter_proxy ssh_proxy"),
+    }
+
+    # These only make sense together, so they are checked as a group below.
+    VOLUME_GROUP = {"create_volume", "link_volume", "volume_size", "mount_path",
+                    "volume_label", "direct"}
+
+    def test_the_effects_table_covers_every_parameter(self):
+        """Guard the guard: a new parameter must be added here or to the group."""
+        import inspect
+
+        from vastai.sdk import VastAI
+
+        params = {p for p in inspect.signature(VastAI.create_instance).parameters
+                  if p != "self"} - {"id"}
+        covered = set(self.EFFECTS) | self.VOLUME_GROUP
+        assert params == covered, f"unmapped parameters: {params - covered}"
+
+    @pytest.mark.parametrize("param", sorted(EFFECTS))
+    def test_parameter_lands_in_the_payload(self, param):
+        value, key, expected = self.EFFECTS[param]
+        payload = build_create_instance_payload(**{param: value})
+        assert payload.get(key) == expected
+
+    def test_volume_group_lands(self):
+        payload = build_create_instance_payload(
+            create_volume=7, mount_path="/root/vol", volume_size=20,
+            volume_label="name-it",
+        )
+        assert payload["volume_info"] == {
+            "mount_path": "/root/vol", "create_new": True, "volume_id": 7,
+            "name": "name-it", "size": 20,
+        }
+
+    def test_link_volume_lands(self):
+        payload = build_create_instance_payload(link_volume=9, mount_path="/root/vol")
+        assert payload["volume_info"]["volume_id"] == 9
+        assert payload["volume_info"]["create_new"] is False
+
+    def test_direct_lands(self):
+        assert build_create_instance_payload(ssh=True, direct=True)["runtype"] == \
+            "ssh_direc ssh_proxy"

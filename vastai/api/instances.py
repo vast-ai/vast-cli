@@ -94,9 +94,11 @@ def show_instance(client: VastClient, id: int) -> Optional[dict]:
 VALID_MOUNT_PATH = re.compile(r'^(/)?([^/\0]+(/)?)+$')
 
 
-def resolve_runtype(runtype=None, *, ssh=False, jupyter=False, direct=False,
-                    args=None, jupyter_lab=False, jupyter_dir=None,
-                    default=None):
+def resolve_runtype(runtype: Optional[str] = None, *, ssh: bool = False,
+                    jupyter: bool = False, direct: bool = False,
+                    args=None, jupyter_lab: bool = False,
+                    jupyter_dir: Optional[str] = None,
+                    default: Optional[str] = None) -> tuple:
     """Translate the friendly connection flags into a runtype string.
 
     Returns ``(runtype, args)``. ``args`` comes back because an empty ``--args``
@@ -144,8 +146,11 @@ def resolve_runtype(runtype=None, *, ssh=False, jupyter=False, direct=False,
     return resolved, args
 
 
-def build_volume_info(*, create_volume=None, link_volume=None, volume_size=None,
-                      mount_path=None, volume_label=None):
+def build_volume_info(*, create_volume: Optional[int] = None,
+                      link_volume: Optional[int] = None,
+                      volume_size: Optional[float] = None,
+                      mount_path: Optional[str] = None,
+                      volume_label: Optional[str] = None) -> Optional[dict]:
     """Build the volume_info blob, or None when no volume was requested."""
     if volume_size is not None and not create_volume:
         raise ValueError("volume_size can only be used with create_volume.")
@@ -172,7 +177,7 @@ def build_volume_info(*, create_volume=None, link_volume=None, volume_size=None,
     return volume_info
 
 
-def apply_portal_config(env, runtype):
+def apply_portal_config(env: dict, runtype: Optional[str]) -> dict:
     """Return env with jupyter portal entries stripped on non-jupyter runtypes."""
     if runtype and 'jupyter' in runtype:
         return env
@@ -191,13 +196,19 @@ def apply_portal_config(env, runtype):
 
 
 def build_create_instance_payload(
-    *, image=None, disk=10, env=None, price=None, bid_price=None, label=None,
-    extra=None, onstart_cmd=None, login=None, python_utf8=False,
-    lang_utf8=False, jupyter_lab=False, jupyter_dir=None, force=False,
-    cancel_unavail=False, template_hash=None, user=None, runtype=None,
-    ssh=False, jupyter=False, direct=False, args=None, volume_info=None,
-    create_volume=None, link_volume=None, volume_size=None, mount_path=None,
-    volume_label=None,
+    *, image: Optional[str] = None, disk: float = 10, env=None,
+    price: Optional[float] = None, bid_price: Optional[float] = None,
+    label: Optional[str] = None, extra: Optional[str] = None,
+    onstart_cmd: Optional[str] = None, login: Optional[str] = None,
+    python_utf8: bool = False, lang_utf8: bool = False,
+    jupyter_lab: bool = False, jupyter_dir: Optional[str] = None,
+    force: bool = False, cancel_unavail: bool = False,
+    template_hash: Optional[str] = None, user: Optional[str] = None,
+    runtype: Optional[str] = None, ssh: bool = False, jupyter: bool = False,
+    direct: bool = False, args=None, volume_info: Optional[dict] = None,
+    create_volume: Optional[int] = None, link_volume: Optional[int] = None,
+    volume_size: Optional[float] = None, mount_path: Optional[str] = None,
+    volume_label: Optional[str] = None,
 ) -> dict:
     """Build the JSON body for a create-instance request.
 

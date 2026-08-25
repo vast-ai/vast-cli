@@ -103,8 +103,9 @@ def cancel_sync(client, dst_id):
     return r.json()
 
 
-def rclone_flags(*, dry_run=False, size_only=False, ignore_existing=False,
-                 update=False, delete_excluded=False) -> list:
+def rclone_flags(*, dry_run: bool = False, size_only: bool = False,
+                 ignore_existing: bool = False, update: bool = False,
+                 delete_excluded: bool = False) -> list:
     """Translate the friendly copy options into the rclone flag list."""
     flags = []
     if dry_run:

@@ -14,7 +14,22 @@ from vastai.api.query import (parse_order, parse_query, benchmarks_fields,
 from vastai.api import instances, offers, machines, teams, keys, endpoints, billing, storage, clusters, auth, deployments
 
 
-def _template_fields(*, runtype=None, use_ssh=None, jup_direct=None,
+def benchmarks_query(query):
+    """Parse a benchmarks query string into the filter dict the API wants."""
+    if isinstance(query, str):
+        query = parse_query(query, {}, benchmarks_fields)
+        return fix_date_fields(query, ["last_update"])
+    return query
+
+
+def volume_query(query):
+    """Parse a volume query string; the api layer seeds the defaults."""
+    if isinstance(query, str):
+        return parse_query(query, {}, vol_offers_fields, {}, offers_mult)
+    return query
+
+
+def template_fields(*, runtype=None, use_ssh=None, jup_direct=None,
                      ssh_direct=None, use_jupyter_lab=None,
                      docker_login_repo=None, extra_filters=None,
                      readme_visible=None, private=None, **flags) -> dict:
@@ -329,7 +344,7 @@ class VastAI:
         and get every matching row, or use search_benchmarks_v1() to page
         manually via next_token.
         """
-        query = self._benchmarks_query(query)
+        query = benchmarks_query(query)
         if all_pages:
             return offers.search_benchmarks(self.client, query=query, order=order,
                                             limit=limit, after_token=after_token)
@@ -337,14 +352,6 @@ class VastAI:
                                               limit=limit, after_token=after_token)
         data = offers.search_benchmarks_v1(self.client, params)
         return data.get("benchmarks") or []
-
-    @staticmethod
-    def _benchmarks_query(query):
-        """Parse a benchmarks query string into the filter dict the API wants."""
-        if isinstance(query, str):
-            query = parse_query(query, {}, benchmarks_fields)
-            return fix_date_fields(query, ["last_update"])
-        return query
 
     def search_benchmarks_v1(self, params: dict) -> dict:
         """Return benchmarks using the paginated API; for manual pagination."""
@@ -361,7 +368,7 @@ class VastAI:
         or an already-parsed filter dict.
         """
         return offers.search_volumes(
-            self.client, query=self._volume_query(query),
+            self.client, query=volume_query(query),
             order=parse_order(order), limit=limit, storage=storage,
             no_default=no_default,
         )
@@ -377,17 +384,10 @@ class VastAI:
         ``vastai search network volumes``, or an already-parsed filter dict.
         """
         return offers.search_network_volumes(
-            self.client, query=self._volume_query(query),
+            self.client, query=volume_query(query),
             order=parse_order(order), limit=limit, storage=storage,
             no_default=no_default,
         )
-
-    @staticmethod
-    def _volume_query(query):
-        """Parse a volume query string; the api layer seeds the defaults."""
-        if isinstance(query, str):
-            return parse_query(query, {}, vol_offers_fields, {}, offers_mult)
-        return query
 
     def search_invoices(self, query: Optional[Union[str, dict]] = None) -> list[dict]:
         """Search for invoices.
@@ -1006,7 +1006,7 @@ class VastAI:
             name=name, image=image, image_tag=image_tag, href=href,
             repo=repo, env=env, onstart_cmd=onstart_cmd, jupyter_dir=jupyter_dir,
             disk_space=disk_space, readme=readme, desc=desc,
-            **_template_fields(
+            **template_fields(
                 ssh=ssh, jupyter=jupyter, direct=direct, jupyter_lab=jupyter_lab,
                 login=login, hide_readme=hide_readme, public=public,
                 search_params=search_params, no_default=no_default,
@@ -1045,7 +1045,7 @@ class VastAI:
             name=name, image=image, image_tag=image_tag, href=href,
             repo=repo, env=env, onstart_cmd=onstart_cmd, jupyter_dir=jupyter_dir,
             disk_space=disk_space, readme=readme, desc=desc,
-            **_template_fields(
+            **template_fields(
                 ssh=ssh, jupyter=jupyter, direct=direct, jupyter_lab=jupyter_lab,
                 login=login, hide_readme=hide_readme, public=public,
                 search_params=search_params, no_default=no_default,

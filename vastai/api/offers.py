@@ -1,4 +1,6 @@
 """Search offers, templates, benchmarks, volumes, network volumes, and invoices."""
+from typing import Optional
+
 from vastai.api.client import VastClient
 from vastai.api.instances import resolve_runtype
 from vastai.api.query import (parse_order, parse_query, offers_alias,
@@ -266,10 +268,13 @@ def search_invoices(client: VastClient, query: dict = None) -> list:
     return r.json()
 
 
-def template_fields_from_flags(*, ssh=False, jupyter=False, direct=False,
-                               jupyter_lab=False, login=None, hide_readme=False,
-                               public=False, search_params=None,
-                               no_default=False, always_default=False) -> dict:
+def template_fields_from_flags(*, ssh: bool = False, jupyter: bool = False,
+                               direct: bool = False, jupyter_lab: bool = False,
+                               login: Optional[str] = None,
+                               hide_readme: bool = False, public: bool = False,
+                               search_params: Optional[str] = None,
+                               no_default: bool = False,
+                               always_default: bool = False) -> dict:
     """Translate the friendly template flags into api-layer template fields.
 
     Shared by the CLI commands and the SDK so both publish the same surface.

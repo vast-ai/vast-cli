@@ -10,6 +10,29 @@ from vastai.api.client import VastClient
 from vastai.api import instances, offers, machines, teams, keys, endpoints, billing, storage, clusters, auth, deployments
 
 
+def _template_fields(*, runtype=None, use_ssh=None, jup_direct=None,
+                     ssh_direct=None, use_jupyter_lab=None,
+                     docker_login_repo=None, extra_filters=None,
+                     readme_visible=None, private=None, **flags) -> dict:
+    """Friendly template flags, with the raw api fields taking precedence.
+
+    update_template forwarded **kwargs straight to the api layer, so the raw
+    field names are what every working script uses today -- the friendly ones
+    all raised TypeError. Both spellings have to keep working.
+    """
+    from vastai.api import offers as _offers
+
+    fields = _offers.template_fields_from_flags(**flags)
+    overrides = {
+        "runtype": runtype, "use_ssh": use_ssh, "jup_direct": jup_direct,
+        "ssh_direct": ssh_direct, "use_jupyter_lab": use_jupyter_lab,
+        "docker_login_repo": docker_login_repo, "extra_filters": extra_filters,
+        "readme_visible": readme_visible, "private": private,
+    }
+    fields.update({k: v for k, v in overrides.items() if v is not None})
+    return fields
+
+
 class VastAI:
     """High-level SDK for the Vast.ai platform.
 
@@ -69,15 +92,16 @@ class VastAI:
     def create_instance(
         self, id: int, image: Optional[str] = None, disk: float = 10,
         env: Optional[Union[str, dict]] = None, price: Optional[float] = None,
-        bid_price: Optional[float] = None, label: Optional[str] = None,
-        extra: Optional[str] = None, onstart_cmd: Optional[str] = None,
-        login: Optional[str] = None, python_utf8: bool = False,
-        lang_utf8: bool = False, jupyter_lab: bool = False,
-        jupyter_dir: Optional[str] = None, force: bool = False,
-        cancel_unavail: bool = False, template_hash: Optional[str] = None,
-        user: Optional[str] = None, runtype: Optional[str] = None,
-        ssh: bool = False, jupyter: bool = False, direct: bool = False,
-        args: Optional[list] = None, volume_info: Optional[dict] = None,
+        label: Optional[str] = None, extra: Optional[str] = None,
+        onstart_cmd: Optional[str] = None, login: Optional[str] = None,
+        python_utf8: bool = False, lang_utf8: bool = False,
+        jupyter_lab: bool = False, jupyter_dir: Optional[str] = None,
+        force: bool = False, cancel_unavail: bool = False,
+        template_hash: Optional[str] = None, user: Optional[str] = None,
+        runtype: Optional[str] = None, args: Optional[list] = None,
+        volume_info: Optional[dict] = None,
+        bid_price: Optional[float] = None, ssh: bool = False,
+        jupyter: bool = False, direct: bool = False,
         create_volume: Optional[int] = None, link_volume: Optional[int] = None,
         volume_size: Optional[float] = None, mount_path: Optional[str] = None,
         volume_label: Optional[str] = None,
@@ -416,9 +440,9 @@ class VastAI:
         python_utf8: bool = False, lang_utf8: bool = False,
         jupyter_lab: bool = False, jupyter_dir: Optional[str] = None,
         cancel_unavail: bool = False, template_hash: Optional[str] = None,
-        runtype: Optional[str] = None, ssh: bool = False, jupyter: bool = False,
-        direct: bool = False, args: Optional[list] = None,
+        runtype: Optional[str] = None, args: Optional[list] = None,
         query: Optional[dict] = None,
+        ssh: bool = False, jupyter: bool = False, direct: bool = False,
     ) -> dict:
         """Launch the top instance from search offers matching the given criteria."""
         return offers.launch_instance(
@@ -947,6 +971,12 @@ class VastAI:
         disk_space: Optional[float] = None, readme: Optional[str] = None,
         hide_readme: bool = False, desc: Optional[str] = None,
         public: bool = False,
+        runtype: Optional[str] = None, use_ssh: Optional[bool] = None,
+        jup_direct: Optional[bool] = None, ssh_direct: Optional[bool] = None,
+        use_jupyter_lab: Optional[bool] = None,
+        docker_login_repo: Optional[str] = None,
+        extra_filters: Optional[dict] = None,
+        readme_visible: Optional[bool] = None, private: Optional[bool] = None,
     ) -> dict:
         """Create a new template.
 
@@ -958,10 +988,14 @@ class VastAI:
             name=name, image=image, image_tag=image_tag, href=href,
             repo=repo, env=env, onstart_cmd=onstart_cmd, jupyter_dir=jupyter_dir,
             disk_space=disk_space, readme=readme, desc=desc,
-            **offers.template_fields_from_flags(
+            **_template_fields(
                 ssh=ssh, jupyter=jupyter, direct=direct, jupyter_lab=jupyter_lab,
                 login=login, hide_readme=hide_readme, public=public,
                 search_params=search_params, no_default=no_default,
+                runtype=runtype, use_ssh=use_ssh, jup_direct=jup_direct,
+                ssh_direct=ssh_direct, use_jupyter_lab=use_jupyter_lab,
+                docker_login_repo=docker_login_repo, extra_filters=extra_filters,
+                readme_visible=readme_visible, private=private,
             ),
         )
 
@@ -980,6 +1014,12 @@ class VastAI:
         disk_space: Optional[float] = None, readme: Optional[str] = None,
         hide_readme: bool = False, desc: Optional[str] = None,
         public: bool = False,
+        runtype: Optional[str] = None, use_ssh: Optional[bool] = None,
+        jup_direct: Optional[bool] = None, ssh_direct: Optional[bool] = None,
+        use_jupyter_lab: Optional[bool] = None,
+        docker_login_repo: Optional[str] = None,
+        extra_filters: Optional[dict] = None,
+        readme_visible: Optional[bool] = None, private: Optional[bool] = None,
     ) -> dict:
         """Update an existing template."""
         return offers.update_template(
@@ -987,10 +1027,14 @@ class VastAI:
             name=name, image=image, image_tag=image_tag, href=href,
             repo=repo, env=env, onstart_cmd=onstart_cmd, jupyter_dir=jupyter_dir,
             disk_space=disk_space, readme=readme, desc=desc,
-            **offers.template_fields_from_flags(
+            **_template_fields(
                 ssh=ssh, jupyter=jupyter, direct=direct, jupyter_lab=jupyter_lab,
                 login=login, hide_readme=hide_readme, public=public,
                 search_params=search_params, no_default=no_default,
+                runtype=runtype, use_ssh=use_ssh, jup_direct=jup_direct,
+                ssh_direct=ssh_direct, use_jupyter_lab=use_jupyter_lab,
+                docker_login_repo=docker_login_repo, extra_filters=extra_filters,
+                readme_visible=readme_visible, private=private,
             ),
         )
 
@@ -1001,15 +1045,16 @@ class VastAI:
     def create_instances(
         self, ids: List[int], image: Optional[str] = None, disk: float = 10,
         env: Optional[Union[str, dict]] = None, price: Optional[float] = None,
-        bid_price: Optional[float] = None, label: Optional[str] = None,
-        extra: Optional[str] = None, onstart_cmd: Optional[str] = None,
-        login: Optional[str] = None, python_utf8: bool = False,
-        lang_utf8: bool = False, jupyter_lab: bool = False,
-        jupyter_dir: Optional[str] = None, force: bool = False,
-        cancel_unavail: bool = False, template_hash: Optional[str] = None,
-        user: Optional[str] = None, runtype: Optional[str] = None,
-        ssh: bool = False, jupyter: bool = False, direct: bool = False,
-        args: Optional[list] = None, volume_info: Optional[dict] = None,
+        label: Optional[str] = None, extra: Optional[str] = None,
+        onstart_cmd: Optional[str] = None, login: Optional[str] = None,
+        python_utf8: bool = False, lang_utf8: bool = False,
+        jupyter_lab: bool = False, jupyter_dir: Optional[str] = None,
+        force: bool = False, cancel_unavail: bool = False,
+        template_hash: Optional[str] = None, user: Optional[str] = None,
+        runtype: Optional[str] = None, args: Optional[list] = None,
+        volume_info: Optional[dict] = None,
+        bid_price: Optional[float] = None, ssh: bool = False,
+        jupyter: bool = False, direct: bool = False,
         create_volume: Optional[int] = None, link_volume: Optional[int] = None,
         volume_size: Optional[float] = None, mount_path: Optional[str] = None,
         volume_label: Optional[str] = None,

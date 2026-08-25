@@ -258,15 +258,18 @@ def build_create_instance_payload(
     return json_blob
 
 
-def create_instance(
-    client: VastClient, id, *, image=None, disk=10, env=None, price=None,
-    bid_price=None, label=None, extra=None, onstart_cmd=None, login=None,
-    python_utf8=False, lang_utf8=False, jupyter_lab=False, jupyter_dir=None,
-    force=False, cancel_unavail=False, template_hash=None, user=None,
-    runtype=None, ssh=False, jupyter=False, direct=False, args=None,
-    volume_info=None, create_volume=None, link_volume=None, volume_size=None,
-    mount_path=None, volume_label=None,
-) -> dict:
+def create_instance(client: VastClient, id, image=None, disk=10, env=None,
+                    price=None, label=None, extra=None, onstart_cmd=None,
+                    login=None, python_utf8=False, lang_utf8=False,
+                    jupyter_lab=False, jupyter_dir=None, force=False,
+                    cancel_unavail=False, template_hash=None, user=None,
+                    runtype=None, args=None, volume_info=None,
+                    # Appended, never inserted: the parameters above keep their
+                    # original positions so existing positional calls still bind
+                    # the same values.
+                    bid_price=None, ssh=False, jupyter=False, direct=False,
+                    create_volume=None, link_volume=None, volume_size=None,
+                    mount_path=None, volume_label=None) -> dict:
     """Create one instance, or several when ``id`` is a list of offer ids."""
     json_blob = build_create_instance_payload(
         image=image, disk=disk, env=env, price=price, bid_price=bid_price,

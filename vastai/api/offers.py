@@ -265,15 +265,21 @@ def search_invoices(client: VastClient, query: dict = None) -> list:
 def template_fields_from_flags(*, ssh=False, jupyter=False, direct=False,
                                jupyter_lab=False, login=None, hide_readme=False,
                                public=False, search_params=None,
-                               no_default=False) -> dict:
+                               no_default=False, always_default=False) -> dict:
     """Translate the friendly template flags into api-layer template fields.
 
     Shared by the CLI commands and the SDK so both publish the same surface.
+
+    ``always_default`` seeds the default offer filters even when no
+    ``search_params`` were given, which is what the CLI has always done. The SDK
+    passes False: it used to send no filters at all on a template created
+    without search params, and quietly starting to attach three would change
+    templates that existing scripts create.
     """
     from vastai.api.query import parse_query, offers_fields, offers_alias, offers_mult
 
     default_search_query = {}
-    if not no_default:
+    if not no_default and (always_default or search_params is not None):
         default_search_query = {"verified": {"eq": True}, "external": {"eq": False},
                                 "rentable": {"eq": True}}
 
@@ -434,8 +440,9 @@ def launch_instance(client: VastClient, gpu_name: str, num_gpus: str, image: str
                     jupyter_lab: bool = False, jupyter_dir: str = None,
                     cancel_unavail: bool = False,
                     template_hash: str = None, runtype: str = None,
-                    ssh: bool = False, jupyter: bool = False, direct: bool = False,
-                    args: str = None, query: dict = None) -> dict:
+                    args: str = None, query: dict = None,
+                    ssh: bool = False, jupyter: bool = False,
+                    direct: bool = False) -> dict:
     """Launch the top instance from search offers matching the given criteria.
 
     Searches for offers and launches the best match in a single API call.

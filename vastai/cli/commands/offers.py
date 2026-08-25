@@ -500,6 +500,7 @@ def create__template(args):
         jupyter_lab=args.jupyter_lab, login=args.login,
         hide_readme=args.hide_readme, public=args.public,
         search_params=args.search_params, no_default=args.no_default,
+        always_default=True,
     )
     extra_filters = fields["extra_filters"]
 
@@ -555,6 +556,7 @@ def update__template(args):
         jupyter_lab=args.jupyter_lab, login=args.login,
         hide_readme=args.hide_readme, public=args.public,
         search_params=args.search_params, no_default=args.no_default,
+        always_default=True,
     )
     extra_filters = fields["extra_filters"]
 

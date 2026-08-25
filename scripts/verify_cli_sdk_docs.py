@@ -623,7 +623,7 @@ def compare_params(
     signature does not enumerate what it accepts, so the generator fills the
     table in from the matching CLI command. The suppression used to cover the
     create/update instance and template methods too, which is how 50 parameters
-    that raise TypeError stayed published (HOST-3719). Those now have closed
+    that raise TypeError stayed published. Those now have closed
     signatures, so they are checked like anything else.
 
     Returns: {name: {"missing_from_docs": [...], "stale_in_docs": [...]}}

@@ -95,8 +95,8 @@ What the checker deliberately does *not* report:
 
   This carve-out is narrow on purpose. It used to cover `create_instance`,
   `create_instances`, `launch_instance` and `update_template`, which is how 50
-  parameters that raise `TypeError` stayed published (HOST-3719). Those have
-  closed signatures now and are checked like anything else. What the verifier
+  parameters that raise `TypeError` stayed published. Those have closed
+  signatures now and are checked like anything else. What the verifier
   still declines to judge, `tests/scripts/test_sdk_documented_params.py` checks
   instead: it binds every published parameter against the real method with the
   transport stubbed, so a fabricated parameter on a genuinely open signature

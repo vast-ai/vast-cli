@@ -35,8 +35,9 @@ class StubResponse:
 def sent(monkeypatch):
     captured = []
 
-    def record(self, url, json_data=None, **kwargs):
-        captured.append(json_data)
+    def record(self, url, json_data=None, query_args=None, **kwargs):
+        # GET-based searches carry the query in query_args, not a JSON body.
+        captured.append(json_data if json_data is not None else query_args)
         return StubResponse()
 
     for verb in ("put", "post", "get", "delete"):
@@ -142,3 +143,43 @@ class TestSearchOffers:
     def test_type_and_order_still_positional(self, sdk, sent):
         sdk.search_offers("num_gpus=2", "bid")
         assert sent
+
+
+class TestSearchQueryStrings:
+    """HOST-3684: the search wrappers advertise CLI-style strings.
+
+    They used to forward the string straight into a layer contracted on dicts,
+    so it landed on the wire as a filter value and the search silently ignored
+    it. A VIP client hit this on search_templates.
+    """
+
+    def test_search_templates_parses_the_string(self, sdk, sent):
+        sdk.search_templates("name=pytorch")
+        assert sent[-1]["select_filters"] == {"name": {"eq": "pytorch"}}
+
+    def test_search_invoices_parses_the_string(self, sdk, sent):
+        sdk.search_invoices("when>1700000000")
+        assert sent[-1]["select_filters"] == {"when": {"gt": 1700000000.0}}
+
+    def test_search_volumes_parses_the_string(self, sdk, sent):
+        sdk.search_volumes("disk_space>=100")
+        assert sent[-1]["disk_space"] == {"gte": "100"}
+
+    def test_search_network_volumes_parses_the_string(self, sdk, sent):
+        sdk.search_network_volumes("disk_space>=100")
+        assert sent[-1]["disk_space"] == {"gte": "100"}
+
+    def test_order_string_becomes_pairs(self, sdk, sent):
+        sdk.search_volumes("disk_space>=100", order="dph-")
+        assert sent[-1]["order"] == [["dph_total", "desc"]]
+
+    @pytest.mark.parametrize("method", [
+        "search_templates", "search_invoices", "search_volumes",
+        "search_network_volumes",
+    ])
+    def test_a_dict_still_passes_through_untouched(self, method, sdk, sent):
+        """Callers already passing dicts are the ones who worked; keep them."""
+        getattr(sdk, method)({"disk_space": {"gte": 7}})
+        payload = sent[-1]
+        filters = payload.get("select_filters", payload)
+        assert filters["disk_space"] == {"gte": 7}

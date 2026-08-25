@@ -247,6 +247,35 @@ templates_fields = {
 }
 
 
+
+def parse_order(order, field_alias: Dict = None) -> List:
+    """Turn a comma-separated order string into [[field, direction], ...].
+
+    ``-`` suffixes descending, ``+`` ascending. A list is returned unchanged so
+    callers can pass either spelling.
+    """
+    if order is None:
+        return None
+    if not isinstance(order, str):
+        return order
+
+    field_alias = offers_alias if field_alias is None else field_alias
+    parsed = []
+    for name in order.split(","):
+        name = name.strip()
+        if not name:
+            continue
+        direction = "asc"
+        field = name
+        if name.strip("-") != name:
+            direction = "desc"
+            field = name.strip("-")
+        if name.strip("+") != name:
+            direction = "asc"
+            field = name.strip("+")
+        parsed.append([field_alias.get(field, field), direction])
+    return parsed
+
 def parse_query(query_str: str, res: Dict = None, fields = {}, field_alias = {}, field_multiplier = {}) -> Dict:
     """
     Basically takes a query string (like the ones in the examples of commands for the search__offers function) and

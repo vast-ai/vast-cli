@@ -477,7 +477,8 @@ def launch_instance(client: VastClient, gpu_name: str, num_gpus: str, image: str
     Returns:
         Response dict with launch result.
     """
-    from vastai.api.query import parse_query, offers_fields, offers_alias, offers_mult
+    from vastai.api.query import (parse_query, parse_order, offers_fields,
+                                  offers_alias, offers_mult)
     from vastai.api.instances import resolve_runtype
     from vastai.utils import parse_env
 
@@ -510,25 +511,7 @@ def launch_instance(client: VastClient, gpu_name: str, num_gpus: str, image: str
         query = parse_query(args_query, base_query, offers_fields, offers_alias, offers_mult)
 
     # Parse order string
-    order_list = []
-    if isinstance(order, str):
-        for name in order.split(","):
-            name = name.strip()
-            if not name:
-                continue
-            direction = "asc"
-            field = name
-            if name.strip("-") != name:
-                direction = "desc"
-                field = name.strip("-")
-            if name.strip("+") != name:
-                direction = "asc"
-                field = name.strip("+")
-            if field in offers_alias:
-                field = offers_alias[field]
-            order_list.append([field, direction])
-    elif isinstance(order, list):
-        order_list = order
+    order_list = parse_order(order) or []
 
     query["order"] = order_list
     query["type"] = "on-demand"

@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Union
 
 from vastai._base import _resolve_api_key, _APIKEY_SENTINEL
 from vastai.api.client import VastClient
+from vastai.api.query import parse_order
 from vastai.api import instances, offers, machines, teams, keys, endpoints, billing, storage, clusters, auth, deployments
 
 
@@ -290,26 +291,7 @@ class VastAI:
             defaults_applied = True
 
         # Parse order string into list
-        order_list = None
-        if isinstance(order, str):
-            order_list = []
-            for name in order.split(","):
-                name = name.strip()
-                if not name:
-                    continue
-                direction = "asc"
-                field = name
-                if name.strip("-") != name:
-                    direction = "desc"
-                    field = name.strip("-")
-                if name.strip("+") != name:
-                    direction = "asc"
-                    field = name.strip("+")
-                if field in offers_alias:
-                    field = offers_alias[field]
-                order_list.append([field, direction])
-        elif isinstance(order, list):
-            order_list = order
+        order_list = parse_order(order)
 
         results = offers.search_offers(
             self.client, query=query, offer_type=type, order=order_list,
@@ -323,8 +305,17 @@ class VastAI:
 
         return results
 
-    def search_templates(self, query: Optional[str] = None) -> list[dict]:
-        """Search for templates."""
+    def search_templates(self, query: Optional[Union[str, dict]] = None) -> list[dict]:
+        """Search for templates.
+
+        ``query`` takes the same string syntax as ``vastai search templates``
+        (e.g. "name=pytorch"), or an already-parsed filter dict.
+        """
+        from vastai.api.query import parse_query, templates_fields, fix_date_fields
+
+        if isinstance(query, str):
+            query = parse_query(query, {}, templates_fields)
+            query = fix_date_fields(query, ["created_at", "recent_create_date"])
         return offers.search_templates(self.client, query=query)
 
     def search_benchmarks(self, query: Optional[Union[str, dict]] = None,
@@ -351,16 +342,58 @@ class VastAI:
         """Return benchmarks using the paginated API; for manual pagination."""
         return offers.search_benchmarks_v1(self.client, params)
 
-    def search_volumes(self, query: Optional[str] = None, **kwargs) -> list[dict]:
-        """Search for volume offers."""
-        return offers.search_volumes(self.client, query=query, **kwargs)
+    def search_volumes(
+        self, query: Optional[Union[str, dict]] = None,
+        order: Optional[Union[str, list]] = None, limit: Optional[int] = None,
+        storage: float = 1.0, no_default: bool = False,
+    ) -> list[dict]:
+        """Search for volume offers.
 
-    def search_network_volumes(self, query: Optional[str] = None, **kwargs) -> list[dict]:
-        """Search for network volume offers."""
-        return offers.search_network_volumes(self.client, query=query, **kwargs)
+        ``query`` takes the same string syntax as ``vastai search volumes``,
+        or an already-parsed filter dict.
+        """
+        return offers.search_volumes(
+            self.client, query=self._volume_query(query),
+            order=parse_order(order), limit=limit, storage=storage,
+            no_default=no_default,
+        )
 
-    def search_invoices(self, query: Optional[str] = None) -> list[dict]:
-        """Search for invoices."""
+    def search_network_volumes(
+        self, query: Optional[Union[str, dict]] = None,
+        order: Optional[Union[str, list]] = None, limit: Optional[int] = None,
+        storage: float = 1.0, no_default: bool = False,
+    ) -> list[dict]:
+        """Search for network volume offers.
+
+        ``query`` takes the same string syntax as
+        ``vastai search network volumes``, or an already-parsed filter dict.
+        """
+        return offers.search_network_volumes(
+            self.client, query=self._volume_query(query),
+            order=parse_order(order), limit=limit, storage=storage,
+            no_default=no_default,
+        )
+
+    @staticmethod
+    def _volume_query(query):
+        """Parse a volume query string; the api layer seeds the defaults."""
+        from vastai.api.query import parse_query, vol_offers_fields, offers_mult
+
+        if isinstance(query, str):
+            return parse_query(query, {}, vol_offers_fields, {}, offers_mult)
+        return query
+
+    def search_invoices(self, query: Optional[Union[str, dict]] = None) -> list[dict]:
+        """Search for invoices.
+
+        ``query`` takes the same string syntax as ``vastai search invoices``,
+        or an already-parsed filter dict.
+        """
+        from vastai.api.query import parse_query, invoices_fields, fix_date_fields
+
+        if isinstance(query, str):
+            query = parse_query(query, {}, invoices_fields)
+            query = fix_date_fields(query, ["when", "paid_on", "payment_expected"])
         return offers.search_invoices(self.client, query=query)
 
     def search_offers_new(
@@ -398,26 +431,7 @@ class VastAI:
             query = parse_query(query, base, offers_fields, offers_alias, offers_mult)
             defaults_applied = True
 
-        order_list = None
-        if isinstance(order, str):
-            order_list = []
-            for name in order.split(","):
-                name = name.strip()
-                if not name:
-                    continue
-                direction = "asc"
-                field = name
-                if name.strip("-") != name:
-                    direction = "desc"
-                    field = name.strip("-")
-                if name.strip("+") != name:
-                    direction = "asc"
-                    field = name.strip("+")
-                if field in offers_alias:
-                    field = offers_alias[field]
-                order_list.append([field, direction])
-        elif isinstance(order, list):
-            order_list = order
+        order_list = parse_order(order)
 
         results = offers.search_offers_new(
             self.client, query=query, offer_type=type, order=order_list,

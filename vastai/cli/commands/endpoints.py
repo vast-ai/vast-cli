@@ -23,6 +23,8 @@ def _build_scaling_config(args):
         config["requests_per_worker"] = args.requests_per_worker
     if args.min_active_workers is not None:
         config["min_active_workers"] = args.min_active_workers
+    if args.cold_buffer_mult is not None:
+        config["cold_buffer_mult"] = args.cold_buffer_mult
     if args.queue_delay_target is not None:
         config["queue_delay_target"] = args.queue_delay_target
     if args.idle_timeout is not None:
@@ -51,6 +53,7 @@ def _build_scaling_config(args):
     argument("--scaler", help="queue mode: scale on 'request_count' (default) or 'queue_delay'", type=str, choices=["request_count", "queue_delay"]),
     argument("--requests_per_worker", help="queue mode: tasks per worker (also per-worker concurrency, default 1)", type=int),
     argument("--min_active_workers", help="queue mode: always-on floor of running workers, kept alive even with an empty queue (default 0)", type=int),
+    argument("--cold_buffer_mult", help="queue mode: keep total live workers >= target_active * mult; surplus parks stopped for warm starts (default 1.0)", type=float),
     argument("--queue_delay_target", help="queue mode: seconds a task may wait before it counts toward scale-up (queue_delay scaler, default 5.0)", type=float),
     argument("--idle_timeout", help="queue mode: seconds a worker may sit idle before being stopped (default 60.0)", type=float),
     argument("--cold_ttl", help="queue mode: seconds stopped beyond the cold_workers floor before destroy; 0 disables (default 3600.0)", type=float),
@@ -133,6 +136,7 @@ def show__endpoints(args):
     argument("--scaler", help="queue mode: scale on 'request_count' (default) or 'queue_delay'", type=str, choices=["request_count", "queue_delay"]),
     argument("--requests_per_worker", help="queue mode: tasks per worker (also per-worker concurrency, default 1)", type=int),
     argument("--min_active_workers", help="queue mode: always-on floor of running workers, kept alive even with an empty queue (default 0)", type=int),
+    argument("--cold_buffer_mult", help="queue mode: keep total live workers >= target_active * mult; surplus parks stopped for warm starts (default 1.0)", type=float),
     argument("--queue_delay_target", help="queue mode: seconds a task may wait before it counts toward scale-up (queue_delay scaler, default 5.0)", type=float),
     argument("--idle_timeout", help="queue mode: seconds a worker may sit idle before being stopped (default 60.0)", type=float),
     argument("--cold_ttl", help="queue mode: seconds stopped beyond the cold_workers floor before destroy; 0 disables (default 3600.0)", type=float),

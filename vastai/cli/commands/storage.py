@@ -240,17 +240,11 @@ def cloud__copy(args):
         print("invalid arguments")
         return
 
-    flags = []
-    if args.dry_run:
-        flags.append("--dry-run")
-    if args.size_only:
-        flags.append("--size-only")
-    if args.ignore_existing:
-        flags.append("--ignore-existing")
-    if args.update:
-        flags.append("--update")
-    if args.delete_excluded:
-        flags.append("--delete-excluded")
+    flags = storage_api.rclone_flags(
+        dry_run=args.dry_run, size_only=args.size_only,
+        ignore_existing=args.ignore_existing, update=args.update,
+        delete_excluded=args.delete_excluded,
+    )
 
     print(f"copying {args.src} {args.dst} {args.instance} {args.connection} {args.transfer}")
 

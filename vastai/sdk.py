@@ -7,7 +7,47 @@ from typing import Dict, List, Optional, Union
 
 from vastai._base import _resolve_api_key, _APIKEY_SENTINEL
 from vastai.api.client import VastClient
+from vastai.api.query import (parse_order, parse_query, benchmarks_fields,
+                              fix_date_fields, invoices_fields,
+                              offers_mult, templates_fields,
+                              vol_offers_fields)
 from vastai.api import instances, offers, machines, teams, keys, endpoints, billing, storage, clusters, auth, deployments
+
+
+def benchmarks_query(query):
+    """Parse a benchmarks query string into the filter dict the API wants."""
+    if isinstance(query, str):
+        query = parse_query(query, {}, benchmarks_fields)
+        return fix_date_fields(query, ["last_update"])
+    return query
+
+
+def volume_query(query):
+    """Parse a volume query string; the api layer seeds the defaults."""
+    if isinstance(query, str):
+        return parse_query(query, {}, vol_offers_fields, {}, offers_mult)
+    return query
+
+
+def template_fields(*, runtype=None, use_ssh=None, jup_direct=None,
+                     ssh_direct=None, use_jupyter_lab=None,
+                     docker_login_repo=None, extra_filters=None,
+                     readme_visible=None, private=None, **flags) -> dict:
+    """Friendly template flags, with the raw api fields taking precedence.
+
+    update_template forwarded **kwargs straight to the api layer, so the raw
+    field names are what every working script uses today -- the friendly ones
+    all raised TypeError. Both spellings have to keep working.
+    """
+    fields = offers.template_fields_from_flags(**flags)
+    overrides = {
+        "runtype": runtype, "use_ssh": use_ssh, "jup_direct": jup_direct,
+        "ssh_direct": ssh_direct, "use_jupyter_lab": use_jupyter_lab,
+        "docker_login_repo": docker_login_repo, "extra_filters": extra_filters,
+        "readme_visible": readme_visible, "private": private,
+    }
+    fields.update({k: v for k, v in overrides.items() if v is not None})
+    return fields
 
 
 class VastAI:
@@ -66,9 +106,39 @@ class VastAI:
         """Return details of a single instance."""
         return instances.show_instance(self.client, id)
 
-    def create_instance(self, id: int, image: Optional[str] = None, disk: float = 10, **kwargs) -> dict:
-        """Create a new instance from a contract offer ID."""
-        return instances.create_instance(self.client, id, image=image, disk=disk, **kwargs)
+    def create_instance(
+        self, id: int, image: Optional[str] = None, disk: float = 10,
+        env: Optional[Union[str, dict]] = None, price: Optional[float] = None,
+        label: Optional[str] = None, extra: Optional[str] = None,
+        onstart_cmd: Optional[str] = None, login: Optional[str] = None,
+        python_utf8: bool = False, lang_utf8: bool = False,
+        jupyter_lab: bool = False, jupyter_dir: Optional[str] = None,
+        force: bool = False, cancel_unavail: bool = False,
+        template_hash: Optional[str] = None, user: Optional[str] = None,
+        runtype: Optional[str] = None, args: Optional[list] = None,
+        volume_info: Optional[dict] = None,
+        bid_price: Optional[float] = None, ssh: bool = False,
+        jupyter: bool = False, direct: bool = False,
+        create_volume: Optional[int] = None, link_volume: Optional[int] = None,
+        volume_size: Optional[float] = None, mount_path: Optional[str] = None,
+        volume_label: Optional[str] = None,
+    ) -> dict:
+        """Create a new instance from a contract offer ID.
+
+        ``runtype`` is left out of the request when neither it nor the
+        ssh/jupyter/direct flags are given, so the backend picks the default.
+        """
+        return instances.create_instance(
+            self.client, id,
+            image=image, disk=disk, env=env, price=price, bid_price=bid_price,
+            label=label, extra=extra, onstart_cmd=onstart_cmd, login=login,
+            python_utf8=python_utf8, lang_utf8=lang_utf8, jupyter_lab=jupyter_lab,
+            jupyter_dir=jupyter_dir, force=force, cancel_unavail=cancel_unavail,
+            template_hash=template_hash, user=user, runtype=runtype, ssh=ssh,
+            jupyter=jupyter, direct=direct, args=args, volume_info=volume_info,
+            create_volume=create_volume, link_volume=link_volume,
+            volume_size=volume_size, mount_path=mount_path, volume_label=volume_label,
+        )
 
     def destroy_instance(self, id: int) -> dict:
         """Destroy an instance."""
@@ -205,7 +275,6 @@ class VastAI:
         limit: Optional[int] = None,
         storage: float = 5.0,
         no_default: bool = False,
-        **kwargs,
     ) -> list:
         """Search for GPU offers.
 
@@ -236,31 +305,12 @@ class VastAI:
             defaults_applied = True
 
         # Parse order string into list
-        order_list = None
-        if isinstance(order, str):
-            order_list = []
-            for name in order.split(","):
-                name = name.strip()
-                if not name:
-                    continue
-                direction = "asc"
-                field = name
-                if name.strip("-") != name:
-                    direction = "desc"
-                    field = name.strip("-")
-                if name.strip("+") != name:
-                    direction = "asc"
-                    field = name.strip("+")
-                if field in offers_alias:
-                    field = offers_alias[field]
-                order_list.append([field, direction])
-        elif isinstance(order, list):
-            order_list = order
+        order_list = parse_order(order)
 
         results = offers.search_offers(
             self.client, query=query, offer_type=type, order=order_list,
             limit=limit, storage=storage,
-            no_default=(no_default or defaults_applied), **kwargs,
+            no_default=(no_default or defaults_applied),
         )
 
         if isinstance(results, list):
@@ -268,8 +318,15 @@ class VastAI:
 
         return results
 
-    def search_templates(self, query: Optional[str] = None) -> list[dict]:
-        """Search for templates."""
+    def search_templates(self, query: Optional[Union[str, dict]] = None) -> list[dict]:
+        """Search for templates.
+
+        ``query`` takes the same string syntax as ``vastai search templates``
+        (e.g. "name=pytorch"), or an already-parsed filter dict.
+        """
+        if isinstance(query, str):
+            query = parse_query(query, {}, templates_fields)
+            query = fix_date_fields(query, ["created_at", "recent_create_date"])
         return offers.search_templates(self.client, query=query)
 
     def search_benchmarks(self, query: Optional[Union[str, dict]] = None,
@@ -284,6 +341,7 @@ class VastAI:
         and get every matching row, or use search_benchmarks_v1() to page
         manually via next_token.
         """
+        query = benchmarks_query(query)
         if all_pages:
             return offers.search_benchmarks(self.client, query=query, order=order,
                                             limit=limit, after_token=after_token)
@@ -296,16 +354,47 @@ class VastAI:
         """Return benchmarks using the paginated API; for manual pagination."""
         return offers.search_benchmarks_v1(self.client, params)
 
-    def search_volumes(self, query: Optional[str] = None, **kwargs) -> list[dict]:
-        """Search for volume offers."""
-        return offers.search_volumes(self.client, query=query, **kwargs)
+    def search_volumes(
+        self, query: Optional[Union[str, dict]] = None,
+        order: Optional[Union[str, list]] = None, limit: Optional[int] = None,
+        storage: float = 1.0, no_default: bool = False,
+    ) -> list[dict]:
+        """Search for volume offers.
 
-    def search_network_volumes(self, query: Optional[str] = None, **kwargs) -> list[dict]:
-        """Search for network volume offers."""
-        return offers.search_network_volumes(self.client, query=query, **kwargs)
+        ``query`` takes the same string syntax as ``vastai search volumes``,
+        or an already-parsed filter dict.
+        """
+        return offers.search_volumes(
+            self.client, query=volume_query(query),
+            order=parse_order(order), limit=limit, storage=storage,
+            no_default=no_default,
+        )
 
-    def search_invoices(self, query: Optional[str] = None) -> list[dict]:
-        """Search for invoices."""
+    def search_network_volumes(
+        self, query: Optional[Union[str, dict]] = None,
+        order: Optional[Union[str, list]] = None, limit: Optional[int] = None,
+        storage: float = 1.0, no_default: bool = False,
+    ) -> list[dict]:
+        """Search for network volume offers.
+
+        ``query`` takes the same string syntax as
+        ``vastai search network volumes``, or an already-parsed filter dict.
+        """
+        return offers.search_network_volumes(
+            self.client, query=volume_query(query),
+            order=parse_order(order), limit=limit, storage=storage,
+            no_default=no_default,
+        )
+
+    def search_invoices(self, query: Optional[Union[str, dict]] = None) -> list[dict]:
+        """Search for invoices.
+
+        ``query`` takes the same string syntax as ``vastai search invoices``,
+        or an already-parsed filter dict.
+        """
+        if isinstance(query, str):
+            query = parse_query(query, {}, invoices_fields)
+            query = fix_date_fields(query, ["when", "paid_on", "payment_expected"])
         return offers.search_invoices(self.client, query=query)
 
     def search_offers_new(
@@ -316,7 +405,6 @@ class VastAI:
         limit: Optional[int] = None,
         storage: float = 5.0,
         no_default: bool = False,
-        **kwargs,
     ) -> list:
         """Search for GPU offers using the new /search/asks/ endpoint.
 
@@ -342,31 +430,12 @@ class VastAI:
             query = parse_query(query, base, offers_fields, offers_alias, offers_mult)
             defaults_applied = True
 
-        order_list = None
-        if isinstance(order, str):
-            order_list = []
-            for name in order.split(","):
-                name = name.strip()
-                if not name:
-                    continue
-                direction = "asc"
-                field = name
-                if name.strip("-") != name:
-                    direction = "desc"
-                    field = name.strip("-")
-                if name.strip("+") != name:
-                    direction = "asc"
-                    field = name.strip("+")
-                if field in offers_alias:
-                    field = offers_alias[field]
-                order_list.append([field, direction])
-        elif isinstance(order, list):
-            order_list = order
+        order_list = parse_order(order)
 
         results = offers.search_offers_new(
             self.client, query=query, offer_type=type, order=order_list,
             limit=limit, storage=storage,
-            no_default=(no_default or defaults_applied), **kwargs,
+            no_default=(no_default or defaults_applied),
         )
 
         if isinstance(results, list):
@@ -374,9 +443,29 @@ class VastAI:
 
         return results
 
-    def launch_instance(self, gpu_name: str, num_gpus: str, image: str, **kwargs) -> dict:
+    def launch_instance(
+        self, gpu_name: str, num_gpus: str, image: str,
+        region: Optional[str] = None, disk: float = 10, order: str = "score-",
+        limit: Optional[int] = None, env: Optional[Union[str, dict]] = None,
+        label: Optional[str] = None, extra: Optional[str] = None,
+        onstart_cmd: Optional[str] = None, login: Optional[str] = None,
+        python_utf8: bool = False, lang_utf8: bool = False,
+        jupyter_lab: bool = False, jupyter_dir: Optional[str] = None,
+        cancel_unavail: bool = False, template_hash: Optional[str] = None,
+        runtype: Optional[str] = None, args: Optional[list] = None,
+        query: Optional[dict] = None,
+        ssh: bool = False, jupyter: bool = False, direct: bool = False,
+    ) -> dict:
         """Launch the top instance from search offers matching the given criteria."""
-        return offers.launch_instance(self.client, gpu_name, num_gpus, image, **kwargs)
+        return offers.launch_instance(
+            self.client, gpu_name, num_gpus, image, region=region, disk=disk,
+            order=order, limit=limit, env=env, label=label, extra=extra,
+            onstart_cmd=onstart_cmd, login=login, python_utf8=python_utf8,
+            lang_utf8=lang_utf8, jupyter_lab=jupyter_lab, jupyter_dir=jupyter_dir,
+            cancel_unavail=cancel_unavail, template_hash=template_hash,
+            runtype=runtype, ssh=ssh, jupyter=jupyter, direct=direct, args=args,
+            query=query,
+        )
 
     # ------------------------------------------------------------------
     # Machine methods
@@ -597,7 +686,10 @@ class VastAI:
     # Billing methods
     # ------------------------------------------------------------------
 
-    def show_invoices(self, **kwargs) -> dict:
+    def show_invoices(
+        self, start_date: Optional[str] = None, end_date: Optional[str] = None,
+        only_charges: bool = False, only_credits: bool = False,
+    ) -> dict:
         """Show invoice details (deprecated; use show_invoices_v1).
 
         Returns dict with 'invoices' list and 'current' charges.
@@ -606,15 +698,24 @@ class VastAI:
             "VastAI.show_invoices() is deprecated; use VastAI.show_invoices_v1(**params) for the paginated v1 API.",
             DeprecationWarning, stacklevel=2,
         )
-        return billing.show_invoices(self.client, **kwargs)
+        return billing.show_invoices(
+            self.client, start_date=start_date, end_date=end_date,
+            only_charges=only_charges, only_credits=only_credits,
+        )
 
     def show_invoices_v1(self, **kwargs) -> dict:
         """Get billing history reports with advanced filtering and pagination."""
         return billing.show_invoices_v1(self.client, kwargs)
 
-    def show_earnings(self, **kwargs) -> list[dict]:
+    def show_earnings(
+        self, start_date: Optional[str] = None, end_date: Optional[str] = None,
+        machine_id: Optional[int] = None,
+    ) -> list[dict]:
         """Show earnings information."""
-        return billing.show_earnings(self.client, **kwargs)
+        return billing.show_earnings(
+            self.client, start_date=start_date, end_date=end_date,
+            machine_id=machine_id,
+        )
 
     def show_deposit(self, id: int) -> dict:
         """Show deposit details."""
@@ -702,9 +803,28 @@ class VastAI:
         """Cancel a file sync operation."""
         return storage.cancel_sync(self.client, dst_id)
 
-    def cloud_copy(self, **kwargs) -> dict:
-        """Copy files between cloud and instance."""
-        return storage.cloud_copy(self.client, **kwargs)
+    def cloud_copy(
+        self, src: str, dst: str = "/workspace", instance: Optional[str] = None,
+        connection: Optional[str] = None, transfer: str = "Instance to Cloud",
+        dry_run: bool = False, size_only: bool = False,
+        ignore_existing: bool = False, update: bool = False,
+        delete_excluded: bool = False, flags: Optional[list] = None,
+    ) -> dict:
+        """Copy files between cloud and instance.
+
+        Scheduling (the CLI's --schedule/--day/--hour) is not available here;
+        it posts to a different endpoint than this one.
+        """
+        if flags is None:
+            flags = storage.rclone_flags(
+                dry_run=dry_run, size_only=size_only,
+                ignore_existing=ignore_existing, update=update,
+                delete_excluded=delete_excluded,
+            )
+        return storage.cloud_copy(
+            self.client, src=src, dst=dst, instance=instance,
+            connection=connection, transfer=transfer, flags=flags,
+        )
 
     def clone_volume(self, source: int, dest: int, **kwargs) -> dict:
         """Clone an existing volume."""
@@ -852,60 +972,117 @@ class VastAI:
         """Delete a scheduled job."""
         return auth.delete_scheduled_job(self.client, id)
 
-    def create_template(self, **kwargs) -> dict:
+    def create_template(
+        self, name: Optional[str] = None, image: Optional[str] = None,
+        image_tag: Optional[str] = None, href: Optional[str] = None,
+        repo: Optional[str] = None, login: Optional[str] = None,
+        env: Optional[str] = None, ssh: bool = False, jupyter: bool = False,
+        direct: bool = False, jupyter_dir: Optional[str] = None,
+        jupyter_lab: bool = False, onstart_cmd: Optional[str] = None,
+        search_params: Optional[str] = None, no_default: bool = False,
+        disk_space: Optional[float] = None, readme: Optional[str] = None,
+        hide_readme: bool = False, desc: Optional[str] = None,
+        public: bool = False,
+        runtype: Optional[str] = None, use_ssh: Optional[bool] = None,
+        jup_direct: Optional[bool] = None, ssh_direct: Optional[bool] = None,
+        use_jupyter_lab: Optional[bool] = None,
+        docker_login_repo: Optional[str] = None,
+        extra_filters: Optional[dict] = None,
+        readme_visible: Optional[bool] = None, private: Optional[bool] = None,
+    ) -> dict:
         """Create a new template.
 
-        Accepts user-friendly kwargs (jupyter, ssh, direct, login, etc.)
-        and translates them to the API parameters.
+        ``search_params`` is parsed into the template's offer filters, the same
+        way ``vastai create template --search_params`` does it.
         """
-        jupyter = kwargs.pop("jupyter", False)
-        ssh = kwargs.pop("ssh", False)
-        direct = kwargs.pop("direct", False)
-        login = kwargs.pop("login", None)
-        hide_readme = kwargs.pop("hide_readme", False)
-        public = kwargs.pop("public", False)
-        jupyter_lab = kwargs.pop("jupyter_lab", False)
-        # Remove kwargs not accepted by offers.create_template
-        kwargs.pop("search_params", None)
-        kwargs.pop("no_default", None)
-
-        jup_direct = jupyter and direct
-        ssh_direct = ssh and direct
-        use_ssh = ssh or jupyter
-        runtype = "jupyter" if jupyter else ("ssh" if ssh else "args")
-
-        docker_login_repo = None
-        if login:
-            docker_login_repo = login.split(" ")[0]
-
         return offers.create_template(
             self.client,
-            jup_direct=jup_direct,
-            ssh_direct=ssh_direct,
-            use_ssh=use_ssh,
-            use_jupyter_lab=jupyter_lab,
-            runtype=runtype,
-            docker_login_repo=docker_login_repo,
-            readme_visible=not hide_readme,
-            private=not public,
-            **kwargs,
+            name=name, image=image, image_tag=image_tag, href=href,
+            repo=repo, env=env, onstart_cmd=onstart_cmd, jupyter_dir=jupyter_dir,
+            disk_space=disk_space, readme=readme, desc=desc,
+            **template_fields(
+                ssh=ssh, jupyter=jupyter, direct=direct, jupyter_lab=jupyter_lab,
+                login=login, hide_readme=hide_readme, public=public,
+                search_params=search_params, no_default=no_default,
+                runtype=runtype, use_ssh=use_ssh, jup_direct=jup_direct,
+                ssh_direct=ssh_direct, use_jupyter_lab=use_jupyter_lab,
+                docker_login_repo=docker_login_repo, extra_filters=extra_filters,
+                readme_visible=readme_visible, private=private,
+            ),
         )
 
     def delete_template(self, template_id: Optional[int] = None, hash_id: Optional[str] = None) -> dict:
         """Delete a template by ID or hash."""
         return offers.delete_template(self.client, template_id=template_id, hash_id=hash_id)
 
-    def update_template(self, hash_id: str, **kwargs) -> dict:
+    def update_template(
+        self, hash_id: str, name: Optional[str] = None, image: Optional[str] = None,
+        image_tag: Optional[str] = None, href: Optional[str] = None,
+        repo: Optional[str] = None, login: Optional[str] = None,
+        env: Optional[str] = None, ssh: bool = False, jupyter: bool = False,
+        direct: bool = False, jupyter_dir: Optional[str] = None,
+        jupyter_lab: bool = False, onstart_cmd: Optional[str] = None,
+        search_params: Optional[str] = None, no_default: bool = False,
+        disk_space: Optional[float] = None, readme: Optional[str] = None,
+        hide_readme: bool = False, desc: Optional[str] = None,
+        public: bool = False,
+        runtype: Optional[str] = None, use_ssh: Optional[bool] = None,
+        jup_direct: Optional[bool] = None, ssh_direct: Optional[bool] = None,
+        use_jupyter_lab: Optional[bool] = None,
+        docker_login_repo: Optional[str] = None,
+        extra_filters: Optional[dict] = None,
+        readme_visible: Optional[bool] = None, private: Optional[bool] = None,
+    ) -> dict:
         """Update an existing template."""
-        return offers.update_template(self.client, hash_id=hash_id, **kwargs)
+        return offers.update_template(
+            self.client, hash_id=hash_id,
+            name=name, image=image, image_tag=image_tag, href=href,
+            repo=repo, env=env, onstart_cmd=onstart_cmd, jupyter_dir=jupyter_dir,
+            disk_space=disk_space, readme=readme, desc=desc,
+            **template_fields(
+                ssh=ssh, jupyter=jupyter, direct=direct, jupyter_lab=jupyter_lab,
+                login=login, hide_readme=hide_readme, public=public,
+                search_params=search_params, no_default=no_default,
+                runtype=runtype, use_ssh=use_ssh, jup_direct=jup_direct,
+                ssh_direct=ssh_direct, use_jupyter_lab=use_jupyter_lab,
+                docker_login_repo=docker_login_repo, extra_filters=extra_filters,
+                readme_visible=readme_visible, private=private,
+            ),
+        )
 
     # ------------------------------------------------------------------
     # Batch instance methods
     # ------------------------------------------------------------------
 
-    def create_instances(self, ids: List[int], **kwargs) -> dict:
+    def create_instances(
+        self, ids: List[int], image: Optional[str] = None, disk: float = 10,
+        env: Optional[Union[str, dict]] = None, price: Optional[float] = None,
+        label: Optional[str] = None, extra: Optional[str] = None,
+        onstart_cmd: Optional[str] = None, login: Optional[str] = None,
+        python_utf8: bool = False, lang_utf8: bool = False,
+        jupyter_lab: bool = False, jupyter_dir: Optional[str] = None,
+        force: bool = False, cancel_unavail: bool = False,
+        template_hash: Optional[str] = None, user: Optional[str] = None,
+        runtype: Optional[str] = None, args: Optional[list] = None,
+        volume_info: Optional[dict] = None,
+        bid_price: Optional[float] = None, ssh: bool = False,
+        jupyter: bool = False, direct: bool = False,
+        create_volume: Optional[int] = None, link_volume: Optional[int] = None,
+        volume_size: Optional[float] = None, mount_path: Optional[str] = None,
+        volume_label: Optional[str] = None,
+    ) -> dict:
         """Create multiple instances from a list of offer IDs."""
-        return instances.create_instance(self.client, id=ids, **kwargs)
+        return instances.create_instance(
+            self.client, ids,
+            image=image, disk=disk, env=env, price=price, bid_price=bid_price,
+            label=label, extra=extra, onstart_cmd=onstart_cmd, login=login,
+            python_utf8=python_utf8, lang_utf8=lang_utf8, jupyter_lab=jupyter_lab,
+            jupyter_dir=jupyter_dir, force=force, cancel_unavail=cancel_unavail,
+            template_hash=template_hash, user=user, runtype=runtype, ssh=ssh,
+            jupyter=jupyter, direct=direct, args=args, volume_info=volume_info,
+            create_volume=create_volume, link_volume=link_volume,
+            volume_size=volume_size, mount_path=mount_path, volume_label=volume_label,
+        )
 
     def destroy_instances(self, ids: List[int]) -> dict:
         """Destroy multiple instances."""

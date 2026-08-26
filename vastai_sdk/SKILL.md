@@ -64,6 +64,10 @@ offers = vast.search_offers(query='gpu_name=RTX_4090 num_gpus>=4 reliability>0.9
 # Create an instance from an offer
 result = vast.create_instance(id=<offer_id>, image="pytorch/pytorch:latest", disk=50)
 
+# ...as a jupyter instance on a direct connection
+result = vast.create_instance(id=<offer_id>, image="pytorch/pytorch:latest", disk=50,
+                              jupyter=True, direct=True, jupyter_lab=True)
+
 # Lifecycle
 vast.start_instance(id=12345)
 vast.stop_instance(id=12345)
@@ -179,11 +183,12 @@ offers = client.search(
     max_dph_total=2.0,
 )
 
-# Create an instance
+# Create an instance (SyncClient takes an InstanceConfig, not loose kwargs)
+from vastai.data.instance import InstanceConfig
+
 instance = client.create_instance(
     offer_id=<id>,
-    image="pytorch/pytorch:latest",
-    disk_gb=50,
+    config=InstanceConfig(image="pytorch/pytorch:latest", disk=50),
 )
 
 # List your instances
@@ -200,6 +205,7 @@ client.destroy_instance(instance_or_id=12345)
 ```python
 import asyncio
 from vastai import AsyncClient
+from vastai.data.instance import InstanceConfig
 
 async def main():
     async with AsyncClient(api_key="YOUR_API_KEY") as client:
@@ -207,7 +213,8 @@ async def main():
         offers = await client.search(num_gpus=1, gpu_name="A100")
 
         # Create instance
-        instance = await client.create_instance(offer_id=<id>, image="ubuntu:22.04")
+        instance = await client.create_instance(
+            offer_id=<id>, config=InstanceConfig(image="ubuntu:22.04"))
 
         # List instances
         instances = await client.show_instances()  # returns list[AsyncInstance]

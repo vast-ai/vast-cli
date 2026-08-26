@@ -1,5 +1,11 @@
 """Search offers, templates, benchmarks, volumes, network volumes, and invoices."""
+from typing import Optional
+
 from vastai.api.client import VastClient
+from vastai.api.instances import resolve_runtype
+from vastai.api.query import (parse_order, parse_query, offers_alias,
+                              offers_fields, offers_mult)
+from vastai.utils import parse_env
 
 
 def search_offers(client: VastClient, query: dict = None, offer_type: str = "on-demand",
@@ -262,6 +268,42 @@ def search_invoices(client: VastClient, query: dict = None) -> list:
     return r.json()
 
 
+def template_fields_from_flags(*, ssh: bool = False, jupyter: bool = False,
+                               direct: bool = False, jupyter_lab: bool = False,
+                               login: Optional[str] = None,
+                               hide_readme: bool = False, public: bool = False,
+                               search_params: Optional[str] = None,
+                               no_default: bool = False,
+                               always_default: bool = False) -> dict:
+    """Translate the friendly template flags into api-layer template fields.
+
+    Shared by the CLI commands and the SDK so both publish the same surface.
+
+    ``always_default`` seeds the default offer filters even when no
+    ``search_params`` were given, which is what the CLI has always done. The SDK
+    passes False: it used to send no filters at all on a template created
+    without search params, and quietly starting to attach three would change
+    templates that existing scripts create.
+    """
+    default_search_query = {}
+    if not no_default and (always_default or search_params is not None):
+        default_search_query = {"verified": {"eq": True}, "external": {"eq": False},
+                                "rentable": {"eq": True}}
+
+    return {
+        "jup_direct": jupyter and direct,
+        "ssh_direct": ssh and direct,
+        "use_ssh": ssh or jupyter,
+        "use_jupyter_lab": jupyter_lab,
+        "runtype": "jupyter" if jupyter else ("ssh" if ssh else "args"),
+        "docker_login_repo": login.split(" ")[0] if login else None,
+        "extra_filters": parse_query(search_params, default_search_query,
+                                     offers_fields, offers_alias, offers_mult),
+        "readme_visible": not hide_readme,
+        "private": not public,
+    }
+
+
 def create_template(client: VastClient, name: str = None, image: str = None,
                     image_tag: str = None, href: str = None, repo: str = None,
                     env: str = None, onstart_cmd: str = None,
@@ -405,7 +447,9 @@ def launch_instance(client: VastClient, gpu_name: str, num_gpus: str, image: str
                     jupyter_lab: bool = False, jupyter_dir: str = None,
                     cancel_unavail: bool = False,
                     template_hash: str = None, runtype: str = None,
-                    args: str = None, query: dict = None) -> dict:
+                    args: str = None, query: dict = None,
+                    ssh: bool = False, jupyter: bool = False,
+                    direct: bool = False) -> dict:
     """Launch the top instance from search offers matching the given criteria.
 
     Searches for offers and launches the best match in a single API call.
@@ -431,13 +475,22 @@ def launch_instance(client: VastClient, gpu_name: str, num_gpus: str, image: str
         cancel_unavail: Cancel if unavailable.
         template_hash: Template hash ID.
         runtype: Run type (jupyter, ssh, args).
+        ssh: Launch as an ssh instance type.
+        jupyter: Launch as a jupyter instance instead of an ssh instance.
+        direct: Use (faster) direct connections for jupyter & ssh.
         args: Container arguments.
         query: Pre-built query dict (overrides auto-built query from gpu_name/num_gpus).
 
     Returns:
         Response dict with launch result.
     """
-    from vastai.api.query import parse_query, offers_fields, offers_alias, offers_mult
+    if isinstance(env, str):
+        env = parse_env(env)
+    if template_hash is None:
+        runtype, args = resolve_runtype(runtype, ssh=ssh, jupyter=jupyter,
+                                        direct=direct, args=args,
+                                        jupyter_lab=jupyter_lab,
+                                        jupyter_dir=jupyter_dir)
 
     REGIONS = {
         "North_America": "[AG, BS, BB, BZ, CA, CR, CU, DM, DO, SV, GD, GT, HT, HN, JM, MX, NI, PA, KN, LC, VC, TT, US]",
@@ -460,25 +513,7 @@ def launch_instance(client: VastClient, gpu_name: str, num_gpus: str, image: str
         query = parse_query(args_query, base_query, offers_fields, offers_alias, offers_mult)
 
     # Parse order string
-    order_list = []
-    if isinstance(order, str):
-        for name in order.split(","):
-            name = name.strip()
-            if not name:
-                continue
-            direction = "asc"
-            field = name
-            if name.strip("-") != name:
-                direction = "desc"
-                field = name.strip("-")
-            if name.strip("+") != name:
-                direction = "asc"
-                field = name.strip("+")
-            if field in offers_alias:
-                field = offers_alias[field]
-            order_list.append([field, direction])
-    elif isinstance(order, list):
-        order_list = order
+    order_list = parse_order(order) or []
 
     query["order"] = order_list
     query["type"] = "on-demand"

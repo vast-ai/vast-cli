@@ -229,9 +229,6 @@ def get__endpt_workers(args):
     epilog=deindent("""
         Create a new autoscaling group to manage a pool of worker instances.
 
-        target_util and cold_mult are endpoint-level; set them with 'vastai create endpoint'
-        or 'vastai update endpoint'.
-
         Example: vastai create workergroup --template_hash HASH  --endpoint_name "LLama" --test_workers 5
     """),
 )
@@ -298,8 +295,6 @@ def show__workergroups(args):
     usage="vastai update workergroup WORKERGROUP_ID --endpoint_id ENDPOINT_ID [options]",
     help="Update an existing autoscale group",
     epilog=deindent("""
-        target_util and cold_mult are endpoint-level; set them with 'vastai update endpoint'.
-
         Example: vastai update workergroup 4242 --min_load 100 --search_params \"gpu_ram>=23 num_gpus=2 gpu_name=RTX_4090 inet_down>200 direct_port_count>2 disk_space>=64\" --launch_args \"--onstart onstart_wget.sh  --env '-e ONSTART_PATH=https://s3.amazonaws.com/public.vast.ai/onstart_OOBA.sh' --image atinoda/text-generation-webui:default-nightly --disk 64\" --gpu_ram 32.0 --endpoint_name "LLama" --endpoint_id 2
     """),
 )

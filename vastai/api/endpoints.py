@@ -210,8 +210,6 @@ def create_workergroup(client, **kwargs):
             test_workers (int): Number of test workers. Default 3.
             gpu_ram (float): Estimated GPU RAM requirement.
             min_load (float): Minimum floor load.
-            target_util (float): Target capacity utilization.
-            cold_mult (float): Cold capacity target multiple.
             cold_workers (int): Min cold workers.
             no_default (bool): Disable default search param query args.
             auto_instance (str): Autoscaler instance type. Default "prod".
@@ -231,8 +229,6 @@ def create_workergroup(client, **kwargs):
     json_blob = {
         "client_id": "me",
         "min_load": kwargs.get("min_load"),
-        "target_util": kwargs.get("target_util"),
-        "cold_mult": kwargs.get("cold_mult"),
         "cold_workers": kwargs.get("cold_workers"),
         "test_workers": kwargs.get("test_workers", 3),
         "template_hash": kwargs.get("template_hash"),
@@ -276,8 +272,6 @@ def update_workergroup(client, id, **kwargs):
         "client_id": "me",
         "autojob_id": id,
         "min_load": kwargs.get("min_load"),
-        "target_util": kwargs.get("target_util"),
-        "cold_mult": kwargs.get("cold_mult"),
         "cold_workers": kwargs.get("cold_workers"),
         "test_workers": kwargs.get("test_workers"),
         "template_hash": kwargs.get("template_hash"),

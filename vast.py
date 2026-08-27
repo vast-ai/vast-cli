@@ -2264,8 +2264,6 @@ def generate_ssh_key(auto_yes=False):
     argument("--gpu_ram",     help="estimated GPU RAM req  (independent of search string)", type=float),
     argument("--search_params", help="search param string for search offers    ex: \"gpu_ram>=23 num_gpus=2 gpu_name=RTX_4090 inet_down>200 direct_port_count>2 disk_space>=64\"", type=str),
     argument("--min_load", help="[NOTE: this field isn't currently used at the workergroup level] minimum floor load in perf units/s  (token/s for LLms)", type=float),
-    argument("--target_util", help="[NOTE: this field isn't currently used at the workergroup level] target capacity utilization (fraction, max 1.0, default 0.9)", type=float),
-    argument("--cold_mult",   help="[NOTE: this field isn't currently used at the workergroup level]cold/stopped instance capacity target as multiple of hot capacity target (default 2.0)", type=float),
     argument("--cold_workers",   help="min number of workers to keep 'cold' for this workergroup", type=int),
     argument("--auto_instance", help=argparse.SUPPRESS, type=str, default="prod"),
     usage="vastai workergroup create [OPTIONS]",
@@ -2289,7 +2287,7 @@ def create__workergroup(args):
         #query = {"verified": {"eq": True}, "external": {"eq": False}, "rentable": {"eq": True}, "rented": {"eq": False}}
     search_params = (args.search_params if args.search_params is not None else "" + query).strip()
 
-    json_blob = {"client_id": "me", "min_load": args.min_load, "target_util": args.target_util, "cold_mult": args.cold_mult, "cold_workers" : args.cold_workers, "test_workers" : args.test_workers, "template_hash": args.template_hash, "template_id": args.template_id, "search_params": search_params, "launch_args": args.launch_args, "gpu_ram": args.gpu_ram, "endpoint_name": args.endpoint_name, "endpoint_id": args.endpoint_id, "autoscaler_instance": args.auto_instance}
+    json_blob = {"client_id": "me", "min_load": args.min_load, "cold_workers" : args.cold_workers, "test_workers" : args.test_workers, "template_hash": args.template_hash, "template_id": args.template_id, "search_params": search_params, "launch_args": args.launch_args, "gpu_ram": args.gpu_ram, "endpoint_name": args.endpoint_name, "endpoint_id": args.endpoint_id, "autoscaler_instance": args.auto_instance}
 
     if (args.explain):
         print("request json: ")
@@ -7470,8 +7468,6 @@ def transfer__credit(args: argparse.Namespace):
 @parser.command(
     argument("id", help="id of autoscale group to update", type=int),
     argument("--min_load", help="minimum floor load in perf units/s  (token/s for LLms)", type=float),
-    argument("--target_util",      help="target capacity utilization (fraction, max 1.0, default 0.9)", type=float),
-    argument("--cold_mult",   help="cold/stopped instance capacity target as multiple of hot capacity target (default 2.5)", type=float),
     argument("--cold_workers",   help="min number of workers to keep 'cold' for this workergroup", type=int),
     argument("--test_workers",help="number of workers to create to get an performance estimate for while initializing workergroup (default 3)", type=int),
     argument("--gpu_ram",   help="estimated GPU RAM req  (independent of search string)", type=float),
@@ -7485,7 +7481,7 @@ def transfer__credit(args: argparse.Namespace):
     usage="vastai update workergroup WORKERGROUP_ID --endpoint_id ENDPOINT_ID [options]",
     help="Update an existing autoscale group",
     epilog=deindent("""
-        Example: vastai update workergroup 4242 --min_load 100 --target_util 0.9 --cold_mult 2.0 --search_params \"gpu_ram>=23 num_gpus=2 gpu_name=RTX_4090 inet_down>200 direct_port_count>2 disk_space>=64\" --launch_args \"--onstart onstart_wget.sh  --env '-e ONSTART_PATH=https://s3.amazonaws.com/public.vast.ai/onstart_OOBA.sh' --image atinoda/text-generation-webui:default-nightly --disk 64\" --gpu_ram 32.0 --endpoint_name "LLama" --endpoint_id 2
+        Example: vastai update workergroup 4242 --min_load 100 --search_params \"gpu_ram>=23 num_gpus=2 gpu_name=RTX_4090 inet_down>200 direct_port_count>2 disk_space>=64\" --launch_args \"--onstart onstart_wget.sh  --env '-e ONSTART_PATH=https://s3.amazonaws.com/public.vast.ai/onstart_OOBA.sh' --image atinoda/text-generation-webui:default-nightly --disk 64\" --gpu_ram 32.0 --endpoint_name "LLama" --endpoint_id 2
     """),
 )
 def update__workergroup(args):
@@ -7497,7 +7493,7 @@ def update__workergroup(args):
         query = " verified=True rentable=True rented=False"
     if args.search_params is not None:
         query = args.search_params + query
-    json_blob = {"client_id": "me", "autojob_id": args.id, "min_load": args.min_load, "target_util": args.target_util, "cold_mult": args.cold_mult, "cold_workers": args.cold_workers, "test_workers" : args.test_workers, "template_hash": args.template_hash, "template_id": args.template_id, "search_params": query, "launch_args": args.launch_args, "gpu_ram": args.gpu_ram, "endpoint_name": args.endpoint_name, "endpoint_id": args.endpoint_id}
+    json_blob = {"client_id": "me", "autojob_id": args.id, "min_load": args.min_load, "cold_workers": args.cold_workers, "test_workers" : args.test_workers, "template_hash": args.template_hash, "template_id": args.template_id, "search_params": query, "launch_args": args.launch_args, "gpu_ram": args.gpu_ram, "endpoint_name": args.endpoint_name, "endpoint_id": args.endpoint_id}
     if (args.explain):
         print("request json: ")
         print(json_blob)

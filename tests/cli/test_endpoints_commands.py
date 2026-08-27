@@ -47,3 +47,45 @@ class TestShowWorkergroups:
         patch_get_client.get.assert_called_once()
         call_args = patch_get_client.get.call_args
         assert "/autojobs/" in call_args[0][0]
+
+
+ENDPOINT_ONLY_SCALING_FLAGS = ("--target_util", "--cold_mult")
+
+
+class TestWorkergroupEndpointOnlyScalingFlags:
+    """target_util and cold_mult scale the endpoint group, never a workergroup."""
+
+    @pytest.mark.parametrize("flag", ENDPOINT_ONLY_SCALING_FLAGS)
+    def test_create_workergroup_rejects_flag(self, cli_parser, flag):
+        with pytest.raises(SystemExit):
+            cli_parser.parse_args(["create", "workergroup", flag, "0.9"])
+
+    @pytest.mark.parametrize("flag", ENDPOINT_ONLY_SCALING_FLAGS)
+    def test_update_workergroup_rejects_flag(self, cli_parser, flag):
+        with pytest.raises(SystemExit):
+            cli_parser.parse_args(["update", "workergroup", "1", flag, "0.9"])
+
+    def test_create_workergroup_payload_omits_fields(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.post.return_value = mock_response(200, {"success": True, "id": 7})
+        args = parse_argv(["create", "workergroup", "--endpoint_id", "3",
+                           "--template_hash", "abc123"])
+        args.func(args)
+        payload = patch_get_client.post.call_args.kwargs["json_data"]
+        assert "target_util" not in payload
+        assert "cold_mult" not in payload
+
+    def test_update_workergroup_payload_omits_fields(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.put.return_value = mock_response(200, {"success": True})
+        args = parse_argv(["update", "workergroup", "42", "--min_load", "100"])
+        args.func(args)
+        payload = patch_get_client.put.call_args.kwargs["json_data"]
+        assert "target_util" not in payload
+        assert "cold_mult" not in payload
+
+    @pytest.mark.parametrize("flag", ENDPOINT_ONLY_SCALING_FLAGS)
+    def test_endpoint_commands_keep_flag(self, cli_parser, flag):
+        create = cli_parser.parse_args(["create", "endpoint", flag, "0.5"])
+        update = cli_parser.parse_args(["update", "endpoint", "1", flag, "0.5"])
+        dest = flag.lstrip("-")
+        assert getattr(create, dest) == 0.5
+        assert getattr(update, dest) == 0.5

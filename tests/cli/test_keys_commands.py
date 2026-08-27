@@ -38,15 +38,60 @@ class TestShowApiKey:
         assert "/auth/apikeys/1/" in call_args[0][0]
 
 
+PUBLIC_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyMaterial user@host"
+
+PRIVATE_KEY = """-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+-----END OPENSSH PRIVATE KEY-----
+"""
+
+
 class TestCreateSshKey:
     def test_create_ssh_key(self, parse_argv, patch_get_client, mock_response, capsys):
         patch_get_client.post.return_value = mock_response(200, {"id": 1, "success": True})
-        args = parse_argv(["create", "ssh-key", "ssh-rsa AAAA... user@host"])
+        args = parse_argv(["create", "ssh-key", PUBLIC_KEY])
         args.func(args)
         patch_get_client.post.assert_called_once()
         call_args = patch_get_client.post.call_args
         assert "/ssh/" in call_args[0][0]
-        assert "ssh_key" in call_args[1]["json_data"]
+        # The key *material* must reach the API, not just the parameter name.
+        assert call_args[1]["json_data"]["ssh_key"] == PUBLIC_KEY
+
+    def test_create_ssh_key_reads_public_key_file(
+        self, parse_argv, patch_get_client, mock_response, tmp_path
+    ):
+        """A path to a .pub file is read; the path string itself is never sent.
+
+        `vastai create ssh-key ~/.ssh/id_ed25519.pub` is the form the docs and
+        this command's own help text tell users to run.
+        """
+        key_file = tmp_path / "id_ed25519.pub"
+        key_file.write_text(PUBLIC_KEY + "\n")
+        patch_get_client.post.return_value = mock_response(200, {"id": 1, "success": True})
+
+        args = parse_argv(["create", "ssh-key", str(key_file)])
+        args.func(args)
+
+        sent = patch_get_client.post.call_args[1]["json_data"]["ssh_key"]
+        assert sent.strip() == PUBLIC_KEY
+        assert str(key_file) not in sent
+
+    def test_create_ssh_key_rejects_private_key(
+        self, parse_argv, patch_get_client, tmp_path
+    ):
+        key_file = tmp_path / "id_ed25519"
+        key_file.write_text(PRIVATE_KEY)
+
+        args = parse_argv(["create", "ssh-key", str(key_file)])
+        with pytest.raises(ValueError, match="private"):
+            args.func(args)
+        patch_get_client.post.assert_not_called()
+
+    def test_create_ssh_key_rejects_non_key_string(self, parse_argv, patch_get_client):
+        args = parse_argv(["create", "ssh-key", "/does/not/exist/id_ed25519.pub"])
+        with pytest.raises(ValueError, match="SSH public key"):
+            args.func(args)
+        patch_get_client.post.assert_not_called()
 
 
 class TestDeleteSshKey:

@@ -834,6 +834,14 @@ class VastAI:
         """Show stats on owned volumes."""
         return storage.show_volumes(self.client, type=type)
 
+    def show_instance_backups(self, contract_id: Optional[int] = None) -> list[dict]:
+        """List the backups Vast has taken of your instances and volumes."""
+        return storage.show_instance_backups(self.client, contract_id=contract_id)
+
+    def instance_backup_files(self, contract_id: int) -> dict:
+        """Objects stored for one backup, plus a short-lived token to fetch them."""
+        return storage.instance_backup_files(self.client, contract_id)
+
     def create_volume(self, id: int, size: float = 15, name: Optional[str] = None) -> dict:
         """Create a new volume from an offer ID."""
         return storage.create_volume(self.client, id, size=size, name=name)

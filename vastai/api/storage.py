@@ -221,6 +221,47 @@ def show_volumes(client, type="all"):
     return processed
 
 
+def show_instance_backups(client, contract_id=None):
+    """List the backups Vast has taken of the caller's instances and volumes.
+
+    GET /instance_backups/
+
+    Args:
+        client: VastClient instance.
+        contract_id (int): Restrict to one instance or volume contract id.
+
+    Returns:
+        list: Backup rows, newest first.
+    """
+    query_args = {}
+    if contract_id is not None:
+        query_args["contract_id"] = contract_id
+    r = client.get("/instance_backups/", query_args=query_args)
+    r.raise_for_status()
+    return r.json()["backups"]
+
+
+def instance_backup_files(client, contract_id):
+    """Objects stored for one backup, plus a short-lived token to fetch them.
+
+    GET /instance_backups/<contract_id>/download/
+
+    The returned URLs are not usable alone: each request must carry the
+    authorization_token. `truncated` is True when the backup holds more objects
+    than were listed.
+
+    Args:
+        client: VastClient instance.
+        contract_id (int): Instance or volume contract id.
+
+    Returns:
+        dict: authorization_token, expires_in_sec, truncated, files.
+    """
+    r = client.get(f"/instance_backups/{contract_id}/download/")
+    r.raise_for_status()
+    return r.json()
+
+
 def create_volume(client, id, size=15, name=None):
     """Create a new volume.
 

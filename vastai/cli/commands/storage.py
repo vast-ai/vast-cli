@@ -9,6 +9,7 @@ from vastai.cli.parser import argument
 from vastai.cli.display import (
     display_table, vol_displayable_fields, nw_vol_displayable_fields,
     volume_fields, connection_fields, deindent,
+    instance_backup_fields, instance_backup_file_fields,
 )
 from vastai.cli.display import strip_strings
 from vastai.cli.util import (
@@ -649,6 +650,92 @@ def show__volumes(args):
         return processed
     else:
         display_table(processed, volume_fields, replace_spaces=False)
+
+
+# ---------------------------------------------------------------------------
+# show instance-backups / show instance-backup-files
+# ---------------------------------------------------------------------------
+
+@parser.command(
+    argument("--contract-id", help="only show backups of this instance or volume contract id", type=int),
+    usage="vastai show instance-backups [OPTIONS]",
+    help="Show backups Vast has taken of your instances.",
+    epilog=deindent("""
+        Lists the backups Vast has taken of your instances and volumes, newest first. These
+        are created by Vast (for example before a machine is decommissioned), not by you.
+
+        Status is pending while the copy runs, then success or error. A backup outlives the
+        instance it came from, so entries stay listed after the instance is gone.
+
+        Restore one into a running instance with `vastai copy`, naming vast.CONTRACT_ID as
+        the source. An instance's own filesystem sits under upper/:
+
+            vastai show instance-backups
+            vastai copy vast.12345678:/upper/workspace 99887766:/workspace
+
+        A backed-up volume has no upper/ -- its contents sit at the root of its own
+        contract id:
+
+            vastai copy vast.12345679:/ 99887766:/volumes/data
+
+        To pull the objects down directly instead of restoring into an instance, see
+        `vastai show instance-backup-files CONTRACT_ID`.
+
+        Example: vastai show instance-backups --contract-id 12345678
+    """),
+)
+def show__instance_backups(args):
+    """Show backups Vast has taken of your instances."""
+    client = get_client(args)
+    rows = storage_api.show_instance_backups(client, contract_id=args.contract_id)
+    if args.raw:
+        return rows
+    now = time.time()
+    for row in rows:
+        row["age_hours"] = (now - (row.get("created_at") or now)) / 3600.0
+        # A backup whose contract has been archived out of the live tables reports no type.
+        row["type"] = row.get("type") or "unknown"
+        row["info"] = strip_strings(row.get("info") or "")
+    display_table(rows, instance_backup_fields, replace_spaces=False)
+
+
+@parser.command(
+    argument("contract_id", help="instance or volume contract id whose backup to list", type=int),
+    usage="vastai show instance-backup-files CONTRACT_ID [OPTIONS]",
+    help="List the stored objects of one backup, with direct download URLs.",
+    epilog=deindent("""
+        Lists the objects stored for one backup and prints a short-lived token for fetching
+        them. The URLs do not work on their own -- every request must carry the token:
+
+            curl -H "Authorization: <token>" -o model.safetensors "<url>"
+
+        The token covers only this backup and expires (the lifetime is printed), so re-run
+        this command rather than saving it.
+
+        If the listing reports itself truncated, the backup holds more objects than are
+        shown; restore with `vastai copy vast.CONTRACT_ID:/ INSTANCE_ID:/path` instead of
+        fetching file by file.
+
+        Example: vastai show instance-backup-files 12345678
+    """),
+)
+def show__instance_backup_files(args):
+    """List the stored objects of one backup, with direct download URLs."""
+    client = get_client(args)
+    blob = storage_api.instance_backup_files(client, args.contract_id)
+    if args.raw:
+        return blob
+    files = blob.get("files") or []
+    for row in files:
+        row["size_mb"] = (row.get("size") or 0) / 1e6
+    print("authorization token: {}".format(blob.get("authorization_token")))
+    print("expires in: {} seconds".format(blob.get("expires_in_sec")))
+    if blob.get("truncated"):
+        print("WARNING: listing truncated -- this backup holds more objects than shown below.")
+    if not files:
+        print("No objects stored for this backup yet.")
+        return
+    display_table(files, instance_backup_file_fields, replace_spaces=False)
 
 
 # ---------------------------------------------------------------------------

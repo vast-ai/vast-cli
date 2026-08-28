@@ -218,6 +218,22 @@ overlay_fields = (
     ("instance_count", "Instances", "{}", None, True),
     ("instances", "Instance IDs", "{}", None, True),
 )
+instance_backup_fields = (
+    ("id", "ID", "{}", None, True),
+    ("contract_id", "Contract", "{}", None, True),
+    ("type", "Type", "{}", None, True),
+    ("machine_id", "Machine", "{}", None, True),
+    ("status", "Status", "{}", None, True),
+    ("age_hours", "Age(hours)", "{:0.2f}", None, True),
+    ("info", "Info", "{}", None, True),
+)
+
+instance_backup_file_fields = (
+    ("name", "Name", "{}", None, True),
+    ("size_mb", "Size(MB)", "{:0.2f}", None, False),
+    ("url", "URL", "{}", None, True),
+)
+
 volume_fields = (
     ("id", "ID", "{}", None, True),
     ("cluster_id", "Cluster ID", "{}", None, True),

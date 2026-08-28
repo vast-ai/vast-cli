@@ -18,13 +18,8 @@ class WorkergroupConfig:
     template_hash: Optional[str] = None
     template_id: Optional[int] = None
     launch_args: Optional[str] = None
-    min_load: Optional[float] = None
     min_cold_load: Optional[float] = None
-    target_util: Optional[float] = None
-    cold_mult: Optional[float] = None
-    cold_workers: Optional[int] = None
     max_workers: Optional[int] = None
-    test_workers: Optional[int] = None
     gpu_ram: Optional[float] = None
     autoscaler_instance: Optional[str] = None
     docker_login_user: Optional[str] = None

@@ -2273,10 +2273,6 @@ def generate_ssh_key(auto_yes=False):
 )
 def create__workergroup(args):
     url = apiurl(args, "/autojobs/" )
-
-    # if args.launch_args_dict:
-    #     launch_args_dict = json.loads(args.launch_args_dict)
-    #     json_blob = {"client_id": "me", "min_load": args.min_load, "target_util": args.target_util, "cold_mult": args.cold_mult, "template_hash": args.template_hash, "template_id": args.template_id, "search_params": args.search_params, "launch_args_dict": launch_args_dict, "gpu_ram": args.gpu_ram, "endpoint_name": args.endpoint_name}
     if args.no_default:
         query = ""
     else:

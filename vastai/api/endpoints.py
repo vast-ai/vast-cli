@@ -207,10 +207,7 @@ def create_workergroup(client, **kwargs):
             launch_args (str): Launch args string for create instance.
             endpoint_name (str): Deployment endpoint name.
             endpoint_id (int): Deployment endpoint ID.
-            test_workers (int): Number of test workers. Default 3.
             gpu_ram (float): Estimated GPU RAM requirement.
-            min_load (float): Minimum floor load.
-            cold_workers (int): Min cold workers.
             no_default (bool): Disable default search param query args.
             auto_instance (str): Autoscaler instance type. Default "prod".
 
@@ -228,9 +225,6 @@ def create_workergroup(client, **kwargs):
 
     json_blob = {
         "client_id": "me",
-        "min_load": kwargs.get("min_load"),
-        "cold_workers": kwargs.get("cold_workers"),
-        "test_workers": kwargs.get("test_workers", 3),
         "template_hash": kwargs.get("template_hash"),
         "template_id": kwargs.get("template_id"),
         "search_params": search_params,
@@ -271,9 +265,6 @@ def update_workergroup(client, id, **kwargs):
     json_blob = {
         "client_id": "me",
         "autojob_id": id,
-        "min_load": kwargs.get("min_load"),
-        "cold_workers": kwargs.get("cold_workers"),
-        "test_workers": kwargs.get("test_workers"),
         "template_hash": kwargs.get("template_hash"),
         "template_id": kwargs.get("template_id"),
         "search_params": search_params,

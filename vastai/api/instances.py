@@ -1,8 +1,10 @@
 """Instance CRUD operations."""
+import re
 import time
 import requests
 from typing import Optional
 from vastai.api.client import VastClient
+from vastai.utils import parse_env
 
 
 def _poll_result_url(result_url, retries=30, delay=0.3):
@@ -89,16 +91,159 @@ def show_instance(client: VastClient, id: int) -> Optional[dict]:
     return row
 
 
-def create_instance(client: VastClient, id, image=None, disk=10, env=None, price=None,
-                    label=None, extra=None, onstart_cmd=None, login=None,
-                    python_utf8=False, lang_utf8=False, jupyter_lab=False,
-                    jupyter_dir=None, force=False, cancel_unavail=False,
-                    template_hash=None, user=None, runtype=None, args=None,
-                    volume_info=None) -> dict:
+VALID_MOUNT_PATH = re.compile(r'^(/)?([^/\0]+(/)?)+$')
+
+
+def resolve_runtype(runtype: Optional[str] = None, *, ssh: bool = False,
+                    jupyter: bool = False, direct: bool = False,
+                    args=None, jupyter_lab: bool = False,
+                    jupyter_dir: Optional[str] = None,
+                    default: Optional[str] = None) -> tuple:
+    """Translate the friendly connection flags into a runtype string.
+
+    Returns ``(runtype, args)``. ``args`` comes back because an empty ``--args``
+    selects the args runtype and then has to be dropped from the payload.
+
+    ``default`` is what an unflagged call resolves to: the CLI passes ``'ssh'``,
+    the SDK passes ``None`` so the key stays out of the payload entirely.
+    """
+    if args in ('', [''], []):
+        args = None
+        empty_args = True
+    else:
+        empty_args = False
+
+    if runtype:
+        if ssh or jupyter or direct:
+            raise ValueError(
+                "Pass either runtype= or the ssh/jupyter/direct flags, not both."
+            )
+        return runtype, args
+
+    resolved = default
+    if args or empty_args:
+        resolved = 'args'
+
+    if not jupyter and (jupyter_dir or jupyter_lab):
+        jupyter = True
+
+    if jupyter and resolved == 'args':
+        raise ValueError(
+            "Can't use jupyter and args together. "
+            "Try onstart_cmd instead of args."
+        )
+
+    if jupyter:
+        resolved = 'jupyter_direc ssh_direc ssh_proxy' if direct else 'jupyter_proxy ssh_proxy'
+    elif ssh:
+        resolved = 'ssh_direc ssh_proxy' if direct else 'ssh_proxy'
+    elif direct and default is None:
+        # The CLI reaches here with default='ssh' and keeps it, which is the
+        # long-standing behaviour of a bare --direct. There is no such fallback
+        # for the SDK, so say so instead of dropping the flag.
+        raise ValueError("direct=True requires ssh=True or jupyter=True.")
+
+    return resolved, args
+
+
+def build_volume_info(*, create_volume: Optional[int] = None,
+                      link_volume: Optional[int] = None,
+                      volume_size: Optional[float] = None,
+                      mount_path: Optional[str] = None,
+                      volume_label: Optional[str] = None) -> Optional[dict]:
+    """Build the volume_info blob, or None when no volume was requested."""
+    if volume_size is not None and not create_volume:
+        raise ValueError("volume_size can only be used with create_volume.")
+    if not (create_volume or link_volume):
+        if mount_path or volume_label:
+            raise ValueError("mount_path and volume_label need create_volume or link_volume.")
+        return None
+    if not mount_path:
+        raise ValueError("mount_path is required when creating or linking a volume.")
+    if not VALID_MOUNT_PATH.match(mount_path):
+        raise ValueError(f"mount_path '{mount_path}' is not a valid Linux file path.")
+
+    volume_info = {
+        "mount_path": mount_path,
+        "create_new": True if create_volume else False,
+        "volume_id": create_volume if create_volume else link_volume,
+    }
+    if volume_label:
+        volume_info["name"] = volume_label
+    if volume_size:
+        volume_info["size"] = volume_size
+    elif create_volume:
+        volume_info["size"] = 15
+    return volume_info
+
+
+def apply_portal_config(env: dict, runtype: Optional[str]) -> dict:
+    """Return env with jupyter portal entries stripped on non-jupyter runtypes."""
+    if runtype and 'jupyter' in runtype:
+        return env
+    if "PORTAL_CONFIG" not in env:
+        return env
+
+    filtered = [c for c in env["PORTAL_CONFIG"].split("|") if 'jupyter' not in c.lower()]
+    if not filtered:
+        raise ValueError(
+            "env variable PORTAL_CONFIG must contain at least one non-jupyter "
+            "related config string if runtype is not jupyter"
+        )
+    env = dict(env)
+    env["PORTAL_CONFIG"] = "|".join(filtered)
+    return env
+
+
+def build_create_instance_payload(
+    *, image: Optional[str] = None, disk: float = 10, env=None,
+    price: Optional[float] = None, bid_price: Optional[float] = None,
+    label: Optional[str] = None, extra: Optional[str] = None,
+    onstart_cmd: Optional[str] = None, login: Optional[str] = None,
+    python_utf8: bool = False, lang_utf8: bool = False,
+    jupyter_lab: bool = False, jupyter_dir: Optional[str] = None,
+    force: bool = False, cancel_unavail: bool = False,
+    template_hash: Optional[str] = None, user: Optional[str] = None,
+    runtype: Optional[str] = None, ssh: bool = False, jupyter: bool = False,
+    direct: bool = False, args=None, volume_info: Optional[dict] = None,
+    create_volume: Optional[int] = None, link_volume: Optional[int] = None,
+    volume_size: Optional[float] = None, mount_path: Optional[str] = None,
+    volume_label: Optional[str] = None,
+) -> dict:
+    """Build the JSON body for a create-instance request.
+
+    The one place the CLI, the SDK and the docs generator agree on what a
+    create-instance call takes. Pure: no client, no argparse, no printing.
+    """
+    if price is not None and bid_price is not None:
+        raise ValueError("Pass either price= or bid_price=, not both.")
+    if price is None:
+        price = bid_price
+
+    if isinstance(env, str):
+        env = parse_env(env)
+    env = dict(env or {})
+
+    if template_hash is None:
+        runtype, args = resolve_runtype(
+            runtype, ssh=ssh, jupyter=jupyter, direct=direct, args=args,
+            jupyter_lab=jupyter_lab, jupyter_dir=jupyter_dir,
+        )
+    env = apply_portal_config(env, runtype)
+
+    if volume_info is None:
+        volume_info = build_volume_info(
+            create_volume=create_volume, link_volume=link_volume,
+            volume_size=volume_size, mount_path=mount_path,
+            volume_label=volume_label,
+        )
+    elif create_volume or link_volume:
+        raise ValueError("Pass either volume_info= or the create/link volume flags, not both.")
+
     json_blob = {
         "client_id": "me",
         "image": image,
-        "env": env or {},
+        "env": env,
         "price": price,
         "disk": disk,
         "label": label,
@@ -120,7 +265,38 @@ def create_instance(client: VastClient, id, image=None, disk=10, env=None, price
         json_blob["args"] = args
     if volume_info:
         json_blob["volume_info"] = volume_info
+    return json_blob
 
+
+def create_instance(client: VastClient, id, image=None, disk=10, env=None,
+                    price=None, label=None, extra=None, onstart_cmd=None,
+                    login=None, python_utf8=False, lang_utf8=False,
+                    jupyter_lab=False, jupyter_dir=None, force=False,
+                    cancel_unavail=False, template_hash=None, user=None,
+                    runtype=None, args=None, volume_info=None,
+                    # Appended, never inserted: the parameters above keep their
+                    # original positions so existing positional calls still bind
+                    # the same values.
+                    bid_price=None, ssh=False, jupyter=False, direct=False,
+                    create_volume=None, link_volume=None, volume_size=None,
+                    mount_path=None, volume_label=None) -> dict:
+    """Create one instance, or several when ``id`` is a list of offer ids."""
+    json_blob = build_create_instance_payload(
+        image=image, disk=disk, env=env, price=price, bid_price=bid_price,
+        label=label, extra=extra, onstart_cmd=onstart_cmd, login=login,
+        python_utf8=python_utf8, lang_utf8=lang_utf8, jupyter_lab=jupyter_lab,
+        jupyter_dir=jupyter_dir, force=force, cancel_unavail=cancel_unavail,
+        template_hash=template_hash, user=user, runtype=runtype, ssh=ssh,
+        jupyter=jupyter, direct=direct, args=args, volume_info=volume_info,
+        create_volume=create_volume, link_volume=link_volume,
+        volume_size=volume_size, mount_path=mount_path, volume_label=volume_label,
+    )
+
+    return create_instance_from_payload(client, id, json_blob)
+
+
+def create_instance_from_payload(client: VastClient, id, json_blob: dict) -> dict:
+    """Send an already-built create-instance payload for one or many offers."""
     if isinstance(id, list):
         json_blob["ids"] = id
         r = client.post("/asks/bulk/", json_data=json_blob)

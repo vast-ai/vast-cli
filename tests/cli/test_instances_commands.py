@@ -364,3 +364,54 @@ class TestLabelInstance:
 # TestAcceptPriceIncrease was rewritten against the per-row backend and moved
 # to tests/cli/test_price_increase_commands.py alongside the show + reject
 # command tests.
+
+
+class TestCreateInstancePayload:
+    """The CLI keeps its own defaults now that the SDK shares the builder.
+
+    A bare create sends runtype 'ssh'; the SDK sends no runtype key at all.
+    Adopting either default on the other side changes existing callers.
+    """
+
+    def _payload(self, parse_argv, patch_get_client, mock_response, argv):
+        patch_get_client.put.return_value = mock_response(200, {"success": True})
+        args = parse_argv(argv)
+        args.func(args)
+        return patch_get_client.put.call_args[1]["json_data"]
+
+    def test_bare_create_still_defaults_to_ssh(self, parse_argv, patch_get_client,
+                                               mock_response):
+        payload = self._payload(parse_argv, patch_get_client, mock_response,
+                                ["create", "instance", "1", "--image", "img"])
+        assert payload["runtype"] == "ssh"
+
+    def test_jupyter_direct(self, parse_argv, patch_get_client, mock_response):
+        payload = self._payload(
+            parse_argv, patch_get_client, mock_response,
+            ["create", "instance", "1", "--image", "img", "--jupyter", "--direct"])
+        assert payload["runtype"] == "jupyter_direc ssh_direc ssh_proxy"
+
+    def test_env_is_parsed_into_a_dict(self, parse_argv, patch_get_client,
+                                       mock_response):
+        payload = self._payload(
+            parse_argv, patch_get_client, mock_response,
+            ["create", "instance", "1", "--image", "img", "--env", "-e FOO=bar"])
+        assert payload["env"] == {"FOO": "bar"}
+
+    def test_bid_price_is_the_price_field(self, parse_argv, patch_get_client,
+                                          mock_response):
+        payload = self._payload(
+            parse_argv, patch_get_client, mock_response,
+            ["create", "instance", "1", "--image", "img", "--bid_price", "0.25"])
+        assert payload["price"] == 0.25
+
+    def test_jupyter_with_args_is_an_error(self, parse_argv, patch_get_client,
+                                           mock_response, capsys):
+        """The library raises; the command still reports it the CLI way."""
+        from vastai.cli.commands.instances import create_instance_impl
+
+        args = parse_argv(["create", "instance", "1", "--image", "img",
+                           "--jupyter", "--args", "sleep", "1"])
+        assert create_instance_impl(args.id, args) == 1
+        assert "jupyter and args" in capsys.readouterr().err
+        patch_get_client.put.assert_not_called()

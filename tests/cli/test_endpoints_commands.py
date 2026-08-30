@@ -47,3 +47,63 @@ class TestShowWorkergroups:
         patch_get_client.get.assert_called_once()
         call_args = patch_get_client.get.call_args
         assert "/autojobs/" in call_args[0][0]
+
+
+WORKERGROUP_DEAD_FLAGS = (
+    ("--target_util", "0.9"),
+    ("--cold_mult", "2.5"),
+    ("--min_load", "100"),
+    ("--cold_workers", "5"),
+    ("--test_workers", "3"),
+)
+
+ENDPOINT_SCALING_FLAGS = (
+    ("--target_util", "0.9", 0.9),
+    ("--cold_mult", "2.5", 2.5),
+    ("--min_load", "100", 100.0),
+    ("--cold_workers", "5", 5),
+)
+
+
+class TestWorkergroupDeadScalingFlags:
+    """These scale the endpoint group or nothing at all; a workergroup never reads them."""
+
+    @pytest.mark.parametrize("flag,value", WORKERGROUP_DEAD_FLAGS)
+    def test_create_workergroup_rejects_flag(self, cli_parser, flag, value):
+        with pytest.raises(SystemExit):
+            cli_parser.parse_args(["create", "workergroup", flag, value])
+
+    @pytest.mark.parametrize("flag,value", WORKERGROUP_DEAD_FLAGS)
+    def test_update_workergroup_rejects_flag(self, cli_parser, flag, value):
+        with pytest.raises(SystemExit):
+            cli_parser.parse_args(["update", "workergroup", "1", flag, value])
+
+    def test_create_workergroup_payload_omits_fields(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.post.return_value = mock_response(200, {"success": True, "id": 7})
+        args = parse_argv(["create", "workergroup", "--endpoint_id", "3",
+                           "--template_hash", "abc123"])
+        args.func(args)
+        payload = patch_get_client.post.call_args.kwargs["json_data"]
+        for flag, _ in WORKERGROUP_DEAD_FLAGS:
+            assert flag.lstrip("-") not in payload
+
+    def test_update_workergroup_payload_omits_fields(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.put.return_value = mock_response(200, {"success": True})
+        args = parse_argv(["update", "workergroup", "42", "--gpu_ram", "32"])
+        args.func(args)
+        payload = patch_get_client.put.call_args.kwargs["json_data"]
+        for flag, _ in WORKERGROUP_DEAD_FLAGS:
+            assert flag.lstrip("-") not in payload
+
+    @pytest.mark.parametrize("flag,value,expected", ENDPOINT_SCALING_FLAGS)
+    def test_endpoint_commands_keep_flag(self, cli_parser, flag, value, expected):
+        create = cli_parser.parse_args(["create", "endpoint", flag, value])
+        update = cli_parser.parse_args(["update", "endpoint", "1", flag, value])
+        dest = flag.lstrip("-")
+        assert getattr(create, dest) == expected
+        assert getattr(update, dest) == expected
+
+    @pytest.mark.parametrize("command", (["create", "endpoint"], ["update", "endpoint", "1"]))
+    def test_endpoint_commands_reject_test_workers(self, cli_parser, command):
+        with pytest.raises(SystemExit):
+            cli_parser.parse_args([*command, "--test_workers", "3"])

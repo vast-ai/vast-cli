@@ -1,5 +1,11 @@
 """Search offers, templates, benchmarks, volumes, network volumes, and invoices."""
+from typing import Optional
+
 from vastai.api.client import VastClient
+from vastai.api.instances import resolve_runtype
+from vastai.api.query import (parse_order, parse_query, offers_alias,
+                              offers_fields, offers_mult)
+from vastai.utils import parse_env
 
 
 def search_offers(client: VastClient, query: dict = None, offer_type: str = "on-demand",
@@ -113,25 +119,61 @@ def search_templates(client: VastClient, query: dict = None) -> list:
     return r.json().get("templates", [])
 
 
-def search_benchmarks(client: VastClient, query: dict = None, order: list = None,
-                      limit: int = None) -> list:
-    """Search for benchmarks using a query dict.
-
-    Args:
-        client: VastClient instance.
-        query: Pre-parsed query dict of select_filters.
-        order: List of {"col": ..., "dir": ...} dicts, e.g. [{"col": "last_update", "dir": "desc"}].
-        limit: Max number of results. Omit for an unbounded result set.
-
-    Returns:
-        List of benchmark dicts.
-    """
+def benchmarks_query_args(query: dict = None, order: list = None,
+                          limit: int = None, after_token: str = None) -> dict:
+    """Build the query args for a ``/benchmarks`` request."""
     query_args = {"select_cols": ["*"], "select_filters": query or {}}
     if order is not None:
         query_args["order_by"] = order
     if limit is not None:
         query_args["limit"] = int(limit)
-    r = client.get("/benchmarks", query_args=query_args)
+    if after_token:
+        query_args["after_token"] = after_token
+    return query_args
+
+
+def search_benchmarks(client: VastClient, query: dict = None, order: list = None,
+                      limit: int = None, after_token: str = None) -> list:
+    """Search for benchmarks using a query dict, as a flat list.
+
+    Pages through ``/benchmarks``, following ``next_token`` until it is
+    exhausted, and concatenates every page. The backend caps a page at 200 rows
+    by default, so callers that want one page at a time should use
+    :func:`search_benchmarks_v1` instead.
+
+    Args:
+        client: VastClient instance.
+        query: Pre-parsed query dict of select_filters.
+        order: List of {"col": ..., "dir": ...} dicts, e.g. [{"col": "last_update", "dir": "desc"}].
+        limit: Max number of results per page.
+        after_token: Pagination token to resume from.
+
+    Returns:
+        List of benchmark dicts.
+    """
+    rows = []
+    params = benchmarks_query_args(query=query, order=order, limit=limit,
+                                   after_token=after_token)
+    while True:
+        data = search_benchmarks_v1(client, params)
+        rows.extend(data.get("benchmarks") or [])
+        next_token = data.get("next_token")
+        if not next_token:
+            return rows
+        params["after_token"] = next_token
+
+
+def search_benchmarks_v1(client: VastClient, params: dict) -> dict:
+    """Fetch one page of benchmarks using the paginated API.
+
+    Args:
+        client: VastClient instance.
+        params: Dict with select_cols, select_filters, order_by, limit, after_token.
+
+    Returns:
+        Full response dict (benchmarks, benchmarks_found, next_token).
+    """
+    r = client.get("/benchmarks", query_args=params)
     r.raise_for_status()
     return r.json()
 
@@ -224,6 +266,42 @@ def search_invoices(client: VastClient, query: dict = None) -> list:
     r = client.get("/invoices", query_args=query_args)
     r.raise_for_status()
     return r.json()
+
+
+def template_fields_from_flags(*, ssh: bool = False, jupyter: bool = False,
+                               direct: bool = False, jupyter_lab: bool = False,
+                               login: Optional[str] = None,
+                               hide_readme: bool = False, public: bool = False,
+                               search_params: Optional[str] = None,
+                               no_default: bool = False,
+                               always_default: bool = False) -> dict:
+    """Translate the friendly template flags into api-layer template fields.
+
+    Shared by the CLI commands and the SDK so both publish the same surface.
+
+    ``always_default`` seeds the default offer filters even when no
+    ``search_params`` were given, which is what the CLI has always done. The SDK
+    passes False: it used to send no filters at all on a template created
+    without search params, and quietly starting to attach three would change
+    templates that existing scripts create.
+    """
+    default_search_query = {}
+    if not no_default and (always_default or search_params is not None):
+        default_search_query = {"verified": {"eq": True}, "external": {"eq": False},
+                                "rentable": {"eq": True}}
+
+    return {
+        "jup_direct": jupyter and direct,
+        "ssh_direct": ssh and direct,
+        "use_ssh": ssh or jupyter,
+        "use_jupyter_lab": jupyter_lab,
+        "runtype": "jupyter" if jupyter else ("ssh" if ssh else "args"),
+        "docker_login_repo": login.split(" ")[0] if login else None,
+        "extra_filters": parse_query(search_params, default_search_query,
+                                     offers_fields, offers_alias, offers_mult),
+        "readme_visible": not hide_readme,
+        "private": not public,
+    }
 
 
 def create_template(client: VastClient, name: str = None, image: str = None,
@@ -369,7 +447,9 @@ def launch_instance(client: VastClient, gpu_name: str, num_gpus: str, image: str
                     jupyter_lab: bool = False, jupyter_dir: str = None,
                     cancel_unavail: bool = False,
                     template_hash: str = None, runtype: str = None,
-                    args: str = None, query: dict = None) -> dict:
+                    args: str = None, query: dict = None,
+                    ssh: bool = False, jupyter: bool = False,
+                    direct: bool = False) -> dict:
     """Launch the top instance from search offers matching the given criteria.
 
     Searches for offers and launches the best match in a single API call.
@@ -395,13 +475,22 @@ def launch_instance(client: VastClient, gpu_name: str, num_gpus: str, image: str
         cancel_unavail: Cancel if unavailable.
         template_hash: Template hash ID.
         runtype: Run type (jupyter, ssh, args).
+        ssh: Launch as an ssh instance type.
+        jupyter: Launch as a jupyter instance instead of an ssh instance.
+        direct: Use (faster) direct connections for jupyter & ssh.
         args: Container arguments.
         query: Pre-built query dict (overrides auto-built query from gpu_name/num_gpus).
 
     Returns:
         Response dict with launch result.
     """
-    from vastai.api.query import parse_query, offers_fields, offers_alias, offers_mult
+    if isinstance(env, str):
+        env = parse_env(env)
+    if template_hash is None:
+        runtype, args = resolve_runtype(runtype, ssh=ssh, jupyter=jupyter,
+                                        direct=direct, args=args,
+                                        jupyter_lab=jupyter_lab,
+                                        jupyter_dir=jupyter_dir)
 
     REGIONS = {
         "North_America": "[AG, BS, BB, BZ, CA, CR, CU, DM, DO, SV, GD, GT, HT, HN, JM, MX, NI, PA, KN, LC, VC, TT, US]",
@@ -424,25 +513,7 @@ def launch_instance(client: VastClient, gpu_name: str, num_gpus: str, image: str
         query = parse_query(args_query, base_query, offers_fields, offers_alias, offers_mult)
 
     # Parse order string
-    order_list = []
-    if isinstance(order, str):
-        for name in order.split(","):
-            name = name.strip()
-            if not name:
-                continue
-            direction = "asc"
-            field = name
-            if name.strip("-") != name:
-                direction = "desc"
-                field = name.strip("-")
-            if name.strip("+") != name:
-                direction = "asc"
-                field = name.strip("+")
-            if field in offers_alias:
-                field = offers_alias[field]
-            order_list.append([field, direction])
-    elif isinstance(order, list):
-        order_list = order
+    order_list = parse_order(order) or []
 
     query["order"] = order_list
     query["type"] = "on-demand"

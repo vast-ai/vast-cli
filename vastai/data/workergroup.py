@@ -7,6 +7,10 @@ from typing import Optional
 class WorkergroupConfig:
     """Configuration for creating a workergroup (autoscale job).
 
+    Request-only. Workergroup responses come back as raw dicts from
+    show_workergroups, so fields the API returns but does not accept as input
+    do not belong here.
+
     Either endpoint_id or endpoint_name is required (endpoint_id is set
     automatically when using ManagedEndpoint.add_workergroup()).
     Either template_hash or template_id is required (template resolves image, search_query, etc.).

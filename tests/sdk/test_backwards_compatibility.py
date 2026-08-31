@@ -13,6 +13,7 @@ import pytest
 
 from vastai.api import instances as instances_api
 from vastai.api import offers as offers_api
+from vastai.data.workergroup import WorkergroupConfig
 from vastai.sdk import VastAI
 
 
@@ -208,3 +209,65 @@ class TestSearchQueryStrings:
         payload = sent[-1]
         filters = payload.get("select_filters", payload)
         assert filters["disk_space"] == {"gte": 7}
+
+
+WORKERGROUP_DEAD_PARAMS = ("min_load", "cold_workers", "test_workers",
+                           "target_util", "cold_mult")
+
+
+class TestWorkergroupScalingParams:
+    """Deliberate removal, not an oversight.
+
+    AUTO-1912 took these off the workergroup CLI and out of WorkergroupConfig:
+    the autoscaler reads them from the endpoint group, and a workergroup never
+    reads them at all. The generated SDK reference is scraped from the CLI
+    flags, so leaving them anywhere here would put them back in the docs.
+    """
+
+    def test_config_no_longer_takes_them(self):
+        for name in WORKERGROUP_DEAD_PARAMS:
+            assert name not in WorkergroupConfig.__dataclass_fields__
+
+    def test_create_payload_omits_them(self, sdk, sent):
+        sdk.create_workergroup(template_hash="abc", endpoint_id=3)
+        for name in WORKERGROUP_DEAD_PARAMS:
+            assert name not in sent[-1]
+
+    def test_update_payload_omits_them(self, sdk, sent):
+        sdk.update_workergroup(42, gpu_ram=32.0)
+        for name in WORKERGROUP_DEAD_PARAMS:
+            assert name not in sent[-1]
+
+    def test_passing_them_is_tolerated_and_dropped(self, sdk, sent):
+        """Every **kwargs method on VastAI swallows unknown kwargs.
+
+        Raising for these five alone would break scripts that pass them today
+        without error, and gain nothing: the values never reached the wire.
+        """
+        sdk.create_workergroup(template_hash="abc", endpoint_id=3,
+                               **{name: 1 for name in WORKERGROUP_DEAD_PARAMS})
+        for name in WORKERGROUP_DEAD_PARAMS:
+            assert name not in sent[-1]
+
+    def test_show_workergroups_returns_what_the_api_sends(self, sdk, monkeypatch):
+        """The API still returns four of them; dropping the request fields must not hide that."""
+        api_row = {
+            "id": 4242, "min_load": 100.0, "target_util": 0.9, "cold_mult": 3.0,
+            "cold_workers": 5, "template_hash": "abc", "template_id": 7,
+            "search_query": {"gpu_ram": {"gte": 8}}, "launch_args": "--disk 64",
+            "gpu_ram": 32.0, "endpoint_name": "LLama", "endpoint_id": 2,
+            "api_key": "tok", "created_at": 1.0, "user_id": 9,
+        }
+
+        class Response:
+            status_code = 200
+
+            def json(self):
+                return {"success": True, "results": [api_row]}
+
+            def raise_for_status(self):
+                return None
+
+        monkeypatch.setattr("vastai.api.client.VastClient.get",
+                            lambda self, url, **kwargs: Response())
+        assert sdk.show_workergroups() == [api_row]

@@ -232,6 +232,27 @@ def test_cloud_copy_no_longer_publishes_scheduling(documented_methods):
     assert not published & {"schedule", "day", "hour", "start_date", "end_date"}
 
 
+@pytest.mark.parametrize("method_name", ["create_workergroup", "update_workergroup"])
+def test_workergroup_no_longer_publishes_endpoint_scaling(documented_methods, method_name):
+    """AUTO-1912 took these off the workergroup CLI; the generator scrapes the CLI.
+
+    A workergroup never reads them, so publishing them here is what sent people
+    to tune knobs with no effect.
+    """
+    method = next(m for m in documented_methods if m.name == method_name)
+    published = {p.name for p in method.params}
+    assert not published & {"min_load", "cold_workers", "test_workers",
+                            "target_util", "cold_mult"}
+
+
+@pytest.mark.parametrize("method_name", ["create_endpoint", "update_endpoint"])
+def test_endpoint_still_publishes_its_scaling(documented_methods, method_name):
+    """The same names are real on the endpoint group and must keep being documented."""
+    method = next(m for m in documented_methods if m.name == method_name)
+    published = {p.name for p in method.params}
+    assert {"min_load", "cold_workers", "target_util", "cold_mult"} <= published
+
+
 def test_converted_methods_are_not_open_signatures():
     """The docs verifier cannot judge extra params on a **kwargs method.
 

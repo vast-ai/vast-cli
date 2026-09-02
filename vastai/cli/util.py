@@ -11,11 +11,13 @@ import re
 import json
 import sys
 import argparse
+import errno
 import os
+import stat
 import time
 import math
 import subprocess
-import shutil
+import tempfile
 import requests
 import getpass
 from pathlib import Path
@@ -178,9 +180,109 @@ APIKEY_FILE = os.path.join(DIRS['config'], "vast_api_key")
 APIKEY_FILE_HOME = os.path.expanduser("~/.vast_api_key")  # Legacy
 TFAKEY_FILE = os.path.join(DIRS['config'], "vast_tfa_key")
 
-if not os.path.exists(APIKEY_FILE) and os.path.exists(APIKEY_FILE_HOME):
-    #print(f'copying key from {APIKEY_FILE_HOME} -> {APIKEY_FILE}')
-    shutil.copyfile(APIKEY_FILE_HOME, APIKEY_FILE)
+
+def _publish_without_overwrite(temporary_path, path):
+    """Publish a complete file without replacing an existing destination."""
+    try:
+        os.link(temporary_path, path)
+    except OSError as error:
+        unsupported_link_errors = {
+            errno.EPERM,
+            getattr(errno, "ENOTSUP", errno.EPERM),
+            getattr(errno, "EOPNOTSUPP", errno.EPERM),
+            getattr(errno, "ENOSYS", errno.EPERM),
+        }
+        if error.errno not in unsupported_link_errors:
+            raise
+
+        # Reserve the name without a check-then-create race, then atomically
+        # replace the empty owner-only placeholder with the completed file.
+        placeholder_fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.close(placeholder_fd)
+        try:
+            os.replace(temporary_path, path)
+        except Exception:
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
+            raise
+    else:
+        os.unlink(temporary_path)
+
+
+def write_secret_file(path, secret, *, overwrite=True):
+    """Atomically publish a secret file with owner-only permissions."""
+    path = os.fspath(path)
+    fd, temporary_path = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(path)))
+    try:
+        with os.fdopen(fd, "wb") as writer:
+            writer.write(secret.encode("utf-8") if isinstance(secret, str) else secret)
+
+        if overwrite:
+            os.replace(temporary_path, path)
+        else:
+            _publish_without_overwrite(temporary_path, path)
+    except Exception:
+        try:
+            os.unlink(temporary_path)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def secure_existing_secret_file(path):
+    """Restrict an existing regular secret file without following symlinks."""
+    if os.name == "nt" or not hasattr(os, "fchmod"):
+        return
+
+    descriptor = None
+    try:
+        initial_stat = os.stat(path, follow_symlinks=False)
+        if not stat.S_ISREG(initial_stat.st_mode):
+            return
+
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags)
+        opened_stat = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened_stat.st_mode)
+            or opened_stat.st_dev != initial_stat.st_dev
+            or opened_stat.st_ino != initial_stat.st_ino
+        ):
+            return
+        os.fchmod(descriptor, 0o600)
+    except OSError:
+        # Credential reads retain their existing error handling when a
+        # filesystem does not permit mode repair.
+        return
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def _migrate_legacy_api_key():
+    if not os.path.exists(APIKEY_FILE) and os.path.exists(APIKEY_FILE_HOME):
+        # Do not overwrite an API key created after the existence check.
+        with open(APIKEY_FILE_HOME, "rb") as reader:
+            try:
+                write_secret_file(APIKEY_FILE, reader.read(), overwrite=False)
+            except FileExistsError:
+                return
+
+        try:
+            os.remove(APIKEY_FILE_HOME)
+        except OSError:
+            secure_existing_secret_file(APIKEY_FILE_HOME)
+
+
+def _secure_existing_credentials():
+    for credential_file in (APIKEY_FILE, TFAKEY_FILE, APIKEY_FILE_HOME):
+        secure_existing_secret_file(credential_file)
+
+
+_migrate_legacy_api_key()
+_secure_existing_credentials()
 
 
 def format_key_suffix(k):

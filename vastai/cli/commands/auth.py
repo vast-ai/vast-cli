@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from vastai.cli.parser import argument
 from vastai.cli.display import deindent, display_table
 from vastai.api import auth as auth_api
-from vastai.cli.util import SUCCESS, WARN, FAIL, format_key_suffix
+from vastai.cli.util import SUCCESS, WARN, FAIL, format_key_suffix, write_secret_file
 
 
 # ---------------------------------------------------------------------------
@@ -111,8 +111,7 @@ def _save_to_file(content, filepath):
         parent_dir = os.path.dirname(filepath)
         if parent_dir:
             os.makedirs(parent_dir, exist_ok=True)
-        with open(filepath, "w") as f:
-            f.write(content)
+        write_secret_file(filepath, content)
         return True
     except (IOError, OSError) as e:
         print(f"\n{FAIL} Error saving file: {e}")
@@ -205,8 +204,7 @@ def set__api_key(args):
     """Set the api-key."""
     from vastai.cli.util import APIKEY_FILE, APIKEY_FILE_HOME
 
-    with open(APIKEY_FILE, "w") as writer:
-        writer.write(args.new_api_key)
+    write_secret_file(APIKEY_FILE, args.new_api_key)
     print("Your api key has been saved in {}".format(APIKEY_FILE))
 
     if os.path.exists(APIKEY_FILE_HOME):
@@ -503,8 +501,7 @@ def tfa__login(args):
         if "session_key" in response_data:
             session_key = response_data["session_key"]
             if session_key != args.api_key:
-                with open(TFAKEY_FILE, "w") as f:
-                    f.write(session_key)
+                write_secret_file(TFAKEY_FILE, session_key)
                 print(f"{SUCCESS} 2FA login successful! Session key saved to {TFAKEY_FILE}")
             else:
                 print(f"{SUCCESS} 2FA login successful! Your session key has been refreshed.")

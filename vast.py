@@ -10,7 +10,10 @@ import re
 import json
 import sys
 import argparse
+import errno
 import os
+import stat
+import tempfile
 import time
 from typing import Dict, List, Tuple, Optional
 from datetime import date, datetime, timedelta, timezone
@@ -1339,6 +1342,535 @@ def get_ssh_key(argstr):
       """.format(ssh_key), add_separator=False))
 
     return ssh_key
+
+
+SELF_TEST_MIN_CLI_VERSION = "1.2.4"
+SELF_TEST_CLI_CONTRACT_VERSION = SELF_TEST_MIN_CLI_VERSION
+SELF_TEST_IMAGE_TAG_PREFIX = f"self-test-cli-{SELF_TEST_MIN_CLI_VERSION}-cuda"
+SELF_TEST_IGNORE_RELIABILITY_ENV = "VAST_SELF_TEST_IGNORE_RELIABILITY"
+SELF_TEST_INSTANCE_LABEL_PREFIX = "vast-self-test-machine"
+SELF_TEST_INSTANCE_LABEL_OVERRIDE_ENV = "VAST_SELF_TEST_LABEL"
+SELF_TEST_OFFER_ID_OVERRIDE_ENV = "VAST_SELF_TEST_OFFER_ID"
+SELF_TEST_CREATED_INSTANCE_ID_FILE_ENV = "VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE"
+SELF_TEST_INSTANCE_LABEL_REQUIRED_PREFIX = "vast-self-test-"
+SELF_TEST_INSTANCE_LABEL_MAX_LENGTH = 64
+_SELF_TEST_INSTANCE_LABEL_RE = re.compile(r"vast-self-test-[A-Za-z0-9._-]+")
+SELF_TEST_CUDA_ERROR_CONTAINED = "cuda_error_contained"
+SELF_TEST_INSTANCE_ID_HANDOFF_FAILED = "instance_id_handoff_failed"
+SELF_TEST_CLEANUP_FAILED = "cleanup_failed"
+_SELF_TEST_FAILURE_MARKER_RE = re.compile(
+    r"\bSELF_TEST_FAILURE\[([a-z0-9_]+)\]",
+    re.IGNORECASE,
+)
+_SELF_TEST_CUDA_ERROR_CONTAINED_RE = re.compile(
+    r"cudaerrorcontained|"
+    r"invalid access (?:of|to) peer gpu memory(?: over nvlink)?|"
+    r"invalid peer(?:-gpu)?[- ]memory access(?: over nvlink)?",
+    re.IGNORECASE,
+)
+_SELF_TEST_RUNTIME_STAGE_PATTERNS = (
+    (
+        re.compile(
+            r"^\s*Running ResNet(?:50/ResNet18|18)(?: test(?: on all GPUs)?)?\.\.\.\s*$",
+            re.IGNORECASE,
+        ),
+        "resnet",
+    ),
+    (re.compile(r"^\s*Running ECC test(?: on all GPUs)?\.\.\.\s*$", re.IGNORECASE), "ecc"),
+    (
+        re.compile(
+            r"^\s*Running NCCL distributed test(?: with \d+ GPUs)?\.\.\.\s*$",
+            re.IGNORECASE,
+        ),
+        "nccl",
+    ),
+    (
+        re.compile(
+            r"^\s*Running stress-ng and gpu-burn(?: tests simultaneously for \d+ seconds)?\.\.\.\s*$",
+            re.IGNORECASE,
+        ),
+        "stress_gpu_burn",
+    ),
+)
+_SELF_TEST_STAGE_FAILURE_CODES = {
+    "resnet": "resnet_failed",
+    "ecc": "ecc_failed",
+    "nccl": "nccl_failed",
+    "stress_gpu_burn": "stress_gpu_burn_failed",
+}
+_SELF_TEST_CUDA_ERROR_CONTAINED_ENTRY = {
+    "code": SELF_TEST_CUDA_ERROR_CONTAINED,
+    "stage": "resnet",
+    "summary": (
+        "CUDA reported a contained device exception during the all-GPU ResNet test, "
+        "commonly caused by certain invalid peer-memory accesses over NVLink or certain "
+        "hardware errors; this is not CUDA out-of-memory or VRAM exhaustion."
+    ),
+    "remediation": (
+        "Terminate and relaunch the failed process/container, then diagnose the peer "
+        "fabric and hardware; do not treat this as tenant VRAM exhaustion."
+    ),
+    "suggested_steps": [
+        "Terminate and relaunch the failed self-test process/container before retrying.",
+        (
+            "Inspect nvidia-smi topo -m and run all-pairs P2P access/bandwidth tests for "
+            "the advertised GPU group."
+        ),
+        "Check NVLink/NVSwitch health plus Fabric Manager/NVLSM status and logs.",
+        (
+            "Review NVIDIA Xid/ECC/driver logs, then repair or isolate the affected GPU "
+            "or fabric path."
+        ),
+    ],
+}
+_SELF_TEST_STATUS_ERROR_LINE_RE = re.compile(
+    r"^\s*(?:#\d+\s+(?:\d+(?:\.\d+)?\s+)?)?"
+    r"(?:(?:errors?|failed|failures?|exceptions?|tracebacks?)(?=[:\s]|$)|"
+    r"unauthorized(?=:))",
+    re.IGNORECASE | re.MULTILINE,
+)
+_SELF_TEST_STATUS_RECOVERABLE_LINE_RE = re.compile(
+    r"\bfailed to fetch\b[^\r\n]{0,240}"
+    r"\b(?:using cached|ignored|old (?:ones?|indexes?) used)\b",
+    re.IGNORECASE,
+)
+_SELF_TEST_STATUS_FATAL_MARKER_RE = re.compile(
+    r"\b(?:oci runtime|permission denied|pull access denied|"
+    r"repository does not exist|no such image|exec format error|failed to start|"
+    r"invalid reference format|manifest unknown|no matching manifest)\b|"
+    r"\bmanifest\b[^\r\n]{0,160}\bnot found\b|"
+    r"\brequested access\b[^\r\n]{0,160}\bdenied\b|"
+    r"\brpc error(?=[:\s]|$)|"
+    r"\bdocker:\s*error(?=[:\s]|$)|"
+    r"(?:docker_build\(\)|docker pull|containerd|dockerd|nvidia-container(?:-cli)?)"
+    r"[^\r\n]{0,160}\b(?:errors?|failed|failures?)(?=[:\s]|$)",
+    re.IGNORECASE,
+)
+
+
+def resolve_self_test_instance_label(machine_id):
+    """Return the default or validated operator-supplied self-test label."""
+    override = os.environ.get(SELF_TEST_INSTANCE_LABEL_OVERRIDE_ENV)
+    if override is None:
+        return f"{SELF_TEST_INSTANCE_LABEL_PREFIX}-{machine_id}"
+    if (
+        len(override) > SELF_TEST_INSTANCE_LABEL_MAX_LENGTH
+        or _SELF_TEST_INSTANCE_LABEL_RE.fullmatch(override) is None
+    ):
+        raise ValueError(
+            f"{SELF_TEST_INSTANCE_LABEL_OVERRIDE_ENV} must start with "
+            f"'{SELF_TEST_INSTANCE_LABEL_REQUIRED_PREFIX}', contain only ASCII "
+            "letters, digits, '.', '_', or '-', include a non-empty suffix, and "
+            f"be at most {SELF_TEST_INSTANCE_LABEL_MAX_LENGTH} characters."
+        )
+    return override
+
+
+def _normalize_self_test_offer_id(value):
+    """Normalize JSON integer IDs without accepting booleans or fractions."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, float):
+        return int(value) if value > 0 and value.is_integer() else None
+    if isinstance(value, str) and re.fullmatch(r"[0-9]+", value):
+        try:
+            normalized = int(value)
+        except (ValueError, OverflowError):
+            return None
+        return normalized if normalized > 0 else None
+    return None
+
+
+def resolve_self_test_offer_id():
+    """Return a validated operator-supplied self-test offer ID, if any."""
+    override = os.environ.get(SELF_TEST_OFFER_ID_OVERRIDE_ENV)
+    if override is None:
+        return None
+    offer_id = _normalize_self_test_offer_id(override)
+    if offer_id is None:
+        raise ValueError(
+            f"{SELF_TEST_OFFER_ID_OVERRIDE_ENV} must be a positive integer."
+        )
+    return offer_id
+
+
+def _normalize_self_test_created_instance_id(value):
+    """Return a strict positive instance ID from a create response."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, str) and re.fullmatch(r"[0-9]+", value):
+        try:
+            normalized = int(value)
+        except (ValueError, OverflowError):
+            return None
+        return normalized if normalized > 0 else None
+    return None
+
+
+def _read_existing_self_test_instance_id_handoff(path):
+    """Read an existing regular, non-symlink handoff target without following links."""
+    target_stat = os.lstat(path)
+    if not stat.S_ISREG(target_stat.st_mode):
+        raise ValueError("The configured instance-ID handoff target is not a regular file.")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags)
+    try:
+        opened_stat = os.fstat(fd)
+        if not stat.S_ISREG(opened_stat.st_mode):
+            raise ValueError("The configured instance-ID handoff target is not a regular file.")
+        chunks = []
+        remaining = 129
+        while remaining:
+            chunk = os.read(fd, remaining)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        return b"".join(chunks), opened_stat
+    finally:
+        os.close(fd)
+
+
+def _fsync_self_test_handoff_directory(directory):
+    """Fsync a containing directory on platforms that support directory fsync."""
+    if os.name != "posix":
+        return
+    fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        try:
+            os.fsync(fd)
+        except OSError as error:
+            unsupported = {
+                errno.EBADF,
+                errno.EINVAL,
+                getattr(errno, "ENOTSUP", errno.EINVAL),
+                getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+            }
+            if error.errno not in unsupported:
+                raise
+    finally:
+        os.close(fd)
+
+
+def _self_test_handoff_stat_is_private(existing_stat):
+    """Return whether a handoff file has the enforceable private-file contract."""
+    if os.name != "posix":
+        return True
+    return (
+        stat.S_IMODE(existing_stat.st_mode) == 0o600
+        and existing_stat.st_uid == os.geteuid()
+    )
+
+
+def _self_test_precreated_handoff_is_safe(existing):
+    """Allow only the harness's owner-owned, mode-0600 empty placeholder."""
+    existing_payload, existing_stat = existing
+    return existing_payload == b"" and _self_test_handoff_stat_is_private(
+        existing_stat
+    )
+
+
+def publish_self_test_created_instance_id(instance_id):
+    """Durably publish a created self-test instance ID for an external watchdog.
+
+    The caller is expected to place the target in a caller-owned private run
+    directory (the paid-test harness uses mode 0700). This keeps the final
+    recheck-and-replace interval out of reach of untrusted concurrent writers.
+    """
+    handoff_path = os.environ.get(SELF_TEST_CREATED_INSTANCE_ID_FILE_ENV)
+    if handoff_path is None:
+        return False
+    normalized = _normalize_self_test_created_instance_id(instance_id)
+    if normalized is None:
+        raise ValueError("The created instance ID must be a positive integer.")
+    if not handoff_path or not os.path.isabs(handoff_path):
+        raise ValueError(
+            f"{SELF_TEST_CREATED_INSTANCE_ID_FILE_ENV} must name an absolute file path."
+        )
+    directory = os.path.dirname(handoff_path)
+    basename = os.path.basename(handoff_path)
+    if not basename:
+        raise ValueError(
+            f"{SELF_TEST_CREATED_INSTANCE_ID_FILE_ENV} must name a file, not a directory."
+        )
+    try:
+        directory_stat = os.stat(directory)
+    except OSError:
+        raise ValueError("The instance-ID handoff parent directory is unavailable.") from None
+    if not stat.S_ISDIR(directory_stat.st_mode):
+        raise ValueError("The instance-ID handoff parent is not a directory.")
+
+    payload = f"{normalized}\n".encode("ascii")
+    try:
+        existing = _read_existing_self_test_instance_id_handoff(handoff_path)
+    except FileNotFoundError:
+        existing = None
+    if existing is not None:
+        existing_payload, existing_stat = existing
+        if existing_payload == payload:
+            if not _self_test_handoff_stat_is_private(existing_stat):
+                raise ValueError(
+                    "The matching instance-ID handoff target is not an owner-owned "
+                    "private mode-0600 file."
+                )
+            return True
+        if not _self_test_precreated_handoff_is_safe(
+            (existing_payload, existing_stat)
+        ):
+            raise ValueError(
+                "The instance-ID handoff target already contains a different or invalid value."
+            )
+
+    fd = None
+    temporary_path = None
+    try:
+        fd, temporary_path = tempfile.mkstemp(
+            prefix=f".{basename}.", suffix=".tmp", dir=directory
+        )
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "wb") as writer:
+            fd = None
+            writer.write(payload)
+            writer.flush()
+            os.fsync(writer.fileno())
+
+        try:
+            existing = _read_existing_self_test_instance_id_handoff(handoff_path)
+        except FileNotFoundError:
+            existing = None
+        if existing is not None:
+            existing_payload, existing_stat = existing
+            if existing_payload == payload:
+                if not _self_test_handoff_stat_is_private(existing_stat):
+                    raise ValueError(
+                        "The matching instance-ID handoff target is not an owner-owned "
+                        "private mode-0600 file."
+                    )
+                return True
+            if not _self_test_precreated_handoff_is_safe(
+                (existing_payload, existing_stat)
+            ):
+                raise ValueError(
+                    "The instance-ID handoff target appeared with a different or invalid value."
+                )
+
+        os.replace(temporary_path, handoff_path)
+        temporary_path = None
+        _fsync_self_test_handoff_directory(directory)
+        return True
+    finally:
+        if fd is not None:
+            os.close(fd)
+        if temporary_path is not None:
+            try:
+                os.unlink(temporary_path)
+            except FileNotFoundError:
+                pass
+
+
+def _self_test_instance_id_handoff_error(error):
+    """Format a handoff failure without exposing a configured filesystem path."""
+    if isinstance(error, OSError):
+        detail = error.strerror or "filesystem operation failed"
+    else:
+        detail = str(error)
+    return f"{type(error).__name__}: {detail}"
+
+
+def _self_test_destroy_result_error(response):
+    """Return a concise error unless a destroy response explicitly confirms success."""
+    payload = response
+    response_json = getattr(response, "json", None)
+    if callable(response_json):
+        try:
+            payload = response_json()
+        except Exception:
+            return "The destroy API response was not valid JSON."
+    if not isinstance(payload, dict):
+        return "The destroy API response did not confirm success."
+    if payload.get("success") is True:
+        return None
+    return str(
+        payload.get("msg")
+        or payload.get("error")
+        or "The destroy API returned success=false."
+    )
+
+
+def _self_test_cleanup_failure_diagnostic(error):
+    """Build the standalone CLI's typed cleanup-failure payload."""
+    detail = str(error)
+    return {
+        "code": SELF_TEST_CLEANUP_FAILED,
+        "stage": "cleanup",
+        "summary": "Runtime test cleanup failed.",
+        "error": detail,
+        "underlying_error": detail,
+        "remediation": (
+            "Destroy the temporary test instance manually to avoid continued billing."
+        ),
+        "suggested_steps": [
+            "Run destroy instance for the temporary contract.",
+            "Retry cleanup after checking API connectivity.",
+        ],
+    }
+
+
+class _SelfTestInstanceIdHandoffFailure(Exception):
+    """Internal control-flow signal after a typed, cleanup-safe handoff failure."""
+
+
+def self_test_status_message_is_error(status_msg):
+    """Return whether a transitional self-test instance status is fatal."""
+    if not isinstance(status_msg, str):
+        return False
+    status_msg = status_msg.strip()
+    if not status_msg:
+        return False
+    if _SELF_TEST_STATUS_FATAL_MARKER_RE.search(status_msg):
+        return True
+    return any(
+        _SELF_TEST_STATUS_ERROR_LINE_RE.search(line)
+        and not _SELF_TEST_STATUS_RECOVERABLE_LINE_RE.search(line)
+        for line in status_msg.splitlines()
+    )
+
+
+def self_test_progress_stage(line):
+    """Return the runtime stage introduced by a legacy progress line."""
+    for pattern, stage in _SELF_TEST_RUNTIME_STAGE_PATTERNS:
+        if pattern.search(line):
+            return stage
+    return None
+
+
+def self_test_classify_runtime_failure(line, stage=None):
+    """Classify standalone self-test output while preserving the image detail."""
+    stripped = str(line or "").strip()
+    if not stripped:
+        return None
+
+    marker = _SELF_TEST_FAILURE_MARKER_RE.search(stripped)
+    marker_code = marker.group(1).lower() if marker else None
+    if marker_code == SELF_TEST_CLEANUP_FAILED:
+        return _self_test_cleanup_failure_diagnostic(stripped)
+    if (
+        marker_code == SELF_TEST_CUDA_ERROR_CONTAINED
+        or _SELF_TEST_CUDA_ERROR_CONTAINED_RE.search(stripped)
+    ):
+        diagnostic = deepcopy(_SELF_TEST_CUDA_ERROR_CONTAINED_ENTRY)
+        diagnostic["error"] = stripped
+        diagnostic["underlying_error"] = stripped
+        return diagnostic
+
+    normalized_stage = str(stage or "").lower()
+    code = _SELF_TEST_STAGE_FAILURE_CODES.get(normalized_stage)
+    if not code:
+        return None
+    return {
+        "code": code,
+        "stage": normalized_stage,
+        "summary": f"The {normalized_stage.replace('_', ' ')} runtime test failed.",
+        "remediation": "Inspect the original error and active test stage before retrying.",
+        "suggested_steps": ["Inspect the complete container log and host GPU health logs."],
+        "error": stripped,
+        "underlying_error": stripped,
+    }
+
+
+def self_test_render_runtime_failure(args, diagnostic):
+    """Render a standalone runtime diagnostic without repeating the raw error."""
+    progress_print(args, "Runtime failure diagnostics:")
+    progress_print(args, f"- code: {diagnostic.get('code')}")
+    if diagnostic.get("summary"):
+        progress_print(args, f"- summary: {diagnostic['summary']}")
+    if diagnostic.get("remediation"):
+        progress_print(args, f"- remediation: {diagnostic['remediation']}")
+    steps = diagnostic.get("suggested_steps") or []
+    if steps:
+        progress_print(args, "- suggested steps:")
+        for step in steps:
+            progress_print(args, f"  - {step}")
+
+
+def self_test_cuda_map_to_image(cuda_version, compute_cap=None):
+    """Return the versioned self-test image compatible with a host."""
+    docker_repo = "vastai/test"
+
+    def image_for(version):
+        return f"{docker_repo}:{SELF_TEST_IMAGE_TAG_PREFIX}-{version}"
+
+    if isinstance(cuda_version, float):
+        cuda_version = str(cuda_version)
+    original_cuda = cuda_version
+
+    if compute_cap is not None and compute_cap < 700:
+        return (
+            image_for("11.8"),
+            f"compute_cap={compute_cap} below sm_70 → forced {SELF_TEST_IMAGE_TAG_PREFIX}-11.8",
+        )
+
+    clamped_for_volta = False
+    if compute_cap is not None and compute_cap < 750:
+        if float(cuda_version) > 12.8:
+            cuda_version = "12.8"
+            clamped_for_volta = True
+
+    docker_tag_map = {
+        "11.8": image_for("11.8"),
+        "12.8": image_for("12.8"),
+        "13.0": image_for("13.0"),
+        "13.3": image_for("13.3"),
+    }
+    cap_hint = (
+        f"compute_cap={compute_cap}"
+        if compute_cap is not None
+        else "compute_cap=unknown"
+    )
+    cuda_float = float(cuda_version)
+    compatible_versions = sorted(float(version) for version in docker_tag_map)
+    selected_version = max(
+        (version for version in compatible_versions if version <= cuda_float),
+        default=None,
+    )
+    if selected_version is None:
+        raise KeyError(
+            f"No CUDA version found for {cuda_version} or any lower version"
+        )
+
+    selected_version_str = f"{selected_version:.1f}"
+    image = docker_tag_map[selected_version_str]
+    if clamped_for_volta:
+        reason = (
+            f"{cap_hint} (Volta) + cuda_max_good={original_cuda} → "
+            f"clamped to {cuda_version} → {image}"
+        )
+    elif selected_version_str == cuda_version:
+        reason = (
+            f"{cap_hint}, cuda_max_good={cuda_version} → exact match → {image}"
+        )
+    else:
+        reason = (
+            f"{cap_hint}, cuda_max_good={original_cuda} → "
+            f"selected newest image <= host CUDA ({selected_version_str}) → {image}"
+        )
+    return image, reason
+
+
+def self_test_launch_env(cli_version=VERSION, ignore_reliability=False):
+    """Return the legacy launcher's contract-aware self-test environment."""
+    return (
+        f"-e TZ=PDT -e XNAME=XX4 "
+        f"-e VAST_SELF_TEST_CLI_VERSION={cli_version} "
+        f"-e VAST_SELF_TEST_CLI_CONTRACT_VERSION={SELF_TEST_CLI_CONTRACT_VERSION} "
+        f"-e {SELF_TEST_IGNORE_RELIABILITY_ENV}={int(ignore_reliability)} "
+        "-p 5000:5000 -p 5001:5001/udp"
+    )
 
 
 @parser.command(
@@ -3430,21 +3962,33 @@ def _get_gpu_names() -> List[str]:
         return cache_age < CACHE_DURATION
     
     if is_cache_valid():
-        with open(CACHE_FILE, "r") as file:
-            gpu_names = json.load(file)
+        try:
+            with open(CACHE_FILE, "r") as file:
+                gpu_names = json.load(file)
+        except (OSError, json.JSONDecodeError):
+            gpu_names = None
     else:
         endpoint = "/api/v0/gpu_names/unique/"
         url = f"{server_url_default}{endpoint}"
-        r = requests.get(url, headers={})
-        r.raise_for_status()  # Will raise an exception for HTTP errors
-        gpu_names = r.json()
-        with open(CACHE_FILE, "w") as file:
-            json.dump(gpu_names, file)
+        try:
+            r = requests.get(url, headers={})
+            r.raise_for_status()
+            gpu_names = r.json()
+        except (requests.exceptions.RequestException, ValueError):
+            return None
+        try:
+            with open(CACHE_FILE, "w") as file:
+                json.dump(gpu_names, file)
+        except OSError:
+            pass
 
-    formatted_gpu_names = [
-        name.replace(" ", "_").replace("-", "_") for name in gpu_names['gpu_names']
-    ]
-    return formatted_gpu_names
+    try:
+        return [
+            name.replace(" ", "_").replace("-", "_")
+            for name in gpu_names["gpu_names"]
+        ]
+    except (TypeError, KeyError):
+        return None
 
 
 REGIONS = {
@@ -8370,10 +8914,22 @@ def remove__defjob(args):
     argument("--debugging", action="store_true", help="Enable debugging output"),
     argument("--explain", action="store_true", help="Output verbose explanation of mapping of CLI calls to HTTPS API endpoints"),
     argument("--raw", action="store_true", help="Output machine-readable JSON"), 
+    argument(
+        "--test-image",
+        help=(
+            "Use an exact candidate image reference (prefer repository@sha256:digest). "
+            "Overrides VAST_SELF_TEST_IMAGE and the production CUDA mapping."
+        ),
+    ),
     argument("--url", help="Server REST API URL", default="https://console.vast.ai"),
     argument("--retry", help="Retry limit", type=int, default=3),
     argument("--ignore-requirements", action="store_true", help="Ignore the minimum system requirements and run the self test regardless"),
-    usage="vastai self-test machine <machine_id> [--debugging] [--explain] [--api_key API_KEY] [--url URL] [--retry RETRY] [--raw] [--ignore-requirements]",
+    argument(
+        "--ignore-reliability",
+        action="store_true",
+        help="Ignore only the reliability preflight requirement and run the self test regardless",
+    ),
+    usage="vastai self-test machine <machine_id> [--debugging] [--explain] [--api_key API_KEY] [--url URL] [--retry RETRY] [--raw] [--ignore-requirements] [--ignore-reliability] [--test-image IMAGE]",
     help="[Host] Perform a self-test on the specified machine",
     epilog=deindent("""
         This command tests if a machine meets specific requirements and 
@@ -8382,6 +8938,7 @@ def remove__defjob(args):
         Examples:
          vastai self-test machine 12345
          vastai self-test machine 12345 --debugging
+         vastai self-test machine 12345 --ignore-reliability
          vastai self-test machine 12345 --explain
          vastai self-test machine 12345 --api_key <YOUR_API_KEY>
     """),
@@ -8394,19 +8951,61 @@ def self_test__machine(args):
     """
     instance_id = None  # Store instance ID for cleanup if needed
     result = {"success": False, "reason": ""}
+
+    def record_cleanup_failure(error):
+        """Attach typed cleanup evidence and fail an otherwise successful run."""
+        diagnostic = _self_test_cleanup_failure_diagnostic(error)
+        cleanup_state = result.setdefault("diagnostics", {}).setdefault(
+            "cleanup", {}
+        )
+        cleanup_state.update(
+            {
+                "instance_id": instance_id,
+                "success": False,
+                "failure": diagnostic,
+            }
+        )
+        result["diagnostics"]["cleanup_failure"] = diagnostic
+        if not result.get("failure_code"):
+            result["success"] = False
+            result["failure_code"] = SELF_TEST_CLEANUP_FAILED
+            result["stage"] = "cleanup"
+            result["failure"] = diagnostic
+            result["reason"] = diagnostic["summary"]
+        return str(error)
+
     ignore_requirements_warning = (
         "WARNING: --ignore-requirements is set. Requirement checks are skipped as a "
+        "pass/fail gate, and passing this self-test does not qualify this machine for verification."
+    )
+    ignore_reliability_warning = (
+        "WARNING: --ignore-reliability is set. The reliability check is skipped as a "
         "pass/fail gate, and passing this self-test does not qualify this machine for verification."
     )
     
     # Ensure debugging attribute exists in args
     if not hasattr(args, 'debugging'):
         args.debugging = False
+    if not hasattr(args, 'ignore_reliability'):
+        args.ignore_reliability = False
 
     if args.ignore_requirements:
         result["warning"] = ignore_requirements_warning
+    elif args.ignore_reliability:
+        result["warning"] = ignore_reliability_warning
     
     try:
+        try:
+            self_test_label = resolve_self_test_instance_label(args.machine_id)
+        except ValueError:
+            result["stage"] = "validate_label"
+            raise
+        try:
+            pinned_offer_id = resolve_self_test_offer_id()
+        except ValueError:
+            result["stage"] = "validate_offer_id"
+            raise
+
         # Load API key
         if not args.api_key:
             api_key_file = os.path.expanduser("~/.vast_api_key")
@@ -8433,96 +9032,37 @@ def self_test__machine(args):
 
         # Check requirements
         meets_requirements, unmet_reasons = check_requirements(args.machine_id, api_key, args)
-        if not meets_requirements and not args.ignore_requirements:
+        ignored_reliability_reasons = []
+        if args.ignore_reliability:
+            ignored_reliability_reasons = [
+                reason
+                for reason in unmet_reasons
+                if reason == RELIABILITY_REQUIREMENT_REASON
+            ]
+        blocking_reasons = [
+            reason for reason in unmet_reasons if reason not in ignored_reliability_reasons
+        ]
+        if blocking_reasons and not args.ignore_requirements:
             # immediately fail
             progress_print(args, f"Machine ID {args.machine_id} does not meet the following requirements:")
-            for reason in unmet_reasons:
+            for reason in blocking_reasons:
                 progress_print(args, f"- {reason}")
-            result["reason"] = "; ".join(unmet_reasons)
+            result["reason"] = "; ".join(blocking_reasons)
             return result
-        if not meets_requirements and args.ignore_requirements:
+        if blocking_reasons and args.ignore_requirements:
             progress_print(args, f"Machine ID {args.machine_id} does not meet the following requirements:")
-            for reason in unmet_reasons:
+            for reason in blocking_reasons:
                 progress_print(args, f"- {reason}")
             progress_print(args, "Continuing despite unmet requirements because --ignore-requirements is set.")
+        if ignored_reliability_reasons:
+            progress_print(args, f"Machine ID {args.machine_id} does not meet the reliability requirement:")
+            for reason in ignored_reliability_reasons:
+                progress_print(args, f"- {reason}")
+            progress_print(args, "Continuing despite low reliability because --ignore-reliability is set.")
         if args.ignore_requirements:
             progress_print(args, ignore_requirements_warning)
-
-        def cuda_map_to_image(cuda_version, compute_cap=None):
-            """
-            Map a CUDA version (and optional compute_cap) to (image, reason).
-
-            If compute_cap is below 700 (sm_70 / Volta), the cuda-11.8 image
-            is forced regardless of CUDA version. cuda-12.8 (torch 2.10) still
-            ships sm_70 kernels so Volta hosts land on cuda-12.8 via the
-            version map; cuda-13.0 (torch 2.11) and cuda-12.8 do not ship
-            sm_50/sm_60 kernels, so Maxwell and Pascal must use cuda-11.8.
-
-            Volta hosts whose operator has installed a CUDA 13 driver get the
-            cuda_version clamped down to 12.8 before the version map runs,
-            since cuda-13.0 wheels never built sm_70.
-
-            The returned reason is a short human-readable string so callers
-            can log why a particular image was chosen.
-            """
-            docker_repo = "vastai/test"
-            # Convert float input to string
-            if isinstance(cuda_version, float):
-                cuda_version = str(cuda_version)
-            original_cuda = cuda_version
-
-            # Force the cuda-11.8 legacy image on pre-Volta hardware (sm_50/sm_60).
-            if compute_cap is not None and compute_cap < 700:
-                return (
-                    f"{docker_repo}:self-test-cuda-11.8",
-                    f"compute_cap={compute_cap} below sm_70 → forced cuda-11.8",
-                )
-
-            # Volta sm_70/sm_72: cuda-12.8 has sm_70, cuda-13.0 doesn't. Cap
-            # driver CUDA at 12.8 so the map below picks cuda-12.8 even on a
-            # V100 host with a CUDA 13 driver installed.
-            clamped_for_volta = False
-            if compute_cap is not None and compute_cap < 750:
-                if float(cuda_version) > 12.8:
-                    cuda_version = "12.8"
-                    clamped_for_volta = True
-
-            # Predefined mapping. Tracks PyTorch releases and the docker
-            # images we currently publish (cuda-11.8 / cuda-12.8 / cuda-13.0).
-            docker_tag_map = {
-                "11.8": "cuda-11.8",
-                "12.8": "cuda-12.8",
-                "13.0": "cuda-13.0",
-            }
-
-            cap_hint = f"compute_cap={compute_cap}" if compute_cap is not None else "compute_cap=unknown"
-
-            if cuda_version in docker_tag_map:
-                tag = docker_tag_map[cuda_version]
-                if clamped_for_volta:
-                    reason = f"{cap_hint} (Volta) + cuda_max_good={original_cuda} → clamped to {cuda_version} → {tag}"
-                else:
-                    reason = f"{cap_hint}, cuda_max_good={cuda_version} → exact match → {tag}"
-                return f"{docker_repo}:self-test-{tag}", reason
-
-            # Try to find the next version down
-            cuda_float = float(cuda_version)
-
-            # Try to decrement the version by 0.1 until we find a match or run out of options
-            next_version = round(cuda_float - 0.1, 1)
-            while next_version >= min(float(v) for v in docker_tag_map.keys()):
-                next_version_str = str(next_version)
-                if next_version_str in docker_tag_map:
-                    tag = docker_tag_map[next_version_str]
-                    reason = (
-                        f"{cap_hint}, cuda_max_good={original_cuda} → "
-                        f"stepped down to {next_version_str} → {tag}"
-                    )
-                    return f"{docker_repo}:self-test-{tag}", reason
-                next_version = round(next_version - 0.1, 1)
-
-            raise KeyError(f"No CUDA version found for {cuda_version} or any lower version")
-    
+        elif args.ignore_reliability:
+            progress_print(args, ignore_reliability_warning)
 
         def search_offers_and_get_top(machine_id):
             search_args = argparse.Namespace(
@@ -8544,6 +9084,8 @@ def self_test__machine(args):
             )
             offers = search__offers(search_args)
             if not offers:
+                if pinned_offer_id is not None:
+                    return None
                 progress_print(args, f"Machine ID {machine_id} not found or not rentable.")
                 progress_print(args, f"Possible reasons and how to investigate:")
                 progress_print(args, f"  1. Already rented — the machine has no remaining capacity.")
@@ -8555,18 +9097,59 @@ def self_test__machine(args):
                 progress_print(args, f"  4. Bid price below ask — your bid may be lower than the host's minimum price.")
                 progress_print(args, f"     Check: vastai search offers 'machine_id={machine_id} rentable=any verified=any' and compare prices.")
                 return None
+            if pinned_offer_id is not None:
+                return next(
+                    (
+                        offer
+                        for offer in offers
+                        if _normalize_self_test_offer_id(offer.get("id"))
+                        == pinned_offer_id
+                    ),
+                    None,
+                )
             sorted_offers = sorted(offers, key=lambda x: x.get("dlperf", 0), reverse=True)
             return sorted_offers[0] if sorted_offers else None
 
         top_offer = search_offers_and_get_top(args.machine_id)
         if not top_offer:
-            progress_print(args, f"No valid offers found for Machine ID {args.machine_id}")
-            result["reason"] = "No valid offers found."
+            if pinned_offer_id is not None:
+                summary = (
+                    f"Offer {pinned_offer_id} from {SELF_TEST_OFFER_ID_OVERRIDE_ENV} "
+                    f"is not a current rentable on-demand offer for machine {args.machine_id}."
+                )
+                remediation = (
+                    f"Re-run the offer search for machine {args.machine_id}, then update "
+                    f"or unset {SELF_TEST_OFFER_ID_OVERRIDE_ENV}."
+                )
+                progress_print(args, summary)
+                result["stage"] = "select_offer"
+                result["failure_code"] = "pinned_offer_not_available"
+                result["failure"] = {
+                    "code": "pinned_offer_not_available",
+                    "stage": "select_offer",
+                    "summary": summary,
+                    "remediation": remediation,
+                    "suggested_steps": [remediation],
+                }
+                result["reason"] = summary
+            else:
+                progress_print(args, f"No valid offers found for Machine ID {args.machine_id}")
+                result["reason"] = "No valid offers found."
         else:
-            ask_contract_id = top_offer["id"]
+            ask_contract_id = pinned_offer_id or top_offer["id"]
             cuda_version = top_offer["cuda_max_good"]
             compute_cap = top_offer.get("compute_cap")
-            docker_image, image_reason = cuda_map_to_image(cuda_version, compute_cap)
+            image_override = getattr(args, "test_image", None) or os.environ.get(
+                "VAST_SELF_TEST_IMAGE"
+            )
+            if image_override:
+                docker_image = image_override
+                image_reason = "custom self-test image override"
+            else:
+                docker_image, image_reason = self_test_cuda_map_to_image(
+                    cuda_version,
+                    compute_cap,
+                )
 
             # Prepare arguments for instance creation
             create_args = argparse.Namespace(
@@ -8576,7 +9159,7 @@ def self_test__machine(args):
                 disk=40,  # Match the disk size from the working command
                 image=docker_image,
                 login=None,
-                label=None,
+                label=self_test_label,
                 onstart=None,
                 onstart_cmd="/verification/remote.sh",
                 entrypoint=None,
@@ -8588,7 +9171,7 @@ def self_test__machine(args):
                 lang_utf8=False,
                 python_utf8=False,
                 extra=None,
-                env="-e TZ=PDT -e XNAME=XX4 -p 5000:5000 -p 1234:1234",
+                env=self_test_launch_env(ignore_reliability=args.ignore_reliability),
                 args=None,
                 force=False,
                 cancel_unavail=False,
@@ -8599,7 +9182,8 @@ def self_test__machine(args):
                 url=args.url,
                 retry=args.retry,
                 debugging=args.debugging,
-                bid_price=None,  # Ensure bid_price is None
+                # ``bid_price`` creates an interruptible rental; it is not a ceiling.
+                bid_price=None,
                 create_volume=None,
                 link_volume=None,
             )
@@ -8612,8 +9196,6 @@ def self_test__machine(args):
                     if response.status_code == 200:
                         try:
                             instance_info = response.json()  # Parse JSON
-                            if args.debugging:
-                                debug_print(args, "Captured instance_info from create__instance:", instance_info)
                         except json.JSONDecodeError as e:
                             progress_print(args, f"Error parsing JSON response: {e}")
                             debug_print(args, f"Raw response content: {response.text}")
@@ -8630,11 +9212,53 @@ def self_test__machine(args):
                 return result  # Cleanup handled in finally block
 
             # Extract instance ID and proceed
-            instance_id = instance_info.get("new_contract")
-            if not instance_id:
+            instance_id = _normalize_self_test_created_instance_id(
+                instance_info.get("new_contract")
+            )
+            if instance_id is None:
                 progress_print(args, "Instance creation response did not contain 'new_contract'.")
                 result["reason"] = "Instance creation failed."
             else:
+                try:
+                    publish_self_test_created_instance_id(instance_id)
+                except Exception as e:
+                    error = _self_test_instance_id_handoff_error(e)
+                    summary = (
+                        "The instance was created, but the CLI could not durably publish "
+                        "its ID."
+                    )
+                    remediation = (
+                        "Verify VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE is an absolute "
+                        "writable file path, then retry only after confirming exact cleanup."
+                    )
+                    result["success"] = False
+                    result["failure_code"] = SELF_TEST_INSTANCE_ID_HANDOFF_FAILED
+                    result["stage"] = SELF_TEST_INSTANCE_ID_HANDOFF_FAILED
+                    result["failure"] = {
+                        "code": SELF_TEST_INSTANCE_ID_HANDOFF_FAILED,
+                        "stage": SELF_TEST_INSTANCE_ID_HANDOFF_FAILED,
+                        "summary": summary,
+                        "error": error,
+                        "underlying_error": error,
+                        "remediation": remediation,
+                        "suggested_steps": [
+                            "Confirm cleanup destroyed the exact created instance.",
+                            remediation,
+                        ],
+                    }
+                    result["reason"] = summary
+                    progress_print(
+                        args,
+                        f"SELF_TEST_FAILURE[{SELF_TEST_INSTANCE_ID_HANDOFF_FAILED}]: "
+                        f"{summary} Stopping before status polling so exact cleanup can run.",
+                    )
+                    raise _SelfTestInstanceIdHandoffFailure from None
+                if args.debugging:
+                    debug_print(
+                        args,
+                        "Captured instance_info from create__instance:",
+                        instance_info,
+                    )
                 # Wait for the instance to start
                 instance_info, wait_reason = wait_for_instance(instance_id, api_key, args, destroy_args)
                 if not instance_info:
@@ -8654,7 +9278,7 @@ def self_test__machine(args):
                             progress_print(args, f"All mapped ports on instance: {all_ports if all_ports else 'none'}")
                             progress_print(args, f"Possible causes:")
                             progress_print(args, f"  - The machine's firewall is blocking port 5000.")
-                            progress_print(args, f"  - direct_port_count is too low on this machine (must be > 3).")
+                            progress_print(args, f"  - direct_port_count is too low on this machine (must be >= 4).")
                             progress_print(args, f"  - The container failed to expose the port correctly.")
                             progress_print(args, f"Check direct_port_count: vastai search offers 'machine_id={args.machine_id} rentable=any verified=any'")
                             result["reason"] = f"Port 5000/tcp not mapped. Available ports: {all_ports}"
@@ -8665,7 +9289,15 @@ def self_test__machine(args):
                             )
                             result["success"] = success
                             result["reason"] = reason
+                            if not success:
+                                diagnostic = self_test_classify_runtime_failure(reason)
+                                if diagnostic:
+                                    result["failure_code"] = diagnostic["code"]
+                                    result["stage"] = diagnostic["stage"]
+                                    result["failure"] = diagnostic
 
+    except _SelfTestInstanceIdHandoffFailure:
+        pass
     except KeyboardInterrupt:
         result["success"] = False
         result["reason"] = "Interrupted by user (Ctrl+C)"
@@ -8680,39 +9312,134 @@ def self_test__machine(args):
         # typed except above and lands here. Surface failures loudly: a
         # silently-leaked instance keeps billing the host.
         if instance_id:
-            try:
-                show_args = argparse.Namespace(
-                    id=instance_id,
-                    api_key=api_key,
-                    url=args.url,
-                    retry=args.retry,
-                    explain=False,
-                    raw=True,
-                    debugging=args.debugging,
-                    internal=True,
-                )
-                info = show__instance(show_args)
-                if not info:
-                    debug_print(args, f"Test instance {instance_id} is already gone.")
-                else:
-                    status = info.get('intended_status') or info.get('actual_status')
-                    if status not in ('destroyed', 'terminated', 'offline'):
-                        progress_print(args, f"Destroying test instance {instance_id} (status: {status})...")
-                        destroy_instance_silent(instance_id, destroy_args)
-                        progress_print(args, f"Test instance {instance_id} destroyed.")
-            except KeyboardInterrupt:
-                progress_print(
-                    args,
-                    f"\nSecond interrupt during cleanup — instance {instance_id} may still be running.\n"
-                    f"  Destroy it manually: vastai destroy instance {instance_id}"
-                )
-                raise
-            except Exception as e:
-                progress_print(
-                    args,
-                    f"WARNING: failed to destroy test instance {instance_id}: {e}\n"
-                    f"  Destroy it manually: vastai destroy instance {instance_id}"
-                )
+            show_args = argparse.Namespace(
+                id=instance_id,
+                api_key=api_key,
+                url=args.url,
+                retry=args.retry,
+                explain=False,
+                raw=True,
+                debugging=args.debugging,
+                internal=True,
+            )
+            handoff_cleanup = (
+                result.get("failure_code")
+                == SELF_TEST_INSTANCE_ID_HANDOFF_FAILED
+            )
+            if handoff_cleanup:
+                cleanup = {
+                    "instance_id": instance_id,
+                    "strategy": "exact_id_after_handoff_failure",
+                    "success": False,
+                }
+                result.setdefault("diagnostics", {})["cleanup"] = cleanup
+                confirmed_gone = False
+                try:
+                    info = show__instance(show_args)
+                    cleanup["status_lookup"] = "found" if info else "empty"
+                    if info:
+                        cleanup["status"] = (
+                            info.get("intended_status") or info.get("actual_status")
+                        )
+                except KeyboardInterrupt:
+                    progress_print(
+                        args,
+                        f"\nSecond interrupt during cleanup — instance {instance_id} may still be running.\n"
+                        f"  Destroy it manually: vastai destroy instance {instance_id}"
+                    )
+                    raise
+                except requests.exceptions.HTTPError as e:
+                    if e.response is not None and e.response.status_code == 404:
+                        confirmed_gone = True
+                        cleanup.update(
+                            {"success": True, "status_lookup": "not_found"}
+                        )
+                        debug_print(
+                            args,
+                            f"Test instance {instance_id} already gone during exact cleanup.",
+                        )
+                    else:
+                        cleanup["status_lookup"] = "error"
+                        progress_print(
+                            args,
+                            "WARNING: could not look up the exact created test instance "
+                            f"{instance_id}; attempting direct destruction anyway.",
+                        )
+                except Exception:
+                    cleanup["status_lookup"] = "error"
+                    progress_print(
+                        args,
+                        "WARNING: could not look up the exact created test instance "
+                        f"{instance_id}; attempting direct destruction anyway.",
+                    )
+
+                if not confirmed_gone:
+                    try:
+                        progress_print(
+                            args,
+                            "Destroying exact created test instance "
+                            f"{instance_id} after instance-ID handoff failure...",
+                        )
+                        destroy_result = destroy_instance_silent(
+                            instance_id, destroy_args
+                        )
+                        destroy_error = _self_test_destroy_result_error(
+                            destroy_result
+                        )
+                        if destroy_error:
+                            raise RuntimeError(destroy_error)
+                        cleanup["success"] = True
+                        progress_print(
+                            args,
+                            f"Exact created test instance {instance_id} destroyed.",
+                        )
+                    except KeyboardInterrupt:
+                        progress_print(
+                            args,
+                            f"\nSecond interrupt during cleanup — instance {instance_id} may still be running.\n"
+                            f"  Destroy it manually: vastai destroy instance {instance_id}"
+                        )
+                        raise
+                    except Exception as e:
+                        cleanup["error"] = record_cleanup_failure(e)
+                        progress_print(
+                            args,
+                            "WARNING: failed to destroy exact created test instance "
+                            f"{instance_id}: {cleanup['error']}\n"
+                            f"  Destroy it manually: vastai destroy instance {instance_id}",
+                        )
+            else:
+                try:
+                    info = show__instance(show_args)
+                    if not info:
+                        debug_print(args, f"Test instance {instance_id} is already gone.")
+                    else:
+                        status = info.get('intended_status') or info.get('actual_status')
+                        if status not in ('destroyed', 'terminated', 'offline'):
+                            progress_print(args, f"Destroying test instance {instance_id} (status: {status})...")
+                            destroy_result = destroy_instance_silent(
+                                instance_id, destroy_args
+                            )
+                            destroy_error = _self_test_destroy_result_error(
+                                destroy_result
+                            )
+                            if destroy_error:
+                                raise RuntimeError(destroy_error)
+                            progress_print(args, f"Test instance {instance_id} destroyed.")
+                except KeyboardInterrupt:
+                    progress_print(
+                        args,
+                        f"\nSecond interrupt during cleanup — instance {instance_id} may still be running.\n"
+                        f"  Destroy it manually: vastai destroy instance {instance_id}"
+                    )
+                    raise
+                except Exception as e:
+                    error = record_cleanup_failure(e)
+                    progress_print(
+                        args,
+                        f"WARNING: failed to destroy test instance {instance_id}: {error}\n"
+                        f"  Destroy it manually: vastai destroy instance {instance_id}"
+                    )
 
     # Output results
     if args.raw:
@@ -8725,7 +9452,18 @@ def self_test__machine(args):
             print("Test completed successfully.")
             sys.exit(0)
         else:
-            print(f"Test failed: {result['reason']}")
+            if result.get("failure"):
+                if (
+                    result.get("failure_code")
+                    in (
+                        SELF_TEST_INSTANCE_ID_HANDOFF_FAILED,
+                        SELF_TEST_CLEANUP_FAILED,
+                    )
+                ):
+                    self_test_render_runtime_failure(args, result["failure"])
+                print("Test failed.")
+            else:
+                print(f"Test failed: {result['reason']}")
             sys.exit(1)
 
 
@@ -9147,23 +9885,39 @@ def destroy_instance_silent(id, args):
         dict: A dictionary with a success status and error message, if any.
     """
     max_retries = 10
+    destroy_args = argparse.Namespace(**vars(args))
+    # Always request the response object so an HTTP-200 body with
+    # ``success: false`` cannot be mistaken for a successful cleanup.
+    destroy_args.raw = True
     for attempt in range(1, max_retries + 1):
         try:
             # Suppress output if args.raw is True
             if args.raw:
                 with open(os.devnull, 'w') as devnull, redirect_stdout(devnull), redirect_stderr(devnull):
-                    destroy_instance(id, args)
+                    response = destroy_instance(id, destroy_args)
             else:
-                destroy_instance(id, args)
+                response = destroy_instance(id, destroy_args)
+
+            response_error = _self_test_destroy_result_error(response)
+            if response_error:
+                raise RuntimeError(response_error)
 
             # If successful, exit the loop and return success
             if not args.raw:
                 print(f"Instance {id} destroyed successfully on attempt {attempt}.")
             return {"success": True}
 
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 404:
+                if not args.raw:
+                    print(f"Instance {id} is already gone.")
+                return {"success": True, "already_gone": True}
+            error = str(e)
         except Exception as e:
-            if not args.raw:
-                print(f"Error destroying instance {id}: {e}")
+            error = str(e)
+
+        if not args.raw:
+            print(f"Error destroying instance {id}: {error}")
 
         # Wait before retrying if the attempt failed
         if attempt < max_retries:
@@ -9173,7 +9927,10 @@ def destroy_instance_silent(id, args):
         else:
             if not args.raw:
                 print(f"Failed to destroy instance {id} after {max_retries} attempts.")
-            return {"success": False, "error": "Max retries exceeded"}
+            return {
+                "success": False,
+                "error": f"Max retries exceeded: {error}",
+            }
 
 
 def progress_print(args, *args_to_print):
@@ -9343,6 +10100,8 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
     printed_lines = set()
     first_connection_established = False  # Flag to track first successful connection
     instance_destroyed = False  # Track whether the instance has been destroyed
+    current_stage = None
+    runtime_diagnostic = None
     try:
         while time.time() - start_time < 600:
             # Check instance status with high priority for offline status
@@ -9382,19 +10141,46 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
                 lines = message.split('\n')
                 new_lines = [line for line in lines if line not in printed_lines]
                 for line in new_lines:
+                    reported_stage = self_test_progress_stage(line)
+                    if reported_stage:
+                        current_stage = reported_stage
                     if line == 'DONE':
+                        cleanup_result = destroy_instance_silent(
+                            instance_id, destroy_args
+                        )
+                        cleanup_error = _self_test_destroy_result_error(
+                            cleanup_result
+                        )
+                        if cleanup_error:
+                            reason = (
+                                f"SELF_TEST_FAILURE[{SELF_TEST_CLEANUP_FAILED}]: "
+                                "Runtime checks passed, but exact test-instance "
+                                f"cleanup failed: {cleanup_error}"
+                            )
+                            progress_print(args, reason)
+                            return False, reason
+                        instance_destroyed = True
                         progress_print(args, "Test completed successfully.")
                         with open("Pass_testresults.log", "a") as f:
                             f.write(f"{machine_id}\n")
                         progress_print(args, f"Test passed.")
-                        destroy_instance_silent(instance_id, destroy_args)
-                        instance_destroyed = True
                         return True, ""
                     elif line.startswith('ERROR'):
+                        runtime_diagnostic = self_test_classify_runtime_failure(
+                            line,
+                            stage=current_stage,
+                        )
                         progress_print(args, line)
                         with open("Error_testresults.log", "a") as f:
                             f.write(f"{machine_id}:{instance_id} {line}\n")
-                        progress_print(args, f"Test failed with error: {line}.")
+                        if (
+                            runtime_diagnostic
+                            and runtime_diagnostic.get("code")
+                            == SELF_TEST_CUDA_ERROR_CONTAINED
+                        ):
+                            self_test_render_runtime_failure(args, runtime_diagnostic)
+                        else:
+                            progress_print(args, f"Test failed with error: {line}.")
                         destroy_instance_silent(instance_id, destroy_args)
                         instance_destroyed = True
                         return False, line
@@ -9454,8 +10240,21 @@ def run_machinetester(ip_address, port, instance_id, machine_id, delay, args, ap
         # Ensure instance cleanup
         if not instance_destroyed and instance_id and instance_exist(instance_id, api_key, destroy_args):
            destroy_instance_silent(instance_id, destroy_args)
-        progress_print(args, f"Machine: {machine_id} Done with testing remote.py results {message}")
+        if (
+            runtime_diagnostic
+            and runtime_diagnostic.get("code") == SELF_TEST_CUDA_ERROR_CONTAINED
+        ):
+            progress_print(args, f"Machine: {machine_id} Done with testing remote.py.")
+        else:
+            progress_print(args, f"Machine: {machine_id} Done with testing remote.py results {message}")
         warnings.simplefilter('default')
+
+# Keep the deprecated self-test aligned with the packaged CLI. Very large GPU
+# hosts, such as 8x B300 systems, can exceed 2 TB of total VRAM; once a host has
+# about 2 TB of system RAM, do not reject it only for falling slightly below 95%.
+SYSTEM_RAM_REQUIREMENT_CAP_MIB = 2_000_000
+RELIABILITY_REQUIREMENT_REASON = "Reliability <= 0.90"
+
 
 def safe_float(value):
     """
@@ -9547,11 +10346,11 @@ def check_requirements(machine_id, api_key, args):
 
         # 2. Reliability
         if safe_float(top_offer.get('reliability')) <= 0.90:
-            unmet_reasons.append("Reliability <= 0.90")
+            unmet_reasons.append(RELIABILITY_REQUIREMENT_REASON)
 
         # 3. Direct port count
-        if safe_float(top_offer.get('direct_port_count')) <= 3:
-            unmet_reasons.append("Direct port count <= 3")
+        if safe_float(top_offer.get('direct_port_count')) < 4:
+            unmet_reasons.append("Direct port count < 4")
 
         # 4. PCIe bandwidth
         if safe_float(top_offer.get('pcie_bw')) <= 2.85:
@@ -9574,7 +10373,9 @@ def check_requirements(machine_id, api_key, args):
         # 8. System RAM vs. Total GPU RAM
         gpu_total_ram = safe_float(top_offer.get('gpu_total_ram'))  # in MB
         cpu_ram = safe_float(top_offer.get('cpu_ram'))  # in MB
-        if cpu_ram < .95*gpu_total_ram: # .95 to allow for reserved hardware memory
+        uncapped_required_cpu_ram = 0.95 * gpu_total_ram
+        required_cpu_ram = min(uncapped_required_cpu_ram, SYSTEM_RAM_REQUIREMENT_CAP_MIB)
+        if cpu_ram < required_cpu_ram:
             unmet_reasons.append("System RAM is less than total VRAM.")
 
         # Debugging Information for RAM
@@ -9645,23 +10446,23 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
                 time.sleep(interval)
                 continue  # Retry
 
-            # Check for error in status_msg
             status_msg = instance_info.get('status_msg', '')
-            if status_msg and 'Error' in status_msg:
-                reason = f"Instance {instance_id} encountered an error: {status_msg.strip()}"
-                progress_print(args, reason)
-                
-                # Destroy the instance
-                if instance_exist(instance_id, api_key, destroy_args):
-                    destroy_instance_silent(instance_id, destroy_args)
-                    progress_print(args, f"Instance {instance_id} has been destroyed due to error.")
-                else:
-                    progress_print(args, f"Instance {instance_id} could not be destroyed or does not exist.")
-                
-                return False, reason
-            
-            # Check if instance went offline
-            actual_status = instance_info.get('actual_status', 'unknown')
+            status_msg_clean = (
+                status_msg.strip() if isinstance(status_msg, str) else ""
+            )
+            actual_status = str(
+                instance_info.get('actual_status', 'unknown')
+            ).lower()
+            intended_status = str(
+                instance_info.get('intended_status', 'unknown')
+            ).lower()
+
+            # Running lifecycle state wins over stale build output.
+            if intended_status == 'running' and actual_status == 'running':
+                if args.debugging:
+                    debug_print(args, f"Instance {instance_id} is now running.")
+                return instance_info, None
+
             if actual_status == 'offline':
                 reason = "Instance offline during testing"
                 progress_print(args, reason)
@@ -9674,12 +10475,65 @@ def wait_for_instance(instance_id, api_key, args, destroy_args, timeout=900, int
                     progress_print(args, f"Instance {instance_id} could not be destroyed or does not exist.")
                 
                 return False, reason
-            
-            # Check if instance is running
-            if instance_info.get('intended_status') == 'running' and actual_status == 'running':
-                if args.debugging:
-                    debug_print(args, f"Instance {instance_id} is now running.")
-                return instance_info, None  # Return instance_info with None for reason
+
+            terminal_statuses = {
+                'destroyed',
+                'error',
+                'exited',
+                'failed',
+                'failure',
+                'stopped',
+                'terminated',
+            }
+            if (
+                intended_status in terminal_statuses
+                or actual_status in terminal_statuses
+            ):
+                reason = (
+                    f"Instance {instance_id} entered terminal status before "
+                    f"reaching running (actual={actual_status}, "
+                    f"intended={intended_status})"
+                )
+                if status_msg_clean:
+                    reason = f"{reason}: {status_msg_clean}"
+                progress_print(args, reason)
+                if instance_exist(instance_id, api_key, destroy_args):
+                    destroy_instance_silent(instance_id, destroy_args)
+                    progress_print(
+                        args,
+                        f"Instance {instance_id} has been destroyed due to "
+                        "startup failure.",
+                    )
+                else:
+                    progress_print(
+                        args,
+                        f"Instance {instance_id} could not be destroyed or "
+                        "does not exist.",
+                    )
+                return False, reason
+
+            if (
+                status_msg_clean
+                and self_test_status_message_is_error(status_msg_clean)
+            ):
+                reason = (
+                    f"Instance {instance_id} encountered an error: "
+                    f"{status_msg_clean}"
+                )
+                progress_print(args, reason)
+                if instance_exist(instance_id, api_key, destroy_args):
+                    destroy_instance_silent(instance_id, destroy_args)
+                    progress_print(
+                        args,
+                        f"Instance {instance_id} has been destroyed due to error.",
+                    )
+                else:
+                    progress_print(
+                        args,
+                        f"Instance {instance_id} could not be destroyed or "
+                        "does not exist.",
+                    )
+                return False, reason
             
             # Print feedback about the current status
             progress_print(args, f"Instance {instance_id} status: {actual_status}... waiting for 'running' status.")

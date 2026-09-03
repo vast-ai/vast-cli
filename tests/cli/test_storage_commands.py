@@ -82,3 +82,67 @@ class TestCopy:
         call_args = patch_get_client.put.call_args
         assert "/commands/copy_direct/" in call_args[0][0]
         assert call_args[1]["json_data"]["src_id"] == "hf.101"
+
+
+class TestShowInstanceBackupFiles:
+    """The table's URLs must be fetchable on their own; --raw must stay a passthrough."""
+
+    PAYLOAD = {
+        "success": True,
+        "authorization_token": "4_002+abc/def=",
+        "expires_in_sec": 3600,
+        "truncated": False,
+        "files": [
+            {"name": "instance_backups/7/42/upper/model.safetensors",
+             "size": 2500000,
+             "url": "https://f002.backblazeb2.com/file/vast-instance-backups/"
+                    "instance_backups/7/42/upper/model.safetensors"},
+        ],
+    }
+
+    def _rows(self, capsys):
+        """The URL column of the printed table, minus row labels and color codes."""
+        import re
+        out = re.sub(r"\x1b\[[0-9;]*m", "", capsys.readouterr().out)
+        return re.findall(r"https://\S+", out)
+
+    def test_url_carries_token(self, parse_argv, patch_get_client, mock_response, capsys):
+        import copy
+        patch_get_client.get.return_value = mock_response(200, copy.deepcopy(self.PAYLOAD))
+        args = parse_argv(["show", "instance-backup-files", "42"])
+        args.func(args)
+        assert "/instance_backups/42/download/" in patch_get_client.get.call_args[0][0]
+        # Token is percent-encoded: a raw '+' would decode to a space, and '/' and '='
+        # would end up as path/query syntax rather than token bytes.
+        assert self._rows(capsys) == [
+            "https://f002.backblazeb2.com/file/vast-instance-backups/"
+            "instance_backups/7/42/upper/model.safetensors"
+            "?Authorization=4_002%2Babc%2Fdef%3D"
+        ]
+
+    def test_raw_is_unmodified_passthrough(self, parse_argv, patch_get_client, mock_response):
+        import copy
+        patch_get_client.get.return_value = mock_response(200, copy.deepcopy(self.PAYLOAD))
+        args = parse_argv(["show", "instance-backup-files", "42", "--raw"])
+        assert args.func(args) == self.PAYLOAD
+
+    def test_existing_query_string_is_appended_to(self, parse_argv, patch_get_client,
+                                                  mock_response, capsys):
+        import copy
+        payload = copy.deepcopy(self.PAYLOAD)
+        payload["files"][0]["url"] += "?b2ContentDisposition=attachment"
+        patch_get_client.get.return_value = mock_response(200, payload)
+        args = parse_argv(["show", "instance-backup-files", "42"])
+        args.func(args)
+        assert self._rows(capsys)[0].endswith(
+            "?b2ContentDisposition=attachment&Authorization=4_002%2Babc%2Fdef%3D")
+
+    def test_missing_token_leaves_url_alone(self, parse_argv, patch_get_client,
+                                            mock_response, capsys):
+        import copy
+        payload = copy.deepcopy(self.PAYLOAD)
+        payload["authorization_token"] = None
+        patch_get_client.get.return_value = mock_response(200, payload)
+        args = parse_argv(["show", "instance-backup-files", "42"])
+        args.func(args)
+        assert self._rows(capsys)[0] == payload["files"][0]["url"]

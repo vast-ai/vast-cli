@@ -275,8 +275,22 @@ def get_ssh_key(argstr):
     ssh_key = argstr
     # Including a path to a public key is pretty reasonable.
     if os.path.exists(argstr):
-        with open(argstr) as f:
-            ssh_key = f.read()
+        try:
+            with open(argstr) as f:
+                ssh_key = f.read()
+        except OSError as e:
+            # A directory or an unreadable file would otherwise surface as a
+            # raw traceback: main() only handles HTTPError and ValueError.
+            raise ValueError(deindent(f"""
+                Couldn't read an SSH public key from:
+
+                {argstr}
+
+                {e}
+
+                Point this at your public key file, usually
+                ~/.ssh/id_ed25519.pub, or pass the key itself.
+            """, add_separator=False))
 
     if "PRIVATE KEY" in ssh_key:
         raise ValueError(deindent("""

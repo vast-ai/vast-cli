@@ -4,6 +4,7 @@ import json
 import os
 import time
 import subprocess
+from urllib.parse import quote, urlparse
 
 from vastai.cli.parser import argument
 from vastai.cli.display import (
@@ -656,6 +657,20 @@ def show__volumes(args):
 # show instance-backups / show instance-backup-files
 # ---------------------------------------------------------------------------
 
+def _authorized_url(url, token):
+    """Fold the download token into `url` as a query parameter.
+
+    B2 takes the token either in the Authorization header or as an `Authorization`
+    query parameter, and the second form is what makes a URL usable on its own -- paste
+    it into a browser, or curl it without -H. Returns the url untouched when either
+    piece is missing, so a malformed payload still lists its files.
+    """
+    if not url or not token:
+        return url
+    sep = "&" if urlparse(url).query else "?"
+    return "{}{}Authorization={}".format(url, sep, quote(token, safe=""))
+
+
 @parser.command(
     argument("--contract-id", help="only show backups of this instance or volume contract id", type=int),
     usage="vastai show instance-backups [OPTIONS]",
@@ -704,13 +719,14 @@ def show__instance_backups(args):
     usage="vastai show instance-backup-files CONTRACT_ID [OPTIONS]",
     help="List the stored objects of one backup, with direct download URLs.",
     epilog=deindent("""
-        Lists the objects stored for one backup and prints a short-lived token for fetching
-        them. The URLs do not work on their own -- every request must carry the token:
+        Lists the objects stored for one backup. Each URL already carries a download token
+        scoped to this backup, so it works on its own -- open it in a browser, or:
 
-            curl -H "Authorization: <token>" -o model.safetensors "<url>"
+            curl -o model.safetensors "<url>"
 
-        The token covers only this backup and expires (the lifetime is printed), so re-run
-        this command rather than saving it.
+        The token is also printed on its own for the header form, `curl -H "Authorization:
+        <token>"`, which keeps it out of shell history and proxy logs. Either way it expires
+        (the lifetime is printed), so re-run this command rather than saving the URLs.
 
         If the listing reports itself truncated, the backup holds more objects than are
         shown; restore with `vastai copy vast.CONTRACT_ID:/ INSTANCE_ID:/path` instead of
@@ -726,9 +742,12 @@ def show__instance_backup_files(args):
     if args.raw:
         return blob
     files = blob.get("files") or []
+    # --raw stays a passthrough of the API payload; only the table gets ready-to-click URLs.
+    token = blob.get("authorization_token")
     for row in files:
         row["size_mb"] = (row.get("size") or 0) / 1e6
-    print("authorization token: {}".format(blob.get("authorization_token")))
+        row["url"] = _authorized_url(row.get("url"), token)
+    print("authorization token: {} (already embedded in the URLs below)".format(token))
     print("expires in: {} seconds".format(blob.get("expires_in_sec")))
     if blob.get("truncated"):
         print("WARNING: listing truncated -- this backup holds more objects than shown below.")

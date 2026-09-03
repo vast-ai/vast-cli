@@ -247,7 +247,9 @@ def instance_backup_files(client, contract_id):
     GET /instance_backups/<contract_id>/download/
 
     The returned URLs are not usable alone: each request must carry the
-    authorization_token. `truncated` is True when the backup holds more objects
+    authorization_token, either as an `Authorization` header or appended as an
+    `?Authorization=<token>` query parameter (what the CLI does, so the printed
+    URLs are clickable). `truncated` is True when the backup holds more objects
     than were listed.
 
     Args:

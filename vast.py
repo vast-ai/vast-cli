@@ -4261,6 +4261,9 @@ def search__invoices(args):
             # search for reliable 4 gpu offers in Taiwan or Sweden
             vastai search offers 'reliability>0.99 num_gpus=4 geolocation in [TW,SE]'
 
+            # exclude offers from specific hosts (e.g. hosts that repeatedly failed for you)
+            vastai search offers 'gpu_name=RTX_4090 host_id notin [12345,67890]'
+
             # search for reliable RTX 3090 or 4090 gpus NOT in China or Vietnam
             vastai search offers 'reliability>0.99 gpu_name in ["RTX 4090", "RTX 3090"] geolocation notin [CN,VN]'
 
@@ -4307,6 +4310,7 @@ def search__invoices(args):
             gpu_frac:               float     Ratio of GPUs in the offer to gpus in the system
             gpu_display_active:     bool      True if the GPU has a display attached
             has_avx:                bool      CPU supports AVX instruction set.
+            host_id:                int       host id of the machine offering the instance. Works with operators =, !=, in, notin (e.g. host_id notin [12345,67890] to exclude specific hosts)
             id:                     int       instance unique ID
             inet_down:              float     internet download speed in Mb/s
             inet_down_cost:         float     internet download bandwidth cost in $/GB

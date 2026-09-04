@@ -13,8 +13,17 @@ from typing import Awaitable, NoReturn, List
 
 METRICS_UPDATE_INTERVAL = 1
 DELETE_REQUESTS_INTERVAL = 1
+# Warn when benchmarked throughput exceeds observed throughput by this factor.
+BENCHMARK_DIVERGENCE_FACTOR = 3.0
 
 log = logging.getLogger(__file__)
+
+
+def _int_or_none(value) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 @cache
@@ -39,7 +48,25 @@ class Metrics:
     url: str = field(default_factory=get_url)
     system_metrics: SystemMetrics = field(default_factory=SystemMetrics.empty)
     model_metrics: ModelMetrics = field(default_factory=ModelMetrics.empty)
+    deployment_version_id: int | None = field(
+        default_factory=lambda: _int_or_none(os.environ.get("DEPLOYMENT_VERSION_ID"))
+    )
+    # Worst event-loop stall since the last report, reset when metrics are sent.
+    loop_lag_max: float = 0.0
+    # Sticky problem flags reported to the autoscaler and on to clients.
+    warnings: set = field(default_factory=set)
     _session: ClientSession | None = field(default=None, init=False, repr=False)
+
+    def record_loop_lag(self, lag: float) -> None:
+        """Note an event-loop stall detected by the backend's watchdog."""
+        if lag > self.loop_lag_max:
+            self.loop_lag_max = lag
+        self.warnings.add("event_loop_blocked")
+        self.update_pending = True
+
+    def record_warning(self, code: str) -> None:
+        self.warnings.add(code)
+        self.update_pending = True
 
     async def http(self) -> ClientSession:
         if self._session is None:
@@ -102,6 +129,35 @@ class Metrics:
         request.status = "Success"
         request.success = True
         self.update_pending = True
+        self._check_benchmark_representative(request)
+
+    def _check_benchmark_representative(self, request: RequestMetrics) -> None:
+        """Warn when real traffic is far more expensive than the benchmark was.
+
+        ``max_throughput`` comes from benchmarking one sample input and is the
+        denominator in every queue-time estimate. Benchmark an unrepresentative
+        sample and the worker advertises throughput it does not have, queue time
+        looks short, and the endpoint never scales. That failure is silent, so
+        say something the first time real traffic contradicts the benchmark.
+        """
+        if "benchmark_unrepresentative" in self.warnings:
+            return
+        throughput = self.model_metrics.max_throughput
+        if throughput <= 0 or request.workload <= 0:
+            return
+        elapsed = request.work_completed_at - request.work_started_at
+        if elapsed <= 0:
+            return
+        observed = request.workload / elapsed
+        if observed * BENCHMARK_DIVERGENCE_FACTOR < throughput:
+            self.record_warning("benchmark_unrepresentative")
+            log.warning(
+                f"Benchmarked throughput is {throughput:.0f} workload/s but this "
+                f"request achieved {observed:.0f}. The benchmark sample looks "
+                f"cheaper than real traffic, so this worker is advertising more "
+                f"capacity than it has and the endpoint may not scale up when it "
+                f"should. Benchmark a representative input."
+            )
 
     def _request_errored(self, request: RequestMetrics, message: str) -> None:
         """
@@ -256,6 +312,9 @@ class Metrics:
                 cur_capacity=0,
                 max_capacity=0,
                 url=self.url,
+                deployment_version_id=self.deployment_version_id,
+                loop_lag_max=self.loop_lag_max,
+                warnings=sorted(self.warnings),
             )
 
         async def send_data(report_addr: str) -> bool:
@@ -306,4 +365,9 @@ class Metrics:
         if sent:
             self.update_pending = False
             self.model_metrics.reset()
+            # loop_lag_max is a per-interval peak, so clear it once reported.
+            # `warnings` is intentionally sticky: a worker that blocked its loop
+            # once should keep saying so, since the condition is a code defect
+            # rather than a transient load spike.
+            self.loop_lag_max = 0.0
             self.last_metric_update = time.time()

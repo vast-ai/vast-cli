@@ -5439,9 +5439,9 @@ def show__invoices_v1(args):
     if not args.start_date and not args.end_date:
         args.end_date = int(time.time())  # Set end date to current time if both are missing
     if not args.start_date:
-        args.start_date = args.end_date - 7 * 24*60*60  # Default to 7 days before given end date
+        args.start_date = to_timestamp_(args.end_date) - 7 * 24*60*60  # Default to 7 days before given end date
     elif not args.end_date:
-        args.end_date = args.start_date + 7 * 24*60*60  # Default to 7 days after given start date
+        args.end_date = to_timestamp_(args.start_date) + 7 * 24*60*60  # Default to 7 days after given start date
     
     try:
         # Parse dates - handle both YYYY-MM-DD format and timestamps

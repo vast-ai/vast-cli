@@ -397,9 +397,9 @@ def show__invoices_v1(args):
     if not args.start_date and not args.end_date:
         args.end_date = int(time.time())
     if not args.start_date:
-        args.start_date = args.end_date - 7 * 24 * 60 * 60
+        args.start_date = to_timestamp_(args.end_date) - 7 * 24 * 60 * 60
     elif not args.end_date:
-        args.end_date = args.start_date + 7 * 24 * 60 * 60
+        args.end_date = to_timestamp_(args.start_date) + 7 * 24 * 60 * 60
 
     try:
         start_timestamp = to_timestamp_(args.start_date)

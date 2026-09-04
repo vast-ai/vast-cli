@@ -1,9 +1,170 @@
 """Tests for vastai/cli/util.py — parse_env, parse_vast_url, validate_seconds, etc."""
 
 import argparse
+import errno
+import os
+import stat
+
 import pytest
 from datetime import datetime, timedelta
 from unittest.mock import Mock
+
+
+class TestWriteSecretFile:
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX file mode test")
+    def test_atomically_replaces_file_with_owner_only_permissions(self, tmp_path):
+        from vastai.cli.util import write_secret_file
+
+        secret_file = tmp_path / "secret"
+        secret_file.write_bytes(b"old-secret")
+        secret_file.chmod(0o644)
+        old_inode = secret_file.stat().st_ino
+
+        old_umask = os.umask(0o022)
+        try:
+            write_secret_file(secret_file, "new-secret")
+        finally:
+            os.umask(old_umask)
+
+        assert secret_file.read_bytes() == b"new-secret"
+        assert stat.S_IMODE(secret_file.stat().st_mode) == 0o600
+        assert secret_file.stat().st_ino != old_inode
+
+    def test_no_clobber_publish_preserves_existing_file(self, tmp_path):
+        from vastai.cli.util import write_secret_file
+
+        secret_file = tmp_path / "secret"
+        secret_file.write_bytes(b"existing-secret")
+
+        with pytest.raises(FileExistsError):
+            write_secret_file(secret_file, b"new-secret", overwrite=False)
+
+        assert secret_file.read_bytes() == b"existing-secret"
+        assert list(tmp_path.iterdir()) == [secret_file]
+
+    def test_no_clobber_falls_back_when_hard_links_are_unsupported(
+        self, tmp_path, monkeypatch
+    ):
+        from vastai.cli import util
+
+        secret_file = tmp_path / "secret"
+        monkeypatch.setattr(
+            util.os,
+            "link",
+            Mock(side_effect=OSError(errno.EPERM, "hard links unsupported")),
+        )
+
+        util.write_secret_file(secret_file, b"secret", overwrite=False)
+
+        assert secret_file.read_bytes() == b"secret"
+        assert list(tmp_path.iterdir()) == [secret_file]
+
+    def test_removes_temporary_file_after_replace_failure(self, tmp_path, monkeypatch):
+        from vastai.cli import util
+
+        secret_file = tmp_path / "secret"
+        monkeypatch.setattr(util.os, "replace", Mock(side_effect=OSError("replace failed")))
+
+        with pytest.raises(OSError, match="replace failed"):
+            util.write_secret_file(secret_file, "secret")
+
+        assert list(tmp_path.iterdir()) == []
+
+
+class TestLegacyApiKeyMigration:
+    def test_migrates_and_removes_legacy_file(self, tmp_path, monkeypatch):
+        from vastai.cli import util
+
+        legacy_file = tmp_path / ".vast_api_key"
+        key_file = tmp_path / "vast_api_key"
+        legacy_file.write_bytes(b"legacy-key")
+        monkeypatch.setattr(util, "APIKEY_FILE_HOME", str(legacy_file))
+        monkeypatch.setattr(util, "APIKEY_FILE", str(key_file))
+
+        util._migrate_legacy_api_key()
+
+        assert key_file.read_bytes() == b"legacy-key"
+        assert not legacy_file.exists()
+
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX file mode test")
+    def test_migrates_with_owner_only_permissions(self, tmp_path, monkeypatch):
+        from vastai.cli import util
+
+        legacy_file = tmp_path / ".vast_api_key"
+        key_file = tmp_path / "vast_api_key"
+        legacy_file.write_bytes(b"legacy-key")
+        legacy_file.chmod(0o644)
+        monkeypatch.setattr(util, "APIKEY_FILE_HOME", str(legacy_file))
+        monkeypatch.setattr(util, "APIKEY_FILE", str(key_file))
+
+        old_umask = os.umask(0o022)
+        try:
+            util._migrate_legacy_api_key()
+        finally:
+            os.umask(old_umask)
+
+        assert stat.S_IMODE(key_file.stat().st_mode) == 0o600
+
+    def test_race_does_not_overwrite_new_api_key(self, tmp_path, monkeypatch):
+        from vastai.cli import util
+
+        legacy_file = tmp_path / ".vast_api_key"
+        key_file = tmp_path / "vast_api_key"
+        legacy_file.write_bytes(b"legacy-key")
+        monkeypatch.setattr(util, "APIKEY_FILE_HOME", str(legacy_file))
+        monkeypatch.setattr(util, "APIKEY_FILE", str(key_file))
+        original_write_secret_file = util.write_secret_file
+
+        def create_new_key_before_publish(path, secret, *, overwrite=True):
+            key_file.write_bytes(b"new-key")
+            return original_write_secret_file(path, secret, overwrite=overwrite)
+
+        monkeypatch.setattr(util, "write_secret_file", create_new_key_before_publish)
+
+        util._migrate_legacy_api_key()
+
+        assert key_file.read_bytes() == b"new-key"
+        assert legacy_file.read_bytes() == b"legacy-key"
+
+
+class TestExistingCredentialPermissions:
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX file mode test")
+    def test_secures_current_and_legacy_credentials(self, tmp_path, monkeypatch):
+        from vastai.cli import util
+
+        credential_files = [
+            tmp_path / "vast_api_key",
+            tmp_path / "vast_tfa_key",
+            tmp_path / ".vast_api_key",
+        ]
+        for credential_file in credential_files:
+            credential_file.write_bytes(b"secret")
+            credential_file.chmod(0o644)
+
+        monkeypatch.setattr(util, "APIKEY_FILE", str(credential_files[0]))
+        monkeypatch.setattr(util, "TFAKEY_FILE", str(credential_files[1]))
+        monkeypatch.setattr(util, "APIKEY_FILE_HOME", str(credential_files[2]))
+
+        util._secure_existing_credentials()
+
+        assert all(
+            stat.S_IMODE(credential_file.stat().st_mode) == 0o600
+            for credential_file in credential_files
+        )
+
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX file mode test")
+    def test_does_not_follow_symlinks(self, tmp_path):
+        from vastai.cli.util import secure_existing_secret_file
+
+        target = tmp_path / "target"
+        link = tmp_path / "secret"
+        target.write_bytes(b"not-a-credential")
+        target.chmod(0o644)
+        link.symlink_to(target)
+
+        secure_existing_secret_file(link)
+
+        assert stat.S_IMODE(target.stat().st_mode) == 0o644
 
 
 class TestParseEnv:

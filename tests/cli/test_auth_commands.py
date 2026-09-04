@@ -1,6 +1,8 @@
 """Integration tests for auth CLI commands with mocked HTTP."""
 
 import argparse
+import os
+import stat
 from unittest.mock import patch
 
 import pytest
@@ -98,6 +100,24 @@ class TestSetApiKey:
         set__api_key(argparse.Namespace(new_api_key="test-key-abc-123"))
         assert key_file.read_bytes() == b"test-key-abc-123"
 
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX file mode test")
+    def test_replaces_api_key_with_owner_only_permissions(self, tmp_path, monkeypatch):
+        key_file = tmp_path / "vast_api_key"
+        key_file.write_text("old-key")
+        key_file.chmod(0o644)
+        monkeypatch.setattr("vastai.cli.util.APIKEY_FILE", str(key_file))
+        monkeypatch.setattr("vastai.cli.util.APIKEY_FILE_HOME", str(tmp_path / ".vast_api_key"))
+
+        old_umask = os.umask(0o022)
+        try:
+            from vastai.cli.commands.auth import set__api_key
+            set__api_key(argparse.Namespace(new_api_key="new-key"))
+        finally:
+            os.umask(old_umask)
+
+        assert key_file.read_bytes() == b"new-key"
+        assert stat.S_IMODE(key_file.stat().st_mode) == 0o600
+
     def test_sdk_reads_back_key_written_by_cli(self, tmp_path, monkeypatch):
         # End-to-end: `set api-key` writes the file; VastAI() picks it up.
         monkeypatch.setenv("HOME", str(tmp_path))
@@ -117,6 +137,95 @@ class TestSetApiKey:
         with patch("vastai.sdk.VastClient") as MockClient:
             VastAI()
             assert MockClient.call_args[0][0] == "round-trip-key"
+
+
+class TestBackupCodeFiles:
+    def test_saves_backup_codes(self, tmp_path):
+        from vastai.cli.commands.auth import _save_to_file
+
+        backup_file = tmp_path / "backups" / "codes.txt"
+
+        assert _save_to_file("backup-code", str(backup_file))
+        assert backup_file.read_text() == "backup-code"
+
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX file mode test")
+    def test_atomically_replaces_with_owner_only_permissions(self, tmp_path):
+        from vastai.cli.commands.auth import _save_to_file
+
+        backup_file = tmp_path / "codes.txt"
+        backup_file.write_text("old-codes")
+        backup_file.chmod(0o644)
+        old_inode = backup_file.stat().st_ino
+
+        old_umask = os.umask(0o022)
+        try:
+            assert _save_to_file("new-codes", str(backup_file))
+        finally:
+            os.umask(old_umask)
+
+        assert backup_file.read_text() == "new-codes"
+        assert stat.S_IMODE(backup_file.stat().st_mode) == 0o600
+        assert backup_file.stat().st_ino != old_inode
+
+
+class TestTfaLogin:
+    def test_saves_session_key(self, tmp_path, monkeypatch):
+        from vastai.cli import util
+        from vastai.cli.commands import auth
+
+        session_file = tmp_path / "vast_tfa_key"
+        monkeypatch.setattr(util, "TFAKEY_FILE", str(session_file))
+        monkeypatch.setattr(auth, "get_client", lambda args: object())
+        monkeypatch.setattr(
+            auth.auth_api,
+            "tfa_login",
+            lambda client, **kwargs: {"session_key": "new-session"},
+        )
+        args = argparse.Namespace(
+            api_key="api-key",
+            backup_code=None,
+            code="123456",
+            method_id=None,
+            method_type="totp",
+            secret=None,
+        )
+
+        auth.tfa__login(args)
+
+        assert session_file.read_text() == "new-session"
+
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX file mode test")
+    def test_replaces_session_key_with_owner_only_permissions(self, tmp_path, monkeypatch):
+        from vastai.cli import util
+        from vastai.cli.commands import auth
+
+        session_file = tmp_path / "vast_tfa_key"
+        session_file.write_text("old-session")
+        session_file.chmod(0o644)
+        monkeypatch.setattr(util, "TFAKEY_FILE", str(session_file))
+        monkeypatch.setattr(auth, "get_client", lambda args: object())
+        monkeypatch.setattr(
+            auth.auth_api,
+            "tfa_login",
+            lambda client, **kwargs: {"session_key": "new-session"},
+        )
+        args = argparse.Namespace(
+            api_key="api-key",
+            backup_code=None,
+            code="123456",
+            method_id=None,
+            method_type="totp",
+            secret=None,
+        )
+
+        old_umask = os.umask(0o022)
+        try:
+            auth.tfa__login(args)
+        finally:
+            os.umask(old_umask)
+
+        assert session_file.read_text() == "new-session"
+        assert stat.S_IMODE(session_file.stat().st_mode) == 0o600
 
 
 class TestTfaStatus:

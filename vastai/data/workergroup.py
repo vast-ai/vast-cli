@@ -7,6 +7,10 @@ from typing import Optional
 class WorkergroupConfig:
     """Configuration for creating a workergroup (autoscale job).
 
+    Request-only. Workergroup responses come back as raw dicts from
+    show_workergroups, so fields the API returns but does not accept as input
+    do not belong here.
+
     Either endpoint_id or endpoint_name is required (endpoint_id is set
     automatically when using ManagedEndpoint.add_workergroup()).
     Either template_hash or template_id is required (template resolves image, search_query, etc.).
@@ -18,13 +22,8 @@ class WorkergroupConfig:
     template_hash: Optional[str] = None
     template_id: Optional[int] = None
     launch_args: Optional[str] = None
-    min_load: Optional[float] = None
     min_cold_load: Optional[float] = None
-    target_util: Optional[float] = None
-    cold_mult: Optional[float] = None
-    cold_workers: Optional[int] = None
     max_workers: Optional[int] = None
-    test_workers: Optional[int] = None
     gpu_ram: Optional[float] = None
     autoscaler_instance: Optional[str] = None
     docker_login_user: Optional[str] = None

@@ -251,6 +251,12 @@ def test_open_signature_suppresses_stale_params_only():
     Methods ending in **kwargs do not enumerate what they accept; the generator
     fills those parameters in from the matching CLI command. Calling them stale
     flagged correct documentation -- this was the bulk of the parameter noise.
+
+    The suppression is only sound because tests/scripts/test_sdk_documented_params.py
+    binds every published parameter against the real method: what the verifier
+    declines to judge here, the probe checks there. It used to cover
+    create_instance and friends too, which is how 50 parameters that raise
+    TypeError stayed published; those have closed signatures now.
     """
     actual = {"update_endpoint": ["id"]}
     documented = {"update-endpoint": ["id", "cold_mult", "min_load"]}
@@ -300,9 +306,12 @@ def test_variadic_markers_are_not_treated_as_parameters():
     methods, open_signatures = verifier.get_sdk_methods()
 
     assert methods, "expected to introspect at least one SDK method"
-    for name, params in methods.items():
-        assert "kwargs" not in params, f"{name} still reports kwargs as a parameter"
-        assert "args" not in params, f"{name} still reports args as a parameter"
+    for name in open_signatures:
+        assert "kwargs" not in methods[name], f"{name} still reports kwargs as a parameter"
+
+    # Filtering is by parameter kind, not by name: create_instance takes a real
+    # keyword parameter called args (the container arguments).
+    assert "args" in methods["create_instance"]
 
     assert open_signatures, "expected at least one **kwargs method"
     assert open_signatures <= set(methods)

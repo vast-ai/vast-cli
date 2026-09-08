@@ -63,6 +63,18 @@ EXCLUDED_NAMES = {
     "search-network-volumes",
     "show-network-disks",
     "unlist-network-volume",
+    # clusters / overlays
+    "create-cluster",
+    "create-overlay",
+    "delete-cluster",
+    "delete-overlay",
+    "join-cluster",
+    "join-overlay",
+    "remove-machine-from-cluster",
+    "show-clusters",
+    "show-overlays",
+    # snapshots
+    "take-snapshot",
 }
 
 # Hardcoded markdown block to render at the bottom of every CLI page so the

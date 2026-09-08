@@ -351,12 +351,25 @@ def lookup_cached_benchmark(vast, *, gpu_name, num_gpus, template_hash,
         return None
     values = [r["value"] for r in matched]
     newest = max((r.get("last_update") or 0) for r in matched)
+    # skip null rows (from before we tracked dph_base in benchmarks)
+    dphs = [
+        r["dph_base"]
+        for r in matched
+        if isinstance(r.get("dph_base"), (int, float)) and r["dph_base"] > 0
+    ]
+    # use p5/p95 for the range
+    if len(values) >= 2:
+        qs = statistics.quantiles(values, n=20, method="inclusive")
+        low, high = qs[0], qs[-1]
+    else:
+        low = high = values[0]
     return {
         "median": statistics.median(values),
-        "low": min(values),
-        "high": max(values),
+        "low": low,
+        "high": high,
         "n": len(matched),
         "age_days": max(0.0, (time.time() - newest) / 86400),
+        "median_dph_base": statistics.median(dphs) if dphs else None,
     }
 
 
@@ -477,7 +490,7 @@ def benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
                    class_states=None, stop_event=None):
     """Rent one instance for ``gpu_name``, poll until idle + measured_perf,
     tear down. Each call owns its own endpoint + workergroup so it can run
-    in parallel safely. Returns ``(gpu_name, num_gpus, status, perf, err, dph_total)``.
+    in parallel safely. Returns ``(gpu_name, num_gpus, status, perf, err, dph_base)``.
     """
     endpoint_id = None
     workergroup_id = None
@@ -560,7 +573,7 @@ def benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
                 if primary_id and primary_id not in dph_by_worker:
                     try:
                         inst = vast.show_instance(id=primary_id)
-                        dph_by_worker[primary_id] = inst.get("dph_total")
+                        dph_by_worker[primary_id] = inst.get("dph_base")
                     except Exception as e:
                         # Cache None so we don't re-attempt every poll, but log so a real bug isn't silently swallowed.
                         dph_by_worker[primary_id] = None
@@ -672,6 +685,10 @@ def benchmark_gpu(vast, *, gpu_name, num_gpus, timeout,
         you're asked whether to reuse that or run a fresh benchmark. Pass
         --no-cache to always re-measure, or -y to always reuse the cache.
 
+        Perf/$ uses the GPU $/hr, so cached and freshly measured rows are
+        comparable. Cached rows recorded before that price was tracked show
+        a perf with no price.
+
         Examples:
             # auto-sweep the default GPUs against TGI
             vastai run benchmarks --template_hash 79ebdd2ebfb9d42cedf7a221c42d37a5
@@ -770,14 +787,15 @@ def run__benchmarks(args):
                 max_age_days=DEFAULT_CACHE_MAX_AGE_DAYS,
             )
             if hit:
-                # Perf only: a cached row's $/hr would come from a different machine than the one benchmarked.
                 rentable = has_matching_offer(
                     vast, gpu_name=g, num_gpus=n, extra_filters=extra_filters)
                 age = (f"{hit['age_days']:.0f}d" if hit["age_days"] >= 1
                        else "<1d")
                 note = None if rentable else "no offers available to rent right now"
+                median_dph_base = hit.get("median_dph_base")
+                pps = f", {hit['median'] / median_dph_base:.1f} perf/$" if median_dph_base else ""
                 msg = (f"[green][{n}x {g}] cached:[/green] median perf "
-                       f"{hit['median']:.1f} "
+                       f"{hit['median']:.1f}{pps} "
                        f"(n={hit['n']}, range {hit['low']:.1f}-{hit['high']:.1f}, "
                        f"newest {age} ago)")
                 if note:
@@ -795,7 +813,7 @@ def run__benchmarks(args):
                 if run_fresh:
                     compatible_specs.append((g, n))  # offers already confirmed
                 else:
-                    cached_results.append((g, n, "cached", hit["median"], note, None))
+                    cached_results.append((g, n, "cached", hit["median"], None, hit.get("median_dph_base")))
                 continue
         if not has_matching_offer(
             vast, gpu_name=g, num_gpus=n,

@@ -68,7 +68,13 @@ def _emit_error(args, status_code, message):
             except OSError:
                 pass
 
-        if env and file_key:
+        key_missing = not env and not file_key
+
+        if key_missing:
+            print("  No API key is configured.", file=sys.stderr)
+            print("  Run: vastai set api-key <KEY>", file=sys.stderr)
+            print("  Create a key at https://console.vast.ai/manage-keys/", file=sys.stderr)
+        elif env and file_key:
             print(f"  Sent key from $VAST_API_KEY (ends in {format_key_suffix(env)}). Env var overrides the file.", file=sys.stderr)
             print(f"  Unset the VAST_API_KEY env var to use the saved key in {APIKEY_FILE} (ends in {format_key_suffix(file_key)}) instead.", file=sys.stderr)
         elif env:

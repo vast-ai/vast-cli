@@ -97,6 +97,23 @@ class TestRunCommandSessionExpiredRetry:
         out = capsys.readouterr().out
         assert "vastai tfa login" in out
 
+    def test_401_with_no_api_key_configured_prompts_to_set_one(self, tmp_path, monkeypatch, capsys):
+        tfa_file = tmp_path / "vast_tfa_key"  # does not exist
+        api_file = tmp_path / "vast_api_key"  # does not exist
+        monkeypatch.delenv("VAST_API_KEY", raising=False)
+
+        func = MagicMock(side_effect=[_http_error(401, "Please log in or sign up")])
+        args = _args(func=func)
+
+        with patch("vastai.cli.main.TFAKEY_FILE", str(tfa_file)), \
+             patch("vastai.cli.main.APIKEY_FILE", str(api_file)):
+            run_command(args)
+
+        err = capsys.readouterr().err
+        assert "No API key is configured." in err
+        assert "vastai set api-key <KEY>" in err
+        assert "https://console.vast.ai/manage-keys/" in err
+
     def test_plain_404_without_tfa_key_file_is_not_treated_as_session_expiry(self, tmp_path, capsys):
         tfa_file = tmp_path / "vast_tfa_key"  # does not exist
         api_file = tmp_path / "vast_api_key"

@@ -334,13 +334,14 @@ class TestCreateTemplate:
             assert kw["private"] is False
             assert kw["readme_visible"] is False
 
-    def test_strips_non_api_kwargs(self, sdk):
-        """search_params and no_default should be removed before calling API."""
+    def test_search_params_become_extra_filters(self, sdk):
+        """search_params is a query string the API layer takes as extra_filters."""
         with patch("vastai.api.offers.create_template", return_value={"success": True}) as mock:
-            sdk.create_template(image="test", search_params="x", no_default=True)
+            sdk.create_template(image="test", search_params="num_gpus=2", no_default=True)
             kw = mock.call_args.kwargs
             assert "search_params" not in kw
             assert "no_default" not in kw
+            assert kw["extra_filters"] == {"num_gpus": {"eq": "2"}}
 
 
 # ---------------------------------------------------------------------------

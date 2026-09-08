@@ -184,6 +184,7 @@ offers_mult = {
 
 benchmarks_fields = {
     "contract_id",#             int        ID of instance/contract reporting benchmark
+    "dph_base",#                float      gpu $/hr at benchmark time
     "gpu_name",#                string     GPU model benchmarked (e.g. RTX_4090)
     "id",#                      int        benchmark unique ID
     "image",#                   string     image used for benchmark
@@ -245,6 +246,35 @@ templates_fields = {
     "use_ssh",#                 string     supports ssh (direct or proxy)
 }
 
+
+
+def parse_order(order, field_alias: Dict = None) -> List:
+    """Turn a comma-separated order string into [[field, direction], ...].
+
+    A leading or trailing ``-`` means descending, ``+`` ascending. A list is
+    returned unchanged so callers can pass either spelling.
+    """
+    if order is None:
+        return None
+    if not isinstance(order, str):
+        return order
+
+    field_alias = offers_alias if field_alias is None else field_alias
+    parsed = []
+    for name in order.split(","):
+        name = name.strip()
+        if not name:
+            continue
+        direction = "asc"
+        field = name
+        if name.strip("-") != name:
+            direction = "desc"
+            field = name.strip("-")
+        if name.strip("+") != name:
+            direction = "asc"
+            field = name.strip("+")
+        parsed.append([field_alias.get(field, field), direction])
+    return parsed
 
 def parse_query(query_str: str, res: Dict = None, fields = {}, field_alias = {}, field_multiplier = {}) -> Dict:
     """

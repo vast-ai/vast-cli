@@ -67,7 +67,7 @@ def _mk_vast(*, create_endpoint=None, create_workergroup=None,
                                       else {"success": True})
     v.show_instance.return_value = (show_instance
                                     if show_instance is not None
-                                    else {"dph_total": 0.5})
+                                    else {"dph_base": 0.5})
     return v
 
 
@@ -212,7 +212,7 @@ class TestBenchmarkOne:
         vast = _mk_vast(create_workergroup={"success": True, "result": 1},
                         get_endpoint_workers=[poll],
                         delete_workergroup_raises=RuntimeError("delete failed"),
-                        show_instance={"dph_total": 1.0})
+                        show_instance={"dph_base": 1.0})
         with patch.object(bench.time, "sleep"), \
              patch.object(bench.time, "monotonic", side_effect=[0, 0, 1]):
             gpu, num_gpus, status, perf, err, price = bench.benchmark_gpu(
@@ -238,7 +238,7 @@ def _run_cli(parse_argv, argv, *, create_resp=None, workers_seq=None,
     """Parse argv and invoke the command with a mocked VastAI."""
     template = template if template is not None else _FAKE_TEMPLATE
     fake_offer_list = [{"id": i} for i in range(preflight_offers)]
-    instance_resp = {"dph_total": rental_dph} if rental_dph is not None else {}
+    instance_resp = {"dph_base": rental_dph} if rental_dph is not None else {}
 
     vast = MagicMock()
     vast.client = MagicMock(api_key="k")
@@ -375,11 +375,11 @@ class TestBenchmarkRunCLI:
 # ---------------------------------------------------------------------------
 
 
-def _bench_row(value, *, template_hash="x", template_id=None, age_days=1):
+def _bench_row(value, *, template_hash="x", template_id=None, age_days=1, dph_base=None):
     import time
     return {"type": "perf", "gpu_name": "RTX 3060", "num_gpus": 1,
             "template_hash": template_hash, "template_id": template_id,
-            "value": value, "last_update": time.time() - age_days * 86400}
+            "value": value, "dph_base": dph_base, "last_update": time.time() - age_days * 86400}
 
 
 class TestBenchmarkCache:
@@ -396,9 +396,8 @@ class TestBenchmarkCache:
         vast.create_endpoint.assert_not_called()
         vast.create_workergroup.assert_not_called()
 
-    def test_cached_rows_have_no_price(self, parse_argv):
-        # Cached rows report perf only; $/hr would come from a different
-        # machine than the one benchmarked, so it is omitted.
+    def test_cached_rows_without_dph_base_have_no_price(self, parse_argv):
+        # Rows reported before the reporter sent dph_base carry no $/hr, so perf/$ is omitted.
         rows, _ = _run_cli(
             parse_argv,
             ["run", "benchmarks", "--template_id", "99999",
@@ -407,6 +406,35 @@ class TestBenchmarkCache:
         )
         assert rows[0]["rental_dph"] is None
         assert rows[0]["perf_per_dollar"] is None
+
+    def test_cached_rows_with_dph_base_show_perf_per_dollar(self, parse_argv):
+        # Once rows carry dph_base (gpu $/hr at benchmark time), cached results
+        # report perf/$ = median(value) / median(dph_base).
+        rows, _ = _run_cli(
+            parse_argv,
+            ["run", "benchmarks", "--template_id", "99999",
+             "--gpus", "RTX_3060", "-y", "--raw"],
+            benchmark_rows=[_bench_row(20.0, dph_base=0.5), _bench_row(40.0, dph_base=1.0)],
+        )
+        # median perf 30.0, median dph_base 0.75 -> 40.0 perf/$
+        assert rows[0]["rental_dph"] == 0.75
+        assert rows[0]["perf_per_dollar"] == 40.0
+
+    def test_cached_range_trims_outlier_to_p5_p95(self, parse_argv):
+        # The displayed range is p5-p95, so one flukey benchmark doesn't blow it
+        # up; the median stays robust.
+        from unittest.mock import MagicMock
+        vast = MagicMock()
+        vast.search_benchmarks.return_value = [
+            _bench_row(v) for v in
+            [9.5, 9.8, 10.0, 10.1, 10.2, 10.5, 11.0, 12.0, 74.0]
+        ]
+        hit = bench.lookup_cached_benchmark(
+            vast, gpu_name="RTX 3060", num_gpus=1,
+            template_hash="x", template_id=None, max_age_days=30)
+        assert hit["median"] == 10.2
+        assert hit["high"] < 74.0  # outlier excluded from the displayed range
+        assert hit["low"] >= 9.5
 
     def test_cached_unrentable_is_flagged(self, parse_argv, capsys):
         rows, vast = _run_cli(

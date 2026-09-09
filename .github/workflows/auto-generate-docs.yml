@@ -264,7 +264,14 @@ jobs:
 
             if [ "$status" = "completed" ]; then
               if [ "$conclusion" = "success" ]; then
-                PREVIEW_URL=$(echo "$state" | grep -oE 'https://[^[:space:]!]+\.mintlify\.app' | head -1)
+                # Mintlify serves previews from *.mintlify.site; it used to
+                # use *.mintlify.app and older summaries still carry that host,
+                # so accept both. Matching only .app made this step fail on a
+                # SUCCESSFUL deploy whose URL was right there in the summary
+                # (observed on PR #510, 2026-09-09) — a third instance of the
+                # "red CI on a working deploy" family that got the pipeline
+                # reverted in #453.
+                PREVIEW_URL=$(echo "$state" | grep -oE 'https://[^[:space:]!]+\.mintlify\.(site|app)' | head -1)
                 if [ -z "$PREVIEW_URL" ]; then
                   echo "::error::Mintlify reported success but no preview URL in summary: ${state}"
                   exit 1

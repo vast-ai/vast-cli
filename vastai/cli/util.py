@@ -222,16 +222,13 @@ def set_role_file(role):
 
 
 def detect_role(client):
-    """Best-effort: resolve and permanently cache the role via client if it isn't known yet; never raises (a failed check just leaves it undetected for retry)."""
+    """Best-effort: silently resolve and permanently cache the role via client if it isn't known yet; never raises (a failed check just leaves it undetected for retry)."""
     if get_role() is not None:
         return
     try:
-        print("Detecting role..", end="", file=sys.stderr, flush=True)
         from vastai.api import billing as billing_api
         is_host = bool(billing_api.show_user(client).get("host_agreement_accepted"))
-        role = ROLE_HOST if is_host else ROLE_CLIENT
-        set_role_file(role)
-        print(f" {role}", file=sys.stderr)
+        set_role_file(ROLE_HOST if is_host else ROLE_CLIENT)
     except Exception:
         return
 

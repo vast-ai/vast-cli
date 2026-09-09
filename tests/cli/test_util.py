@@ -378,7 +378,7 @@ class TestDetectRole:
         client = self._client(tmp_path, monkeypatch, host_agreement_accepted=True)
         detect_role(client)
         assert get_role() == "host"
-        assert capsys.readouterr().err == "Detecting role.. host\n"
+        assert capsys.readouterr() == ("", "")  # detection is silent
 
     def test_client_account_caches_client(self, tmp_path, monkeypatch, capsys):
         # An unaccepted agreement is a real answer, not "still unknown" — it gets cached just like a host does.
@@ -386,14 +386,14 @@ class TestDetectRole:
         client = self._client(tmp_path, monkeypatch, host_agreement_accepted=False)
         detect_role(client)
         assert get_role() == "client"
-        assert capsys.readouterr().err == "Detecting role.. client\n"
+        assert capsys.readouterr() == ("", "")  # detection is silent
 
     def test_network_error_leaves_role_undetected(self, tmp_path, monkeypatch, capsys):
         from vastai.cli.util import detect_role, get_role
         client = self._client(tmp_path, monkeypatch, show_user_raises=ConnectionError("offline"))
         detect_role(client)
         assert get_role() is None
-        assert capsys.readouterr().err == "Detecting role.."
+        assert capsys.readouterr() == ("", "")  # detection is silent
 
     def test_role_file_write_failure_does_not_raise(self, tmp_path, monkeypatch, capsys):
         # set_role_file() must be inside the try/except: a disk that can't be written
@@ -407,7 +407,7 @@ class TestDetectRole:
         )
         detect_role(client)  # must not raise
         assert get_role() is None
-        assert capsys.readouterr().err == "Detecting role.."
+        assert capsys.readouterr() == ("", "")  # detection is silent
 
     def test_already_resolved_role_is_not_rechecked(self, tmp_path, monkeypatch):
         from vastai.cli.util import detect_role, set_role_file, get_role

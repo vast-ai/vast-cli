@@ -342,6 +342,7 @@ vastai unlist machine <id>                               # Remove from marketpla
 | `Permission denied` | SSH key not attached | `vastai create ssh-key` before `create instance` |
 | `Connection refused` | Instance not yet running | Poll `show instance <id>` until `actual_status == "running"` |
 | Hangs on `destroy instance` | Confirmation prompt waiting for input | Add `-y` flag: `vastai destroy instance <id> -y` |
+| Hangs on `repl` | `vastai repl` is an interactive shell for humans | Run commands directly instead; to script it, pipe lines in: `echo 'show instances' \| vastai repl` |
 
 ## URLs
 

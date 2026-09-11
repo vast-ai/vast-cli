@@ -151,6 +151,7 @@ COMMAND_GROUPS = {
     'vastai.cli.commands.metrics':      'Metrics',
     'vastai.cli.commands.storage':      'Storage volumes',
     'vastai.cli.commands.misc':         'Other',
+    'vastai.cli.commands.repl':         'Other',
     'vastai.cli.commands.update':       'Other',
 }
 

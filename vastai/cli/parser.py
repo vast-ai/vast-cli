@@ -11,6 +11,8 @@ import sys
 import argparse
 from pathlib import Path
 
+from vastai.cli.util import get_role, is_client_view
+
 
 # ---------------------------------------------------------------------------
 # Tab-completion helpers
@@ -46,18 +48,15 @@ def complete_sshkeys(prefix=None, action=None, parser=None, parsed_args=None):
 # into staged completion. The argcomplete adapter in cli/main.py calls them.
 # ---------------------------------------------------------------------------
 
-def build_command_maps(parser):
-    """Derive (verbs, verb_objs, singles) from a parser's subparser names.
-
-    Commands flagged hidden (see ``is_hidden_command``) are left out of
-    completion — unreleased/feature-flagged functionality, still fully
-    runnable if typed directly.
-    """
+def build_command_maps(parser, role=None):
+    """Derive (verbs, verb_objs, singles) from a parser's subparser names, excluding hidden and (unless role='host') host-only commands."""
     names = []
     for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
             for name, sp in action.choices.items():
                 if getattr(sp, 'hidden', False):
+                    continue
+                if is_client_view(role) and getattr(sp, 'host_only', False):
                     continue
                 names.append(name)
             break
@@ -164,6 +163,35 @@ COMMAND_OVERRIDES = {
     'reports':       'Host machines',
 }
 
+# Host-only command classification (CLN-3582): display-only, hides host-only commands from --help/completion/hints for the client role; unclassified defaults to visible.
+
+# Modules where every command is host-only.
+HOST_ONLY_MODULES = {
+    'vastai.cli.commands.machines',
+    'vastai.cli.commands.metrics',
+}
+
+# Individual host-only commands in modules that are mostly client-facing (same shape as COMMAND_OVERRIDES above).
+HOST_ONLY_COMMANDS = {
+    'reports',                # misc.py: machine reports, not instance logs
+    'show earnings',          # billing.py: machine earning history
+    'list network-volume',    # storage.py: list disk space for rent
+    'list volume',
+    'list volumes',
+    'unlist network-volume',
+    'unlist volume',
+}
+
+
+def is_host_only_command(name, module, explicit=None):
+    """Whether a command is hidden from the client CLI view: explicit host_only= kwarg > per-command override > per-module default > False (visible)."""
+    if explicit is not None:
+        return bool(explicit)
+    if name in HOST_ONLY_COMMANDS:
+        return True
+    return module in HOST_ONLY_MODULES
+
+
 GROUP_ORDER = [
     'Search', 'Instances', 'Host machines', 'Teams', 'Auth & keys',
     'Billing & account', 'Serverless', 'Metrics', 'Storage volumes', 'Other',
@@ -235,12 +263,16 @@ class GroupedArgumentParser(argparse.ArgumentParser):
         return None
 
     def _add_grouped_commands(self, formatter, sub_action):
+        """Render grouped commands."""
+        role = get_role()
         grouped = {}
         for pseudo in sub_action._choices_actions:
             sp = sub_action.choices.get(pseudo.dest)
             if sp is None:
                 continue
             if getattr(sp, 'hidden', False):
+                continue
+            if is_client_view(role) and getattr(sp, 'host_only', False):
                 continue
             label = COMMAND_OVERRIDES.get(pseudo.dest)
             if label is None:
@@ -323,7 +355,7 @@ class apwrap(object):
             name = verb
         return name
 
-    def command(self, *arguments, aliases=(), help=None, hidden=None, **kwargs):
+    def command(self, *arguments, aliases=(), help=None, hidden=None, host_only=None, **kwargs):
         help_ = help
         if not self.added_help_cmd:
             self.added_help_cmd = True
@@ -345,6 +377,8 @@ class apwrap(object):
 
             sp = self.subparsers().add_parser(name, aliases=aliases_transformed, help=help_, **kwargs)
             sp.hidden = is_hidden_command(name, explicit=hidden)
+            sp.host_only = is_host_only_command(name, func.__module__, explicit=host_only)
+            sp.command_name = name
 
             # TODO: Sometimes the parser.command has a help parameter. Ideally
             # I'd extract this during the sdk phase but for the life of me

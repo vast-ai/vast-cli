@@ -9,7 +9,8 @@ def get_parser():
 def get_client(args):
     """Create a VastClient from parsed CLI args."""
     from vastai.api.client import VastClient
-    return VastClient(
+    from vastai.cli.util import detect_role
+    client = VastClient(
         api_key=args.api_key,
         server_url=args.url,
         retry=args.retry,
@@ -17,3 +18,5 @@ def get_client(args):
         curl=getattr(args, 'curl', False),
         client_type="cli",
     )
+    detect_role(client)
+    return client

@@ -16,7 +16,7 @@ def _http_error(status_code, msg):
     return HTTPError(response=resp)
 
 
-def _args(*, raw=False, func):
+def _args(*, raw=False, func=None):
     return argparse.Namespace(raw=raw, func=func)
 
 

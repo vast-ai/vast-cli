@@ -180,6 +180,7 @@ GROUP_ORDER = [
 # ---------------------------------------------------------------------------
 
 HIDDEN_COMMANDS = {
+    'repl',                    # interactive shell: internal testing before announcing
     'search network-volumes',  # network volumes are not yet released
     'create network-volume',
     'list network-volume',

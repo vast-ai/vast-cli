@@ -7,7 +7,7 @@ import pytest
 from requests.exceptions import HTTPError
 
 from vastai.cli import parser as parser_mod
-from vastai.cli.parser import apwrap, argument, set_completers
+from vastai.cli.parser import apwrap, argument, is_hidden_command, set_completers
 from vastai.cli.repl.bridge import apply_session_globals, run_line
 from vastai.cli.repl.catalog import CommandCatalog
 from vastai.cli.repl.completion import LiveValues, ReplCompleter
@@ -101,6 +101,14 @@ def instance_ids():
                    instance_machine_fn=lambda **kw: ["900"])
     yield
     parser_mod._complete_instance, parser_mod._complete_instance_machine = saved
+
+
+class TestDiscoverability:
+    def test_repl_is_hidden_until_it_is_announced(self):
+        """Hidden from --help and tab completion while it is tested internally.
+        That is a discoverability gate, not an access gate: `vastai repl` still
+        runs when typed. Drop the HIDDEN_COMMANDS entry to announce it."""
+        assert is_hidden_command("repl") is True
 
 
 class TestCommandCatalog:

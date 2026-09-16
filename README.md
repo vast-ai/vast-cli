@@ -103,25 +103,6 @@ print(text)
 
 Find more examples in the `examples/` directory.
 
-## Interactive Shell
-
-`vastai repl` opens a shell where every command runs without paying the CLI's
-startup cost each time, and Tab completes commands, flags and your live
-instance ids:
-
-```
-$ vastai repl
-vast> show instances
-vast> destroy instance <tab>       # completes from your running instances
-vast> search offers 'gpu_name=RTX_4090 num_gpus=1' -o dph
-vast> :set raw on                  # global flags, for the rest of the session
-vast> exit
-```
-
-Commands behave exactly as they do from the shell — same auth, same flags, same
-output. `:help` lists the REPL's own meta-commands, `help` lists every vastai
-command. Piped input works too: `echo 'show instances' | vastai repl`.
-
 ## Tab Completion
 
 Tab completion is supported in Bash and Zsh via [argcomplete](https://github.com/kislyuk/argcomplete) (installed automatically). To enable it:

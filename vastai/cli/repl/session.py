@@ -76,14 +76,16 @@ class Repl:
         if s.startswith(":"):
             return self._meta(s)
 
-        tokens = s.split()
-        if tokens[0] == "repl":
+        # Leading global flags (`--raw show user`) are the parser's business,
+        # not part of the command name.
+        tokens = self.catalog.strip_options(s.split())
+        if tokens and tokens[0] == "repl":
             self._print("Already in the REPL. Use exit or Ctrl-D to leave.")
             return True
         # Resolve first so a typo gets a short 'did you mean' instead of
-        # argparse dumping all ~150 command names. Lines that lead with a
-        # global flag (`--raw show user`) go straight to the parser.
-        if not tokens[0].startswith("-") and self.catalog.resolve(tokens) is None:
+        # argparse dumping all ~150 command names. A line that is only flags
+        # (`--version`) names no command and goes straight to the parser.
+        if tokens and self.catalog.resolve(tokens) is None:
             self._unknown(tokens)
             return True
         run_line(self.parser, s, self.args)

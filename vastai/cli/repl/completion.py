@@ -13,6 +13,7 @@ It is also the fast path: `vastai` under argcomplete forks a fresh interpreter
 per Tab press, while here the parser is already in memory and ids are cached,
 so completion is a dict lookup.
 """
+import argparse
 import time
 
 from vastai.cli.repl.catalog import CommandCatalog
@@ -107,6 +108,7 @@ class ReplCompleter:
 
         tokens = stripped.split()
         typed = tokens if (not stripped or buf[-1:].isspace()) else tokens[:-1]
+        typed = self.catalog.strip_options(typed)  # `--raw show <tab>` completes too
 
         if not typed:
             return self._starting_with(self.catalog.first_words, text)
@@ -119,29 +121,73 @@ class ReplCompleter:
             return []
         if text.startswith("-"):
             return self._starting_with(self.catalog.flags(name), text)
-        return self._values(name, typed, text)
+        return self._values(name, typed[len(name.split()):], text)
 
-    def _values(self, name, typed, text):
-        """Complete an argument value: a flag's choices, else live ids."""
-        flag = self.catalog.flags(name).get(typed[-1])
-        if flag is not None and flag.nargs != 0:  # a flag still awaiting its value
-            if flag.choices:
-                return self._starting_with([str(c) for c in flag.choices], text)
-            return self._live(getattr(flag, "completer", None), text)
-        return self._live(self.catalog.value_completer(name), text)
+    def _values(self, name, args, text):
+        """Complete an argument value: the choices or ids of whichever option or
+        positional the cursor sits on."""
+        option, index = self._position(name, args)
+        if option is not None:
+            if option.choices:
+                return self._starting_with([str(c) for c in option.choices], text)
+            return self._live(getattr(option, "completer", None), text)
+        return self._live(self.catalog.positional_completer(name, index), text)
+
+    def _position(self, name, args):
+        """Walk a command's arguments as argparse would.
+
+        Returns the option still awaiting values (the cursor is typing one of
+        them) and the index of the positional being typed — so a second
+        positional gets its own completer, and a multi-value option keeps
+        offering its choices.
+        """
+        option, index, i = None, 0, 0
+        while i < len(args):
+            token = args[i]
+            i += 1
+            if token.startswith("-") and token != "-":
+                option = None
+                action = self.catalog.option(name, token)
+                if action is None or action.nargs == 0 or "=" in token:
+                    continue
+                taken = 0
+                while (i < len(args) and _accepts_more(action, taken)
+                       and not args[i].startswith("-")):
+                    taken += 1
+                    i += 1
+                if _accepts_more(action, taken):
+                    option = action  # still hungry: the cursor's word is its value
+                continue
+            option = None
+            index += 1
+        return option, index
 
     def _live(self, completer, text):
         return self.values.matching(completer, text) if completer else []
 
     def _meta(self, stripped, text):
+        """`:se<tab>` completes the meta-command, `:set r<tab>` its argument."""
         words = stripped.split()
-        if len(words) == 1 and not stripped[-1].isspace():
+        typed = words if stripped[-1].isspace() else words[:-1]
+        if not typed:
             return self._starting_with(self.meta_commands, text)
-        options = self.meta_arguments.get(words[0], ())
+        options = self.meta_arguments.get(typed[0], ())
         if callable(options):
-            options = options(words[1:])
+            options = options(typed[1:])
         return self._starting_with(options, text)
 
     @staticmethod
     def _starting_with(candidates, text):
         return sorted(c for c in candidates if c.startswith(text))
+
+
+def _accepts_more(action, taken):
+    """Whether an option can still absorb another value after `taken` of them."""
+    nargs = action.nargs
+    if nargs in ("+", "*", argparse.REMAINDER):
+        return True
+    if nargs == "?":
+        return taken < 1
+    if isinstance(nargs, int):
+        return taken < nargs
+    return taken < 1  # nargs None: exactly one value

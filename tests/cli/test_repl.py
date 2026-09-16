@@ -1,7 +1,7 @@
 """Tests for the `vastai repl` interactive shell (vastai/cli/repl/)."""
 
 import argparse
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from requests.exceptions import HTTPError
@@ -25,7 +25,9 @@ def cli(calls):
         calls.append(args)
         return {"destroyed": args.id}
 
-    @p.command(help="show instances")
+    @p.command(argument("--verification", nargs="+", choices=["verified", "unverified"]),
+               argument("-g", "--gpu-name", choices=["RTX_4090", "H100"]),
+               help="show instances")
     def show__instances(args):
         calls.append(args)
         return [{"id": 1}]
@@ -40,6 +42,18 @@ def cli(calls):
 
     @p.command(argument("--check", action="store_true"), help="update the CLI")
     def update(args):
+        calls.append(args)
+
+    @p.command(argument("id"), argument("ssh_key"), help="update an ssh key")
+    def update__ssh_key(args):
+        calls.append(args)
+
+    @p.command(argument("text"), help="a bare command that takes an argument")
+    def label(args):
+        calls.append(args)
+
+    @p.command(argument("id"), help="label an instance")
+    def label__instance(args):
         calls.append(args)
 
     # Mirrors main(): globals go on the root parser and, suppressed, on every
@@ -126,11 +140,43 @@ class TestCommandCatalog:
     def test_flags_are_cached(self, catalog):
         assert catalog.flags("show user") is catalog.flags("show user")
 
-    def test_value_completer_found_for_id_positional(self, catalog):
-        assert catalog.value_completer("destroy instance") is not None
+    def test_an_unknown_object_does_not_fall_back_to_the_bare_verb(self, catalog):
+        """`update bogus` must not resolve to `update`, or argparse answers a
+        typo by printing all ~150 command names."""
+        assert catalog.resolve(["update", "bogus"]) is None
 
-    def test_no_value_completer_without_a_positional(self, catalog):
-        assert catalog.value_completer("show instances") is None
+    def test_a_bare_command_may_still_take_an_argument(self, catalog):
+        assert catalog.resolve(["label", "hello"]) == "label"
+
+    def test_strips_leading_global_options(self, catalog):
+        assert catalog.strip_options(["--raw", "show", "user"]) == ["show", "user"]
+        assert catalog.strip_options(["--url", "https://x", "show", "user"]) == ["show", "user"]
+        assert catalog.strip_options(["--url=https://x", "show"]) == ["show"]
+
+    def test_leaves_a_line_without_leading_options_alone(self, catalog):
+        assert catalog.strip_options(["show", "instances", "--raw"]) == ["show", "instances", "--raw"]
+
+    def test_resolves_a_command_behind_leading_globals(self, catalog):
+        assert catalog.resolve(catalog.strip_options(["--raw", "show", "user"])) == "show user"
+
+    def test_option_looks_up_short_aliases(self, catalog):
+        assert catalog.option("show instances", "-g") is catalog.flags("show instances")["--gpu-name"]
+
+    def test_option_looks_up_abbreviations_and_inline_values(self, catalog):
+        assert catalog.option("show instances", "--gpu") is not None
+        assert catalog.option("show instances", "--gpu-name=H100") is not None
+
+    def test_positional_completer_is_indexed(self, catalog):
+        """`update ssh-key <id> <key>`: each positional has its own completer."""
+        first = catalog.positional_completer("update ssh-key", 0)
+        second = catalog.positional_completer("update ssh-key", 1)
+        assert first is not None and second is not None and first is not second
+
+    def test_no_positional_completer_past_the_last_positional(self, catalog):
+        assert catalog.positional_completer("update ssh-key", 2) is None
+
+    def test_no_positional_completer_without_a_positional(self, catalog):
+        assert catalog.positional_completer("show instances") is None
 
 
 class TestLiveValues:
@@ -191,6 +237,26 @@ class TestCompletion:
     def test_completes_live_ids_for_a_positional(self, catalog, instance_ids):
         assert self._completer(catalog).suggestions("destroy instance 1") == ["100", "101"]
 
+    def test_completes_choices_of_a_short_alias(self, catalog):
+        assert self._completer(catalog).suggestions("show instances -g ") == ["H100", "RTX_4090"]
+
+    def test_a_multi_value_option_keeps_offering_choices(self, catalog):
+        """`--verification` takes nargs='+', so the second value completes too."""
+        assert self._completer(catalog).suggestions(
+            "show instances --verification verified ") == ["unverified", "verified"]
+
+    def test_a_single_value_option_stops_after_its_value(self, catalog, instance_ids):
+        assert self._completer(catalog).suggestions("show instances -g H100 ") == []
+
+    def test_completes_the_second_positional_with_its_own_completer(self, catalog, instance_ids):
+        """`update ssh-key <id> <tab>` offers key paths, not instance ids again."""
+        completer = self._completer(catalog)
+        assert completer.suggestions("update ssh-key 1") == ["100", "101"]
+        assert "100" not in completer.suggestions("update ssh-key 100 1")
+
+    def test_completes_behind_leading_global_options(self, catalog):
+        assert self._completer(catalog).suggestions("--raw show ") == ["instances", "user"]
+
     def test_a_valueless_flag_does_not_swallow_the_positional(self, catalog, instance_ids):
         assert self._completer(catalog).suggestions("destroy instance --force 1") == ["100", "101"]
 
@@ -206,6 +272,10 @@ class TestCompletion:
     def test_completes_meta_arguments(self, catalog):
         assert self._completer(catalog).suggestions(":set ") == ["raw"]
         assert self._completer(catalog).suggestions(":set raw ") == ["off", "on"]
+
+    def test_completes_a_partial_meta_argument(self, catalog):
+        """`:set r<tab>` completes the flag name, not its on/off values."""
+        assert self._completer(catalog).suggestions(":set r") == ["raw"]
 
     def test_readline_protocol_returns_one_match_per_state(self, catalog):
         completer = self._completer(catalog)
@@ -223,9 +293,26 @@ class TestSessionGlobals:
         assert args.api_key == "session-key"
 
     def test_a_flag_typed_on_the_line_wins(self, cli, session):
-        args = cli.parse_args(["show", "instances", "--url", "https://other"])
-        apply_session_globals(cli, args, session)
+        argv = ["show", "instances", "--url", "https://other"]
+        args = cli.parse_args(argv)
+        apply_session_globals(cli, args, session, argv)
         assert args.url == "https://other"
+
+    def test_a_line_flag_wins_even_when_it_equals_the_default(self, cli, session):
+        """`vastai --retry 10 repl` then `show instances --retry 3`: the typed 3
+        must survive, though it is also the parser's default."""
+        session.retry = 10
+        argv = ["show", "instances", "--retry", "3"]
+        args = cli.parse_args(argv)
+        apply_session_globals(cli, args, session, argv)
+        assert args.retry == 3
+
+    def test_an_inline_value_counts_as_typed(self, cli, session):
+        session.url = "https://session"
+        argv = ["show", "instances", "--url=https://console.vast.ai"]
+        args = cli.parse_args(argv)
+        apply_session_globals(cli, args, session, argv)
+        assert args.url == "https://console.vast.ai"
 
 
 class TestRunLine:
@@ -259,6 +346,45 @@ class TestRunLine:
             func=MagicMock(side_effect=HTTPError(response=response)))
         assert run_line(cli, "show user", session) is None
         assert "Failed with error 403: forbidden" in capsys.readouterr().err
+
+    def test_an_expired_2fa_session_falls_back_and_retries(self, cli, session, tmp_path, capsys):
+        """The one-shot CLI recovers from an expired 2FA session; so must the
+        REPL, or the advertised same-auth promise breaks mid-session."""
+        tfa_file = tmp_path / "vast_tfa_key"
+        api_file = tmp_path / "vast_api_key"
+        tfa_file.write_text("stale-tfa-key")
+        api_file.write_text("normal-api-key")
+        session.api_key = "stale-tfa-key"
+
+        response = MagicMock(status_code=404)
+        response.json.return_value = {"msg": "Session expired. Please log in again."}
+        func = MagicMock(side_effect=[HTTPError(response=response), {"ok": True}])
+        cli.subparsers_.choices["show user"].set_defaults(func=func)
+
+        with patch("vastai.cli.main.TFAKEY_FILE", str(tfa_file)), \
+             patch("vastai.cli.main.APIKEY_FILE", str(api_file)):
+            assert run_line(cli, "show user", session) == {"ok": True}
+
+        assert func.call_count == 2
+        assert not tfa_file.exists()
+        assert session.api_key == "normal-api-key"  # later lines use it too
+        assert "Your 2FA session has expired." in capsys.readouterr().out
+
+    def test_an_expired_2fa_session_retries_only_once(self, cli, session, tmp_path):
+        tfa_file = tmp_path / "vast_tfa_key"
+        api_file = tmp_path / "vast_api_key"
+        tfa_file.write_text("stale-tfa-key")
+        api_file.write_text("normal-api-key")
+
+        response = MagicMock(status_code=404)
+        response.json.return_value = {"msg": "Session expired. Please log in again."}
+        func = MagicMock(side_effect=HTTPError(response=response))
+        cli.subparsers_.choices["show user"].set_defaults(func=func)
+
+        with patch("vastai.cli.main.TFAKEY_FILE", str(tfa_file)), \
+             patch("vastai.cli.main.APIKEY_FILE", str(api_file)):
+            assert run_line(cli, "show user", session) is None
+        assert func.call_count == 2
 
     def test_an_unexpected_error_is_reported_not_raised(self, cli, session, capsys):
         cli.subparsers_.choices["show user"].set_defaults(

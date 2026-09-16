@@ -2,7 +2,7 @@
 
 Commands are registered on one argparse parser as flat ``"verb object"``
 subparser names ("show instances"). The catalog derives the two-stage view of
-that — verbs, the objects each verb takes, bare commands, per-command flags —
+that — verbs, the objects each verb takes, bare commands, per-command options —
 once at startup, so completion and command resolution stay dict lookups instead
 of a walk over ~150 subparsers on every keystroke.
 """
@@ -10,6 +10,21 @@ import argparse
 import difflib
 
 from vastai.cli.parser import build_command_maps
+
+
+def option_action(parser, token):
+    """The action a flag token names on a parser: exact match, ``--flag=value``,
+    or the unambiguous abbreviation argparse itself would accept."""
+    options = parser._option_string_actions
+    name = token.split("=", 1)[0]
+    action = options.get(name)
+    if action is not None:
+        return action
+    if name.startswith("--"):
+        matches = {id(a): a for opt, a in options.items() if opt.startswith(name)}
+        if len(matches) == 1:
+            return next(iter(matches.values()))
+    return None
 
 
 class CommandCatalog:
@@ -34,6 +49,18 @@ class CommandCatalog:
         """The objects registered for a verb, e.g. show -> instances, user, ..."""
         return sorted(self.verb_objects.get(verb, ()))
 
+    def strip_options(self, tokens):
+        """Drop the global options a line leads with (``--raw show user``), so
+        what's left starts at the command name."""
+        i = 0
+        while i < len(tokens) and tokens[i].startswith("-") and tokens[i] != "-":
+            token = tokens[i]
+            action = option_action(self._parser, token)
+            i += 1
+            if action is not None and action.nargs != 0 and "=" not in token:
+                i += 1  # the option's value
+        return tokens[i:]
+
     def resolve(self, tokens):
         """The command name a tokenised line names, or None if it names none.
 
@@ -46,6 +73,10 @@ class CommandCatalog:
             fused = f"{tokens[0]} {tokens[1]}"
             if fused in self._choices:
                 return fused
+            # `update bogus` is not the bare `update` command. Only a bare
+            # command that takes an argument can legitimately own a second word.
+            if not self.takes_positional(tokens[0]):
+                return None
         return tokens[0] if tokens[0] in self._choices else None
 
     def suggest(self, tokens):
@@ -61,7 +92,11 @@ class CommandCatalog:
                 or difflib.get_close_matches(head, self.first_words, n=3, cutoff=0.5))
 
     def flags(self, name):
-        """``{"--flag": action}`` for one command, cached after the first lookup."""
+        """``{"--flag": action}`` for one command, cached after the first lookup.
+
+        Long forms only: they are what completion offers. Use ``option`` to look
+        up a token the user actually typed, which may be a short alias.
+        """
         if name not in self._flag_cache:
             sub = self._choices.get(name)
             flags = {}
@@ -73,17 +108,31 @@ class CommandCatalog:
             self._flag_cache[name] = flags
         return self._flag_cache[name]
 
-    def value_completer(self, name):
-        """The completer attached to a command's first completable positional.
+    def option(self, name, token):
+        """The action a flag token names on one command, short form included."""
+        sub = self._choices.get(name)
+        return option_action(sub, token) if sub is not None else None
+
+    def positionals(self, name):
+        sub = self._choices.get(name)
+        return [a for a in sub._actions if not a.option_strings] if sub is not None else []
+
+    def takes_positional(self, name):
+        return bool(self.positionals(name))
+
+    def positional_completer(self, name, index=0):
+        """The completer for a command's index-th positional, if it has one.
 
         ``apwrap._add_completer`` tags id/machine/ssh positionals with a
         completer function; that is what turns ``destroy instance <tab>`` into a
-        list of live instance ids.
+        list of live instance ids, and the second argument of
+        ``update ssh-key <id> <tab>`` into local .pub paths instead.
         """
-        sub = self._choices.get(name)
-        if sub is None:
+        positionals = self.positionals(name)
+        if not positionals:
             return None
-        for action in sub._actions:
-            if not action.option_strings and getattr(action, "completer", None):
-                return action.completer
-        return None
+        if index >= len(positionals):
+            # A trailing nargs='+'/'*' positional keeps accepting values.
+            last = positionals[-1]
+            return getattr(last, "completer", None) if last.nargs in ("+", "*") else None
+        return getattr(positionals[index], "completer", None)

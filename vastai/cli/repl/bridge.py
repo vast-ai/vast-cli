@@ -28,25 +28,25 @@ HANDLED = "handled"  # the expiry was reported; don't report it twice
 
 
 def run_line(parser, line, session_args):
-    """Parse and execute one command line, returning its exit status (0 when
-    the line ran cleanly), so a piped script can fail the way a shell would."""
+    """Parse and execute one command line. Returns the command's return value,
+    or None if the line failed to parse or the command errored."""
     try:
         argv = tokenize(line)
     except ValueError as exc:
         print(f"parse error: {exc}", file=sys.stderr)
-        return 1
+        return None
     if not argv:
-        return 0
+        return None
 
     try:
         args = parser.parse_args(argv)
-    except SystemExit as exc:
-        return _status(exc.code)  # argparse already printed usage or an error
+    except SystemExit:
+        return None  # argparse already printed usage or an error
 
     apply_session_globals(parser, args, session_args, argv)
     func = getattr(args, "func", None)
     if func is None:
-        return 0
+        return None
     return _invoke(args, func, session_args)
 
 
@@ -124,38 +124,30 @@ def explicit_dests(root, sub, argv):
 def _invoke(args, func, session_args=None):
     try:
         res = func(args)
-    except SystemExit as exc:
+    except SystemExit:
         # Commands (and --help) exit the process in one-shot mode; here that
-        # just ends the line, keeping whatever status they asked for.
-        return _status(exc.code)
+        # just ends the line.
+        return None
     except requests.exceptions.HTTPError as exc:
         outcome = _recover_expired_tfa_session(args, exc, session_args)
         if outcome == RETRY:
             return _invoke(args, func)  # retry once, as the one-shot CLI does
         if outcome != HANDLED:
             _emit_http_error(args, exc)
-        return 1
+        return None
     except ValueError as exc:
         cli_main._emit_error(args, 0, str(exc))
-        return 1
+        return None
     except KeyboardInterrupt:
         print("^C", file=sys.stderr)
-        return 1
+        return None
     except Exception as exc:  # a broken command must not kill the session
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
-        return 1
+        return None
 
     if getattr(args, "raw", False) and res is not None:
         _print_raw(res)
-    # By CLI convention a command returns its exit code; a payload is a success.
-    return res if isinstance(res, int) and not isinstance(res, bool) else 0
-
-
-def _status(code):
-    """An exit status from whatever SystemExit carried: None means success."""
-    if code is None:
-        return 0
-    return code if isinstance(code, int) else 1
+    return res
 
 
 def _recover_expired_tfa_session(args, exc, session_args):

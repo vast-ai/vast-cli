@@ -7,7 +7,6 @@ can be staged the way the command tree actually is:
     show <tab>                 -> instances, user, invoices, ...    (objects)
     show instances --<tab>     -> --raw, --quiet, ...               (flags)
     destroy instance <tab>     -> live instance ids                 (values)
-    :set <tab>                 -> raw, explain, ...                 (meta)
 
 It is also the fast path: `vastai` under argcomplete forks a fresh interpreter
 per Tab press, while here the parser is already in memory and ids are cached,
@@ -86,10 +85,8 @@ class ReplCompleter:
     the readline protocol adapter around it.
     """
 
-    def __init__(self, catalog, meta_commands=(), meta_arguments=None, values=None):
+    def __init__(self, catalog, values=None):
         self.catalog = catalog if isinstance(catalog, CommandCatalog) else CommandCatalog(catalog)
-        self.meta_commands = sorted(meta_commands)
-        self.meta_arguments = meta_arguments or {}
         self.values = values if values is not None else LiveValues()
         self.matches = []
 
@@ -132,11 +129,6 @@ class ReplCompleter:
         if text is None:
             text = "" if (not buf or buf[-1].isspace()) else buf.split()[-1]
         stripped = buf.lstrip()
-        if stripped.startswith("!"):
-            return []  # shell escape: the shell's business, not ours
-        if stripped.startswith(":"):
-            return self._meta(stripped, text)
-
         tokens = stripped.split()
         typed = tokens if (not stripped or buf[-1:].isspace()) else tokens[:-1]
         typed = self.catalog.strip_options(typed)  # `--raw show <tab>` completes too
@@ -195,17 +187,6 @@ class ReplCompleter:
 
     def _live(self, completer, text):
         return self.values.matching(completer, text) if completer else []
-
-    def _meta(self, stripped, text):
-        """`:se<tab>` completes the meta-command, `:set r<tab>` its argument."""
-        words = stripped.split()
-        typed = words if stripped[-1].isspace() else words[:-1]
-        if not typed:
-            return self._starting_with(self.meta_commands, text)
-        options = self.meta_arguments.get(typed[0], ())
-        if callable(options):
-            options = options(typed[1:])
-        return self._starting_with(options, text)
 
     @staticmethod
     def _starting_with(candidates, text):

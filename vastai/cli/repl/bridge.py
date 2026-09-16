@@ -31,7 +31,7 @@ def run_line(parser, line, session_args):
     """Parse and execute one command line, returning its exit status (0 when
     the line ran cleanly), so a piped script can fail the way a shell would."""
     try:
-        argv = shlex.split(line)
+        argv = tokenize(line)
     except ValueError as exc:
         print(f"parse error: {exc}", file=sys.stderr)
         return 1
@@ -50,6 +50,26 @@ def run_line(parser, line, session_args):
     return _invoke(args, func, session_args)
 
 
+def tokenize(line):
+    """Split a line into argv the way a shell would.
+
+    POSIX rules everywhere except Windows, where a backslash is a path
+    separator rather than an escape: POSIX splitting would quietly turn
+    ``--onstart C:\\tmp\\go.sh`` into ``C:tmpgo.sh``.
+    """
+    if os.name != "nt":
+        return shlex.split(line)
+    lexer = shlex.shlex(line, posix=False)
+    lexer.whitespace_split = True
+    return [_unquote(token) for token in lexer]
+
+
+def _unquote(token):
+    if len(token) > 1 and token[0] == token[-1] and token[0] in "\"'":
+        return token[1:-1]
+    return token
+
+
 def apply_session_globals(parser, args, session_args, argv=()):
     """Carry the session's global flags onto one line's args.
 
@@ -58,29 +78,37 @@ def apply_session_globals(parser, args, session_args, argv=()):
     (``--retry 3`` while the session runs with ``--retry 10``) must still win.
     """
     inner = getattr(parser, "parser", parser)
-    # Read the flags against the command's own parser (apwrap registers every
-    # global on each subparser), so options like --args are known here.
-    scope = getattr(getattr(args, "func", None), "mysignature", None) or inner
-    typed = explicit_dests(scope, argv)
+    sub = getattr(getattr(args, "func", None), "mysignature", None)
+    typed = explicit_dests(inner, sub, argv)
     for name in SESSION_GLOBALS:
         if name in typed or not hasattr(args, name) or not hasattr(session_args, name):
             continue
         setattr(args, name, getattr(session_args, name))
 
 
-def explicit_dests(parser, argv):
+def explicit_dests(root, sub, argv):
     """The dests of the options a line actually names, in any form argparse
     accepts (``--flag``, ``--flag=value``, a short alias, an abbreviation).
 
-    Stops where argparse stops treating words as this command's options: at
-    ``--`` or at a REMAINDER option, so ``create instance --args --raw`` passes
-    ``--raw`` to the container rather than counting it as a global.
+    Each option is read against the parser argparse itself would use: the root
+    parser before the command name, the command's own parser after it. An
+    abbreviation can be unambiguous in one and ambiguous in the other — ``--c``
+    is ``--curl`` up front, but could be ``--cols`` on ``show instances``.
+
+    Scanning stops where argparse stops treating words as options: at ``--`` or
+    at a REMAINDER option, so ``create instance --args --raw`` passes ``--raw``
+    to the container rather than counting it as a global.
     """
     dests = set()
+    parser, skip = root, 0
     for token in argv:
+        if skip:
+            skip -= 1
+            continue
         if token == "--":
             break
         if not token.startswith("-") or token == "-":
+            parser = sub or root  # past the command name from here on
             continue
         action = option_action(parser, token)
         if action is None:
@@ -88,6 +116,8 @@ def explicit_dests(parser, argv):
         if action.nargs == argparse.REMAINDER:
             break
         dests.add(action.dest)
+        if parser is root and action.nargs != 0 and "=" not in token:
+            skip = 1  # its value is not the command name
     return dests
 
 

@@ -35,9 +35,15 @@ OFF_VALUES = ("off", "false", "no", "0")
 # Lines that carry a credential. They run normally but are kept out of the
 # history file, which is plain text on disk and readable via `:history`.
 # `tfa ` covers the whole family: login, auth-new, delete and regen-codes all
-# take one-time codes or backup codes, and a new subcommand would too.
-SECRET_FRAGMENTS = ("set api-key", "tfa ", "--api-key", "--secret",
-                    "--backup-code", "--code")
+# take one-time codes or backup codes, and a new subcommand would too. These
+# also catch a credential passed through a `!` shell escape, where there is no
+# vastai command for us to resolve.
+SECRET_COMMANDS = ("set api-key", "tfa ")
+
+# Options whose value is a credential, matched by dest so that every spelling
+# argparse accepts is covered — `--api-key`, `--api-key=...`, `-s`, and the
+# abbreviations argparse resolves, such as `--api`.
+SECRET_DESTS = frozenset({"api_key", "secret", "backup_code", "code"})
 
 META_COMMANDS = (":help", ":set", ":history", ":clear", ":quit")
 
@@ -199,6 +205,22 @@ class Repl:
     def _clear(self):
         subprocess.call("cls" if os.name == "nt" else "clear", shell=True)
 
+    def _is_secret(self, line):
+        """Whether a line carries a credential that must not be written to disk."""
+        lowered = line.lower()
+        if any(fragment in lowered for fragment in SECRET_COMMANDS):
+            return True
+        tokens = line.split()
+        name = self.catalog.resolve(self.catalog.strip_options(tokens))
+        for token in tokens:
+            if not token.startswith("-") or token == "-":
+                continue
+            action = (self.catalog.option(name, token) if name else None) \
+                or self.catalog.global_option(token)
+            if action is not None and action.dest in SECRET_DESTS:
+                return True
+        return False
+
     def _completion_args(self):
         """Args for completion's own API calls: this session's auth, endpoint
         and retries, with the output modes off. `--curl` in particular makes
@@ -208,6 +230,7 @@ class Repl:
         args = copy.copy(self.args)
         for flag in ("explain", "curl", "raw", "full"):
             setattr(args, flag, False)
+        args.retry = 1  # a Tab press must not queue minutes of retries
         return args
 
     def _refresh_credentials(self):
@@ -252,7 +275,7 @@ class Repl:
             except EOFError:
                 self._print("")
                 break
-            if _is_secret(line):
+            if self._is_secret(line):
                 _forget_last_history_entry()  # a key must not reach the disk
             if not self.handle(line):
                 break
@@ -299,12 +322,6 @@ class Repl:
 
 def _dashed(flag):
     return flag.replace("_", "-")
-
-
-def _is_secret(line):
-    """Whether a line carries a credential that must not be written to disk."""
-    lowered = line.lower()
-    return any(fragment in lowered for fragment in SECRET_FRAGMENTS)
 
 
 def _forget_last_history_entry():

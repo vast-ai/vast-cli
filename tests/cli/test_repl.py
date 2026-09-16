@@ -1,6 +1,7 @@
 """Tests for the `vastai repl` interactive shell (vastai/cli/repl/)."""
 
 import argparse
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,7 +12,8 @@ from vastai.cli.parser import apwrap, argument, is_hidden_command, set_completer
 from vastai.cli.repl.bridge import apply_session_globals, run_line
 from vastai.cli.repl.catalog import CommandCatalog
 from vastai.cli.repl.completion import LiveValues, ReplCompleter
-from vastai.cli.repl.session import Repl, _is_secret
+from vastai.cli.repl.bridge import tokenize
+from vastai.cli.repl.session import Repl
 
 
 @pytest.fixture
@@ -27,6 +29,7 @@ def cli(calls):
 
     @p.command(argument("--verification", nargs="+", choices=["verified", "unverified"]),
                argument("-g", "--gpu-name", choices=["RTX_4090", "H100"]),
+               argument("--cols"),  # clashes with the global --curl under `--c`
                help="show instances")
     def show__instances(args):
         calls.append(args)
@@ -212,6 +215,27 @@ class TestLiveValues:
         values.matching(completer, "")
         assert completer.call_count == 2
 
+    def test_a_slow_completer_does_not_block_the_prompt(self):
+        """The API client allows 120s per request; a Tab press must not wait."""
+        import threading
+        release = threading.Event()
+
+        def slow(prefix=""):
+            release.wait(5)
+            return ["100"]
+
+        values = LiveValues(ttl=30, budget=0.05)
+        started = time.monotonic()
+        assert values.matching(slow, "") == []
+        assert time.monotonic() - started < 2  # returned without waiting it out
+
+        release.set()
+        for _ in range(100):  # the worker's result lands in the cache
+            if values.matching(slow, "") == ["100"]:
+                break
+            time.sleep(0.02)
+        assert values.matching(slow, "") == ["100"]
+
     def test_a_failing_completer_yields_nothing_and_is_not_retried(self):
         completer = MagicMock(side_effect=RuntimeError("api down"))
         values = LiveValues(ttl=30, clock=lambda: 0.0)
@@ -328,12 +352,51 @@ class TestSessionGlobals:
         apply_session_globals(cli, args, session, argv)
         assert args.raw is True
 
+    def test_an_abbreviated_leading_global_still_wins(self, cli, session):
+        """`--c` is unambiguously --curl before the command, though the command
+        itself also has --cols; argparse takes it, so we must too."""
+        session.curl = False
+        argv = ["--c", "show", "instances"]
+        args = cli.parse_args(argv)
+        assert args.curl is True  # argparse resolved it against the root parser
+        apply_session_globals(cli, args, session, argv)
+        assert args.curl is True
+
+    def test_a_leading_options_value_is_not_the_command(self, cli, session):
+        session.url = "https://session"
+        argv = ["--url", "https://typed", "show", "instances"]
+        args = cli.parse_args(argv)
+        apply_session_globals(cli, args, session, argv)
+        assert args.url == "https://typed"
+
     def test_an_inline_value_counts_as_typed(self, cli, session):
         session.url = "https://session"
         argv = ["show", "instances", "--url=https://console.vast.ai"]
         args = cli.parse_args(argv)
         apply_session_globals(cli, args, session, argv)
         assert args.url == "https://console.vast.ai"
+
+
+class TestTokenize:
+    def test_posix_rules_by_default(self):
+        assert tokenize("search offers 'gpu_name=RTX_4090'") == ["search", "offers", "gpu_name=RTX_4090"]
+
+    def test_windows_keeps_backslashes(self):
+        """A backslash is a path separator there, not an escape: POSIX rules
+        would turn C:\\tmp\\go.sh into C:tmpgo.sh."""
+        with patch("vastai.cli.repl.bridge.os.name", "nt"):
+            assert tokenize(r"create instance --onstart C:\tmp\go.sh") == [
+                "create", "instance", "--onstart", r"C:\tmp\go.sh"]
+
+    def test_windows_still_honours_quotes(self):
+        with patch("vastai.cli.repl.bridge.os.name", "nt"):
+            assert tokenize("search offers 'gpu_name=RTX_4090'") == [
+                "search", "offers", "gpu_name=RTX_4090"]
+
+    def test_windows_reports_unbalanced_quotes(self):
+        with patch("vastai.cli.repl.bridge.os.name", "nt"):
+            with pytest.raises(ValueError):
+                tokenize("destroy instance 'oops")
 
 
 class TestRunLine:
@@ -567,8 +630,16 @@ class TestReplLoop:
         "tfa regen-codes --backup-code ABCD-EFGH", "tfa delete --code 456789",
         "tfa auth-new -bc ABCD --code 123456",
     ])
-    def test_credential_lines_are_kept_out_of_history(self, line):
-        assert _is_secret(line) is True
+    def test_credential_lines_are_kept_out_of_history(self, cli, session, line):
+        assert Repl(cli, session)._is_secret(line) is True
+
+    @pytest.mark.parametrize("line", [
+        "show user --api sk-secret",      # argparse accepts the abbreviation
+        "show user --api-key=sk-secret",  # and the inline form
+    ])
+    def test_an_abbreviated_key_option_is_still_a_secret(self, cli, session, line):
+        """`--api` reaches the API as a key, so it must not reach the history."""
+        assert Repl(cli, session)._is_secret(line) is True
 
     def test_a_removed_key_is_dropped_from_the_session(self, cli, session, tmp_path):
         """An expired 2FA session with nothing to fall back to: keeping the dead
@@ -614,5 +685,5 @@ class TestReplLoop:
         assert args.api_key == "session-key"
 
     @pytest.mark.parametrize("line", ["show instances", "search offers 'gpu_name=RTX_4090'"])
-    def test_ordinary_lines_are_remembered(self, line):
-        assert _is_secret(line) is False
+    def test_ordinary_lines_are_remembered(self, cli, session, line):
+        assert Repl(cli, session)._is_secret(line) is False

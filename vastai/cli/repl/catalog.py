@@ -113,6 +113,10 @@ class CommandCatalog:
         sub = self._choices.get(name)
         return option_action(sub, token) if sub is not None else None
 
+    def global_option(self, token):
+        """The action a flag token names among the global options."""
+        return option_action(self._parser, token)
+
     def positionals(self, name):
         sub = self._choices.get(name)
         return [a for a in sub._actions if not a.option_strings] if sub is not None else []

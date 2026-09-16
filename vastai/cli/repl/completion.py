@@ -14,11 +14,13 @@ per Tab press, while here the parser is already in memory and ids are cached,
 so completion is a dict lookup.
 """
 import argparse
+import threading
 import time
 
 from vastai.cli.repl.catalog import CommandCatalog
 
-VALUE_CACHE_TTL = 30.0  # seconds a fetched id list stays warm
+VALUE_CACHE_TTL = 30.0    # seconds a fetched id list stays warm
+COMPLETION_BUDGET = 2.0   # seconds a Tab press will wait for that fetch
 
 
 class LiveValues:
@@ -29,10 +31,13 @@ class LiveValues:
     cached too — a down API or a missing key must not hang every Tab press.
     """
 
-    def __init__(self, ttl=VALUE_CACHE_TTL, clock=time.monotonic):
+    def __init__(self, ttl=VALUE_CACHE_TTL, clock=time.monotonic,
+                 budget=COMPLETION_BUDGET):
         self._ttl = ttl
         self._clock = clock
+        self._budget = budget
         self._cache = {}
+        self._pending = set()
 
     def clear(self):
         """Forget every cached list — called when the session's credentials
@@ -40,16 +45,37 @@ class LiveValues:
         self._cache.clear()
 
     def matching(self, completer, prefix):
-        now = self._clock()
         cached = self._cache.get(completer)
-        if cached is None or now - cached[0] > self._ttl:
+        if cached is None or self._clock() - cached[0] > self._ttl:
+            self._fetch(completer)
+            cached = self._cache.get(completer)
+            if cached is None:
+                return []  # still in flight; a later Tab press will have it
+        return [v for v in cached[1] if v.startswith(prefix)]
+
+    def _fetch(self, completer):
+        """Fetch in a worker, and wait only a moment for it.
+
+        The API client allows 120s per request and retries, so fetching on the
+        input thread would let one Tab press freeze the prompt for minutes
+        against an unreachable endpoint. Whatever the worker eventually returns
+        lands in the cache for the next press.
+        """
+        if completer in self._pending:
+            return
+        self._pending.add(completer)
+
+        def work():
             try:
                 values = [str(v) for v in (completer(prefix="") or [])]
             except Exception:
                 values = []
-            cached = (now, values)
-            self._cache[completer] = cached
-        return [v for v in cached[1] if v.startswith(prefix)]
+            self._cache[completer] = (self._clock(), values)
+            self._pending.discard(completer)
+
+        worker = threading.Thread(target=work, daemon=True)
+        worker.start()
+        worker.join(self._budget)
 
 
 class ReplCompleter:

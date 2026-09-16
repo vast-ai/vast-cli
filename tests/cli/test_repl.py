@@ -519,6 +519,51 @@ class TestRunLine:
         assert "RuntimeError: boom" in capsys.readouterr().err
 
 
+def _inputs(*lines):
+    """A stand-in for input(): returns each line, raises what it is given, and
+    signals end of input once the lines run out."""
+    queue = list(lines)
+
+    def fake_input(prompt=""):
+        if not queue:
+            raise EOFError
+        value = queue.pop(0)
+        if isinstance(value, BaseException):
+            raise value
+        return value
+
+    return fake_input
+
+
+class TestTheLoop:
+    """The loop itself — `handle` is covered above, this is what drives it."""
+
+    def _repl(self, cli, session, monkeypatch, *lines):
+        monkeypatch.setattr("builtins.input", _inputs(*lines))
+        repl = Repl(cli, session)
+        # No terminal here: installing readline and rebinding the parser's id
+        # completers are process-wide side effects, and neither is the loop.
+        monkeypatch.setattr(repl, "_setup_terminal", lambda: None)
+        return repl
+
+    def test_runs_each_line_until_end_of_input(self, cli, session, calls, monkeypatch):
+        self._repl(cli, session, monkeypatch, "show instances", "show user").run()
+        assert len(calls) == 2
+
+    def test_an_exit_word_ends_the_loop(self, cli, session, calls, monkeypatch):
+        self._repl(cli, session, monkeypatch, "show instances", "exit", "show user").run()
+        assert len(calls) == 1
+
+    def test_ctrl_c_cancels_the_line_and_keeps_going(self, cli, session, calls, monkeypatch, capsys):
+        self._repl(cli, session, monkeypatch, KeyboardInterrupt(), "show user").run()
+        assert len(calls) == 1
+        assert "^C" in capsys.readouterr().out
+
+    def test_the_banner_names_the_way_out(self, cli, session, monkeypatch, capsys):
+        self._repl(cli, session, monkeypatch).run()
+        assert "exit or Ctrl-D" in capsys.readouterr().out
+
+
 class TestReplLoop:
     def test_blank_lines_are_ignored(self, cli, session, calls):
         repl = Repl(cli, session)

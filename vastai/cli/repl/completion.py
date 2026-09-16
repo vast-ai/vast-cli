@@ -120,8 +120,8 @@ class ReplCompleter:
         except ImportError:
             return False
         readline.set_completer(self.complete)
-        # Split on whitespace only, so the completer sees ':set' and '--flag'
-        # as single tokens and decides for itself what they mean.
+        # Split on whitespace only, so the completer sees '--flag' and
+        # '--flag=value' as single tokens and decides what they mean.
         readline.set_completer_delims(" \t\n")
         if "libedit" in (getattr(readline, "__doc__", "") or ""):
             readline.parse_and_bind("bind ^I rl_complete")  # macOS libedit

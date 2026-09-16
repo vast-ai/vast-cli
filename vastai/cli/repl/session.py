@@ -34,7 +34,10 @@ OFF_VALUES = ("off", "false", "no", "0")
 
 # Lines that carry a credential. They run normally but are kept out of the
 # history file, which is plain text on disk and readable via `:history`.
-SECRET_FRAGMENTS = ("set api-key", "tfa login", "--api-key", "--secret", "--backup-code")
+# `tfa ` covers the whole family: login, auth-new, delete and regen-codes all
+# take one-time codes or backup codes, and a new subcommand would too.
+SECRET_FRAGMENTS = ("set api-key", "tfa ", "--api-key", "--secret",
+                    "--backup-code", "--code")
 
 META_COMMANDS = (":help", ":set", ":history", ":clear", ":quit")
 
@@ -126,7 +129,8 @@ class Repl:
     def _shell(self, command):
         if command:
             sys.stdout.flush()  # our output precedes the child's, not the reverse
-            subprocess.call(command, shell=True)
+            if subprocess.call(command, shell=True):
+                self.failures += 1  # `!false` fails the script, as in a shell
         return True
 
     # -- meta commands -----------------------------------------------------
@@ -145,6 +149,7 @@ class Repl:
             self._clear()
         else:
             self._print(f"unknown meta-command '{word}' (try :help)")
+            self.failures += 1
         return True
 
     def _set(self, rest):
@@ -158,6 +163,7 @@ class Repl:
         if flag not in SESSION_FLAGS:
             self._print(f"unknown flag '{parts[0]}' (one of: "
                         f"{', '.join(_dashed(f) for f in SESSION_FLAGS)})")
+            self.failures += 1
             return
         if len(parts) > 1:
             if parts[1].lower() in ON_VALUES:
@@ -166,6 +172,7 @@ class Repl:
                 value = False
             else:  # never let a typo silently turn a flag off
                 self._print(f"expected on or off, not '{parts[1]}'")
+                self.failures += 1
                 return
         else:
             value = not getattr(self.args, flag, False)
@@ -192,6 +199,17 @@ class Repl:
     def _clear(self):
         subprocess.call("cls" if os.name == "nt" else "clear", shell=True)
 
+    def _completion_args(self):
+        """Args for completion's own API calls: this session's auth, endpoint
+        and retries, with the output modes off. `--curl` in particular makes
+        the client print a curl command and exit, which would otherwise land in
+        the middle of the prompt on every Tab press.
+        """
+        args = copy.copy(self.args)
+        for flag in ("explain", "curl", "raw", "full"):
+            setattr(args, flag, False)
+        return args
+
     def _refresh_credentials(self):
         """Pick up a key written mid-session by `set api-key` or `tfa login`.
 
@@ -200,9 +218,17 @@ class Repl:
         none at all, leaving every later line to fail on auth.
         """
         key = _stored_api_key()
-        if key is not None and key != self._stored_key:
-            self._stored_key = key
+        if key == self._stored_key:
+            return
+        if key is not None:
             self.args.api_key = key
+        elif self.args.api_key == self._stored_key:
+            # The key we were using was just removed (an expired 2FA session
+            # with nothing to fall back to). Keep using it and every line would
+            # fail the same way; dropping it gets the real "no API key" advice.
+            self.args.api_key = None
+        self._stored_key = key
+        self.completer.values.clear()  # ids belong to the old account
 
     def _print(self, text):
         print(text, file=self.out)
@@ -266,7 +292,7 @@ class Repl:
 
         def ids(field):
             return lambda **kw: instances.show__instances(
-                self.args, {"internal": True, "field": field})
+                self._completion_args(), {"internal": True, "field": field})
 
         set_completers(instance_machine_fn=ids("machine_id"), instance_fn=ids("id"))
 

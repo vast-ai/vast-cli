@@ -34,6 +34,11 @@ class LiveValues:
         self._clock = clock
         self._cache = {}
 
+    def clear(self):
+        """Forget every cached list — called when the session's credentials
+        change, so Tab can't offer the previous account's ids."""
+        self._cache.clear()
+
     def matching(self, completer, prefix):
         now = self._clock()
         cached = self._cache.get(completer)

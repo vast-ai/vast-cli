@@ -48,6 +48,10 @@ def cli(calls):
     def update__ssh_key(args):
         calls.append(args)
 
+    @p.command(argument("--args", nargs=argparse.REMAINDER), help="run a container")
+    def run__container(args):
+        calls.append(args)
+
     @p.command(argument("text"), help="a bare command that takes an argument")
     def label(args):
         calls.append(args)
@@ -307,6 +311,15 @@ class TestSessionGlobals:
         apply_session_globals(cli, args, session, argv)
         assert args.retry == 3
 
+    def test_options_after_a_remainder_belong_to_the_command(self, cli, session):
+        """`create instance --args --raw` passes --raw to the container, so the
+        session's raw flag still applies to the line itself."""
+        session.raw = True
+        argv = ["run", "container", "--args", "--raw", "-x"]
+        args = cli.parse_args(argv)
+        apply_session_globals(cli, args, session, argv)
+        assert args.raw is True
+
     def test_an_inline_value_counts_as_typed(self, cli, session):
         session.url = "https://session"
         argv = ["show", "instances", "--url=https://console.vast.ai"]
@@ -512,6 +525,17 @@ class TestReplLoop:
         """`echo nonsense | vastai repl` must not look successful to CI."""
         assert Repl(cli, session).run_script(["show instances\n", "nonsense\n"]) == 1
 
+    @pytest.mark.parametrize("line", [":nope", ":set nonsense on", ":set raw onn"])
+    def test_a_rejected_meta_command_fails_the_script(self, cli, session, line):
+        """run_script promises nonzero for any failed line — meta included."""
+        assert Repl(cli, session).run_script([line + "\n"]) == 1
+
+    def test_a_failing_shell_escape_fails_the_script(self, cli, session):
+        assert Repl(cli, session).run_script(["!false\n"]) == 1
+
+    def test_a_succeeding_shell_escape_does_not(self, cli, session):
+        assert Repl(cli, session).run_script(["!true\n"]) == 0
+
     def test_a_failing_command_fails_the_script(self, cli, session):
         cli.subparsers_.choices["show user"].set_defaults(func=lambda args: 2)
         assert Repl(cli, session).run_script(["show user\n"]) == 1
@@ -532,9 +556,54 @@ class TestReplLoop:
     @pytest.mark.parametrize("line", [
         "set api-key sk-secret", "show user --api-key sk-secret",
         "tfa login --secret S -c 123", "!vastai set api-key sk-secret",
+        "tfa regen-codes --backup-code ABCD-EFGH", "tfa delete --code 456789",
+        "tfa auth-new -bc ABCD --code 123456",
     ])
     def test_credential_lines_are_kept_out_of_history(self, line):
         assert _is_secret(line) is True
+
+    def test_a_removed_key_is_dropped_from_the_session(self, cli, session, tmp_path):
+        """An expired 2FA session with nothing to fall back to: keeping the dead
+        key would fail every later line with the same misleading error."""
+        api_file = tmp_path / "vast_api_key"
+        api_file.write_text("stored-key")
+        with patch("vastai.cli.repl.session.APIKEY_FILE", str(api_file)), \
+             patch("vastai.cli.repl.session.TFAKEY_FILE", str(tmp_path / "missing")):
+            session.api_key = "stored-key"
+            repl = Repl(cli, session)
+            api_file.unlink()
+            repl.handle("show user")
+        assert repl.args.api_key is None
+
+    def test_a_key_we_never_adopted_is_left_alone(self, cli, session, tmp_path):
+        """A key from --api-key or $VAST_API_KEY must survive a file that was
+        never the session's source."""
+        with patch("vastai.cli.repl.session.APIKEY_FILE", str(tmp_path / "missing")), \
+             patch("vastai.cli.repl.session.TFAKEY_FILE", str(tmp_path / "missing")):
+            session.api_key = "flag-key"
+            repl = Repl(cli, session)
+            repl.handle("show user")
+        assert repl.args.api_key == "flag-key"
+
+    def test_changing_the_key_clears_cached_completions(self, cli, session, tmp_path):
+        api_file = tmp_path / "vast_api_key"
+        with patch("vastai.cli.repl.session.APIKEY_FILE", str(api_file)), \
+             patch("vastai.cli.repl.session.TFAKEY_FILE", str(tmp_path / "missing")):
+            repl = Repl(cli, session)
+            repl.completer.values._cache[object()] = (0.0, ["stale"])
+            api_file.write_text("fresh-key")
+            repl.handle("show user")
+        assert repl.completer.values._cache == {}
+
+    def test_completion_never_inherits_the_output_modes(self, cli, session):
+        """`--curl` makes the API client print a curl line and exit; completion
+        must not carry that (or --explain) into its own lookups."""
+        session.curl = True
+        session.explain = True
+        session.api_key = "session-key"
+        args = Repl(cli, session)._completion_args()
+        assert args.curl is False and args.explain is False and args.raw is False
+        assert args.api_key == "session-key"
 
     @pytest.mark.parametrize("line", ["show instances", "search offers 'gpu_name=RTX_4090'"])
     def test_ordinary_lines_are_remembered(self, line):

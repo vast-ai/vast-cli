@@ -1,4 +1,6 @@
 """`vastai repl` — an interactive shell over the CLI's own commands."""
+import sys
+
 from vastai.cli.display import deindent
 from vastai.cli.utils import get_parser as _get_parser
 
@@ -21,4 +23,8 @@ parser = _get_parser()
 )
 def repl(args):
     from vastai.cli.repl.session import run_repl
-    return run_repl(args)
+    status = run_repl(args)
+    if status:
+        # Exit directly: under --raw, main.run_command would serialize a
+        # returned status as command output and exit 0, hiding a failed script.
+        sys.exit(status)

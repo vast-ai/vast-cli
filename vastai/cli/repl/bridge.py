@@ -5,6 +5,7 @@ uses, so ``show instances`` at the prompt behaves identically to
 ``vastai show instances`` — same auth, same output, same flags. The only
 difference is control flow: a failing command ends the line, never the session.
 """
+import argparse
 import json
 import os
 import shlex
@@ -57,7 +58,10 @@ def apply_session_globals(parser, args, session_args, argv=()):
     (``--retry 3`` while the session runs with ``--retry 10``) must still win.
     """
     inner = getattr(parser, "parser", parser)
-    typed = explicit_dests(inner, argv)
+    # Read the flags against the command's own parser (apwrap registers every
+    # global on each subparser), so options like --args are known here.
+    scope = getattr(getattr(args, "func", None), "mysignature", None) or inner
+    typed = explicit_dests(scope, argv)
     for name in SESSION_GLOBALS:
         if name in typed or not hasattr(args, name) or not hasattr(session_args, name):
             continue
@@ -66,14 +70,24 @@ def apply_session_globals(parser, args, session_args, argv=()):
 
 def explicit_dests(parser, argv):
     """The dests of the options a line actually names, in any form argparse
-    accepts (``--flag``, ``--flag=value``, a short alias, an abbreviation)."""
+    accepts (``--flag``, ``--flag=value``, a short alias, an abbreviation).
+
+    Stops where argparse stops treating words as this command's options: at
+    ``--`` or at a REMAINDER option, so ``create instance --args --raw`` passes
+    ``--raw`` to the container rather than counting it as a global.
+    """
     dests = set()
     for token in argv:
-        if not token.startswith("-") or token in ("-", "--"):
+        if token == "--":
+            break
+        if not token.startswith("-") or token == "-":
             continue
         action = option_action(parser, token)
-        if action is not None:
-            dests.add(action.dest)
+        if action is None:
+            continue
+        if action.nargs == argparse.REMAINDER:
+            break
+        dests.add(action.dest)
     return dests
 
 

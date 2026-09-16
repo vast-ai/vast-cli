@@ -37,11 +37,14 @@ class LiveValues:
         self._budget = budget
         self._cache = {}
         self._pending = set()
+        self._generation = 0
 
     def clear(self):
         """Forget every cached list — called when the session's credentials
         change, so Tab can't offer the previous account's ids."""
         self._cache.clear()
+        self._pending.clear()
+        self._generation += 1  # discard whatever is still in flight
 
     def matching(self, completer, prefix):
         cached = self._cache.get(completer)
@@ -63,12 +66,15 @@ class LiveValues:
         if completer in self._pending:
             return
         self._pending.add(completer)
+        generation = self._generation
 
         def work():
             try:
                 values = [str(v) for v in (completer(prefix="") or [])]
             except Exception:
                 values = []
+            if generation != self._generation:
+                return  # the account changed while we were fetching
             self._cache[completer] = (self._clock(), values)
             self._pending.discard(completer)
 

@@ -34,6 +34,10 @@ class CommandCatalog:
         self._parser = getattr(parser, "parser", parser)
         self.verbs, self.verb_objects, self.singles = build_command_maps(self._parser)
         self._choices = self._subparser_choices()
+        # Hidden commands are left out of the maps above — they are gated from
+        # discovery, not from use — but a line naming one must still resolve,
+        # or the REPL would reject a command the one-shot CLI runs.
+        self._runnable_verbs = {name.split(" ")[0] for name in self._choices if " " in name}
         self._flag_cache = {}
         self.first_words = sorted(self.verbs | self.singles)
         self.names = sorted(self.singles | {
@@ -69,7 +73,7 @@ class CommandCatalog:
         """
         if not tokens:
             return None
-        if tokens[0] in self.verbs and len(tokens) > 1 and not tokens[1].startswith("-"):
+        if tokens[0] in self._runnable_verbs and len(tokens) > 1 and not tokens[1].startswith("-"):
             fused = f"{tokens[0]} {tokens[1]}"
             if fused in self._choices:
                 return fused

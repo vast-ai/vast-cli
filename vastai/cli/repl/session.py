@@ -17,25 +17,10 @@ import textwrap
 from vastai.cli.repl.bridge import run_line
 from vastai.cli.repl.catalog import CommandCatalog
 from vastai.cli.repl.completion import ReplCompleter
-from vastai.cli.util import APIKEY_FILE, DIRS, TFAKEY_FILE
-
-HISTORY_FILE = os.path.join(DIRS["state"], "repl_history")
-HISTORY_LENGTH = 1000
+from vastai.cli.util import APIKEY_FILE, TFAKEY_FILE
 
 PROMPT = "vast> "
 EXIT_WORDS = ("exit", "quit", "q")
-
-# Lines that carry a credential. They run normally but are kept out of the
-# history file, which is plain text on disk. `tfa ` covers the whole family:
-# login, auth-new, delete and regen-codes all take one-time or backup codes,
-# and a new subcommand would too. These also catch a credential typed for
-# another tool, where there is no vastai command for us to resolve.
-SECRET_COMMANDS = ("set api-key", "tfa ")
-
-# Options whose value is a credential, matched by dest so that every spelling
-# argparse accepts is covered — `--api-key`, `--api-key=...`, `-s`, and the
-# abbreviations argparse resolves, such as `--api`.
-SECRET_DESTS = frozenset({"api_key", "secret", "backup_code", "code"})
 
 BANNER = """\
 vastai REPL — every vastai command, without the startup cost.
@@ -50,6 +35,10 @@ class Repl:
         self.args = copy.copy(session_args)
         self.out = stdout or sys.stdout
         self._stored_key = _stored_api_key()
+        # Whether this session's key came from the config file. A key from
+        # $VAST_API_KEY or --api-key outranks the file (the CLI says so, and
+        # `set api-key` warns about it), so it must not be replaced by one.
+        self._from_disk = getattr(session_args, "api_key", None) in (None, self._stored_key)
         self.catalog = CommandCatalog(parser)
         self.completer = ReplCompleter(self.catalog)
 
@@ -101,40 +90,24 @@ class Repl:
     def _print(self, text):
         print(text, file=self.out)
 
-    # -- credentials -------------------------------------------------------
-    def _is_secret(self, line):
-        """Whether a line carries a credential that must not be written to disk."""
-        lowered = line.lower()
-        if any(fragment in lowered for fragment in SECRET_COMMANDS):
-            return True
-        tokens = line.split()
-        name = self.catalog.resolve(self.catalog.strip_options(tokens))
-        for token in tokens:
-            if not token.startswith("-") or token == "-":
-                continue
-            action = (self.catalog.option(name, token) if name else None) \
-                or self.catalog.global_option(token)
-            if action is not None and action.dest in SECRET_DESTS:
-                return True
-        return False
-
     def _refresh_credentials(self):
         """Pick up a key written mid-session by `set api-key` or `tfa login`.
 
         Those commands write the config file but not our namespace, so without
         this the session would keep sending the key it started with — often
-        none at all, leaving every later line to fail on auth.
+        none at all, leaving every later line to fail on auth. Only a session
+        that took its key from the file follows the file; one running on
+        $VAST_API_KEY or --api-key keeps what it was given, as the one-shot CLI
+        would. A key that disappears is dropped rather than reused: an expired
+        2FA session with no fallback should report "no API key", not repeat the
+        same failure on every line.
         """
+        if not self._from_disk:
+            return
         key = _stored_api_key()
         if key == self._stored_key:
             return
-        if key is not None:
-            self.args.api_key = key
-        elif self.args.api_key == self._stored_key:
-            # The key we were using was just removed (an expired 2FA session
-            # with nothing to fall back to). Keep using it and every line would
-            # fail the same way; dropping it gets the real "no API key" advice.
-            self.args.api_key = None
+        self.args.api_key = key
         self._stored_key = key
         self.completer.values.clear()  # ids belong to the old account
 
@@ -151,22 +124,15 @@ class Repl:
             except EOFError:
                 self._print("")
                 break
-            if self._is_secret(line):
-                _forget_last_history_entry()  # a key must not reach the disk
             if not self.handle(line):
                 break
-        _save_history()
 
     def _setup_terminal(self):
+        """Wire completion. History lives in readline for the session only —
+        persisting it would put whatever was typed, credentials included, in
+        plain text on disk, which wants a redaction design of its own."""
         self._wire_live_completions()
-        if not self.completer.install():
-            return
-        import readline
-        readline.set_history_length(HISTORY_LENGTH)
-        try:
-            readline.read_history_file(HISTORY_FILE)
-        except OSError:
-            pass
+        self.completer.install()
 
     def _wire_live_completions(self):
         """Point the parser's id completers at this session.
@@ -197,16 +163,6 @@ class Repl:
         return args
 
 
-def _forget_last_history_entry():
-    try:
-        import readline
-        length = readline.get_current_history_length()
-        if length:
-            readline.remove_history_item(length - 1)
-    except (ImportError, ValueError):
-        pass
-
-
 def _stored_api_key():
     """The key on disk right now, resolved as the one-shot CLI resolves it."""
     path = TFAKEY_FILE if os.path.exists(TFAKEY_FILE) else APIKEY_FILE
@@ -215,14 +171,6 @@ def _stored_api_key():
             return reader.read().strip() or None
     except OSError:
         return None
-
-
-def _save_history():
-    try:
-        import readline
-        readline.write_history_file(HISTORY_FILE)
-    except (ImportError, OSError):
-        pass
 
 
 def run_repl(args):

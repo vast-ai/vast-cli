@@ -163,6 +163,15 @@ class TestCommandCatalog:
     def test_a_bare_command_may_still_take_an_argument(self, catalog):
         assert catalog.resolve(["label", "hello"]) == "label"
 
+    def test_a_hidden_command_still_resolves(self, cli, catalog):
+        """Hidden commands are gated from discovery, not from use: the REPL must
+        run one that is typed, the way the one-shot CLI does."""
+        cli.subparsers_.choices["destroy instance"].hidden = True
+        fresh = CommandCatalog(cli)
+        assert fresh.resolve(["destroy", "instance"]) == "destroy instance"
+        assert "destroy" not in fresh.verbs  # but not offered by completion
+        assert fresh.suggest(["destroy"]) != ["destroy instance"]
+
     def test_strips_leading_global_options(self, catalog):
         assert catalog.strip_options(["--raw", "show", "user"]) == ["show", "user"]
         assert catalog.strip_options(["--url", "https://x", "show", "user"]) == ["show", "user"]
@@ -235,6 +244,22 @@ class TestLiveValues:
                 break
             time.sleep(0.02)
         assert values.matching(slow, "") == ["100"]
+
+    def test_a_fetch_started_before_clear_is_discarded(self):
+        """Its ids belong to the account the session has just left."""
+        import threading
+        release = threading.Event()
+
+        def slow(prefix=""):
+            release.wait(5)
+            return ["100"]
+
+        values = LiveValues(ttl=30, budget=0.05)
+        assert values.matching(slow, "") == []
+        values.clear()  # e.g. `set api-key` switched accounts
+        release.set()
+        time.sleep(0.2)
+        assert values._cache == {}
 
     def test_a_failing_completer_yields_nothing_and_is_not_retried(self):
         completer = MagicMock(side_effect=RuntimeError("api down"))
@@ -537,23 +562,6 @@ class TestReplLoop:
             repl.handle("show user")
         assert calls[-1].api_key == "fresh-key"
 
-    @pytest.mark.parametrize("line", [
-        "set api-key sk-secret", "show user --api-key sk-secret",
-        "tfa login --secret S -c 123", "!vastai set api-key sk-secret",
-        "tfa regen-codes --backup-code ABCD-EFGH", "tfa delete --code 456789",
-        "tfa auth-new -bc ABCD --code 123456",
-    ])
-    def test_credential_lines_are_kept_out_of_history(self, cli, session, line):
-        assert Repl(cli, session)._is_secret(line) is True
-
-    @pytest.mark.parametrize("line", [
-        "show user --api sk-secret",      # argparse accepts the abbreviation
-        "show user --api-key=sk-secret",  # and the inline form
-    ])
-    def test_an_abbreviated_key_option_is_still_a_secret(self, cli, session, line):
-        """`--api` reaches the API as a key, so it must not reach the history."""
-        assert Repl(cli, session)._is_secret(line) is True
-
     def test_a_removed_key_is_dropped_from_the_session(self, cli, session, tmp_path):
         """An expired 2FA session with nothing to fall back to: keeping the dead
         key would fail every later line with the same misleading error."""
@@ -577,10 +585,25 @@ class TestReplLoop:
             repl.handle("show user")
         assert repl.args.api_key == "flag-key"
 
+    def test_an_env_or_flag_key_outranks_a_later_file_key(self, cli, session, calls, tmp_path):
+        """$VAST_API_KEY and --api-key outrank the config file — the CLI says so
+        and `set api-key` warns about it, so the REPL must not switch either."""
+        api_file = tmp_path / "vast_api_key"
+        with patch("vastai.cli.repl.session.APIKEY_FILE", str(api_file)), \
+             patch("vastai.cli.repl.session.TFAKEY_FILE", str(tmp_path / "missing")):
+            session.api_key = "env-key"
+            repl = Repl(cli, session)
+            api_file.write_text("file-key")  # as `set api-key` would
+            repl.handle("show user")
+            repl.handle("show user")
+        assert repl.args.api_key == "env-key"
+        assert calls[-1].api_key == "env-key"
+
     def test_changing_the_key_clears_cached_completions(self, cli, session, tmp_path):
         api_file = tmp_path / "vast_api_key"
         with patch("vastai.cli.repl.session.APIKEY_FILE", str(api_file)), \
              patch("vastai.cli.repl.session.TFAKEY_FILE", str(tmp_path / "missing")):
+            session.api_key = None
             repl = Repl(cli, session)
             repl.completer.values._cache[object()] = (0.0, ["stale"])
             api_file.write_text("fresh-key")
@@ -597,6 +620,3 @@ class TestReplLoop:
         assert args.curl is False and args.explain is False and args.raw is False
         assert args.api_key == "session-key"
 
-    @pytest.mark.parametrize("line", ["show instances", "search offers 'gpu_name=RTX_4090'"])
-    def test_ordinary_lines_are_remembered(self, cli, session, line):
-        assert Repl(cli, session)._is_secret(line) is False

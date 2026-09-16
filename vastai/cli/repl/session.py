@@ -19,7 +19,7 @@ import textwrap
 from vastai.cli.repl.bridge import run_line
 from vastai.cli.repl.catalog import CommandCatalog
 from vastai.cli.repl.completion import ReplCompleter
-from vastai.cli.util import DIRS
+from vastai.cli.util import APIKEY_FILE, DIRS, TFAKEY_FILE
 
 HISTORY_FILE = os.path.join(DIRS["state"], "repl_history")
 HISTORY_LENGTH = 1000
@@ -28,6 +28,13 @@ HISTORY_LENGTH = 1000
 SESSION_FLAGS = ("raw", "explain", "curl", "full", "no_color")
 
 EXIT_WORDS = ("exit", "quit", "q")
+
+ON_VALUES = ("on", "true", "yes", "1")
+OFF_VALUES = ("off", "false", "no", "0")
+
+# Lines that carry a credential. They run normally but are kept out of the
+# history file, which is plain text on disk and readable via `:history`.
+SECRET_FRAGMENTS = ("set api-key", "tfa login", "--api-key", "--secret", "--backup-code")
 
 META_COMMANDS = (":help", ":set", ":history", ":clear", ":quit")
 
@@ -56,6 +63,8 @@ class Repl:
         # A copy: `:set raw on` is the session's business, not the caller's.
         self.args = copy.copy(session_args)
         self.out = stdout or sys.stdout
+        self.failures = 0
+        self._stored_key = _stored_api_key()
         self.catalog = CommandCatalog(parser)
         self.completer = ReplCompleter(
             self.catalog,
@@ -87,8 +96,11 @@ class Repl:
         # (`--version`) names no command and goes straight to the parser.
         if tokens and self.catalog.resolve(tokens) is None:
             self._unknown(tokens)
+            self.failures += 1
             return True
-        run_line(self.parser, s, self.args)
+        if run_line(self.parser, s, self.args):
+            self.failures += 1
+        self._refresh_credentials()
         return True
 
     def _unknown(self, tokens):
@@ -148,7 +160,13 @@ class Repl:
                         f"{', '.join(_dashed(f) for f in SESSION_FLAGS)})")
             return
         if len(parts) > 1:
-            value = parts[1].lower() in ("on", "true", "yes", "1")
+            if parts[1].lower() in ON_VALUES:
+                value = True
+            elif parts[1].lower() in OFF_VALUES:
+                value = False
+            else:  # never let a typo silently turn a flag off
+                self._print(f"expected on or off, not '{parts[1]}'")
+                return
         else:
             value = not getattr(self.args, flag, False)
         setattr(self.args, flag, value)
@@ -174,6 +192,18 @@ class Repl:
     def _clear(self):
         subprocess.call("cls" if os.name == "nt" else "clear", shell=True)
 
+    def _refresh_credentials(self):
+        """Pick up a key written mid-session by `set api-key` or `tfa login`.
+
+        Those commands write the config file but not our namespace, so without
+        this the session would keep sending the key it started with — often
+        none at all, leaving every later line to fail on auth.
+        """
+        key = _stored_api_key()
+        if key is not None and key != self._stored_key:
+            self._stored_key = key
+            self.args.api_key = key
+
     def _print(self, text):
         print(text, file=self.out)
 
@@ -196,19 +226,22 @@ class Repl:
             except EOFError:
                 self._print("")
                 break
+            if _is_secret(line):
+                _forget_last_history_entry()  # a key must not reach the disk
             if not self.handle(line):
                 break
         _save_history()
         return 0
 
     def run_script(self, stream):
-        """Non-interactive input (a pipe or a heredoc): run each line, no prompt."""
+        """Non-interactive input (a pipe or a heredoc): run each line, no
+        prompt. Returns nonzero if any line failed, so CI can see it."""
         for line in stream:
             keep_going = self.handle(line)
             sys.stdout.flush()
             if not keep_going:
                 break
-        return 0
+        return 1 if self.failures else 0
 
     def _setup_terminal(self):
         self._wire_live_completions()
@@ -242,6 +275,32 @@ def _dashed(flag):
     return flag.replace("_", "-")
 
 
+def _is_secret(line):
+    """Whether a line carries a credential that must not be written to disk."""
+    lowered = line.lower()
+    return any(fragment in lowered for fragment in SECRET_FRAGMENTS)
+
+
+def _forget_last_history_entry():
+    try:
+        import readline
+        length = readline.get_current_history_length()
+        if length:
+            readline.remove_history_item(length - 1)
+    except (ImportError, ValueError):
+        pass
+
+
+def _stored_api_key():
+    """The key on disk right now, resolved as the one-shot CLI resolves it."""
+    path = TFAKEY_FILE if os.path.exists(TFAKEY_FILE) else APIKEY_FILE
+    try:
+        with open(path, "r") as reader:
+            return reader.read().strip() or None
+    except OSError:
+        return None
+
+
 def _save_history():
     try:
         import readline
@@ -252,4 +311,6 @@ def _save_history():
 
 def run_repl(args):
     from vastai.cli.main import parser
-    Repl(parser, args).run()
+    # A clean session returns None, not 0: main.run_command prints any non-None
+    # result under --raw, and an exit code is not command output.
+    return Repl(parser, args).run() or None

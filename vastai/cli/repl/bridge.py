@@ -21,27 +21,31 @@ SESSION_GLOBALS = (
     "api_key", "url", "retry", "explain", "curl", "raw", "full", "no_color",
 )
 
+# Outcomes of an expired-2FA-session recovery attempt.
+RETRY = "retry"      # a fresh key was loaded; run the command again
+HANDLED = "handled"  # the expiry was reported; don't report it twice
+
 
 def run_line(parser, line, session_args):
-    """Parse and execute one command line. Returns the command's return value,
-    or None if the line failed to parse or the command errored."""
+    """Parse and execute one command line, returning its exit status (0 when
+    the line ran cleanly), so a piped script can fail the way a shell would."""
     try:
         argv = shlex.split(line)
     except ValueError as exc:
         print(f"parse error: {exc}", file=sys.stderr)
-        return None
+        return 1
     if not argv:
-        return None
+        return 0
 
     try:
         args = parser.parse_args(argv)
-    except SystemExit:
-        return None  # argparse already printed usage or an error
+    except SystemExit as exc:
+        return _status(exc.code)  # argparse already printed usage or an error
 
     apply_session_globals(parser, args, session_args, argv)
     func = getattr(args, "func", None)
     if func is None:
-        return None
+        return 0
     return _invoke(args, func, session_args)
 
 
@@ -76,45 +80,59 @@ def explicit_dests(parser, argv):
 def _invoke(args, func, session_args=None):
     try:
         res = func(args)
-    except SystemExit:
+    except SystemExit as exc:
         # Commands (and --help) exit the process in one-shot mode; here that
-        # just ends the line.
-        return None
+        # just ends the line, keeping whatever status they asked for.
+        return _status(exc.code)
     except requests.exceptions.HTTPError as exc:
-        if _recover_expired_tfa_session(args, exc, session_args):
+        outcome = _recover_expired_tfa_session(args, exc, session_args)
+        if outcome == RETRY:
             return _invoke(args, func)  # retry once, as the one-shot CLI does
-        _emit_http_error(args, exc)
-        return None
+        if outcome != HANDLED:
+            _emit_http_error(args, exc)
+        return 1
     except ValueError as exc:
         cli_main._emit_error(args, 0, str(exc))
-        return None
+        return 1
     except KeyboardInterrupt:
         print("^C", file=sys.stderr)
-        return None
+        return 1
     except Exception as exc:  # a broken command must not kill the session
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
-        return None
+        return 1
 
     if getattr(args, "raw", False) and res is not None:
         _print_raw(res)
-    return res
+    # By CLI convention a command returns its exit code; a payload is a success.
+    return res if isinstance(res, int) and not isinstance(res, bool) else 0
+
+
+def _status(code):
+    """An exit status from whatever SystemExit carried: None means success."""
+    if code is None:
+        return 0
+    return code if isinstance(code, int) else 1
 
 
 def _recover_expired_tfa_session(args, exc, session_args):
     """Fall back to the saved API key when a 2FA session expires, as
     ``main.run_command`` does — and keep the new key on the session, so the
-    rest of the REPL's lines work too rather than failing one by one."""
+    rest of the REPL's lines work too rather than failing one by one.
+
+    Returns RETRY, HANDLED (reported, nothing left to say) or None (not a 2FA
+    expiry, so the caller reports it).
+    """
     status, msg = _error_detail(exc)
     if not cli_main._is_tfa_session_expired(status, msg):
-        return False
+        return None
     if not os.path.exists(cli_main.TFAKEY_FILE):
-        return False
+        return None
 
     print(f"Failed with error {status}: Your 2FA session has expired.")
     os.remove(cli_main.TFAKEY_FILE)
     if not os.path.exists(cli_main.APIKEY_FILE):
         print("Run `vastai tfa login` to start a new 2FA session and try again.")
-        return False
+        return HANDLED
 
     with open(cli_main.APIKEY_FILE, "r") as reader:
         key = reader.read().strip()
@@ -123,7 +141,7 @@ def _recover_expired_tfa_session(args, exc, session_args):
         session_args.api_key = key
     print(f"Trying again with your normal API Key from {cli_main.APIKEY_FILE}...")
     print("To start a new 2FA session, run: vastai tfa login")
-    return True
+    return RETRY
 
 
 def _error_detail(exc):
@@ -133,6 +151,10 @@ def _error_detail(exc):
     try:
         msg = resp.json().get("msg")
     except (ValueError, AttributeError):
+        msg = None
+    if not isinstance(msg, str):
+        # A body that is valid JSON but carries no "msg" would otherwise hand
+        # None to _emit_error, which tests it with `in` and raises TypeError.
         msg = "Please log in or sign up" if status == 401 else "(no detail message supplied)"
     return status, msg
 

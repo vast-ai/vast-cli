@@ -11,7 +11,7 @@ from vastai.cli.parser import apwrap, argument, set_completers
 from vastai.cli.repl.bridge import apply_session_globals, run_line
 from vastai.cli.repl.catalog import CommandCatalog
 from vastai.cli.repl.completion import LiveValues, ReplCompleter
-from vastai.cli.repl.session import Repl
+from vastai.cli.repl.session import Repl, _is_secret
 
 
 @pytest.fixture
@@ -317,7 +317,7 @@ class TestSessionGlobals:
 
 class TestRunLine:
     def test_runs_the_command_with_session_globals(self, cli, session, calls):
-        assert run_line(cli, "destroy instance 7 --force", session) == {"destroyed": "7"}
+        assert run_line(cli, "destroy instance 7 --force", session) == 0
         assert calls[0].force is True
         assert calls[0].api_key == "session-key"
 
@@ -326,13 +326,16 @@ class TestRunLine:
         assert calls[0].id == "a b"
 
     def test_unbalanced_quotes_report_a_parse_error(self, cli, session, calls, capsys):
-        assert run_line(cli, "destroy instance 'oops", session) is None
+        assert run_line(cli, "destroy instance 'oops", session) == 1
         assert "parse error" in capsys.readouterr().err
         assert calls == []
 
     def test_a_usage_error_does_not_end_the_session(self, cli, session, calls):
-        assert run_line(cli, "destroy instance", session) is None
+        assert run_line(cli, "destroy instance", session) == 2  # argparse's code
         assert calls == []
+
+    def test_help_is_not_a_failure(self, cli, session):
+        assert run_line(cli, "show instances --help", session) == 0
 
     def test_raw_prints_the_result_as_json(self, cli, session, capsys):
         session.raw = True
@@ -344,7 +347,7 @@ class TestRunLine:
         response.json.return_value = {"msg": "forbidden"}
         cli.subparsers_.choices["show user"].set_defaults(
             func=MagicMock(side_effect=HTTPError(response=response)))
-        assert run_line(cli, "show user", session) is None
+        assert run_line(cli, "show user", session) == 1
         assert "Failed with error 403: forbidden" in capsys.readouterr().err
 
     def test_an_expired_2fa_session_falls_back_and_retries(self, cli, session, tmp_path, capsys):
@@ -363,7 +366,7 @@ class TestRunLine:
 
         with patch("vastai.cli.main.TFAKEY_FILE", str(tfa_file)), \
              patch("vastai.cli.main.APIKEY_FILE", str(api_file)):
-            assert run_line(cli, "show user", session) == {"ok": True}
+            assert run_line(cli, "show user", session) == 0
 
         assert func.call_count == 2
         assert not tfa_file.exists()
@@ -383,13 +386,46 @@ class TestRunLine:
 
         with patch("vastai.cli.main.TFAKEY_FILE", str(tfa_file)), \
              patch("vastai.cli.main.APIKEY_FILE", str(api_file)):
-            assert run_line(cli, "show user", session) is None
+            assert run_line(cli, "show user", session) == 1
         assert func.call_count == 2
+
+    def test_a_commands_exit_code_becomes_the_line_status(self, cli, session):
+        cli.subparsers_.choices["show user"].set_defaults(func=lambda args: 3)
+        assert run_line(cli, "show user", session) == 3
+
+    def test_an_expired_2fa_session_without_a_saved_key_reports_once(self, cli, session, tmp_path, capsys):
+        """main.run_command stops after explaining the expiry; reporting the raw
+        API error as well would say it twice (and mix text into --raw JSON)."""
+        tfa_file = tmp_path / "vast_tfa_key"
+        tfa_file.write_text("stale-tfa-key")
+        response = MagicMock(status_code=404)
+        response.json.return_value = {"msg": "Session expired. Please log in again."}
+        cli.subparsers_.choices["show user"].set_defaults(
+            func=MagicMock(side_effect=HTTPError(response=response)))
+
+        with patch("vastai.cli.main.TFAKEY_FILE", str(tfa_file)), \
+             patch("vastai.cli.main.APIKEY_FILE", str(tmp_path / "missing")):
+            assert run_line(cli, "show user", session) == 1
+
+        out, err = capsys.readouterr()
+        assert "Your 2FA session has expired." in out
+        assert "vastai tfa login" in out
+        assert "Session expired. Please log in again." not in err
+
+    def test_a_json_error_without_a_message_is_reported_not_raised(self, cli, session, capsys):
+        """A 401 body that parses but carries no 'msg' used to hand None to
+        _emit_error, whose `in` test raised TypeError and killed the session."""
+        response = MagicMock(status_code=401)
+        response.json.return_value = {}
+        cli.subparsers_.choices["show user"].set_defaults(
+            func=MagicMock(side_effect=HTTPError(response=response)))
+        assert run_line(cli, "show user", session) == 1
+        assert "Failed with error 401" in capsys.readouterr().err
 
     def test_an_unexpected_error_is_reported_not_raised(self, cli, session, capsys):
         cli.subparsers_.choices["show user"].set_defaults(
             func=MagicMock(side_effect=RuntimeError("boom")))
-        assert run_line(cli, "show user", session) is None
+        assert run_line(cli, "show user", session) == 1
         assert "RuntimeError: boom" in capsys.readouterr().err
 
 
@@ -435,6 +471,14 @@ class TestReplLoop:
         assert repl.args.explain is True
         assert session.explain is False
 
+    def test_set_rejects_a_value_that_is_neither_on_nor_off(self, cli, session, capsys):
+        """`:set raw onn` used to read as false and silently turn raw off."""
+        repl = Repl(cli, session)
+        repl.handle(":set raw on")
+        repl.handle(":set raw onn")
+        assert repl.args.raw is True
+        assert "expected on or off" in capsys.readouterr().out
+
     def test_set_rejects_an_unknown_flag(self, cli, session, capsys):
         Repl(cli, session).handle(":set nonsense on")
         assert "unknown flag 'nonsense'" in capsys.readouterr().out
@@ -460,3 +504,38 @@ class TestReplLoop:
     def test_piped_input_stops_at_an_exit_word(self, cli, session, calls):
         Repl(cli, session).run_script(["show instances\n", "exit\n", "show user\n"])
         assert len(calls) == 1
+
+    def test_a_clean_script_succeeds(self, cli, session):
+        assert Repl(cli, session).run_script(["show instances\n"]) == 0
+
+    def test_a_script_fails_if_any_line_failed(self, cli, session, capsys):
+        """`echo nonsense | vastai repl` must not look successful to CI."""
+        assert Repl(cli, session).run_script(["show instances\n", "nonsense\n"]) == 1
+
+    def test_a_failing_command_fails_the_script(self, cli, session):
+        cli.subparsers_.choices["show user"].set_defaults(func=lambda args: 2)
+        assert Repl(cli, session).run_script(["show user\n"]) == 1
+
+    def test_a_key_written_mid_session_is_picked_up(self, cli, session, calls, tmp_path):
+        """`set api-key` writes the config file, not our namespace: without a
+        refresh every later line would keep sending the key we started with."""
+        api_file = tmp_path / "vast_api_key"
+        with patch("vastai.cli.repl.session.APIKEY_FILE", str(api_file)), \
+             patch("vastai.cli.repl.session.TFAKEY_FILE", str(tmp_path / "missing")):
+            session.api_key = None
+            repl = Repl(cli, session)
+            api_file.write_text("fresh-key\n")  # as `set api-key` would
+            repl.handle("show user")
+            repl.handle("show user")
+        assert calls[-1].api_key == "fresh-key"
+
+    @pytest.mark.parametrize("line", [
+        "set api-key sk-secret", "show user --api-key sk-secret",
+        "tfa login --secret S -c 123", "!vastai set api-key sk-secret",
+    ])
+    def test_credential_lines_are_kept_out_of_history(self, line):
+        assert _is_secret(line) is True
+
+    @pytest.mark.parametrize("line", ["show instances", "search offers 'gpu_name=RTX_4090'"])
+    def test_ordinary_lines_are_remembered(self, line):
+        assert _is_secret(line) is False

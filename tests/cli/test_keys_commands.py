@@ -38,15 +38,67 @@ class TestShowApiKey:
         assert "/auth/apikeys/1/" in call_args[0][0]
 
 
+PUBLIC_KEY = "ssh-ed25519 NOT-REAL-KEY-MATERIAL user@host"
+
+# Only the "PRIVATE KEY" marker is inspected by get_ssh_key; no key material
+# needed, and none is committed.
+PRIVATE_KEY = "-----BEGIN OPENSSH PRIVATE KEY-----\nNOT-A-REAL-KEY\n-----END OPENSSH PRIVATE KEY-----\n"
+
+
 class TestCreateSshKey:
     def test_create_ssh_key(self, parse_argv, patch_get_client, mock_response, capsys):
         patch_get_client.post.return_value = mock_response(200, {"id": 1, "success": True})
-        args = parse_argv(["create", "ssh-key", "ssh-rsa AAAA... user@host"])
+        args = parse_argv(["create", "ssh-key", PUBLIC_KEY])
         args.func(args)
         patch_get_client.post.assert_called_once()
         call_args = patch_get_client.post.call_args
         assert "/ssh/" in call_args[0][0]
-        assert "ssh_key" in call_args[1]["json_data"]
+        # The key *material* must reach the API, not just the parameter name.
+        assert call_args[1]["json_data"]["ssh_key"] == PUBLIC_KEY
+
+    def test_create_ssh_key_reads_public_key_file(
+        self, parse_argv, patch_get_client, mock_response, tmp_path
+    ):
+        # `create ssh-key ~/.ssh/id_ed25519.pub` is the form the docs and this
+        # command's own help text prescribe.
+        key_file = tmp_path / "id_ed25519.pub"
+        key_file.write_text(PUBLIC_KEY + "\n")
+        patch_get_client.post.return_value = mock_response(200, {"id": 1, "success": True})
+
+        args = parse_argv(["create", "ssh-key", str(key_file)])
+        args.func(args)
+
+        # Exact match, not .strip(): get_ssh_key forwards file contents
+        # verbatim, trailing newline included, and that is what reaches the API.
+        sent = patch_get_client.post.call_args[1]["json_data"]["ssh_key"]
+        assert sent == PUBLIC_KEY + "\n"
+
+    def test_create_ssh_key_rejects_private_key(
+        self, parse_argv, patch_get_client, tmp_path
+    ):
+        key_file = tmp_path / "id_ed25519"
+        key_file.write_text(PRIVATE_KEY)
+
+        args = parse_argv(["create", "ssh-key", str(key_file)])
+        with pytest.raises(ValueError, match="private"):
+            args.func(args)
+        patch_get_client.post.assert_not_called()
+
+    def test_create_ssh_key_rejects_unreadable_path(
+        self, parse_argv, patch_get_client, tmp_path
+    ):
+        # Bare OSError subclasses (IsADirectoryError, PermissionError) escape
+        # main()'s handlers and print a traceback; ValueError renders cleanly.
+        args = parse_argv(["create", "ssh-key", str(tmp_path)])
+        with pytest.raises(ValueError, match="Couldn't read"):
+            args.func(args)
+        patch_get_client.post.assert_not_called()
+
+    def test_create_ssh_key_rejects_non_key_string(self, parse_argv, patch_get_client):
+        args = parse_argv(["create", "ssh-key", "/does/not/exist/id_ed25519.pub"])
+        with pytest.raises(ValueError, match="SSH public key"):
+            args.func(args)
+        patch_get_client.post.assert_not_called()
 
 
 class TestDeleteSshKey:

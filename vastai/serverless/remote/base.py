@@ -12,7 +12,56 @@ from typing import (
 )
 from typing_extensions import Unpack
 from vastai.data import Query
+import dataclasses
 from dataclasses import dataclass
+
+
+class RemoteOptionsDict(TypedDict, total=False):
+    """Keyword options accepted by ``@Deployment.remote``.
+
+    Declared once so deploy mode and serve mode cannot drift apart. Keep the
+    keys in sync with :class:`RemoteOptions`; a test asserts they match.
+    """
+
+    benchmark_dataset: Optional[list[dict]]
+    benchmark_generator: Optional[Callable[[], dict]]
+    benchmark_runs: int
+    workload_calculator: Optional[Callable[..., float]]
+    allow_parallel_requests: bool
+    max_queue_time: Optional[float]
+
+
+@dataclass(frozen=True)
+class RemoteOptions:
+    """Resolved ``@remote`` options, with defaults applied."""
+
+    benchmark_dataset: Optional[list[dict]] = None
+    benchmark_generator: Optional[Callable[[], dict]] = None
+    benchmark_runs: int = 10
+    workload_calculator: Optional[Callable[..., float]] = None
+    # Serve-mode behaviour. These are read on the worker when it re-imports the
+    # deployment module, but they must be accepted in deploy mode too or the
+    # decorator raises before the code is ever packaged.
+    allow_parallel_requests: bool = False
+    max_queue_time: Optional[float] = 30.0
+
+    @classmethod
+    def field_names(cls) -> frozenset[str]:
+        return frozenset(f.name for f in dataclasses.fields(cls))
+
+    @classmethod
+    def from_kwargs(cls, **kwargs: Unpack[RemoteOptionsDict]) -> "RemoteOptions":
+        """Build options from decorator kwargs, rejecting unknown keys clearly."""
+        known = cls.field_names()
+        unknown = set(kwargs) - known
+        if unknown:
+            raise TypeError(
+                "@remote() got unexpected keyword argument(s): "
+                + ", ".join(sorted(unknown))
+                + ". Valid options: "
+                + ", ".join(sorted(known))
+            )
+        return cls(**kwargs)  # type: ignore[arg-type]
 
 
 class DockerLogin(TypedDict, total=False):
@@ -193,11 +242,7 @@ class Deployment_(ABC):
     def remote(
         self,
         f: Callable[P, Awaitable[Any]] | None = None,
-        *,
-        benchmark_dataset: list[dict] | None = None,
-        benchmark_generator: Callable[[], dict] | None = None,
-        benchmark_runs: int = 10,
-        workload_calculator: Callable[..., float] | None = None,
+        **opts: Unpack[RemoteOptionsDict],
     ) -> (
         Callable[P, Awaitable[Any]]
         | Callable[[Callable[P, Awaitable[Any]]], Callable[P, Awaitable[Any]]]

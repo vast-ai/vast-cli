@@ -62,6 +62,12 @@ LOG_POLL_INTERVAL = 0.1
 SESSION_GC_INTERVAL = 5.0
 BENCHMARK_INDICATOR_FILE = ".has_benchmark"
 MAX_PUBKEY_FETCH_ATTEMPTS = 5
+# How often the event-loop watchdog checks whether its own sleep returned late.
+LOOP_LAG_PROBE_INTERVAL = 0.5
+# Stalls above this are reported. Generous enough not to fire on ordinary GC
+# pauses or a burst of deserialization, tight enough to catch a blocking
+# remote function well before the autoscaler gives up on the worker.
+LOOP_LAG_WARN_SECONDS = float(os.environ.get("VAST_LOOP_LAG_WARN", "5.0"))
 
 
 @dataclasses.dataclass
@@ -435,11 +441,45 @@ class Backend:
         """use this function to forward requests to the model endpoint"""
         try:
             data = await request.json()
+            # The client nests the expected deployment version alongside its
+            # kwargs. Strip it before the payload is parsed, or it would be
+            # splatted into the remote function as an unexpected keyword
+            # argument. Only deployments send it, so plain PyWorker payloads
+            # are left untouched.
+            expected_version = None
+            if handler.remote_function is not None and isinstance(
+                data.get("payload"), dict
+            ):
+                expected_version = data["payload"].pop("expect_version_id", None)
             auth_data, payload, session_id = handler.get_data_from_request(data)
         except JsonDataException as e:
             return web.json_response(data=e.message, status=422)
         except json.JSONDecodeError:
             return web.json_response(dict(error="invalid JSON"), status=422)
+
+        # A rolling update leaves old and new workers serving side by side. If
+        # the caller told us which version it expects, refuse the request rather
+        # than answering with superseded code -- the client treats 409 as
+        # retryable and re-routes to a worker that has finished updating.
+        mine = self.metrics.deployment_version_id
+        if (
+            expected_version is not None
+            and mine is not None
+            and int(expected_version) != int(mine)
+        ):
+            log.debug(
+                f"Rejecting request for version {expected_version}; "
+                f"this worker serves {mine}"
+            )
+            return web.json_response(
+                {
+                    "error": "deployment version mismatch",
+                    "expected": int(expected_version),
+                    "serving": int(mine),
+                },
+                status=409,
+            )
+
         workload = payload.count_workload()
         request_metrics: RequestMetrics = RequestMetrics(
             request_idx=auth_data.request_idx,
@@ -486,10 +526,15 @@ class Backend:
                     # fake ClientResponse → generate_client_response path
                     # to avoid double-serialization of large payloads.
                     remote_func_params = payload.generate_payload_json()
+                    started = time.monotonic()
                     result = await handler.call_remote_dispatch_function(
                         params=remote_func_params
                     )
-                    res = web.json_response({"result": result})
+                    # Attach worker identity so the caller can see where the
+                    # call ran without smuggling it through its own payload.
+                    res = web.json_response(
+                        {"result": result, "meta": self.__call_meta(started)}
+                    )
                 else:
                     response = await self.__call_backend(
                         handler=handler, payload=payload
@@ -651,6 +696,7 @@ class Backend:
                 self.__healthcheck(),
                 self.metrics._send_delete_requests_loop(),
                 self.__session_gc_loop(),
+                self.__loop_lag_watchdog(),
             )
         else:
             await gather(
@@ -660,6 +706,45 @@ class Backend:
                 self.__healthcheck(),
                 self.metrics._send_delete_requests_loop(),
                 self.__session_gc_loop(),
+                self.__loop_lag_watchdog(),
+            )
+
+    def __call_meta(self, started: float) -> Dict[str, Any]:
+        """Identity/diagnostics returned alongside a remote function result."""
+        return {
+            "worker_id": self.metrics.id,
+            "gpu": os.environ.get("GPU_NAME"),
+            "deployment_version_id": self.metrics.deployment_version_id,
+            "duration_ms": round((time.monotonic() - started) * 1000, 1),
+            "warnings": sorted(self.metrics.warnings),
+        }
+
+    async def __loop_lag_watchdog(self) -> NoReturn:
+        """Detect a remote function that is blocking the event loop.
+
+        Synchronous work inside an ``async def`` handler holds the loop for its
+        whole duration. Requests still succeed, so nothing looks wrong from the
+        client, but neither this task nor the metrics reporter can run on time --
+        the worker stops sending ``/worker_status/`` and the autoscaler may
+        reclaim it as unhealthy while it is in fact busy and making progress.
+
+        Measuring how late our own sleep returns detects that directly and
+        cheaply.
+        """
+        while True:
+            started = time.monotonic()
+            await sleep(LOOP_LAG_PROBE_INTERVAL)
+            lag = (time.monotonic() - started) - LOOP_LAG_PROBE_INTERVAL
+            if lag <= LOOP_LAG_WARN_SECONDS:
+                continue
+            self.metrics.record_loop_lag(lag)
+            log.warning(
+                f"Event loop blocked for {lag:.1f}s (threshold "
+                f"{LOOP_LAG_WARN_SECONDS:.1f}s). Synchronous work in a remote "
+                f"function starves this worker's health reporting and it may be "
+                f"reclaimed mid-request. Define the function with plain `def` "
+                f"so it is threaded automatically, or wrap the blocking call in "
+                f"`asyncio.to_thread(...)`."
             )
 
     async def __lifecycle_startup(self) -> None:

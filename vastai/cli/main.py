@@ -98,6 +98,7 @@ def main():
         billing, storage, auth, misc, deployments, metrics,
         benchmarks,
         price_increase,
+        repl,
         update,
         uninstall,
         # clusters,  # cluster/overlay commands disabled for now

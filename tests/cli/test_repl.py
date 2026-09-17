@@ -1,0 +1,667 @@
+"""Tests for the `vastai repl` interactive shell (vastai/cli/repl/)."""
+
+import argparse
+import time
+from unittest.mock import MagicMock, patch
+
+import pytest
+from requests.exceptions import HTTPError
+
+from vastai.cli import parser as parser_mod
+from vastai.cli.parser import apwrap, argument, is_hidden_command, set_completers
+from vastai.cli.repl.bridge import apply_session_globals, run_line
+from vastai.cli.repl.catalog import CommandCatalog
+from vastai.cli.repl.completion import LiveValues, ReplCompleter
+from vastai.cli.repl.bridge import tokenize
+from vastai.cli.repl.session import Repl
+
+
+@pytest.fixture
+def cli(calls):
+    """A miniature stand-in for the real CLI parser: two-word commands, a bare
+    command that also acts as a verb, and the global options main() adds."""
+    p = apwrap()
+
+    @p.command(argument("id"), argument("--force", action="store_true"), help="destroy an instance")
+    def destroy__instance(args):
+        calls.append(args)
+        return {"destroyed": args.id}
+
+    @p.command(argument("--verification", nargs="+", choices=["verified", "unverified"]),
+               argument("-g", "--gpu-name", choices=["RTX_4090", "H100"]),
+               argument("--cols"),  # clashes with the global --curl under `--c`
+               help="show instances")
+    def show__instances(args):
+        calls.append(args)
+        return [{"id": 1}]
+
+    @p.command(help="show the user")
+    def show__user(args):
+        calls.append(args)
+
+    @p.command(argument("--status", choices=["running", "stopped"]), help="update an instance")
+    def update__instance(args):
+        calls.append(args)
+
+    @p.command(argument("--check", action="store_true"), help="update the CLI")
+    def update(args):
+        calls.append(args)
+
+    @p.command(argument("id"), argument("ssh_key"), help="update an ssh key")
+    def update__ssh_key(args):
+        calls.append(args)
+
+    @p.command(argument("--args", nargs=argparse.REMAINDER), help="run a container")
+    def run__container(args):
+        calls.append(args)
+
+    @p.command(argument("text"), help="a bare command that takes an argument")
+    def label(args):
+        calls.append(args)
+
+    @p.command(argument("id"), help="label an instance")
+    def label__instance(args):
+        calls.append(args)
+
+    # Mirrors main(): globals go on the root parser and, suppressed, on every
+    # subparser, so a flag works before or after the command name.
+    p.add_argument("--url", default="https://console.vast.ai")
+    p.add_argument("--retry", type=int, default=3)
+    p.add_argument("--raw", action="store_true")
+    p.add_argument("--explain", action="store_true")
+    p.add_argument("--curl", action="store_true")
+    p.add_argument("--full", action="store_true")
+    p.add_argument("--no-color", action="store_true")
+    p.add_argument("--api-key", default=None)
+    return p
+
+
+@pytest.fixture
+def calls():
+    """Args namespaces the fixture commands were invoked with."""
+    return []
+
+
+@pytest.fixture
+def catalog(cli):
+    return CommandCatalog(cli)
+
+
+@pytest.fixture
+def session():
+    """A resolved session namespace, as `vastai repl` itself was parsed into."""
+    return argparse.Namespace(
+        api_key="session-key", url="https://console.vast.ai", retry=3,
+        raw=False, explain=False, curl=False, full=False, no_color=False,
+    )
+
+
+@pytest.fixture
+def instance_ids():
+    """Stub the parser's live-id completers; restore the real ones afterwards."""
+    saved = (parser_mod._complete_instance, parser_mod._complete_instance_machine)
+    set_completers(instance_fn=lambda **kw: ["100", "101", "220"],
+                   instance_machine_fn=lambda **kw: ["900"])
+    yield
+    parser_mod._complete_instance, parser_mod._complete_instance_machine = saved
+
+
+class TestDiscoverability:
+    def test_repl_is_hidden_until_it_is_announced(self):
+        """Hidden from --help and tab completion while it is tested internally.
+        That is a discoverability gate, not an access gate: `vastai repl` still
+        runs when typed. Drop the HIDDEN_COMMANDS entry to announce it."""
+        assert is_hidden_command("repl") is True
+
+
+class TestCommandCatalog:
+    def test_lists_verbs_and_bare_commands(self, catalog):
+        assert {"show", "destroy", "update"} <= set(catalog.first_words)
+
+    def test_objects_of_a_verb(self, catalog):
+        assert catalog.objects("show") == ["instances", "user"]
+
+    def test_resolves_verb_and_object(self, catalog):
+        assert catalog.resolve(["show", "instances"]) == "show instances"
+
+    def test_resolves_bare_command(self, catalog):
+        assert catalog.resolve(["update", "--check"]) == "update"
+
+    def test_verb_never_absorbs_a_flag(self, catalog):
+        """`update` is both a verb and a bare command, mirroring the real CLI."""
+        assert catalog.resolve(["update", "instance"]) == "update instance"
+        assert catalog.resolve(["update", "--status", "running"]) == "update"
+
+    def test_bare_verb_resolves_to_nothing(self, catalog):
+        assert catalog.resolve(["show"]) is None
+
+    def test_unknown_resolves_to_nothing(self, catalog):
+        assert catalog.resolve(["shwo", "instances"]) is None
+        assert catalog.resolve([]) is None
+
+    def test_suggests_objects_for_a_misspelled_one(self, catalog):
+        assert catalog.suggest(["show", "instanes"]) == ["show instances"]
+
+    def test_suggests_every_object_for_a_bare_verb(self, catalog):
+        assert catalog.suggest(["show"]) == ["show instances", "show user"]
+
+    def test_suggests_near_misses_for_a_misspelled_verb(self, catalog):
+        assert "show instances" in catalog.suggest(["shwo", "instances"])
+
+    def test_flags_include_command_and_global_options(self, catalog):
+        flags = catalog.flags("destroy instance")
+        assert "--force" in flags and "--raw" in flags
+
+    def test_flags_are_cached(self, catalog):
+        assert catalog.flags("show user") is catalog.flags("show user")
+
+    def test_an_unknown_object_does_not_fall_back_to_the_bare_verb(self, catalog):
+        """`update bogus` must not resolve to `update`, or argparse answers a
+        typo by printing all ~150 command names."""
+        assert catalog.resolve(["update", "bogus"]) is None
+
+    def test_a_bare_command_may_still_take_an_argument(self, catalog):
+        assert catalog.resolve(["label", "hello"]) == "label"
+
+    def test_a_hidden_command_still_resolves(self, cli, catalog):
+        """Hidden commands are gated from discovery, not from use: the REPL must
+        run one that is typed, the way the one-shot CLI does."""
+        cli.subparsers_.choices["destroy instance"].hidden = True
+        fresh = CommandCatalog(cli)
+        assert fresh.resolve(["destroy", "instance"]) == "destroy instance"
+        assert "destroy" not in fresh.verbs  # but not offered by completion
+        assert fresh.suggest(["destroy"]) != ["destroy instance"]
+
+    def test_strips_leading_global_options(self, catalog):
+        assert catalog.strip_options(["--raw", "show", "user"]) == ["show", "user"]
+        assert catalog.strip_options(["--url", "https://x", "show", "user"]) == ["show", "user"]
+        assert catalog.strip_options(["--url=https://x", "show"]) == ["show"]
+
+    def test_leaves_a_line_without_leading_options_alone(self, catalog):
+        assert catalog.strip_options(["show", "instances", "--raw"]) == ["show", "instances", "--raw"]
+
+    def test_resolves_a_command_behind_leading_globals(self, catalog):
+        assert catalog.resolve(catalog.strip_options(["--raw", "show", "user"])) == "show user"
+
+    def test_option_looks_up_short_aliases(self, catalog):
+        assert catalog.option("show instances", "-g") is catalog.flags("show instances")["--gpu-name"]
+
+    def test_option_looks_up_abbreviations_and_inline_values(self, catalog):
+        assert catalog.option("show instances", "--gpu") is not None
+        assert catalog.option("show instances", "--gpu-name=H100") is not None
+
+    def test_positional_completer_is_indexed(self, catalog):
+        """`update ssh-key <id> <key>`: each positional has its own completer."""
+        first = catalog.positional_completer("update ssh-key", 0)
+        second = catalog.positional_completer("update ssh-key", 1)
+        assert first is not None and second is not None and first is not second
+
+    def test_no_positional_completer_past_the_last_positional(self, catalog):
+        assert catalog.positional_completer("update ssh-key", 2) is None
+
+    def test_no_positional_completer_without_a_positional(self, catalog):
+        assert catalog.positional_completer("show instances") is None
+
+
+class TestLiveValues:
+    def test_filters_by_prefix(self):
+        values = LiveValues(clock=lambda: 0.0)
+        assert values.matching(lambda prefix: ["100", "101", "220"], "10") == ["100", "101"]
+
+    def test_fetches_once_within_the_ttl(self):
+        completer = MagicMock(return_value=["100"])
+        values = LiveValues(ttl=30, clock=lambda: 0.0)
+        values.matching(completer, "")
+        values.matching(completer, "1")
+        assert completer.call_count == 1
+
+    def test_refetches_after_the_ttl(self):
+        now = [0.0]
+        completer = MagicMock(return_value=["100"])
+        values = LiveValues(ttl=30, clock=lambda: now[0])
+        values.matching(completer, "")
+        now[0] = 31.0
+        values.matching(completer, "")
+        assert completer.call_count == 2
+
+    def test_a_slow_completer_does_not_block_the_prompt(self):
+        """The API client allows 120s per request; a Tab press must not wait."""
+        import threading
+        release = threading.Event()
+
+        def slow(prefix=""):
+            release.wait(5)
+            return ["100"]
+
+        values = LiveValues(ttl=30, budget=0.05)
+        started = time.monotonic()
+        assert values.matching(slow, "") == []
+        assert time.monotonic() - started < 2  # returned without waiting it out
+
+        release.set()
+        for _ in range(100):  # the worker's result lands in the cache
+            if values.matching(slow, "") == ["100"]:
+                break
+            time.sleep(0.02)
+        assert values.matching(slow, "") == ["100"]
+
+    def test_a_fetch_started_before_clear_is_discarded(self):
+        """Its ids belong to the account the session has just left."""
+        import threading
+        release = threading.Event()
+
+        def slow(prefix=""):
+            release.wait(5)
+            return ["100"]
+
+        values = LiveValues(ttl=30, budget=0.05)
+        assert values.matching(slow, "") == []
+        values.clear()  # e.g. `set api-key` switched accounts
+        release.set()
+        time.sleep(0.2)
+        assert values._cache == {}
+
+    def test_a_failing_completer_yields_nothing_and_is_not_retried(self):
+        completer = MagicMock(side_effect=RuntimeError("api down"))
+        values = LiveValues(ttl=30, clock=lambda: 0.0)
+        assert values.matching(completer, "") == []
+        values.matching(completer, "")
+        assert completer.call_count == 1
+
+
+class TestCompletion:
+    def _completer(self, catalog):
+        return ReplCompleter(catalog)
+
+    def test_completes_the_first_word(self, catalog):
+        assert self._completer(catalog).suggestions("sh") == ["show"]
+
+    def test_completes_objects_after_a_verb(self, catalog):
+        assert self._completer(catalog).suggestions("show ") == ["instances", "user"]
+
+    def test_completes_a_partial_object(self, catalog):
+        assert self._completer(catalog).suggestions("show inst") == ["instances"]
+
+    def test_completes_flags_of_the_resolved_command(self, catalog):
+        assert self._completer(catalog).suggestions("destroy instance 5 --f") == ["--force", "--full"]
+
+    def test_completes_global_flags_too(self, catalog):
+        assert "--raw" in self._completer(catalog).suggestions("show instances --r")
+
+    def test_completes_flags_of_a_bare_command(self, catalog):
+        assert self._completer(catalog).suggestions("update --c") == ["--check", "--curl"]
+
+    def test_completes_a_flags_choices(self, catalog):
+        assert self._completer(catalog).suggestions("update instance --status ") == ["running", "stopped"]
+
+    def test_completes_live_ids_for_a_positional(self, catalog, instance_ids):
+        assert self._completer(catalog).suggestions("destroy instance 1") == ["100", "101"]
+
+    def test_completes_choices_of_a_short_alias(self, catalog):
+        assert self._completer(catalog).suggestions("show instances -g ") == ["H100", "RTX_4090"]
+
+    def test_a_multi_value_option_keeps_offering_choices(self, catalog):
+        """`--verification` takes nargs='+', so the second value completes too."""
+        assert self._completer(catalog).suggestions(
+            "show instances --verification verified ") == ["unverified", "verified"]
+
+    def test_a_single_value_option_stops_after_its_value(self, catalog, instance_ids):
+        assert self._completer(catalog).suggestions("show instances -g H100 ") == []
+
+    def test_completes_the_second_positional_with_its_own_completer(self, catalog, instance_ids):
+        """`update ssh-key <id> <tab>` offers key paths, not instance ids again."""
+        completer = self._completer(catalog)
+        assert completer.suggestions("update ssh-key 1") == ["100", "101"]
+        assert "100" not in completer.suggestions("update ssh-key 100 1")
+
+    def test_completes_behind_leading_global_options(self, catalog):
+        assert self._completer(catalog).suggestions("--raw show ") == ["instances", "user"]
+
+    def test_a_valueless_flag_does_not_swallow_the_positional(self, catalog, instance_ids):
+        assert self._completer(catalog).suggestions("destroy instance --force 1") == ["100", "101"]
+
+    def test_completes_nothing_for_an_unknown_command(self, catalog):
+        assert self._completer(catalog).suggestions("nonsense ") == []
+
+
+    def test_readline_protocol_returns_one_match_per_state(self, catalog):
+        completer = self._completer(catalog)
+        completer.matches = []
+        assert completer.complete("sh", 0) == "show"
+        assert completer.complete("sh", 1) is None
+
+
+class TestSessionGlobals:
+    def test_session_values_apply_to_a_bare_line(self, cli, session):
+        session.raw = True
+        args = cli.parse_args(["show", "instances"])
+        apply_session_globals(cli, args, session)
+        assert args.raw is True
+        assert args.api_key == "session-key"
+
+    def test_a_flag_typed_on_the_line_wins(self, cli, session):
+        argv = ["show", "instances", "--url", "https://other"]
+        args = cli.parse_args(argv)
+        apply_session_globals(cli, args, session, argv)
+        assert args.url == "https://other"
+
+    def test_a_line_flag_wins_even_when_it_equals_the_default(self, cli, session):
+        """`vastai --retry 10 repl` then `show instances --retry 3`: the typed 3
+        must survive, though it is also the parser's default."""
+        session.retry = 10
+        argv = ["show", "instances", "--retry", "3"]
+        args = cli.parse_args(argv)
+        apply_session_globals(cli, args, session, argv)
+        assert args.retry == 3
+
+    def test_options_after_a_remainder_belong_to_the_command(self, cli, session):
+        """`create instance --args --raw` passes --raw to the container, so the
+        session's raw flag still applies to the line itself."""
+        session.raw = True
+        argv = ["run", "container", "--args", "--raw", "-x"]
+        args = cli.parse_args(argv)
+        apply_session_globals(cli, args, session, argv)
+        assert args.raw is True
+
+    def test_an_abbreviated_leading_global_still_wins(self, cli, session):
+        """`--c` is unambiguously --curl before the command, though the command
+        itself also has --cols; argparse takes it, so we must too."""
+        session.curl = False
+        argv = ["--c", "show", "instances"]
+        args = cli.parse_args(argv)
+        assert args.curl is True  # argparse resolved it against the root parser
+        apply_session_globals(cli, args, session, argv)
+        assert args.curl is True
+
+    def test_a_leading_options_value_is_not_the_command(self, cli, session):
+        session.url = "https://session"
+        argv = ["--url", "https://typed", "show", "instances"]
+        args = cli.parse_args(argv)
+        apply_session_globals(cli, args, session, argv)
+        assert args.url == "https://typed"
+
+    def test_an_inline_value_counts_as_typed(self, cli, session):
+        session.url = "https://session"
+        argv = ["show", "instances", "--url=https://console.vast.ai"]
+        args = cli.parse_args(argv)
+        apply_session_globals(cli, args, session, argv)
+        assert args.url == "https://console.vast.ai"
+
+
+class TestTokenize:
+    def test_posix_rules_by_default(self):
+        assert tokenize("search offers 'gpu_name=RTX_4090'") == ["search", "offers", "gpu_name=RTX_4090"]
+
+    def test_windows_keeps_backslashes(self):
+        """A backslash is a path separator there, not an escape: POSIX rules
+        would turn C:\\tmp\\go.sh into C:tmpgo.sh."""
+        with patch("vastai.cli.repl.bridge.os.name", "nt"):
+            assert tokenize(r"create instance --onstart C:\tmp\go.sh") == [
+                "create", "instance", "--onstart", r"C:\tmp\go.sh"]
+
+    def test_windows_still_honours_quotes(self):
+        with patch("vastai.cli.repl.bridge.os.name", "nt"):
+            assert tokenize("search offers 'gpu_name=RTX_4090'") == [
+                "search", "offers", "gpu_name=RTX_4090"]
+
+    def test_windows_reports_unbalanced_quotes(self):
+        with patch("vastai.cli.repl.bridge.os.name", "nt"):
+            with pytest.raises(ValueError):
+                tokenize("destroy instance 'oops")
+
+
+class TestRunLine:
+    def test_runs_the_command_with_session_globals(self, cli, session, calls):
+        assert run_line(cli, "destroy instance 7 --force", session) == {"destroyed": "7"}
+        assert calls[0].force is True
+        assert calls[0].api_key == "session-key"
+
+    def test_quoted_arguments_are_split_like_a_shell(self, cli, session, calls):
+        run_line(cli, "destroy instance 'a b'", session)
+        assert calls[0].id == "a b"
+
+    def test_unbalanced_quotes_report_a_parse_error(self, cli, session, calls, capsys):
+        assert run_line(cli, "destroy instance 'oops", session) is None
+        assert "parse error" in capsys.readouterr().err
+        assert calls == []
+
+    def test_a_usage_error_does_not_end_the_session(self, cli, session, calls):
+        assert run_line(cli, "destroy instance", session) is None
+        assert calls == []
+
+
+    def test_raw_prints_the_result_as_json(self, cli, session, capsys):
+        session.raw = True
+        run_line(cli, "show instances", session)
+        assert '"id": 1' in capsys.readouterr().out
+
+    def test_an_api_error_is_reported_not_raised(self, cli, session, capsys):
+        response = MagicMock(status_code=403)
+        response.json.return_value = {"msg": "forbidden"}
+        cli.subparsers_.choices["show user"].set_defaults(
+            func=MagicMock(side_effect=HTTPError(response=response)))
+        assert run_line(cli, "show user", session) is None
+        assert "Failed with error 403: forbidden" in capsys.readouterr().err
+
+    def test_an_expired_2fa_session_falls_back_and_retries(self, cli, session, tmp_path, capsys):
+        """The one-shot CLI recovers from an expired 2FA session; so must the
+        REPL, or the advertised same-auth promise breaks mid-session."""
+        tfa_file = tmp_path / "vast_tfa_key"
+        api_file = tmp_path / "vast_api_key"
+        tfa_file.write_text("stale-tfa-key")
+        api_file.write_text("normal-api-key")
+        session.api_key = "stale-tfa-key"
+
+        response = MagicMock(status_code=404)
+        response.json.return_value = {"msg": "Session expired. Please log in again."}
+        func = MagicMock(side_effect=[HTTPError(response=response), {"ok": True}])
+        cli.subparsers_.choices["show user"].set_defaults(func=func)
+
+        with patch("vastai.cli.main.TFAKEY_FILE", str(tfa_file)), \
+             patch("vastai.cli.main.APIKEY_FILE", str(api_file)):
+            assert run_line(cli, "show user", session) == {"ok": True}
+
+        assert func.call_count == 2
+        assert not tfa_file.exists()
+        assert session.api_key == "normal-api-key"  # later lines use it too
+        assert "Your 2FA session has expired." in capsys.readouterr().out
+
+    def test_an_expired_2fa_session_retries_only_once(self, cli, session, tmp_path):
+        tfa_file = tmp_path / "vast_tfa_key"
+        api_file = tmp_path / "vast_api_key"
+        tfa_file.write_text("stale-tfa-key")
+        api_file.write_text("normal-api-key")
+
+        response = MagicMock(status_code=404)
+        response.json.return_value = {"msg": "Session expired. Please log in again."}
+        func = MagicMock(side_effect=HTTPError(response=response))
+        cli.subparsers_.choices["show user"].set_defaults(func=func)
+
+        with patch("vastai.cli.main.TFAKEY_FILE", str(tfa_file)), \
+             patch("vastai.cli.main.APIKEY_FILE", str(api_file)):
+            assert run_line(cli, "show user", session) is None
+        assert func.call_count == 2
+
+
+    def test_an_expired_2fa_session_without_a_saved_key_reports_once(self, cli, session, tmp_path, capsys):
+        """main.run_command stops after explaining the expiry; reporting the raw
+        API error as well would say it twice (and mix text into --raw JSON)."""
+        tfa_file = tmp_path / "vast_tfa_key"
+        tfa_file.write_text("stale-tfa-key")
+        response = MagicMock(status_code=404)
+        response.json.return_value = {"msg": "Session expired. Please log in again."}
+        cli.subparsers_.choices["show user"].set_defaults(
+            func=MagicMock(side_effect=HTTPError(response=response)))
+
+        with patch("vastai.cli.main.TFAKEY_FILE", str(tfa_file)), \
+             patch("vastai.cli.main.APIKEY_FILE", str(tmp_path / "missing")):
+            assert run_line(cli, "show user", session) is None
+
+        out, err = capsys.readouterr()
+        assert "Your 2FA session has expired." in out
+        assert "vastai tfa login" in out
+        assert "Session expired. Please log in again." not in err
+
+    def test_a_json_error_without_a_message_is_reported_not_raised(self, cli, session, capsys):
+        """A 401 body that parses but carries no 'msg' used to hand None to
+        _emit_error, whose `in` test raised TypeError and killed the session."""
+        response = MagicMock(status_code=401)
+        response.json.return_value = {}
+        cli.subparsers_.choices["show user"].set_defaults(
+            func=MagicMock(side_effect=HTTPError(response=response)))
+        assert run_line(cli, "show user", session) is None
+        assert "Failed with error 401" in capsys.readouterr().err
+
+    def test_an_unexpected_error_is_reported_not_raised(self, cli, session, capsys):
+        cli.subparsers_.choices["show user"].set_defaults(
+            func=MagicMock(side_effect=RuntimeError("boom")))
+        assert run_line(cli, "show user", session) is None
+        assert "RuntimeError: boom" in capsys.readouterr().err
+
+
+def _inputs(*lines):
+    """A stand-in for input(): returns each line, raises what it is given, and
+    signals end of input once the lines run out."""
+    queue = list(lines)
+
+    def fake_input(prompt=""):
+        if not queue:
+            raise EOFError
+        value = queue.pop(0)
+        if isinstance(value, BaseException):
+            raise value
+        return value
+
+    return fake_input
+
+
+class TestTheLoop:
+    """The loop itself — `handle` is covered above, this is what drives it."""
+
+    def _repl(self, cli, session, monkeypatch, *lines):
+        monkeypatch.setattr("builtins.input", _inputs(*lines))
+        repl = Repl(cli, session)
+        # No terminal here: installing readline and rebinding the parser's id
+        # completers are process-wide side effects, and neither is the loop.
+        monkeypatch.setattr(repl, "_setup_terminal", lambda: None)
+        return repl
+
+    def test_runs_each_line_until_end_of_input(self, cli, session, calls, monkeypatch):
+        self._repl(cli, session, monkeypatch, "show instances", "show user").run()
+        assert len(calls) == 2
+
+    def test_an_exit_word_ends_the_loop(self, cli, session, calls, monkeypatch):
+        self._repl(cli, session, monkeypatch, "show instances", "exit", "show user").run()
+        assert len(calls) == 1
+
+    def test_ctrl_c_cancels_the_line_and_keeps_going(self, cli, session, calls, monkeypatch, capsys):
+        self._repl(cli, session, monkeypatch, KeyboardInterrupt(), "show user").run()
+        assert len(calls) == 1
+        assert "^C" in capsys.readouterr().out
+
+    def test_the_banner_names_the_way_out(self, cli, session, monkeypatch, capsys):
+        self._repl(cli, session, monkeypatch).run()
+        assert "exit or Ctrl-D" in capsys.readouterr().out
+
+
+class TestReplLoop:
+    def test_blank_lines_are_ignored(self, cli, session, calls):
+        repl = Repl(cli, session)
+        assert repl.handle("   ") is True
+        assert calls == []
+
+    @pytest.mark.parametrize("word", ["exit", "quit", "q"])
+    def test_exit_words_end_the_session(self, cli, session, word):
+        assert Repl(cli, session).handle(word) is False
+
+    def test_a_command_runs(self, cli, session, calls):
+        assert Repl(cli, session).handle("show instances") is True
+        assert len(calls) == 1
+
+    def test_an_unknown_command_suggests_near_misses(self, cli, session, calls, capsys):
+        Repl(cli, session).handle("shwo instances")
+        err = capsys.readouterr().err
+        assert "unknown command: shwo instances" in err
+        assert "show instances" in err
+        assert calls == []
+
+    def test_a_bare_verb_lists_its_objects(self, cli, session, capsys):
+        Repl(cli, session).handle("show")
+        assert "show takes an object: instances, user" in capsys.readouterr().err
+
+    def test_nested_repl_is_refused(self, cli, session, capsys):
+        Repl(cli, session).handle("repl")
+        assert "Already in the REPL" in capsys.readouterr().out
+
+
+    def test_a_key_written_mid_session_is_picked_up(self, cli, session, calls, tmp_path):
+        """`set api-key` writes the config file, not our namespace: without a
+        refresh every later line would keep sending the key we started with."""
+        api_file = tmp_path / "vast_api_key"
+        with patch("vastai.cli.repl.session.APIKEY_FILE", str(api_file)), \
+             patch("vastai.cli.repl.session.TFAKEY_FILE", str(tmp_path / "missing")):
+            session.api_key = None
+            repl = Repl(cli, session)
+            api_file.write_text("fresh-key\n")  # as `set api-key` would
+            repl.handle("show user")
+            repl.handle("show user")
+        assert calls[-1].api_key == "fresh-key"
+
+    def test_a_removed_key_is_dropped_from_the_session(self, cli, session, tmp_path):
+        """An expired 2FA session with nothing to fall back to: keeping the dead
+        key would fail every later line with the same misleading error."""
+        api_file = tmp_path / "vast_api_key"
+        api_file.write_text("stored-key")
+        with patch("vastai.cli.repl.session.APIKEY_FILE", str(api_file)), \
+             patch("vastai.cli.repl.session.TFAKEY_FILE", str(tmp_path / "missing")):
+            session.api_key = "stored-key"
+            repl = Repl(cli, session)
+            api_file.unlink()
+            repl.handle("show user")
+        assert repl.args.api_key is None
+
+    def test_a_key_we_never_adopted_is_left_alone(self, cli, session, tmp_path):
+        """A key from --api-key or $VAST_API_KEY must survive a file that was
+        never the session's source."""
+        with patch("vastai.cli.repl.session.APIKEY_FILE", str(tmp_path / "missing")), \
+             patch("vastai.cli.repl.session.TFAKEY_FILE", str(tmp_path / "missing")):
+            session.api_key = "flag-key"
+            repl = Repl(cli, session)
+            repl.handle("show user")
+        assert repl.args.api_key == "flag-key"
+
+    def test_an_env_or_flag_key_outranks_a_later_file_key(self, cli, session, calls, tmp_path):
+        """$VAST_API_KEY and --api-key outrank the config file — the CLI says so
+        and `set api-key` warns about it, so the REPL must not switch either."""
+        api_file = tmp_path / "vast_api_key"
+        with patch("vastai.cli.repl.session.APIKEY_FILE", str(api_file)), \
+             patch("vastai.cli.repl.session.TFAKEY_FILE", str(tmp_path / "missing")):
+            session.api_key = "env-key"
+            repl = Repl(cli, session)
+            api_file.write_text("file-key")  # as `set api-key` would
+            repl.handle("show user")
+            repl.handle("show user")
+        assert repl.args.api_key == "env-key"
+        assert calls[-1].api_key == "env-key"
+
+    def test_changing_the_key_clears_cached_completions(self, cli, session, tmp_path):
+        api_file = tmp_path / "vast_api_key"
+        with patch("vastai.cli.repl.session.APIKEY_FILE", str(api_file)), \
+             patch("vastai.cli.repl.session.TFAKEY_FILE", str(tmp_path / "missing")):
+            session.api_key = None
+            repl = Repl(cli, session)
+            repl.completer.values._cache[object()] = (0.0, ["stale"])
+            api_file.write_text("fresh-key")
+            repl.handle("show user")
+        assert repl.completer.values._cache == {}
+
+    def test_completion_never_inherits_the_output_modes(self, cli, session):
+        """`--curl` makes the API client print a curl line and exit; completion
+        must not carry that (or --explain) into its own lookups."""
+        session.curl = True
+        session.explain = True
+        session.api_key = "session-key"
+        args = Repl(cli, session)._completion_args()
+        assert args.curl is False and args.explain is False and args.raw is False
+        assert args.api_key == "session-key"
+

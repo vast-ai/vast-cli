@@ -306,25 +306,55 @@ def preprocess_search_query(query_str):
     Both ``georegion=true`` and ``chunked=true`` are stripped from the query
     before it reaches the API.
 
+    The query is rebuilt from the parse, so the grammar below has to accept
+    every value form :func:`vastai.api.query.parse_query` accepts -- otherwise a
+    term it cannot read is not an error, it is a filter that silently vanishes.
+    A query that cannot be parsed in full is warned about and returned
+    untouched, rather than rebuilt from a partial parse.
+
     Returns:
         A ``(georegion_active, chunked_active, processed_query_str)`` tuple.
     """
     if query_str is None:
         return False, False, query_str
 
-    from pyparsing import Word, alphas, alphanums, one_of, Group, ZeroOrMore
+    from pyparsing import (Word, alphas, alphanums, one_of, Group, ZeroOrMore,
+                           ParseException, QuotedString, Regex)
 
     key = Word(alphas + "_", alphanums + "_")
     operator = one_of("= in != > < >= <=")
-    value = Word(alphanums + "_")
+    # The three value forms parse_query's pattern allows, as four alternatives
+    # (a quoted string is spelt once per quote character):
+    # (\[[^\]]+\]|\"[^\"]+\"|[^ ]+). \S+ rather than [^ ]+, so a tab or newline
+    # cannot end up inside a token -- pyparsing already skips those between
+    # terms. Quotes and brackets stay in the token, so a term that is kept is
+    # re-emitted exactly as it arrived.
+    value = (QuotedString('"', unquote_results=False)
+             | QuotedString("'", unquote_results=False)
+             | Regex(r"\[[^\]]*\]")
+             | Regex(r"\S+"))
     expr = Group(key + operator + value)
     query = ZeroOrMore(expr)
-    parsed = query.parse_string(query_str)
+    try:
+        parsed = query.parse_string(query_str, parse_all=True)
+    except ParseException as exc:
+        # Silence here would be the original bug in a new shape: the caller
+        # would get a query that still carries the directives as if they were
+        # fields, with no expansion and no signal.
+        print(f"Warning: could not parse query, leaving it unchanged and not "
+              f"applying the georegion/chunked directives: {exc}",
+              file=sys.stderr)
+        return False, False, query_str
+
+    # Values keep their quotes so a term can be re-emitted verbatim, so every
+    # comparison against one has to see through them.
+    def unquoted(token):
+        return token.strip('"\'')
 
     directives = {'georegion', 'chunked'}
-    state = {}
-    for d in directives:
-        state[d] = any([d, '=', 'true'] == list(e) for e in parsed)
+    state = {d: any(e[0] == d and e[1] == '=' and unquoted(e[2]) == 'true'
+                    for e in parsed)
+             for d in directives}
 
     if not any(state.values()):
         return False, False, query_str
@@ -333,8 +363,9 @@ def preprocess_search_query(query_str):
     for e in parsed:
         if e[0] in directives:
             continue
-        elif e[0] == 'geolocation' and state['georegion'] and e[2] in _regions:
-            parts.append(f'geolocation in [{_regions[e[2]]}]')
+        region_code = unquoted(e[2])
+        if e[0] == 'geolocation' and state['georegion'] and region_code in _regions:
+            parts.append(f'geolocation in [{_regions[region_code]}]')
         else:
             parts.append(' '.join(e))
 

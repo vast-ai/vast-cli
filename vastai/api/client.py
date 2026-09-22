@@ -51,12 +51,9 @@ def as_curl_command(prep) -> str:
     return " \\\n  ".join(parts)
 
 
-def same_site(a: Optional[str], b: Optional[str]) -> bool:
-    """Whether two hostnames sit under the same parent domain."""
-    if not a or not b:
-        return False
-    a, b = a.lower(), b.lower()
-    return a == b or a.split(".")[-2:] == b.split(".")[-2:]
+def domain_of(url: str) -> list:
+    """The parent domain of a URL's host, e.g. ['vast', 'ai']."""
+    return (urlsplit(url).hostname or "").lower().split(".")[-2:]
 
 
 class VastSession(requests.Session):
@@ -64,12 +61,11 @@ class VastSession(requests.Session):
 
     def __init__(self, server_url: str):
         super().__init__()
-        self._host = urlsplit(server_url).hostname
+        self._domain = domain_of(server_url)
 
     def rebuild_auth(self, prepared_request, response):
-        if same_site(urlsplit(prepared_request.url).hostname, self._host):
-            return
-        super().rebuild_auth(prepared_request, response)
+        if domain_of(prepared_request.url) != self._domain:
+            super().rebuild_auth(prepared_request, response)
 
 
 class VastClient:

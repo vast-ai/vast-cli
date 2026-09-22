@@ -5,7 +5,7 @@ import pytest
 import requests
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
-from vastai.api.client import VastClient, VastSession, as_curl_command, same_site
+from vastai.api.client import VastClient, VastSession, as_curl_command, domain_of
 from vastai.utils import VERSION
 
 
@@ -343,15 +343,15 @@ class TestAuthAcrossRedirects:
         session.rebuild_auth(prep, response)
         assert "Authorization" not in prep.headers
 
-    @pytest.mark.parametrize("a,b,expected", [
-        ("console.vast.ai", "console.vast.ai", True),
-        ("candidate.vast.ai", "candidate-server.vast.ai", True),
-        ("console.vast.ai", "evil.example.com", False),
-        ("localhost", "localhost", True),
-        ("console.vast.ai", None, False),
+    @pytest.mark.parametrize("a,b,same", [
+        ("https://console.vast.ai", "https://console.vast.ai/x", True),
+        ("https://candidate.vast.ai", "https://candidate-server.vast.ai/x", True),
+        ("https://console.vast.ai", "https://evil.example.com/x", False),
+        ("http://localhost:8080", "http://localhost:8080/x", True),
+        ("https://console.vast.ai", "not-a-url", False),
     ])
-    def test_same_site(self, a, b, expected):
-        assert same_site(a, b) is expected
+    def test_domain_comparison(self, a, b, same):
+        assert (domain_of(a) == domain_of(b)) is same
 
 
 class TestCurlRendering:

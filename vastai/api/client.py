@@ -4,9 +4,10 @@ import os
 import re
 import json
 import sys
+import shlex
 import time
 import requests
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlsplit
 from typing import Dict, Optional
 
 from vastai.utils import VERSION
@@ -38,6 +39,58 @@ _RETRYABLE_EXC = (
 # Default per-request timeout. Conservative enough for slow operations like
 # log retrieval and instance creation; callers can override per-call.
 _DEFAULT_TIMEOUT_SECONDS = 120
+
+
+def as_curl_command(prep) -> str:
+    """Render a prepared request as a runnable, one-flag-per-line curl command.
+
+    Only the noise headers are dropped. ``Authorization`` stays: since #471 it
+    is the only thing authenticating the request, and a printed command the
+    caller cannot run is worse than printing none at all.
+    """
+    tokens = shlex.split(curlify.to_curl(prep))
+    lines, i = [tokens[0]], 1
+    while i < len(tokens):
+        token = tokens[i]
+        value = tokens[i + 1] if i + 1 < len(tokens) else None
+        if token.startswith("-") and value is not None:
+            i += 2
+            if token == "-H" and not value.lower().startswith("authorization:"):
+                continue
+            lines.append(f"{token} {shlex.quote(value)}")
+        else:
+            lines.append(shlex.quote(token))
+            i += 1
+    return " \\\n  ".join(lines)
+
+
+def same_site(a: Optional[str], b: Optional[str]) -> bool:
+    """Whether two hostnames sit under the same parent domain."""
+    if not a or not b:
+        return False
+    a, b = a.lower(), b.lower()
+    return a == b or a.split(".")[-2:] == b.split(".")[-2:]
+
+
+class VastSession(requests.Session):
+    """A session that keeps our auth header across redirects within our domain.
+
+    ``requests`` drops ``Authorization`` on any redirect that changes host. That
+    is right for arbitrary hosts and wrong for ours: candidate.vast.ai 301s to
+    candidate-server.vast.ai for every path without a trailing slash, so the
+    request lands unauthenticated and the server answers 403. The key used to
+    ride in the query string, which redirects preserve, which is why moving it
+    to a header (#471) surfaced this.
+    """
+
+    def __init__(self, server_url: str):
+        super().__init__()
+        self._host = urlsplit(server_url).hostname
+
+    def rebuild_auth(self, prepared_request, response):
+        if same_site(urlsplit(prepared_request.url).hostname, self._host):
+            return  # still our own domain: keep the header we set
+        super().rebuild_auth(prepared_request, response)
 
 
 class VastClient:
@@ -102,7 +155,7 @@ class VastClient:
         r = None
         for i in range(0, self.retry):
             req = requests.Request(method=method, url=url, headers=headers, json=json_data)
-            session = requests.Session()
+            session = VastSession(self.server_url)
             prep = session.prepare_request(req)
             if self.explain:
                 print(f"\n{INFO}  Prepared Request:")
@@ -114,13 +167,7 @@ class VastClient:
                 if curlify is None:
                     print("curlify package is required for --curl mode. Install with: pip install curlify")
                     sys.exit(1)
-                as_curl = curlify.to_curl(prep)
-                simple = re.sub(r" -H '[^']*'", '', as_curl)
-                parts = re.split(r'(?=\s+-\S+)', simple)
-                pp = parts[-1].split("'")
-                pp[-3] += "\n "
-                parts = [*parts[:-1], *[x.rstrip() for x in "'".join(pp).split("\n")]]
-                print("\n" + ' \\\n  '.join(parts).strip() + "\n")
+                print("\n" + as_curl_command(prep) + "\n")
                 sys.exit(0)
 
             try:

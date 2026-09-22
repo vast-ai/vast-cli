@@ -378,6 +378,18 @@ class TestCurlRendering:
         assert "User-Agent" not in out
         assert "Accept-Encoding" not in out
 
+    def test_a_body_carrying_request_declares_json(self):
+        # without this curl sends form encoding and the API answers
+        # 400 "Input should be a valid dictionary"
+        out = as_curl_command(
+            self._prep("https://console.vast.ai/api/v0/bundles/", "PUT", {"num_gpus": 1})
+        )
+        assert "-H 'Content-Type: application/json'" in out
+
+    def test_a_get_declares_no_content_type(self):
+        out = as_curl_command(self._prep("https://console.vast.ai/api/v0/instances/"))
+        assert "Content-Type" not in out
+
     def test_a_url_without_query_args_does_not_raise(self):
         out = as_curl_command(self._prep("https://console.vast.ai/api/v0/users/current"))
         assert out.startswith("curl \\\n")

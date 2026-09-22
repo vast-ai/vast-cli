@@ -12,12 +12,6 @@ from typing import Dict, Optional
 
 from vastai.utils import VERSION
 
-try:
-    import curlify
-except ImportError:
-    curlify = None
-
-
 # Emoji support
 _HAS_EMOJI = sys.stdout.encoding and 'utf' in sys.stdout.encoding.lower()
 INFO = "\u2139\ufe0f" if _HAS_EMOJI else "[i]"
@@ -44,24 +38,23 @@ _DEFAULT_TIMEOUT_SECONDS = 120
 def as_curl_command(prep) -> str:
     """Render a prepared request as a runnable, one-flag-per-line curl command.
 
-    Only the noise headers are dropped. ``Authorization`` stays: since #471 it
-    is the only thing authenticating the request, and a printed command the
-    caller cannot run is worse than printing none at all.
+    Built from the prepared request rather than from its headers wholesale, so
+    the command carries exactly what it needs to run: the auth header (since
+    #471 the only thing authenticating us) and, for a body, the content type
+    curl would otherwise guess wrong as form encoding.
     """
-    tokens = shlex.split(curlify.to_curl(prep))
-    lines, i = [tokens[0]], 1
-    while i < len(tokens):
-        token = tokens[i]
-        value = tokens[i + 1] if i + 1 < len(tokens) else None
-        if token.startswith("-") and value is not None:
-            i += 2
-            if token == "-H" and not value.lower().startswith("authorization:"):
-                continue
-            lines.append(f"{token} {shlex.quote(value)}")
-        else:
-            lines.append(shlex.quote(token))
-            i += 1
-    return " \\\n  ".join(lines)
+    parts = ["curl"]
+    if prep.method != "GET":
+        parts.append(f"-X {prep.method}")
+    auth = prep.headers.get("Authorization")
+    if auth:
+        parts.append("-H " + shlex.quote(f"Authorization: {auth}"))
+    if prep.body:
+        body = prep.body.decode() if isinstance(prep.body, bytes) else prep.body
+        parts.append("-H " + shlex.quote("Content-Type: application/json"))
+        parts.append("-d " + shlex.quote(body))
+    parts.append(shlex.quote(prep.url))
+    return " \\\n  ".join(parts)
 
 
 def same_site(a: Optional[str], b: Optional[str]) -> bool:
@@ -164,9 +157,6 @@ class VastClient:
                 print(f"Body: {json.dumps(json_data, indent=1)}" + "\n" + "_" * 100 + "\n")
 
             if self.curl:
-                if curlify is None:
-                    print("curlify package is required for --curl mode. Install with: pip install curlify")
-                    sys.exit(1)
                 print("\n" + as_curl_command(prep) + "\n")
                 sys.exit(0)
 

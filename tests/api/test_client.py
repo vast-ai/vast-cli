@@ -320,10 +320,7 @@ class TestClientInit:
 
 
 class TestAuthAcrossRedirects:
-    """#471 moved the key from the query string into a header. requests drops
-    Authorization whenever a redirect changes host, and candidate.vast.ai 301s
-    to candidate-server.vast.ai for any path without a trailing slash, so the
-    request used to arrive unauthenticated."""
+    """requests drops Authorization on a host change; our own hosts redirect across one."""
 
     def test_header_survives_a_redirect_within_our_domain(self):
         session = VastSession("https://candidate.vast.ai")
@@ -358,9 +355,7 @@ class TestAuthAcrossRedirects:
 
 
 class TestCurlRendering:
-    """--curl printed a command that could not be run: the header strip took
-    Authorization with it, and the URL surgery raised IndexError on any path
-    with no query args (both regressions from #471)."""
+    """--curl must print a command that actually runs."""
 
     def _prep(self, url, method="GET", json_data=None):
         req = requests.Request(
@@ -379,8 +374,7 @@ class TestCurlRendering:
         assert "Accept-Encoding" not in out
 
     def test_a_body_carrying_request_declares_json(self):
-        # without this curl sends form encoding and the API answers
-        # 400 "Input should be a valid dictionary"
+        # without this curl sends form encoding and the API answers 400
         out = as_curl_command(
             self._prep("https://console.vast.ai/api/v0/bundles/", "PUT", {"num_gpus": 1})
         )

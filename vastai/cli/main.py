@@ -68,9 +68,7 @@ def _emit_error(args, status_code, message):
             except OSError:
                 pass
 
-        # The key that was actually sent, which is what the user needs named.
-        # A --api-key on the command line outranks both of the above, so a
-        # value matching neither came from there.
+        # A --api-key outranks both, so a value matching neither came from there.
         sent = getattr(args, "api_key", None)
         key_missing = not sent and not env and not file_key
 

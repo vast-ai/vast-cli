@@ -1,10 +1,4 @@
-"""The 401 hint must name the key that was actually sent.
-
-It used to read the env var and the key file only, so a key passed with
---api-key was reported as coming from the file, naming a different key and its
-last four characters. That misleads exactly the person debugging an explicit
---api-key against a non-default --url.
-"""
+"""The 401 hint must name the key that was actually sent, not the one on disk."""
 from types import SimpleNamespace
 
 import pytest

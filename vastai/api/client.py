@@ -36,13 +36,7 @@ _DEFAULT_TIMEOUT_SECONDS = 120
 
 
 def as_curl_command(prep) -> str:
-    """Render a prepared request as a runnable, one-flag-per-line curl command.
-
-    Built from the prepared request rather than from its headers wholesale, so
-    the command carries exactly what it needs to run: the auth header (since
-    #471 the only thing authenticating us) and, for a body, the content type
-    curl would otherwise guess wrong as form encoding.
-    """
+    """Render a prepared request as a runnable, one-flag-per-line curl command."""
     parts = ["curl"]
     if prep.method != "GET":
         parts.append(f"-X {prep.method}")
@@ -66,15 +60,7 @@ def same_site(a: Optional[str], b: Optional[str]) -> bool:
 
 
 class VastSession(requests.Session):
-    """A session that keeps our auth header across redirects within our domain.
-
-    ``requests`` drops ``Authorization`` on any redirect that changes host. That
-    is right for arbitrary hosts and wrong for ours: candidate.vast.ai 301s to
-    candidate-server.vast.ai for every path without a trailing slash, so the
-    request lands unauthenticated and the server answers 403. The key used to
-    ride in the query string, which redirects preserve, which is why moving it
-    to a header (#471) surfaced this.
-    """
+    """A session that keeps our auth header across redirects within our domain."""
 
     def __init__(self, server_url: str):
         super().__init__()
@@ -82,7 +68,7 @@ class VastSession(requests.Session):
 
     def rebuild_auth(self, prepared_request, response):
         if same_site(urlsplit(prepared_request.url).hostname, self._host):
-            return  # still our own domain: keep the header we set
+            return
         super().rebuild_auth(prepared_request, response)
 
 

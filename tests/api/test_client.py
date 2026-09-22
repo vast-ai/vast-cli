@@ -5,7 +5,7 @@ import pytest
 import requests
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
-from vastai.api.client import VastClient, VastSession, as_curl_command, domain_of
+from vastai.api.client import VastClient, VastSession, as_curl_command
 from vastai.utils import VERSION
 
 
@@ -343,15 +343,25 @@ class TestAuthAcrossRedirects:
         session.rebuild_auth(prep, response)
         assert "Authorization" not in prep.headers
 
-    @pytest.mark.parametrize("a,b,same", [
-        ("https://console.vast.ai", "https://console.vast.ai/x", True),
+    @pytest.mark.parametrize("origin,target,keep", [
+        # the case this whole change exists for
         ("https://candidate.vast.ai", "https://candidate-server.vast.ai/x", True),
+        ("https://console.vast.ai", "https://console.vast.ai/x", True),
         ("https://console.vast.ai", "https://evil.example.com/x", False),
+        # a bare host or an IP has no parent to share, so it must match exactly
         ("http://localhost:8080", "http://localhost:8080/x", True),
-        ("https://console.vast.ai", "not-a-url", False),
+        ("http://10.0.0.1", "http://192.168.0.1/x", False),
+        # unrelated registrants under a public suffix are not siblings
+        ("https://a.co.uk", "https://b.co.uk/x", False),
+        # never downgrade the scheme or cross to another port
+        ("https://console.vast.ai", "http://console.vast.ai/x", False),
+        ("https://console.vast.ai", "https://console.vast.ai:8443/x", False),
     ])
-    def test_domain_comparison(self, a, b, same):
-        assert (domain_of(a) == domain_of(b)) is same
+    def test_which_redirects_keep_the_header(self, origin, target, keep):
+        session = VastSession(origin)
+        prep = SimpleNamespace(url=target, headers={"Authorization": "Bearer k"})
+        session.rebuild_auth(prep, SimpleNamespace(request=SimpleNamespace(url=origin)))
+        assert ("Authorization" in prep.headers) is keep
 
 
 class TestCurlRendering:
@@ -379,6 +389,13 @@ class TestCurlRendering:
             self._prep("https://console.vast.ai/api/v0/bundles/", "PUT", {"num_gpus": 1})
         )
         assert "-H 'Content-Type: application/json'" in out
+
+    def test_a_get_with_a_body_states_its_method(self):
+        # curl silently switches to POST when -d is present and -X is not
+        out = as_curl_command(
+            self._prep("https://console.vast.ai/api/v0/endptjobs/", "GET", {"id": 1})
+        )
+        assert "-X GET" in out
 
     def test_a_get_declares_no_content_type(self):
         out = as_curl_command(self._prep("https://console.vast.ai/api/v0/instances/"))

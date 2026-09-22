@@ -10,6 +10,7 @@ from vastai.cli.main import _emit_error
 def no_ambient_key(monkeypatch, tmp_path):
     monkeypatch.delenv("VAST_API_KEY", raising=False)
     monkeypatch.setattr("vastai.cli.main.APIKEY_FILE", str(tmp_path / "absent"))
+    monkeypatch.setattr("vastai.cli.main.TFAKEY_FILE", str(tmp_path / "no-tfa"))
     return tmp_path
 
 
@@ -44,9 +45,22 @@ def test_file_is_still_named_when_it_is_the_source(tmp_path, monkeypatch, capsys
     key_file = tmp_path / "vast_api_key"
     key_file.write_text("file-key-mnop")
     monkeypatch.setattr("vastai.cli.main.APIKEY_FILE", str(key_file))
+    monkeypatch.setattr("vastai.cli.main.TFAKEY_FILE", str(tmp_path / "no-tfa"))
     _emit_error(args("file-key-mnop"), 401, "Invalid user key")
     err = capsys.readouterr().err
     assert "Sent key from" in err and "...mnop" in err
+
+
+def test_a_2fa_session_key_is_not_reported_as_api_key(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("VAST_API_KEY", raising=False)
+    tfa = tmp_path / "vast_tfa_key"
+    tfa.write_text("tfa-key-qrst")
+    monkeypatch.setattr("vastai.cli.main.TFAKEY_FILE", str(tfa))
+    monkeypatch.setattr("vastai.cli.main.APIKEY_FILE", str(tmp_path / "absent"))
+    _emit_error(args("tfa-key-qrst"), 401, "Invalid user key")
+    err = capsys.readouterr().err
+    assert "2FA session key" in err and "...qrst" in err
+    assert "--api-key" not in err
 
 
 def test_no_key_at_all_still_says_so(no_ambient_key, capsys):

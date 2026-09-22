@@ -68,9 +68,17 @@ def _emit_error(args, status_code, message):
             except OSError:
                 pass
 
-        key_missing = not env and not file_key
+        # The key that was actually sent, which is what the user needs named.
+        # A --api-key on the command line outranks both of the above, so a
+        # value matching neither came from there.
+        sent = getattr(args, "api_key", None)
+        key_missing = not sent and not env and not file_key
 
-        if key_missing:
+        if sent and sent != env and sent != file_key:
+            server = getattr(args, "url", None) or server_url_default
+            print(f"  Sent key from --api-key (ends in {format_key_suffix(sent)}).", file=sys.stderr)
+            print(f"  Check that key is valid for {server}.", file=sys.stderr)
+        elif key_missing:
             print("  No API key is configured.", file=sys.stderr)
             print("  Run: vastai set api-key <KEY>", file=sys.stderr)
             print("  Create a key at https://console.vast.ai/manage-keys/", file=sys.stderr)

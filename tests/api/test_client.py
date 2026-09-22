@@ -351,8 +351,12 @@ class TestAuthAcrossRedirects:
         # a bare host or an IP has no parent to share, so it must match exactly
         ("http://localhost:8080", "http://localhost:8080/x", True),
         ("http://10.0.0.1", "http://192.168.0.1/x", False),
-        # unrelated registrants under a public suffix are not siblings
+        # unrelated registrants under any multi-tenant suffix are not siblings
         ("https://a.co.uk", "https://b.co.uk/x", False),
+        ("https://tenant-a.github.io", "https://tenant-b.github.io/x", False),
+        # a custom host keeps auth only on an exact match
+        ("https://vast.internal.corp", "https://api.internal.corp/x", False),
+        ("https://vast.internal.corp", "https://vast.internal.corp/x", True),
         # never downgrade the scheme or cross to another port
         ("https://console.vast.ai", "http://console.vast.ai/x", False),
         ("https://console.vast.ai", "https://console.vast.ai:8443/x", False),

@@ -18,6 +18,9 @@ INFO = "\u2139\ufe0f" if _HAS_EMOJI else "[i]"
 
 server_url_default = os.getenv("VAST_URL") or "https://console.vast.ai"
 
+# Our own environments redirect between hosts here; see VastSession.same_service.
+VAST_DOMAIN = "vast.ai"
+
 # Status codes that indicate a transient server-side issue worth retrying.
 # 429 = rate limited; 502/503/504 = gateway/upstream errors that usually clear.
 _RETRYABLE_STATUS = {429, 502, 503, 504}
@@ -52,47 +55,37 @@ def as_curl_command(prep) -> str:
 
 
 class VastSession(requests.Session):
-    """A session that keeps our auth header across redirects within our domain."""
+    """A session that keeps our auth header across redirects within Vast's domain."""
 
     def __init__(self, server_url: str):
         super().__init__()
         self._origin = urlsplit(server_url)
 
     def rebuild_auth(self, prepared_request, response):
-        if not self.same_origin(urlsplit(prepared_request.url)):
+        if not self.same_service(urlsplit(prepared_request.url)):
             super().rebuild_auth(prepared_request, response)
 
-    def same_origin(self, target) -> bool:
+    def same_service(self, target) -> bool:
         """Whether a redirect target is still the service we were pointed at.
 
-        Same scheme and port, and either the same host or a sibling under the
-        same named parent domain. Bare hosts and IPs must match exactly, since
-        they have no parent to share.
+        Same scheme and port, and either the identical host or another host
+        under vast.ai, which is where our own environments redirect
+        (candidate.vast.ai -> candidate-server.vast.ai). Everything else needs
+        an exact host, so a custom --url never widens the trust boundary.
         """
         origin = self._origin
         if target.scheme != origin.scheme or port_of(target) != port_of(origin):
             return False
         a, b = (origin.hostname or "").lower(), (target.hostname or "").lower()
-        if a == b:
-            return True
-        parent = a.split(".")[-2:]
-        return parent == b.split(".")[-2:] and is_named_domain(parent)
+        return bool(a) and (a == b or (in_vast_domain(a) and in_vast_domain(b)))
 
 
 def port_of(parts) -> Optional[int]:
     return parts.port or {"https": 443, "http": 80}.get(parts.scheme)
 
 
-def is_named_domain(labels: list) -> bool:
-    """Whether labels look like a registrable domain rather than an IP or a suffix."""
-    if len(labels) != 2 or any(label.isdigit() for label in labels):
-        return False
-    return labels[0] not in _PUBLIC_SUFFIX_SECOND_LEVEL
-
-
-# Second-level labels that are public suffixes, where sharing a parent means
-# nothing (a.co.uk and b.co.uk are unrelated registrants).
-_PUBLIC_SUFFIX_SECOND_LEVEL = {"co", "com", "net", "org", "gov", "edu", "ac"}
+def in_vast_domain(host: str) -> bool:
+    return host == VAST_DOMAIN or host.endswith("." + VAST_DOMAIN)
 
 
 class VastClient:

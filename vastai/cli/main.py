@@ -29,6 +29,15 @@ def _is_tfa_session_expired(status_code, errmsg):
     )
 
 
+def read_key(path):
+    """The key stored at a path, or None if it is absent or unreadable."""
+    try:
+        with open(path) as f:
+            return f.read().strip() or None
+    except OSError:
+        return None
+
+
 def _emit_error(args, status_code, message):
     """Emit a command error in the appropriate format.
 
@@ -60,17 +69,21 @@ def _emit_error(args, status_code, message):
             return
 
         env = os.environ.get("VAST_API_KEY")
-        file_key = None
-        if os.path.exists(APIKEY_FILE):
-            try:
-                with open(APIKEY_FILE) as f:
-                    file_key = f.read().strip()
-            except OSError:
-                pass
+        file_key = read_key(APIKEY_FILE)
+        tfa_key = read_key(TFAKEY_FILE)
 
-        key_missing = not env and not file_key
+        # A --api-key outranks the rest, so a value matching none came from there.
+        sent = getattr(args, "api_key", None)
+        key_missing = not sent and not env and not file_key
 
-        if key_missing:
+        if sent and sent == tfa_key:
+            print(f"  Sent your 2FA session key from {TFAKEY_FILE} (ends in {format_key_suffix(sent)}).", file=sys.stderr)
+            print("  If it has expired, start a new one: vastai tfa login", file=sys.stderr)
+        elif sent and sent != env and sent != file_key:
+            server = getattr(args, "url", None) or server_url_default
+            print(f"  Sent key from --api-key (ends in {format_key_suffix(sent)}).", file=sys.stderr)
+            print(f"  Check that key is valid for {server}.", file=sys.stderr)
+        elif key_missing:
             print("  No API key is configured.", file=sys.stderr)
             print("  Run: vastai set api-key <KEY>", file=sys.stderr)
             print("  Create a key at https://console.vast.ai/manage-keys/", file=sys.stderr)

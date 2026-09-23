@@ -3,8 +3,9 @@
 import json
 import pytest
 import requests
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
-from vastai.api.client import VastClient
+from vastai.api.client import VastClient, VastSession, as_curl_command
 from vastai.utils import VERSION
 
 
@@ -129,7 +130,7 @@ class TestHttpMethods:
 
 class TestRetryLogic:
     @patch("vastai.api.client.time.sleep")
-    @patch("vastai.api.client.requests.Session")
+    @patch("vastai.api.client.VastSession")
     def test_retries_on_429(self, mock_session_cls, mock_sleep):
         mock_session = MagicMock()
         mock_session_cls.return_value = mock_session
@@ -150,7 +151,7 @@ class TestRetryLogic:
         assert mock_sleep.call_count == 1
 
     @patch("vastai.api.client.time.sleep")
-    @patch("vastai.api.client.requests.Session")
+    @patch("vastai.api.client.VastSession")
     def test_stops_on_non_429(self, mock_session_cls, mock_sleep):
         mock_session = MagicMock()
         mock_session_cls.return_value = mock_session
@@ -169,7 +170,7 @@ class TestRetryLogic:
         mock_sleep.assert_not_called()
 
     @patch("vastai.api.client.time.sleep")
-    @patch("vastai.api.client.requests.Session")
+    @patch("vastai.api.client.VastSession")
     def test_exhausts_retry_count(self, mock_session_cls, mock_sleep):
         mock_session = MagicMock()
         mock_session_cls.return_value = mock_session
@@ -187,7 +188,7 @@ class TestRetryLogic:
         assert mock_session.send.call_count == 2
 
     @patch("vastai.api.client.time.sleep")
-    @patch("vastai.api.client.requests.Session")
+    @patch("vastai.api.client.VastSession")
     def test_retries_on_503(self, mock_session_cls, mock_sleep):
         """503 (transient upstream error) should retry the same way 429 does."""
         mock_session = MagicMock()
@@ -205,7 +206,7 @@ class TestRetryLogic:
         assert mock_sleep.call_count == 1
 
     @patch("vastai.api.client.time.sleep")
-    @patch("vastai.api.client.requests.Session")
+    @patch("vastai.api.client.VastSession")
     def test_retries_on_502_and_504(self, mock_session_cls, mock_sleep):
         mock_session = MagicMock()
         mock_session_cls.return_value = mock_session
@@ -223,7 +224,7 @@ class TestRetryLogic:
         assert mock_session.send.call_count == 3
 
     @patch("vastai.api.client.time.sleep")
-    @patch("vastai.api.client.requests.Session")
+    @patch("vastai.api.client.VastSession")
     def test_retries_on_connection_error(self, mock_session_cls, mock_sleep):
         """First attempt raises ConnectionError; second succeeds."""
         mock_session = MagicMock()
@@ -244,7 +245,7 @@ class TestRetryLogic:
         assert mock_sleep.call_count == 1
 
     @patch("vastai.api.client.time.sleep")
-    @patch("vastai.api.client.requests.Session")
+    @patch("vastai.api.client.VastSession")
     def test_timeout_exhausts_retries_raises(self, mock_session_cls, mock_sleep):
         """All attempts raise Timeout; the exception propagates (doesn't hang or return None)."""
         mock_session = MagicMock()
@@ -259,7 +260,7 @@ class TestRetryLogic:
 
         assert mock_session.send.call_count == 3
 
-    @patch("vastai.api.client.requests.Session")
+    @patch("vastai.api.client.VastSession")
     def test_non_retryable_exception_propagates_immediately(self, mock_session_cls):
         """InvalidURL etc. must not be retried — retrying them burns time for no reason."""
         mock_session = MagicMock()
@@ -273,7 +274,7 @@ class TestRetryLogic:
 
         assert mock_session.send.call_count == 1
 
-    @patch("vastai.api.client.requests.Session")
+    @patch("vastai.api.client.VastSession")
     def test_timeout_is_passed_to_send(self, mock_session_cls):
         """The per-request timeout must actually reach session.send()."""
         mock_session = MagicMock()
@@ -287,7 +288,7 @@ class TestRetryLogic:
         _, kwargs = mock_session.send.call_args
         assert kwargs.get("timeout") == 45
 
-    @patch("vastai.api.client.requests.Session")
+    @patch("vastai.api.client.VastSession")
     def test_per_call_timeout_overrides_default(self, mock_session_cls):
         mock_session = MagicMock()
         mock_session_cls.return_value = mock_session
@@ -316,3 +317,109 @@ class TestClientInit:
         assert c.retry == 5
         assert c.explain is True
         assert c.curl is True
+
+
+class TestAuthAcrossRedirects:
+    """requests drops Authorization on a host change; our own hosts redirect across one."""
+
+    def test_header_survives_a_redirect_within_our_domain(self):
+        session = VastSession("https://candidate.vast.ai")
+        prep = SimpleNamespace(
+            url="https://candidate-server.vast.ai/api/v0/users/current/",
+            headers={"Authorization": "Bearer mykey123"},
+        )
+        session.rebuild_auth(prep, None)
+        assert prep.headers["Authorization"] == "Bearer mykey123"
+
+    def test_header_is_dropped_when_a_redirect_leaves_our_domain(self):
+        session = VastSession("https://console.vast.ai")
+        prep = SimpleNamespace(
+            url="https://elsewhere.example.com/api/v0/users/current/",
+            headers={"Authorization": "Bearer mykey123"},
+        )
+        response = SimpleNamespace(
+            request=SimpleNamespace(url="https://console.vast.ai/api/v0/users/current")
+        )
+        session.rebuild_auth(prep, response)
+        assert "Authorization" not in prep.headers
+
+    @pytest.mark.parametrize("origin,target,keep", [
+        # the case this whole change exists for
+        ("https://candidate.vast.ai", "https://candidate-server.vast.ai/x", True),
+        ("https://console.vast.ai", "https://console.vast.ai/x", True),
+        ("https://console.vast.ai", "https://evil.example.com/x", False),
+        # a bare host or an IP has no parent to share, so it must match exactly
+        ("http://localhost:8080", "http://localhost:8080/x", True),
+        ("http://10.0.0.1", "http://192.168.0.1/x", False),
+        # unrelated registrants under any multi-tenant suffix are not siblings
+        ("https://a.co.uk", "https://b.co.uk/x", False),
+        ("https://tenant-a.github.io", "https://tenant-b.github.io/x", False),
+        # a custom host keeps auth only on an exact match
+        ("https://vast.internal.corp", "https://api.internal.corp/x", False),
+        ("https://vast.internal.corp", "https://vast.internal.corp/x", True),
+        # never downgrade the scheme or cross to another port
+        ("https://console.vast.ai", "http://console.vast.ai/x", False),
+        ("https://console.vast.ai", "https://console.vast.ai:8443/x", False),
+    ])
+    def test_which_redirects_keep_the_header(self, origin, target, keep):
+        session = VastSession(origin)
+        prep = SimpleNamespace(url=target, headers={"Authorization": "Bearer k"})
+        session.rebuild_auth(prep, SimpleNamespace(request=SimpleNamespace(url=origin)))
+        assert ("Authorization" in prep.headers) is keep
+
+
+class TestCurlRendering:
+    """--curl must print a command that actually runs."""
+
+    def _prep(self, url, method="GET", json_data=None):
+        req = requests.Request(
+            method=method, url=url, json=json_data,
+            headers={"User-Agent": "vastai-sdk/1.0", "Authorization": "Bearer mykey123"},
+        )
+        return requests.Session().prepare_request(req)
+
+    def test_keeps_the_authorization_header(self):
+        out = as_curl_command(self._prep("https://console.vast.ai/api/v0/instances/"))
+        assert "-H 'Authorization: Bearer mykey123'" in out
+
+    def test_drops_the_noise_headers(self):
+        out = as_curl_command(self._prep("https://console.vast.ai/api/v0/instances/"))
+        assert "User-Agent" not in out
+        assert "Accept-Encoding" not in out
+
+    def test_a_body_carrying_request_declares_json(self):
+        # without this curl sends form encoding and the API answers 400
+        out = as_curl_command(
+            self._prep("https://console.vast.ai/api/v0/bundles/", "PUT", {"num_gpus": 1})
+        )
+        assert "-H 'Content-Type: application/json'" in out
+
+    def test_a_get_with_a_body_states_its_method(self):
+        # curl silently switches to POST when -d is present and -X is not
+        out = as_curl_command(
+            self._prep("https://console.vast.ai/api/v0/endptjobs/", "GET", {"id": 1})
+        )
+        assert "-X GET" in out
+
+    def test_a_get_declares_no_content_type(self):
+        out = as_curl_command(self._prep("https://console.vast.ai/api/v0/instances/"))
+        assert "Content-Type" not in out
+
+    def test_a_url_without_query_args_does_not_raise(self):
+        out = as_curl_command(self._prep("https://console.vast.ai/api/v0/users/current"))
+        assert out.startswith("curl \\\n")
+        assert "https://console.vast.ai/api/v0/users/current" in out
+
+    def test_renders_a_body_carrying_request(self):
+        out = as_curl_command(
+            self._prep("https://console.vast.ai/api/v0/instances/", "PUT", {"label": "x"})
+        )
+        assert "-X PUT" in out
+        assert '"label": "x"' in out
+        assert "-H 'Authorization: Bearer mykey123'" in out
+
+    def test_one_flag_per_line(self):
+        out = as_curl_command(
+            self._prep("https://console.vast.ai/api/v0/instances/", "PUT", {"label": "x"})
+        )
+        assert all(line.endswith("\\") for line in out.splitlines()[:-1])

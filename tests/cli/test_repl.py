@@ -574,6 +574,20 @@ class TestReplLoop:
     def test_exit_words_end_the_session(self, cli, session, word):
         assert Repl(cli, session).handle(word) is False
 
+    @pytest.mark.parametrize("word", ["clear", "cls"])
+    def test_clear_wipes_the_screen_and_stays(self, cli, session, calls, capsys, word):
+        with patch("vastai.cli.repl.session.os.name", "posix"):
+            assert Repl(cli, session).handle(word) is True
+        assert capsys.readouterr().out == "\033[H\033[2J\033[3J"
+        assert calls == []
+
+    def test_clear_uses_cls_on_windows(self, cli, session, calls):
+        with patch("vastai.cli.repl.session.os.name", "nt"), \
+             patch("vastai.cli.repl.session.os.system") as system:
+            assert Repl(cli, session).handle("clear") is True
+        system.assert_called_once_with("cls")
+        assert calls == []
+
     def test_a_command_runs(self, cli, session, calls):
         assert Repl(cli, session).handle("show instances") is True
         assert len(calls) == 1

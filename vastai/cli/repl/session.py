@@ -6,7 +6,8 @@
 
 Every line is handed to the same parser `vastai` uses, so behaviour is
 identical to the one-shot CLI — only faster, because the interpreter and the
-command tree load once. Type `help` for the commands, `exit` or Ctrl-D to leave.
+command tree load once. Type `help` for the commands, `clear` to clear the
+screen, `exit` or Ctrl-D to leave.
 """
 import copy
 import os
@@ -21,6 +22,8 @@ from vastai.cli.util import APIKEY_FILE, TFAKEY_FILE
 
 PROMPT = "vast> "
 EXIT_WORDS = ("exit", "quit", "q")
+CLEAR_WORDS = ("clear", "cls")
+CLEAR_SCREEN = "\033[H\033[2J\033[3J"  # cursor home, clear screen, clear scrollback
 
 BANNER = """\
 vastai REPL — every vastai command, without the startup cost.
@@ -50,6 +53,9 @@ class Repl:
             return True
         if s in EXIT_WORDS:
             return False
+        if s in CLEAR_WORDS:
+            self._clear_screen()
+            return True
 
         # Leading global flags (`--raw show user`) are the parser's business,
         # not part of the command name.
@@ -86,6 +92,14 @@ class Repl:
         print(textwrap.fill(", ".join(items), width=max(40, width),
                             initial_indent=lead, subsequent_indent=" " * len(lead)),
               file=sys.stderr)
+
+    def _clear_screen(self):
+        # Legacy Windows consoles don't honour ANSI escapes; cls always works there.
+        if os.name == "nt":
+            os.system("cls")
+        else:
+            self.out.write(CLEAR_SCREEN)
+            self.out.flush()
 
     def _print(self, text):
         print(text, file=self.out)

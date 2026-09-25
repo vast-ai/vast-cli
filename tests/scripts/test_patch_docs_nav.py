@@ -192,6 +192,11 @@ def test_unrecognized_name_has_no_rule():
     ("show-deployment-instances", "Serverless", "the 'instance' -> Instances rule"),
     # `cluster` covers the longer exact name that used to be spelled out.
     ("remove-machine-from-cluster", "Host", "nothing — it needs the substring rule"),
+    # CLI setup commands would otherwise fall through to DEFAULT_GROUP.
+    ("set-role", "Accounts", "DEFAULT_GROUP ('Instances')"),
+    ("update", "Accounts", "DEFAULT_GROUP ('Instances')"),
+    ("uninstall", "Accounts", "DEFAULT_GROUP ('Instances')"),
+    ("repl", "Accounts", "DEFAULT_GROUP ('Instances')"),
     # Scheduled jobs are Serverless, not Accounts.
     ("create-scheduled-job", "Serverless", "an 'Accounts' reading of scheduled jobs"),
     ("update-scheduled-job", "Serverless", "an 'Accounts' reading of scheduled jobs"),

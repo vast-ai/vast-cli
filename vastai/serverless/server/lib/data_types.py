@@ -53,6 +53,15 @@ class ApiPayload(ABC):
         """defines how to convert an ApiPayload to JSON that will be sent to model API"""
         pass
 
+    def generate_payload_multipart(self) -> Optional[Dict[str, Any]]:
+        """form fields to POST as multipart, or None (default) to POST JSON
+
+        A (filename, bytes, content_type) value becomes a file part and a list repeats
+        the field (multi-file uploads); None values are omitted. For APIs that only
+        accept multipart, e.g. OpenAI /v1/audio/transcriptions.
+        """
+        return None
+
     @abstractmethod
     def count_workload(self) -> float:
         """defines how to calculate workload for a payload"""

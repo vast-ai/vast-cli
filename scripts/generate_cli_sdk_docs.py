@@ -150,7 +150,7 @@ def load_cli_parser():
     # the CLI's canonical registration helper (rather than a local copy of the
     # import list) keeps the generator in lockstep with the real command set,
     # so newly added command modules are documented automatically with no
-    # drift. main() in vastai/cli/main.py performs the same imports at runtime.
+    # drift. main() in vastai/cli/main.py calls the same helper at runtime.
     from vastai.cli.commands import register_all_commands
     from vastai.cli.main import parser
     register_all_commands(parser)
@@ -1043,6 +1043,11 @@ def collect_cli_commands(parser_obj) -> dict[str, CliCommand]:
         if cmd_name in seen_names:
             continue
         seen_names.add(cmd_name)
+        # Hidden commands (HIDDEN_COMMANDS or hidden=True in vastai/cli/parser.py)
+        # are unannounced and absent from `--help`, so publishing a page would
+        # announce them early. They get pages once they are unhidden.
+        if getattr(sp, "hidden", False):
+            continue
 
         func = sp.get_default("func")
         cmd = extract_command(sp, cmd_name, func)

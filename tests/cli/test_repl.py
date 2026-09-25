@@ -559,9 +559,9 @@ class TestTheLoop:
         assert len(calls) == 1
         assert "^C" in capsys.readouterr().out
 
-    def test_the_banner_names_the_way_out(self, cli, session, monkeypatch, capsys):
+    def test_starts_straight_at_the_prompt(self, cli, session, monkeypatch, capsys):
         self._repl(cli, session, monkeypatch).run()
-        assert "exit or Ctrl-D" in capsys.readouterr().out
+        assert capsys.readouterr().out.strip() == ""
 
 
 class TestReplLoop:
@@ -573,6 +573,20 @@ class TestReplLoop:
     @pytest.mark.parametrize("word", ["exit", "quit", "q"])
     def test_exit_words_end_the_session(self, cli, session, word):
         assert Repl(cli, session).handle(word) is False
+
+    @pytest.mark.parametrize("word", ["clear", "cls"])
+    def test_clear_wipes_the_screen_and_stays(self, cli, session, calls, capsys, word):
+        with patch("vastai.cli.repl.session.os.name", "posix"):
+            assert Repl(cli, session).handle(word) is True
+        assert capsys.readouterr().out == "\033[H\033[2J\033[3J"
+        assert calls == []
+
+    def test_clear_uses_cls_on_windows(self, cli, session, calls):
+        with patch("vastai.cli.repl.session.os.name", "nt"), \
+             patch("vastai.cli.repl.session.os.system") as system:
+            assert Repl(cli, session).handle("clear") is True
+        system.assert_called_once_with("cls")
+        assert calls == []
 
     def test_a_command_runs(self, cli, session, calls):
         assert Repl(cli, session).handle("show instances") is True

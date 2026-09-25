@@ -11,7 +11,8 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from aiohttp import ClientTimeout, web
+import aiohttp
+from aiohttp import ClientTimeout, FormData, web
 
 from vastai.serverless.server.lib.data_types import (
     JsonDataException,
@@ -23,6 +24,41 @@ pytestmark = pytest.mark.usefixtures("clear_get_url_cache")
 # ---------------------------------------------------------------------------
 # Session: health
 # ---------------------------------------------------------------------------
+
+
+async def _received(fields):
+    """Build the form from `fields`, POST it to a real aiohttp server, and return what
+    arrived: its content type and the parts as (name, filename, content_type, value),
+    in order. The wire format an engine receives, rather than aiohttp's private
+    FormData state, which changes between versions."""
+    from vastai.serverless.server.lib.backend import Backend
+
+    got = {}
+
+    async def handler(request):
+        got["content_type"] = request.content_type
+        got["parts"] = [
+            (name, getattr(v, "filename", None), getattr(v, "content_type", None),
+             v.file.read() if hasattr(v, "file") else v)
+            for name, v in (await request.post()).items()
+        ]
+        return web.Response(text="ok")
+
+    app = web.Application()
+    app.router.add_post("/", handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    port = site._server.sockets[0].getsockname()[1]
+    try:
+        async with aiohttp.ClientSession() as session:
+            form = Backend._Backend__build_form_data(fields)
+            async with session.post(f"http://127.0.0.1:{port}/", data=form) as resp:
+                assert resp.status == 200
+    finally:
+        await runner.cleanup()
+    return got
 
 
 class TestBackendSessionHealth:
@@ -1082,6 +1118,223 @@ class TestBackendHandleRequest:
         mock_sess.post.assert_awaited_once()
         assert mock_sess.post.await_args.kwargs["url"] == handler.endpoint
         assert mock_sess.post.await_args.kwargs["json"] == {"input": {}}
+
+    @pytest.mark.asyncio
+    async def test_call_api_json_debug_log_carries_keys_not_values(
+        self, pyworker_backend, make_mock_model_response, caplog
+    ) -> None:
+        """
+        Verifies the JSON-path debug line logs payload keys, never values.
+
+        This test verifies by:
+        1. Posting a JSON payload carrying a secret-looking value
+        2. Asserting the value is absent from the log and the keys are present
+
+        Assumptions:
+        - Payloads carry prompts and inline media; the log is written to disk
+        """
+        import logging as _logging
+
+        backend = pyworker_backend
+        mock_sess = MagicMock()
+        mock_sess.post = AsyncMock(return_value=make_mock_model_response(body=b"{}"))
+        object.__setattr__(backend, "session", mock_sess)
+        payload = MagicMock()
+        payload.generate_payload_multipart.return_value = None
+        payload.generate_payload_json.return_value = {
+            "input": "hi", "ref_audio": "SECRET-VOICE-SAMPLE"}
+
+        with caplog.at_level(_logging.DEBUG):
+            await backend._Backend__call_api(
+                handler=MagicMock(endpoint="http://model/v1/audio/speech"),
+                payload=payload)
+
+        assert "SECRET-VOICE-SAMPLE" not in caplog.text
+        assert "ref_audio" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_call_api_multipart_debug_log_carries_names_not_values(
+        self, pyworker_backend, make_mock_model_response, caplog
+    ) -> None:
+        """
+        Verifies the multipart-path debug line logs field names, never the uploads.
+
+        This test verifies by:
+        1. Posting a multipart payload carrying a file part and a text field
+        2. Asserting neither value is in the log and both names are
+
+        Assumptions:
+        - Uploads are the largest values the worker handles; the log is written to disk
+        """
+        import logging as _logging
+
+        backend = pyworker_backend
+        mock_sess = MagicMock()
+        mock_sess.post = AsyncMock(return_value=make_mock_model_response(body=b"{}"))
+        object.__setattr__(backend, "session", mock_sess)
+        payload = MagicMock()
+        payload.generate_payload_multipart.return_value = {
+            "file": ("a.wav", b"RIFF-SECRET-AUDIO", "audio/wav"),
+            "prompt": "SECRET-PROMPT"}
+
+        with caplog.at_level(_logging.DEBUG):
+            await backend._Backend__call_api(
+                handler=MagicMock(endpoint="http://model/v1/audio/transcriptions"),
+                payload=payload)
+
+        assert "SECRET" not in caplog.text
+        assert "'file'" in caplog.text and "'prompt'" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_call_api_posts_multipart_when_payload_supplies_fields(
+        self, pyworker_backend, make_mock_model_response
+    ) -> None:
+        """
+        Verifies __call_api posts multipart when generate_payload_multipart returns fields.
+
+        This test verifies by:
+        1. Stubbing a payload whose generate_payload_multipart returns a field mapping
+        2. Calling __call_api with a mock session
+        3. Asserting session.post got data=FormData and no json=, and that the JSON
+           builder was never consulted
+
+        Assumptions:
+        - Payloads returning None (every pre-existing one) keep the json= path, covered
+          by test_handle_request_call_api_uses_session_post above
+        """
+        backend = pyworker_backend
+        mock_sess = MagicMock()
+        mock_sess.post = AsyncMock(return_value=make_mock_model_response(body=b"{}"))
+        object.__setattr__(backend, "session", mock_sess)
+
+        payload = MagicMock()
+        payload.generate_payload_multipart.return_value = {
+            "file": ("a.wav", b"RIFF", "audio/wav"),
+            "model": "whisper-1",
+        }
+        handler = MagicMock(endpoint="http://model/v1/audio/transcriptions")
+
+        await backend._Backend__call_api(handler=handler, payload=payload)
+
+        kwargs = mock_sess.post.await_args.kwargs
+        assert kwargs["url"] == handler.endpoint
+        assert isinstance(kwargs["data"], FormData)
+        assert "json" not in kwargs
+        payload.generate_payload_json.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_build_form_data_shapes_file_parts_and_coerces_scalars(self) -> None:
+        """
+        Verifies a 3-tuple arrives as a file part and a scalar as text.
+
+        This test verifies by:
+        1. Posting a form with one tuple field and one int field to a real server
+        2. Asserting the file keeps its filename, type and bytes, and the int is "0"
+
+        Assumptions:
+        - aiohttp rejects non-str, non-bytes field values, so coercion is required
+        """
+        got = await _received({"file": ("a.wav", b"RIFF", "audio/wav"), "temperature": 0})
+        parts = {name: (fname, ctype, value) for name, fname, ctype, value in got["parts"]}
+        assert parts["file"] == ("a.wav", "audio/wav", b"RIFF")
+        assert parts["temperature"][2] == "0"
+
+    @pytest.mark.asyncio
+    async def test_build_form_data_repeats_list_fields(self) -> None:
+        """
+        Verifies a list value arrives as one part per item under the same name.
+
+        This test verifies by:
+        1. Posting a list of two file tuples and a list of two scalars
+        2. Asserting four parts, with names repeated and file names kept
+
+        Assumptions:
+        - Multipart permits duplicate field names; this is how `image[]` multi-file
+          uploads are encoded, and a dict cannot express it any other way
+        """
+        got = await _received({
+            "image": [("a.png", b"A", "image/png"), ("b.png", b"B", "image/png")],
+            "url": ["http://x/1.png", "http://x/2.png"],
+        })
+        assert [p[0] for p in got["parts"]] == ["image", "image", "url", "url"]
+        assert [(p[1], p[3]) for p in got["parts"] if p[1]] == [("a.png", b"A"), ("b.png", b"B")]
+
+    @pytest.mark.asyncio
+    async def test_build_form_data_omits_none_and_encodes_json_and_bools(self) -> None:
+        """
+        Verifies None is omitted, dicts and nested lists arrive as JSON, bools as text.
+
+        This test verifies by:
+        1. Posting a None, a dict, a nested list, a bool and a None inside a list
+        2. Asserting no "None" part, valid JSON for the dict and nested list, "true"
+
+        Assumptions:
+        - JSON clients send null for unset optional fields; "None" would reach the
+          engine, and a nested list would otherwise arrive as its Python repr
+        """
+        import json as _json
+
+        got = await _received({
+            "language": None,
+            "chunking_strategy": {"type": "server_vad"},
+            "nested": [["word", "segment"]],
+            "stream": True,
+            "url": ["http://x/1.png", None],
+        })
+        parts = [(p[0], p[3]) for p in got["parts"]]
+        assert all(value != "None" for _name, value in parts)
+        assert _json.loads(dict(parts)["chunking_strategy"]) == {"type": "server_vad"}
+        assert _json.loads(dict(parts)["nested"]) == ["word", "segment"]
+        assert ("stream", "true") in parts
+        assert [v for n, v in parts if n == "url"] == ["http://x/1.png"]
+
+    def test_build_form_data_rejects_bare_bytes(self) -> None:
+        """
+        Verifies bytes that are not a (filename, bytes, content_type) tuple raise.
+
+        This test verifies by:
+        1. Building FormData from a bare bytes value
+        2. Asserting TypeError
+
+        Assumptions:
+        - aiohttp deprecates guessing a file part from bare bytes, and silently makes one
+        """
+        from vastai.serverless.server.lib.backend import Backend
+
+        with pytest.raises(TypeError, match="file part"):
+            Backend._Backend__build_form_data({"file": b"RIFF"})
+
+    def test_build_form_data_is_multipart_without_a_file(self) -> None:
+        """
+        Verifies a form with only text fields is still encoded as multipart.
+
+        This test verifies by:
+        1. Building FormData from text fields only (an image edit given a `url`)
+        2. Rendering it and asserting a multipart/form-data content type
+
+        Assumptions:
+        - The OpenAI spec defines these routes as multipart
+        """
+        from vastai.serverless.server.lib.backend import Backend
+
+        form = Backend._Backend__build_form_data({"url": "http://x/a.png", "prompt": "p"})
+        assert form().content_type.startswith("multipart/form-data")
+
+    def test_build_form_data_rejects_malformed_file_parts(self) -> None:
+        """
+        Verifies a tuple that is not (filename, bytes, content_type) raises.
+
+        This test verifies by:
+        1. Building FormData from a 2-tuple
+        2. Asserting TypeError rather than a silent text field
+
+        Assumptions:
+        - A near-miss tuple used to be stringified and posted as text
+        """
+        from vastai.serverless.server.lib.backend import Backend
+
+        with pytest.raises(TypeError, match="file part"):
+            Backend._Backend__build_form_data({"file": ("a.wav", b"RIFF")})
 
     @pytest.mark.asyncio
     async def test_handle_request_verified_signature_allows_request(

@@ -79,6 +79,19 @@ async def _open_once(
     request_fn = {"GET": session.get, "POST": session.post, "PUT": session.put, "DELETE": session.delete}.get(method, session.post)
     return await request_fn(url + route, **kwargs)
 
+
+def _is_binary_content_type(content_type: str) -> bool:
+    """True when a body must be read as bytes: any DECLARED type that is neither JSON
+    nor text/*. A missing type is not binary, so a worker sending JSON without a
+    Content-Type keeps the JSON path.
+
+    Pass the declared Content-Type header, not aiohttp's `content_type`, which reports
+    a missing header as application/octet-stream.
+    """
+    ct = content_type.lower() if isinstance(content_type, str) else ""
+    return bool(ct) and not ct.startswith("text/") and "json" not in ct
+
+
 async def _make_request(
     client,
     route: str,
@@ -90,12 +103,17 @@ async def _make_request(
     retries: int = 5,
     timeout: float = 30,
     stream: bool = False,
+    allow_non_json: bool = False,
 ) -> Dict[str, Any]:
     """
     Make an HTTP request with capped exponential backoff + jitter, returning a structured result.
 
     - Never raises for HTTP non-2xx responses. Instead returns result with ok=False and status/text/json.
     - Raises only for "mechanical" failures (aiohttp/transport) and invalid JSON on successful (2xx) responses.
+    - allow_non_json: a 2xx body that is not JSON but declares a non-JSON type (audio, a
+      text/plain transcript) is returned in "content" instead of raising. A mislabelled
+      JSON object or array still parses as JSON; a text/* body that is anything else
+      (a transcript of "42", or of silence) is returned as text.
 
     Return shape (non-stream):
       {
@@ -105,6 +123,8 @@ async def _make_request(
         "headers": dict,
         "text": str,
         "json": Any|None,
+        "content": bytes|str|None,    # allow_non_json only: str for text/*, else bytes
+        "content_type": str|None,     # the declared type, without parameters
         "retryable": bool,
         "attempt": int
       }
@@ -228,7 +248,16 @@ async def _make_request(
             request_fn = {"GET": session.get, "POST": session.post, "PUT": session.put, "DELETE": session.delete}.get(method, session.post)
             async with await request_fn(full_url, **kwargs) as resp:
                 status = resp.status
-                text = await resp.text()
+                declared = resp.headers.get("Content-Type") or ""
+                content_type = declared.split(";", 1)[0].strip().lower()
+                if allow_non_json:
+                    # resp.text() raises on a media body (MP3 starts with 0xff), so read the
+                    # bytes and decode leniently: an error body still reaches the caller.
+                    raw = await resp.read()
+                    # get_encoding(), not resp.charset: an unknown label falls back to utf-8.
+                    text = raw.decode(resp.get_encoding(), errors="replace")
+                else:
+                    text = await resp.text()
 
                 result: Dict[str, Any] = {
                     "ok": 200 <= status < 300,
@@ -237,15 +266,30 @@ async def _make_request(
                     "headers": dict(resp.headers),
                     "text": text,
                     "json": None,
+                    "content": None,
+                    "content_type": content_type or None,
                     "retryable": _retryable(status),
                     "attempt": attempt,
                 }
 
                 if result["ok"]:
+                    if (allow_non_json and content_type.startswith("text/")
+                            and "json" not in content_type
+                            and not text.lstrip().startswith(("{", "["))):
+                        # Only an object or array is mislabelled JSON: a transcript of "42"
+                        # or of silence is still the text.
+                        result["content"] = text
+                        return result
                     # Successful responses are expected to be JSON; invalid JSON is a hard failure
                     try:
                         result["json"] = await resp.json(content_type=None)
                     except Exception:
+                        if allow_non_json and content_type.startswith("text/"):
+                            result["content"] = text           # e.g. a transcript as text/srt
+                            return result
+                        if allow_non_json and _is_binary_content_type(content_type):
+                            result["content"], result["text"] = raw, ""   # e.g. audio/mpeg
+                            return result
                         raise Exception(f"Invalid JSON from {full_url}:\n{text}")
 
                     # Debug: log the exact response

@@ -8,16 +8,59 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
 import pytest
+from aiohttp import web
 
 from vastai.serverless.client.connection import (
     _backoff_delay,
     _build_kwargs,
+    _is_binary_content_type,
     _iter_sse_json,
     _make_request,
     _open_once,
     _retryable,
 )
+
+
+class TestIsBinaryContentType:
+    """Any declared type that is neither JSON nor text is binary; those keep their path."""
+
+    @pytest.mark.parametrize("ct", [
+        "audio/mpeg", "audio/wav", "image/png", "video/mp4", "application/octet-stream",
+        # Not on any allowlist, and that is the point: an allowlist missed it, resp.text()
+        # raised on the bytes, and the client re-ran a job the worker had finished.
+        "application/ogg",
+    ])
+    def test_media_types_are_binary(self, ct) -> None:
+        """
+        Verifies non-JSON, non-text content types are classified as binary.
+
+        This test verifies by:
+        1. Passing each type
+        2. Asserting True
+
+        Assumptions:
+        - Binary is the default for a declared type, not an allowlist
+        """
+        assert _is_binary_content_type(ct) is True
+
+    @pytest.mark.parametrize("ct", [
+        "application/json", "text/plain", "text/event-stream",
+        "application/problem+json", "", None,
+    ])
+    def test_textual_or_missing_types_are_not_binary(self, ct) -> None:
+        """
+        Verifies textual, JSON-flavoured, empty and missing types keep the old path.
+
+        This test verifies by:
+        1. Passing each textual or absent type
+        2. Asserting False
+
+        Assumptions:
+        - A mocked or absent content_type must not change existing behaviour
+        """
+        assert _is_binary_content_type(ct) is False
 
 
 class TestRetryable:
@@ -1390,6 +1433,67 @@ class TestMakeRequest:
         assert result["ok"] is False
         assert result["json"] is None
 
+    async def test_make_request_non_stream_json_body_unchanged(
+        self,
+        make_mock_http_response,
+        make_request_http_mocks,
+        patch_build_kwargs,
+    ) -> None:
+        """
+        Verifies a JSON body still takes the text + JSON path and carries no content.
+
+        This test verifies by:
+        1. Mocking a 200 with content_type application/json
+        2. Asserting json is parsed, content is None, read() is never called
+
+        Assumptions:
+        - Only media types take the bytes path
+        """
+        mock_resp = make_mock_http_response(status=200, text='{"a": 1}', json_data={"a": 1})
+        mock_resp.headers = {"Content-Type": "application/json; charset=utf-8"}
+        mock_resp.read = AsyncMock()
+        _, mock_client = make_request_http_mocks(mock_resp)
+
+        result = await _make_request(
+            client=mock_client, route="/x", api_key="sk-test",
+            url="https://worker.example.com", method="GET", retries=1,
+        )
+
+        assert result["json"] == {"a": 1}
+        assert result["content"] is None
+        mock_resp.read.assert_not_called()
+
+    async def test_make_request_non_stream_missing_content_type_keeps_json_path(
+        self,
+        make_mock_http_response,
+        make_request_http_mocks,
+        patch_build_kwargs,
+    ) -> None:
+        """
+        Verifies a 2xx with no Content-Type header is still parsed as JSON.
+
+        This test verifies by:
+        1. Mocking a 200 whose headers carry no Content-Type, while aiohttp's
+           content_type reports application/octet-stream (its default)
+        2. Asserting json is parsed and read() is never called
+
+        Assumptions:
+        - aiohttp reports a missing header as application/octet-stream
+        """
+        mock_resp = make_mock_http_response(status=200, text='{"a": 1}', json_data={"a": 1})
+        mock_resp.content_type = "application/octet-stream"
+        mock_resp.read = AsyncMock()
+        _, mock_client = make_request_http_mocks(mock_resp)
+
+        result = await _make_request(
+            client=mock_client, route="/x", api_key="sk-test",
+            url="https://worker.example.com", method="GET", retries=1,
+        )
+
+        assert result["json"] == {"a": 1}
+        assert result["content"] is None
+        mock_resp.read.assert_not_called()
+
     async def test_make_request_non_stream_timeout_retries_then_succeeds(
         self,
         make_mock_http_response,
@@ -1485,3 +1589,99 @@ class TestMakeRequest:
         async for obj in result["stream"]:
             collected.append(obj)
         assert collected == [{"a": 1}]
+
+
+class _RealClient:
+    """The two things _make_request needs from a client."""
+
+    def __init__(self, session):
+        self._session = session
+
+    async def _get_session(self):
+        return self._session
+
+    async def get_ssl_context(self):
+        return None
+
+
+def _text(body, status=200):
+    return lambda: web.Response(status=status, text=body)          # aiohttp: text/plain
+
+
+def _typed(body, content_type, status=200):
+    return lambda: web.Response(status=status, body=body, headers={"Content-Type": content_type})
+
+
+# (id, allow_non_json, response, expected)  expected: ("json"|"content"|"raises"|"error", value)
+_BODY_CASES = [
+    # Unchanged behaviour, for every caller: mislabelled JSON still parses. This is the
+    # regression the non-JSON handling first introduced: aiohttp labels
+    # web.Response(text=json.dumps(...)) as text/plain, and it came back as a string.
+    ("json labelled text/plain", False, _text('{"a": 1}'), ("json", {"a": 1})),
+    ("json labelled text/plain, opted in", True, _text('{"a": 1}'), ("json", {"a": 1})),
+    ("json labelled octet-stream, opted in", True,
+     _typed(b'{"a": 1}', "application/octet-stream"), ("json", {"a": 1})),
+    ("literal null, opted in", True, _typed(b"null", "application/json"), ("json", None)),
+    ("empty text body", False, _text(""), ("json", None)),
+    # An unknown charset label decodes as utf-8, as resp.text() does, instead of raising.
+    ("json with an unknown charset, opted in", True,
+     _typed(b'{"a": 1}', "application/json; charset=binary"), ("json", {"a": 1})),
+    # Non-JSON bodies still raise for callers that did not opt in, exactly as before.
+    ("plain text, not opted in", False, _text("hello world"), ("raises", "Invalid JSON")),
+    # Opted in: a declared non-JSON type is the response.
+    ("text transcript", True, _text("hello world"), ("content", "hello world")),
+    # A text body that is a JSON scalar is a transcript, not JSON; so is an empty one.
+    ("transcript of a number", True, _text("42\n"), ("content", "42\n")),
+    ("empty transcript", True, _text(""), ("content", "")),
+    ("transcript, unknown charset", True,
+     _typed(b"hello", "text/plain; charset=bogus"), ("content", "hello")),
+    ("audio/mpeg", True, _typed(b"\xff\xfb\x90\x64", "audio/mpeg"),
+     ("content", b"\xff\xfb\x90\x64")),
+    # Not on any list of media types: binary is the default for a declared type.
+    ("application/ogg", True, _typed(b"OggS\x00\x02\xff", "application/ogg"),
+     ("content", b"OggS\x00\x02\xff")),
+    # An error body is decoded leniently so the caller can read the message.
+    ("error body in a media type", True,
+     _typed(b"engine exploded \xff", "audio/mpeg", status=500), ("error", "engine exploded")),
+]
+
+
+class TestMakeRequestBodiesAgainstARealServer:
+    """What a caller gets back for each kind of body, from a real aiohttp server rather
+    than a mocked response: the defect this guards is in how real aiohttp labels and
+    decodes bodies, which a mock only reproduces if its author already knew."""
+
+    @pytest.mark.parametrize("label,allow_non_json,respond,expected",
+                             _BODY_CASES, ids=[c[0] for c in _BODY_CASES])
+    async def test_body(self, label, allow_non_json, respond, expected) -> None:
+        async def handler(_request):
+            return respond()
+
+        app = web.Application()
+        app.router.add_post("/r", handler)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        port = site._server.sockets[0].getsockname()[1]
+        try:
+            async with aiohttp.ClientSession() as session:
+                call = _make_request(client=_RealClient(session), route="/r", api_key="k",
+                                     url=f"http://127.0.0.1:{port}", method="POST",
+                                     retries=1, allow_non_json=allow_non_json)
+                kind, value = expected
+                if kind == "raises":
+                    with pytest.raises(Exception, match=value):
+                        await call
+                    return
+                result = await call
+        finally:
+            await runner.cleanup()
+
+        if kind == "json":
+            assert result["ok"] and result["json"] == value and result["content"] is None
+        elif kind == "content":
+            assert result["ok"] and result["content"] == value and result["json"] is None
+        else:
+            assert not result["ok"] and result["text"].startswith(value)
+            assert result["content"] is None

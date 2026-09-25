@@ -1454,6 +1454,97 @@ class TestServerlessQueueEndpointRequest:
         assert result["response"] == worker_json
         assert result["url"] == "https://worker/"
 
+    async def test_queue_endpoint_request_returns_media_bytes_as_response(
+        self,
+        client_with_session,
+        make_serverless_endpoint,
+        make_route_response_mock,
+        patch_serverless_queue_async_stubs,
+    ) -> None:
+        """
+        Verifies a binary worker body is handed back as bytes with its content type.
+
+        This test verifies by:
+        1. Routing straight to READY
+        2. Patching _make_request to return ok with content bytes and no json
+        3. Asserting response is the bytes and content_type is surfaced
+
+        Assumptions:
+        - _make_request puts media bodies in `content` and leaves `json` None
+        """
+        ep = make_serverless_endpoint(client_with_session)
+        client = client_with_session
+        ready = make_route_response_mock(
+            status="READY", url="https://worker/", request_idx=7, body={"token": "t"},
+        )
+
+        async def fake_route(*_a, **_kw):
+            return ready
+
+        audio = b"\xff\xfb\x90\x64"
+        with (
+            patch.object(Endpoint, "_route", side_effect=fake_route),
+            patch(
+                "vastai.serverless.client.client._make_request",
+                new_callable=AsyncMock,
+                return_value={"ok": True, "json": None, "content": audio,
+                              "content_type": "audio/mpeg"},
+            ),
+        ):
+            result = await client.queue_endpoint_request(
+                endpoint=ep, worker_route="/v1/audio/speech",
+                worker_payload={"input": "hi"}, cost=10,
+            )
+
+        assert result["ok"] is True
+        assert result["response"] == audio
+        assert result["content_type"] == "audio/mpeg"
+
+    async def test_queue_endpoint_request_returns_text_as_response(
+        self,
+        client_with_session,
+        make_serverless_endpoint,
+        make_route_response_mock,
+        patch_serverless_queue_async_stubs,
+    ) -> None:
+        """
+        Verifies a text worker body is handed back as the response string, and that
+        only the worker call opts into non-JSON bodies.
+
+        This test verifies by:
+        1. Patching _make_request to return a text/* 2xx body in `content`
+        2. Asserting response is the text, and the call passed allow_non_json=True
+
+        Assumptions:
+        - Every other caller keeps the strict JSON behaviour, so the opt-in must be here
+        """
+        ep = make_serverless_endpoint(client_with_session)
+        ready = make_route_response_mock(
+            status="READY", url="https://worker/", request_idx=7, body={"token": "t"},
+        )
+
+        async def fake_route(*_a, **_kw):
+            return ready
+
+        with (
+            patch.object(Endpoint, "_route", side_effect=fake_route),
+            patch(
+                "vastai.serverless.client.client._make_request",
+                new_callable=AsyncMock,
+                return_value={"ok": True, "json": None,
+                              "content": "1\n00:00:00,000 --> 00:00:01,000\nhi\n",
+                              "text": "1\n00:00:00,000 --> 00:00:01,000\nhi\n",
+                              "content_type": "text/plain"},
+            ) as worker_call,
+        ):
+            result = await client_with_session.queue_endpoint_request(
+                endpoint=ep, worker_route="/v1/audio/transcriptions",
+                worker_payload={"response_format": "srt"}, cost=10,
+            )
+
+        assert result["response"].startswith("1\n00:00:00")
+        assert worker_call.call_args.kwargs.get("allow_non_json") is True
+
 
 class TestServerlessQueueEndpointRequestBranches:
     """Additional queue_endpoint_request paths (timeouts, retries, session, cancel, stream)."""

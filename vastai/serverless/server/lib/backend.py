@@ -30,6 +30,7 @@ from aiohttp import (
     ClientSession,
     ClientConnectorError,
     ClientTimeout,
+    FormData,
     TCPConnector,
 )
 import asyncio
@@ -717,11 +718,69 @@ class Backend:
         else:
             return await self.__call_api(handler=handler, payload=payload)
 
+    @staticmethod
+    def __build_form_data(fields: Dict[str, Any]) -> FormData:
+        """field mapping from `generate_payload_multipart()` -> an aiohttp FormData
+
+        A (filename, bytes, content_type) tuple becomes a file part, a list repeats the
+        field, None is omitted, a dict or nested list is sent as JSON, and other scalars
+        are sent as text (aiohttp refuses ints, floats and bools). Bytes must come as a
+        file tuple: aiohttp deprecates guessing a file part from bare bytes.
+        """
+        # Multipart even with no file part (e.g. an image edit given only `url`);
+        # aiohttp would otherwise send it urlencoded.
+        form = FormData(default_to_multipart=True)
+        for name, value in fields.items():
+            # A LIST repeats the field (multipart allows duplicate names, which is how
+            # `image[]`-style multi-file uploads are encoded). A TUPLE is one file part,
+            # so the two are distinguished by type rather than by length.
+            values = value if isinstance(value, list) else [value]
+            for item in values:
+                if item is None:
+                    # An unset optional field; "None" would reach the engine as a value.
+                    continue
+                if isinstance(item, tuple):
+                    if len(item) != 3:
+                        raise TypeError(
+                            f"multipart field {name!r}: a file part must be "
+                            "(filename, bytes, content_type)"
+                        )
+                    filename, content, content_type = item
+                    form.add_field(
+                        name, content, filename=filename, content_type=content_type
+                    )
+                elif isinstance(item, (bytes, bytearray)):
+                    raise TypeError(
+                        f"multipart field {name!r}: bytes must be a file part "
+                        "(filename, bytes, content_type)"
+                    )
+                elif isinstance(item, (dict, list)):
+                    form.add_field(name, json.dumps(item))
+                elif isinstance(item, bool):
+                    form.add_field(name, "true" if item else "false")
+                else:
+                    form.add_field(name, str(item))
+        return form
+
     async def __call_api(
         self, handler: EndpointHandler[ApiPayload_T], payload: ApiPayload_T
     ) -> ClientResponse:
+        multipart_fields = payload.generate_payload_multipart()
+        if multipart_fields is not None:
+            # field NAMES only: a multipart payload carries file bytes, and logging the
+            # values would put an entire upload through the log on every request.
+            log.debug(
+                f"posting multipart to endpoint: '{handler.endpoint}', "
+                f"fields: {sorted(multipart_fields)}"
+            )
+            return await self.session.post(
+                url=handler.endpoint, data=self.__build_form_data(multipart_fields)
+            )
         api_payload = payload.generate_payload_json()
-        log.debug(f"posting to endpoint: '{handler.endpoint}', payload: {api_payload}")
+        # Keys only: payloads carry prompts and inline media (a voice-clone reference can
+        # be megabytes of base64), and this log is written to disk on a rented machine.
+        keys = sorted(api_payload) if isinstance(api_payload, dict) else type(api_payload).__name__
+        log.debug(f"posting to endpoint: '{handler.endpoint}', payload keys: {keys}")
         return await self.session.post(url=handler.endpoint, json=api_payload)
 
     async def __call_remote_dispatch_function(

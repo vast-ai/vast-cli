@@ -599,6 +599,38 @@ class TestEndpointHandlerFactoryCreatedPayload:
         payload = handler.payload_cls().from_json_msg({"raw_key": "value"})
         assert payload.input == {"parsed": "value"}
 
+    def test_payload_from_json_msg_parser_rejection_stays_a_json_data_exception(
+        self, server_worker_config
+    ) -> None:
+        """
+        Verifies a request_parser raising JsonDataException is not rewrapped.
+
+        This test verifies by:
+        1. Creating a handler whose request_parser raises JsonDataException
+        2. Asserting from_json_msg raises that same JsonDataException
+
+        Assumptions:
+        - The backend turns JsonDataException into a 422; any other exception is a 500
+        """
+
+        def parser(raw):
+            raise JsonDataException({"ref_audio": "scheme not allowed"})
+
+        config = server_worker_config(
+            "from_handlers",
+            handlers=[
+                HandlerConfig(
+                    route="/p",
+                    benchmark_config=BenchmarkConfig(dataset=[{"a": 1}]),
+                    request_parser=parser,
+                ),
+            ],
+        )
+        handler = EndpointHandlerFactory(config).get_handler("/p")
+        with pytest.raises(JsonDataException) as exc:
+            handler.payload_cls().from_json_msg({"raw_key": "value"})
+        assert exc.value.message == {"ref_audio": "scheme not allowed"}
+
     def test_payload_from_json_msg_non_dict_raises_json_data_exception(
         self, server_worker_config
     ) -> None:

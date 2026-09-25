@@ -559,9 +559,9 @@ class TestTheLoop:
         assert len(calls) == 1
         assert "^C" in capsys.readouterr().out
 
-    def test_the_banner_names_the_way_out(self, cli, session, monkeypatch, capsys):
+    def test_starts_straight_at_the_prompt(self, cli, session, monkeypatch, capsys):
         self._repl(cli, session, monkeypatch).run()
-        assert "exit or Ctrl-D" in capsys.readouterr().out
+        assert capsys.readouterr().out.strip() == ""
 
 
 class TestReplLoop:

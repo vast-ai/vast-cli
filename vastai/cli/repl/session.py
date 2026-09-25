@@ -25,11 +25,6 @@ EXIT_WORDS = ("exit", "quit", "q")
 CLEAR_WORDS = ("clear", "cls")
 CLEAR_SCREEN = "\033[H\033[2J\033[3J"  # cursor home, clear screen, clear scrollback
 
-BANNER = """\
-vastai REPL — every vastai command, without the startup cost.
-  Tab completes commands, flags and live instance ids.
-  help for the command list, exit or Ctrl-D to leave."""
-
 
 class Repl:
     def __init__(self, parser, session_args, stdout=None):
@@ -128,7 +123,6 @@ class Repl:
     # -- the loop ----------------------------------------------------------
     def run(self):
         self._setup_terminal()
-        self._print(BANNER)
         while True:
             try:
                 line = input(PROMPT)

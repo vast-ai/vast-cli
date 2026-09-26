@@ -1,7 +1,7 @@
 # Vast.ai Python SDK & CLI
 [![PyPI version](https://badge.fury.io/py/vastai.svg)](https://badge.fury.io/py/vastai)
 
-The official Vast.ai Python package — provides both the CLI and SDK for managing Vast.ai GPU cloud resources, plus a serverless client for endpoint inference.
+Provides both the CLI and SDK for managing Vast.ai GPU cloud resources, plus a serverless client for endpoint inference.
 
 ## Install
 
@@ -11,17 +11,13 @@ The official Vast.ai Python package — provides both the CLI and SDK for managi
 curl -fsSL https://vast.ai/install.sh | bash
 ```
 
-This installs `vastai` into an isolated managed runtime under
-`~/.local/share/vastai`, decoupled from any system or project Python. Update
-anytime with `vastai update`, or pin/roll back with `vastai update --version X`.
+Update anytime with `vastai update`.
 
 **Windows, or using the Python SDK** — install from PyPI instead:
 
 ```bash
 pip install vastai
 ```
-
-> **Note:** `pip install vastai-sdk` also works and installs the same package. Both package names are supported for backward compatibility.
 
 ## Quickstart
 
@@ -72,8 +68,6 @@ vast.stop_instance(id=12345)
 
 Use `help(vast.search_offers)` to view documentation for any method.
 
-> **Migrating from `vastai-sdk`?** The old import still works: `from vastai_sdk import VastAI`
-
 ## Using the Serverless Client
 
 1. Create the client
@@ -102,20 +96,6 @@ print(text)
 ```
 
 Find more examples in the `examples/` directory.
-
-## Tab Completion
-
-Tab completion is supported in Bash and Zsh via [argcomplete](https://github.com/kislyuk/argcomplete) (installed automatically). To enable it:
-
-```bash
-activate-global-python-argcomplete
-```
-
-Or for a single session:
-
-```bash
-eval "$(register-python-argcomplete vastai)"
-```
 
 ## AI Agents
 

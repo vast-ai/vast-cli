@@ -912,6 +912,10 @@ class ScopeIndex:
     @classmethod
     def load(cls, path: Path = SCOPE_DATA_PATH) -> "ScopeIndex":
         raw = json.loads(path.read_text())
+        # this repo is public: backend-only routes must never be written into the snapshot
+        leaked = [u for u in raw["endpoints"] if "/admin" in u or re.match(r"^/api/[0-9a-f]{6}/", u)]
+        if leaked:
+            raise ValueError(f"{path.name} contains {len(leaked)} backend-only routes; remove them before committing")
         by_url: dict[str, dict[str, str]] = {}
         patterns: list[tuple[re.Pattern, dict[str, str]]] = []
         for url, methods in raw["endpoints"].items():

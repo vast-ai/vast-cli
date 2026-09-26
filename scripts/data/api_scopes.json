@@ -7,7 +7,7 @@
       "legion_s3",
       "autoscaler_master"
     ],
-    "note": "Keyed by URL pattern (Pyramid route pattern). Methods map to the scope required for that method on that route. Admin and other backend-only routes are intentionally excluded because this repo is public.",
+    "note": "Keyed by URL pattern (Pyramid route pattern). Methods map to the scope required for that method on that route.",
     "source": "generated from vast/web/paths.py + vast/web/scope.json"
   },
   "endpoints": {

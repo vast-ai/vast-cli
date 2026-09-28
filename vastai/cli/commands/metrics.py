@@ -22,6 +22,7 @@ _GPU_CURRENT_FIELDS = (
     ("gpu_name",          "GPU",      "{}",     None, True),
     ("total",             "Total",    "{}",     None, False),
     ("available",         "Avail",    "{}",     None, False),
+    ("unavailable",       "Unrent",   "{}",     None, False),
     ("usage",             "Usage%",   "{:.1f}", None, False),
     ("rented_verified",   "Rnt/Ver",  "{}",     None, False),
     ("avail_verified",    "Avl/Ver",  "{}",     None, False),
@@ -42,6 +43,8 @@ _GPU_TRENDS_FIELDS = (
     ("avail_verified",    "Avl/Ver",  "{}",     None, False),
     ("rented_unverified", "Rnt/Unv",  "{}",     None, False),
     ("avail_unverified",  "Avl/Unv",  "{}",     None, False),
+    ("unavail_verified",  "Unr/Ver",  "{}",     None, False),
+    ("unavail_unverified","Unr/Unv",  "{}",     None, False),
     ("total",             "Total",    "{}",     None, False),
     ("rented_p10",        "R.p10",    "{:.4f}", None, False),
     ("rented_median",     "R.med",    "{:.4f}", None, False),
@@ -57,7 +60,7 @@ _GPU_LOCATION_FIELDS = (
     ("city",         "City",      "{}",     None, True),
     ("country_code", "CC",        "{}",     None, True),
     ("num_gpus",     "GPUs",      "{}",     None, False),
-    ("rented",       "Rented",    "{}",     None, False),
+    ("state",        "State",     "{}",     None, False),
     ("verified",     "Verified",  "{}",     None, False),
     ("latitude",     "Lat",       "{:.4f}", None, False),
     ("longitude",    "Lon",       "{:.4f}", None, False),
@@ -69,7 +72,7 @@ _GPU_LOCATION_FIELDS = (
              help="Filter GPUs by verification status"),
     argument("--datacenter", type=str, choices=["true", "false", "all"], default="all",
              help="Filter GPUs by datacenter hosting type"),
-    argument("--num-gpus", type=str, choices=["all", "1", "2", "4", "8"], default="all",
+    argument("--num-gpus", type=str, choices=["all", "1", "2", "4", "8", "other"], default="all",
              help="Filter by machine GPU-count bucket (1x, 2x, 4x, 8x)"),
     usage="vastai metrics gpu [OPTIONS]",
     help="[Host] Get current GPU market metrics",
@@ -110,7 +113,7 @@ def metrics__gpu(args):
              help="Filter by verified status"),
     argument("--datacenter", type=str, choices=["true", "false", "all"], default="all",
              help="Filter by datacenter hosting type"),
-    argument("--num-gpus", type=str, choices=["all", "1", "2", "4", "8"], default="all",
+    argument("--num-gpus", type=str, choices=["all", "1", "2", "4", "8", "other"], default="all",
              help="Filter by machine GPU-count bucket (1x, 2x, 4x, 8x)"),
     argument("--start", type=int, default=None, help="Start unix timestamp"),
     argument("--end", type=int, default=None, help="End unix timestamp"),
@@ -221,7 +224,9 @@ def metrics__gpu_trends(args):
     argument("--datacenter", type=str, choices=["true", "false", "all"], default="all",
              help="Filter by datacenter hosting type"),
     argument("--rented", type=str, choices=["true", "false", "all"], default="all",
-             help="Filter by rented status"),
+             help="Filter by rented status. Coarse: 'false' covers both available and unrentable GPUs; use --state to tell them apart"),
+    argument("--state", type=str, choices=["all", "rented", "available", "unavailable"], default="all",
+             help="Filter by listing state. 'unavailable' means listed but neither rentable nor rented"),
     argument("--gpu", type=str, default=None,
              help="Filter by GPU name (comma-separated list). Underscores are accepted in place of spaces."),
     usage="vastai metrics gpu-locations [OPTIONS]",
@@ -253,6 +258,12 @@ def metrics__gpu_locations(args):
         if choice != "all":
             want = choice == "true"
             locations = [loc for loc in locations if bool(loc.get(field)) == want]
+    if args.state != "all":
+        # older servers only send the rented boolean, so derive a state from it
+        locations = [
+            loc for loc in locations
+            if (loc.get("state") or ("rented" if loc.get("rented") else "available")) == args.state
+        ]
     if args.gpu:
         wanted_gpus = {g.strip().replace("_", " ") for g in args.gpu.split(",") if g.strip()}
         locations = [loc for loc in locations if loc.get("gpu_name") in wanted_gpus]

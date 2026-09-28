@@ -883,6 +883,8 @@ maintenance_fields = (
     ("end_time", "End (Date/Time)", "{}", lambda x: datetime.fromtimestamp(x).strftime('%Y-%m-%d/%H:%M'), True),
     ("duration_hours", "Duration (Hrs)", "{}", None, True),
     ("maintenance_category", "Category", "{}", None, True),
+    # Vast-scheduled windows cannot be cancelled with 'vastai cancel maint'.
+    ("admin_scheduled", "Scheduled By", "{}", lambda x: "vast" if x else "host", True),
 )
 
 
@@ -8024,8 +8026,12 @@ def cancel__maint(args):
         print(json_blob)
     r = http_put(args, url,  headers=headers,json=json_blob)
     r.raise_for_status()
-    print(r.text)
-    print(f"Cancel maintenance window(s) scheduled for machine {args.id} success".format(r.json()))
+    if (args.explain):
+        print(r.text)
+    # Vast-scheduled windows are left in place, so report the server's message
+    # instead of an unconditional success.
+    body = r.json()
+    print(body.get("msg") or f"Cancel maintenance window(s) scheduled for machine {args.id} success")
 
 
 def cleanup_machine(args, machine_id):

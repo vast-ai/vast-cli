@@ -130,7 +130,7 @@ class TestSelfTestMachineCleanup:
         assert exit_info.value.code == 0
         assert destroy_instance.call_count == 1
         captured = capsys.readouterr()
-        assert "Instance 123 destroyed successfully on attempt 1." in captured.out
+        assert "Temporary test instance 123 destroyed." in captured.out
         assert "WARNING: failed to destroy test instance 123" not in captured.out
 
 
@@ -193,7 +193,9 @@ class TestSelfTestMachineIgnoreRequirements:
         assert "Requirement checks are skipped as a pass/fail gate" in out
         assert "does not qualify this machine for verification" in out
         assert out.count("does not qualify this machine for verification") >= 2
-        assert "Test passed." in out
+        assert "Self-test summary" in out
+        assert "Status: passed" in out
+        assert "Result: self-test completed successfully." in out
 
     def test_ignore_requirements_warning_in_raw_summary(self, parse_argv, monkeypatch, capsys):
         from vastai.cli.commands import machines
@@ -406,7 +408,7 @@ class TestSelfTestMachineDiagnostics:
         search = Mock(side_effect=[[], [broader_offer]])
         monkeypatch.setattr("vastai.cli.commands.machines.offers_api.search_offers", search)
 
-        args = parse_argv(["self-test", "machine", "42"])
+        args = parse_argv(["self-test", "machine", "42", "--log-level", "debug"])
         with pytest.raises(SystemExit) as exc_info:
             args.func(args)
 
@@ -428,7 +430,7 @@ class TestSelfTestMachineDiagnostics:
         search = Mock(return_value=[bad_offer])
         monkeypatch.setattr("vastai.cli.commands.machines.offers_api.search_offers", search)
 
-        args = parse_argv(["self-test", "machine", "42"])
+        args = parse_argv(["self-test", "machine", "42", "--log-level", "debug"])
         with pytest.raises(SystemExit) as exc_info:
             args.func(args)
 
@@ -441,6 +443,49 @@ class TestSelfTestMachineDiagnostics:
         assert "{machine_id}" not in captured.out
         assert "--filter" not in captured.out
         assert search.call_count == 1
+
+    def test_default_info_preflight_failure_is_compact(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        bad_offer = _self_test_offer(cuda_max_good=11.7, reliability=0.9)
+        search = Mock(return_value=[bad_offer])
+        monkeypatch.setattr("vastai.cli.commands.machines.offers_api.search_offers", search)
+
+        args = parse_argv(["self-test", "machine", "42"])
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 1
+        assert "Starting self-test for machine 42." in captured.out
+        assert "Preflight failed." in captured.out
+        assert "Self-test summary" in captured.out
+        assert "Status: failed" in captured.out
+        assert "Failed checks: CUDA version, Reliability" in captured.out
+        assert "Reason: 2 preflight requirement check(s) failed." in captured.out
+        assert "Preflight diagnostics for machine 42 failed:" not in captured.out
+        assert "actual: 11.7 CUDA" not in captured.out
+        assert "purpose:" not in captured.out
+
+    def test_warning_log_level_keeps_summary_but_suppresses_info_lifecycle(
+        self, parse_argv, patch_get_client, monkeypatch, capsys
+    ):
+        bad_offer = _self_test_offer(cuda_max_good=11.7, reliability=0.9)
+        search = Mock(return_value=[bad_offer])
+        monkeypatch.setattr("vastai.cli.commands.machines.offers_api.search_offers", search)
+
+        args = parse_argv(["self-test", "machine", "42", "--log-level", "warning"])
+        with pytest.raises(SystemExit) as exc_info:
+            args.func(args)
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 1
+        assert "Starting self-test for machine 42." not in captured.out
+        assert "Preflight failed." not in captured.out
+        assert "Self-test summary" in captured.out
+        assert "Status: failed" in captured.out
+        assert "Failed checks: CUDA version, Reliability" in captured.out
+        assert "actual: 11.7 CUDA" not in captured.out
 
     def test_selected_offer_is_reused_for_rental(
         self, parse_argv, patch_get_client, monkeypatch
@@ -470,7 +515,7 @@ class TestSelfTestMachineDiagnostics:
         search = Mock(return_value=[bad_offer])
         monkeypatch.setattr("vastai.cli.commands.machines.offers_api.search_offers", search)
 
-        args = parse_argv(["self-test", "machine", "42"])
+        args = parse_argv(["self-test", "machine", "42", "--log-level", "debug"])
         with pytest.raises(SystemExit) as exc_info:
             args.func(args)
 
@@ -600,7 +645,7 @@ class TestSelfTestMachineDiagnostics:
             Mock(return_value=[offer]),
         )
 
-        args = parse_argv(["self-test", "machine", "42"])
+        args = parse_argv(["self-test", "machine", "42", "--log-level", "debug"])
         with pytest.raises(SystemExit) as exc_info:
             args.func(args)
 
@@ -763,6 +808,48 @@ class TestSelfTestMachineDiagnostics:
         assert create.call_args.kwargs["image"] == "vastai/test:p3-env"
         assert create.call_args.kwargs["runtype"] == "ssh_direc ssh_proxy"
 
+    @pytest.mark.parametrize(
+        "argv,env_level,expected_level,expected_source",
+        [
+            (["self-test", "machine", "42", "--raw"], None, "info", "default"),
+            (["self-test", "machine", "42", "--log-level", "debug", "--raw"], None, "debug", "argument"),
+            (["self-test", "machine", "42", "--debugging", "--raw"], None, "debug", "debugging"),
+            (["self-test", "machine", "42", "--raw"], "debug", "debug", "VAST_LOG_LEVEL"),
+            (["self-test", "machine", "42", "--raw"], "not-a-level", "info", "default_invalid_VAST_LOG_LEVEL"),
+        ],
+    )
+    def test_self_test_log_level_resolution(
+        self,
+        parse_argv,
+        patch_get_client,
+        monkeypatch,
+        argv,
+        env_level,
+        expected_level,
+        expected_source,
+    ):
+        offer = _self_test_offer()
+        if env_level is None:
+            monkeypatch.delenv("VAST_LOG_LEVEL", raising=False)
+        else:
+            monkeypatch.setenv("VAST_LOG_LEVEL", env_level)
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.offers_api.search_offers",
+            Mock(return_value=[offer]),
+        )
+        monkeypatch.setattr(
+            "vastai.cli.commands.machines.instances_api.create_instance",
+            Mock(side_effect=RuntimeError("stop before live rental")),
+        )
+
+        args = parse_argv(argv)
+        result = args.func(args)
+
+        assert result["diagnostics"]["log_level"] == {
+            "level": expected_level,
+            "source": expected_source,
+        }
+
     def test_default_cuda_mapping_still_selects_official_image(
         self, parse_argv, patch_get_client, monkeypatch
     ):
@@ -919,15 +1006,16 @@ class TestSelfTestMachineDiagnostics:
         monkeypatch.setattr("vastai.cli.commands.machines.instances_api.show_instance", show)
         monkeypatch.setattr("vastai.cli.commands.machines.instances_api.destroy_instance", destroy)
 
-        args = parse_argv(["self-test", "machine", "42"])
+        args = parse_argv(["self-test", "machine", "42", "--log-level", "debug"])
         with pytest.raises(SystemExit) as exc_info:
             args.func(args)
 
         captured = capsys.readouterr()
         assert exc_info.value.code == 1
-        assert "Runtime failure diagnostics:" in captured.out
-        assert "- code: daemon_startup_failed" in captured.out
-        assert "- remediation: Inspect docker daemon, OCI runtime, and container startup logs." in captured.out
+        assert "Runtime failure diagnostics" in captured.out
+        assert "    code: daemon_startup_failed" in captured.out
+        assert "  Remediation:" in captured.out
+        assert "    Inspect docker daemon, OCI runtime, and container startup logs." in captured.out
         assert "WARNING: failed to destroy test instance" not in captured.out
         assert "api_key=secret" not in captured.out
         destroy.assert_called_once()
@@ -947,7 +1035,7 @@ class TestSelfTestMachineDiagnostics:
         )
         monkeypatch.setattr("vastai.cli.commands.machines.instances_api.create_instance", create)
 
-        args = parse_argv(["self-test", "machine", "42"])
+        args = parse_argv(["self-test", "machine", "42", "--log-level", "debug"])
         with pytest.raises(SystemExit) as exc_info:
             args.func(args)
 
@@ -1080,15 +1168,16 @@ class TestSelfTestMachineDiagnostics:
             Mock(side_effect=requests.exceptions.ConnectTimeout("timed out")),
         )
 
-        args = parse_argv(["self-test", "machine", "42"])
+        args = parse_argv(["self-test", "machine", "42", "--log-level", "debug"])
         with pytest.raises(SystemExit) as exc_info:
             args.func(args)
 
         captured = capsys.readouterr()
         assert exc_info.value.code == 1
         assert "External port tested: 45000" in captured.out
-        assert "- external port tested: 45000" in captured.out
-        assert "- mapped container ports: 22/tcp, 5000/tcp" in captured.out
+        assert "  Connection attempt:" in captured.out
+        assert "    external port tested: 45000" in captured.out
+        assert "    mapped container ports: 22/tcp, 5000/tcp" in captured.out
 
     def test_progress_endpoint_lost_after_success_records_different_failure(
         self, parse_argv, patch_get_client, monkeypatch

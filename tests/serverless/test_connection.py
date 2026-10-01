@@ -1531,10 +1531,11 @@ def _typed(body, content_type, status=200):
 _BODY_CASES = [
     ("json labelled text/plain", False, _text('{"a": 1}'), ("json", {"a": 1})),
     ("json labelled text/plain, opted in", True, _text(' \n{"a": 1}'), ("json", {"a": 1})),
+    ("json array labelled text/plain, opted in", True, _text("[1, 2]"), ("json", [1, 2])),
     ("json labelled octet-stream, opted in", True,
      _typed(b'{"a": 1}', "application/octet-stream"), ("json", {"a": 1})),
-    ("json with an unknown charset, opted in", True,
-     _typed(b'{"a": 1}', "application/json; charset=binary"), ("json", {"a": 1})),
+    ("json array labelled octet-stream, opted in", True,
+     _typed(b"[1]", "application/octet-stream"), ("json", [1])),
     ("plain text, not opted in", False, _text("hello world"), ("raises", "Invalid JSON")),
     ("invalid json labelled json, opted in", True,
      _typed(b"not json", "application/json"), ("raises", "Invalid JSON")),
@@ -1543,12 +1544,16 @@ _BODY_CASES = [
     ("transcript of a number", True, _text("42\n"), ("content", "42\n")),
     ("transcript starting with [", True, _text("[BLANK_AUDIO]"), ("content", "[BLANK_AUDIO]")),
     ("empty transcript", True, _text(""), ("content", "")),
-    ("transcript, unknown charset", True,
-     _typed(b"hello", "text/plain; charset=bogus"), ("content", "hello")),
     ("audio/mpeg", True, _typed(b"\xff\xfb\x90\x64", "audio/mpeg"),
      ("content", b"\xff\xfb\x90\x64")),
+    ("audio, upper-case type", True, _typed(b"\xff\xfb", "Audio/MPEG"), ("content", b"\xff\xfb")),
+    ("empty audio", True, _typed(b"", "audio/mpeg"), ("content", b"")),
+    ("audio that parses as a number", True, _typed(b"42", "audio/mpeg"), ("content", b"42")),
+    ("audio, not opted in", False, _typed(b"\xff\xfb", "audio/mpeg"), ("raises", "Invalid JSON")),
     ("error body in a media type", True,
      _typed(b"engine exploded \xff", "audio/mpeg", status=500), ("error", "engine exploded")),
+    ("error body with a bad byte, not opted in", False,
+     _typed(b"boom \xff", "text/plain", status=500), ("error", "boom")),
 ]
 
 

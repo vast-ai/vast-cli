@@ -1106,8 +1106,12 @@ class TestBackendHandleRequest:
         assert mock_sess.post.await_args.kwargs["json"] == {"input": {}}
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("body,logged", [
+        ({"input": "hi", "ref_audio": "SECRET-VOICE-SAMPLE"}, "ref_audio"),
+        (["SECRET-VOICE-SAMPLE"], "list"),
+    ])
     async def test_call_api_json_debug_log_carries_keys_not_values(
-        self, pyworker_backend, make_mock_model_response, caplog
+        self, pyworker_backend, make_mock_model_response, caplog, body, logged
     ) -> None:
         """The JSON-path debug line logs payload keys, never values."""
         import logging as _logging
@@ -1118,8 +1122,7 @@ class TestBackendHandleRequest:
         object.__setattr__(backend, "session", mock_sess)
         payload = MagicMock()
         payload.generate_payload_multipart.return_value = None
-        payload.generate_payload_json.return_value = {
-            "input": "hi", "ref_audio": "SECRET-VOICE-SAMPLE"}
+        payload.generate_payload_json.return_value = body
 
         with caplog.at_level(_logging.DEBUG):
             await backend._Backend__call_api(
@@ -1127,7 +1130,7 @@ class TestBackendHandleRequest:
                 payload=payload)
 
         assert "SECRET-VOICE-SAMPLE" not in caplog.text
-        assert "ref_audio" in caplog.text
+        assert logged in caplog.text
 
     @pytest.mark.asyncio
     async def test_call_api_posts_multipart_and_logs_only_field_names(
@@ -1176,7 +1179,7 @@ class TestBackendHandleRequest:
 
     @pytest.mark.asyncio
     async def test_build_form_data_omits_none_and_encodes_json_and_bools(self, serve_aiohttp) -> None:
-        """None is omitted, dicts and nested lists arrive as JSON, bools as "true"."""
+        """None is omitted, dicts and nested lists arrive as JSON, bools as "true"/"false"."""
         import json as _json
 
         got = await _received(serve_aiohttp, {
@@ -1184,13 +1187,14 @@ class TestBackendHandleRequest:
             "chunking_strategy": {"type": "server_vad"},
             "nested": [["word", "segment"]],
             "stream": True,
+            "echo": False,
             "url": ["http://x/1.png", None],
         })
         parts = [(p[0], p[3]) for p in got["parts"]]
         assert all(value != "None" for _name, value in parts)
         assert _json.loads(dict(parts)["chunking_strategy"]) == {"type": "server_vad"}
         assert _json.loads(dict(parts)["nested"]) == ["word", "segment"]
-        assert ("stream", "true") in parts
+        assert ("stream", "true") in parts and ("echo", "false") in parts
         assert [v for n, v in parts if n == "url"] == ["http://x/1.png"]
 
     def test_build_form_data_rejects_bare_bytes(self) -> None:

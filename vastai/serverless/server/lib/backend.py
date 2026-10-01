@@ -761,7 +761,7 @@ class Backend:
             )
         api_payload = payload.generate_payload_json()
         # Keys only: values carry prompts and inline media.
-        log.debug(f"posting to endpoint: '{handler.endpoint}', payload keys: {list(api_payload)}")
+        log.debug(f"posting to endpoint: '{handler.endpoint}', payload keys: {list(api_payload) if isinstance(api_payload, dict) else type(api_payload).__name__}")
         return await self.session.post(url=handler.endpoint, json=api_payload)
 
     async def __call_remote_dispatch_function(

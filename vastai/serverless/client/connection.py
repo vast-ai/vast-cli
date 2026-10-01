@@ -98,7 +98,7 @@ async def _make_request(
 
     - Never raises for HTTP non-2xx responses. Instead returns result with ok=False and status/text/json.
     - Raises only for "mechanical" failures (aiohttp/transport) and invalid JSON on successful (2xx) responses.
-    - allow_non_json: a 2xx text/* or media body that is not JSON is returned in "content"
+    - allow_non_json: a 2xx text/* or media body that is not a JSON object or array is returned
       (str for text/*, bytes otherwise) instead of raising.
 
     Return shape (non-stream):
@@ -110,7 +110,7 @@ async def _make_request(
         "text": str,
         "json": Any|None,
         "content": bytes|str|None,    # allow_non_json only: str for text/*, else bytes
-        "content_type": str|None,     # the declared type, without parameters
+        "content_type": str,          # the declared type, without parameters ("" if none)
         "retryable": bool,
         "attempt": int
       }
@@ -234,15 +234,12 @@ async def _make_request(
             request_fn = {"GET": session.get, "POST": session.post, "PUT": session.put, "DELETE": session.delete}.get(method, session.post)
             async with await request_fn(full_url, **kwargs) as resp:
                 status = resp.status
-                content_type = (resp.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+                content_type = (resp.headers.get("Content-Type") or "").split(";", 1)[0].lower()
                 is_text = content_type.startswith("text/")
                 is_media = (allow_non_json and bool(content_type) and not is_text
                             and "json" not in content_type)
-                if is_media:
-                    raw = await resp.read()
-                    text = "" if 200 <= status < 300 else raw.decode(resp.get_encoding(), errors="replace")
-                else:
-                    text = await resp.text(errors="replace" if allow_non_json else "strict")
+                raw = await resp.read() if is_media else None
+                text = "" if is_media and 200 <= status < 300 else await resp.text(errors="replace")
 
                 result: Dict[str, Any] = {
                     "ok": 200 <= status < 300,
@@ -252,29 +249,27 @@ async def _make_request(
                     "text": text,
                     "json": None,
                     "content": None,
-                    "content_type": content_type or None,
+                    "content_type": content_type,
                     "retryable": _retryable(status),
                     "attempt": attempt,
                 }
 
                 if result["ok"]:
-                    if allow_non_json and is_text:
-                        # Text is the body unless it is an object or array (mislabelled JSON).
+                    if is_media or (allow_non_json and is_text):
+                        # The body, unless it is an object or array (mislabelled JSON).
+                        body = raw if is_media else text
                         try:
-                            if text.lstrip().startswith(("{", "[")):
-                                result["json"] = json.loads(text)
+                            if body.lstrip()[:1] in ("{", "[", b"{", b"["):
+                                result["json"] = json.loads(body)
                                 return result
                         except ValueError:
                             pass
-                        result["content"] = text
+                        result["content"] = body
                         return result
                     # Successful responses are expected to be JSON; invalid JSON is a hard failure
                     try:
                         result["json"] = await resp.json(content_type=None)
                     except Exception:
-                        if is_media:
-                            result["content"] = raw
-                            return result
                         raise Exception(f"Invalid JSON from {full_url}:\n{text}")
 
                     # Debug: log the exact response

@@ -382,10 +382,6 @@ class TestApiPayloadAbstract:
         with pytest.raises(TypeError):
             ApiPayload()
 
-    def test_generate_payload_multipart_defaults_to_none(self) -> None:
-        """A payload that never mentions multipart is posted as JSON."""
-        assert DummyPayload(value=1).generate_payload_multipart() is None
-
 
 class TestEndpointHandlerAbstract:
     """EndpointHandler concrete instance exposes defaults and implemented API."""

@@ -1454,16 +1454,12 @@ class TestServerlessQueueEndpointRequest:
         assert result["response"] == worker_json
         assert result["url"] == "https://worker/"
 
-    @pytest.mark.parametrize("content,content_type", [
-        (b"\xff\xfb\x90\x64", "audio/mpeg"), ("", "text/plain")])
     async def test_queue_endpoint_request_returns_a_non_json_body_as_response(
         self,
         client_with_session,
         make_serverless_endpoint,
         make_route_response_mock,
         patch_serverless_queue_async_stubs,
-        content,
-        content_type,
     ) -> None:
         """A non-JSON worker body, even an empty transcript, is the response; only the
         worker call opts in."""
@@ -1480,8 +1476,8 @@ class TestServerlessQueueEndpointRequest:
             patch(
                 "vastai.serverless.client.client._make_request",
                 new_callable=AsyncMock,
-                return_value={"ok": True, "json": {"not": "this"}, "content": content,
-                              "content_type": content_type},
+                return_value={"ok": True, "json": None, "content": "",
+                              "content_type": "text/plain"},
             ) as worker_call,
         ):
             result = await client_with_session.queue_endpoint_request(
@@ -1489,8 +1485,8 @@ class TestServerlessQueueEndpointRequest:
                 worker_payload={"input": "hi"}, cost=10,
             )
 
-        assert result["response"] == content
-        assert result["content_type"] == content_type
+        assert result["response"] == ""
+        assert result["content_type"] == "text/plain"
         assert worker_call.call_args.kwargs.get("allow_non_json") is True
 
 

@@ -383,18 +383,7 @@ class TestApiPayloadAbstract:
             ApiPayload()
 
     def test_generate_payload_multipart_defaults_to_none(self) -> None:
-        """
-        Verifies the multipart hook is optional, so existing payloads keep working.
-
-        This test verifies by:
-        1. Asserting generate_payload_multipart is absent from __abstractmethods__
-        2. Asserting a payload that never mentions it returns None
-
-        Assumptions:
-        - None means "POST generate_payload_json() as JSON"; making the hook abstract
-          would break every ApiPayload subclass written before it existed
-        """
-        assert "generate_payload_multipart" not in ApiPayload.__abstractmethods__
+        """A payload that never mentions multipart is posted as JSON."""
         assert DummyPayload(value=1).generate_payload_multipart() is None
 
 

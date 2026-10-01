@@ -823,6 +823,7 @@ class _ServerlessBase(Generic[R]):
                         "ok": result.get("ok"),
                         "status": result.get("status"),
                         "text": result.get("text"),
+                        "content_type": result.get("content_type"),
                         "latency": (tracker.complete_time - tracker.start_time)
                         if tracker.start_time
                         else None,
@@ -831,7 +832,7 @@ class _ServerlessBase(Generic[R]):
                         "auth_data": auth_data,
                     }
 
-                # Success. A body that is not JSON (audio, a text transcript) is in "content".
+                # Success; a non-JSON body (audio, a transcript) is in "content".
                 if stream:
                     worker_response = result.get("stream")
                 elif result.get("content") is not None:

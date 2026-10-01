@@ -602,16 +602,7 @@ class TestEndpointHandlerFactoryCreatedPayload:
     def test_payload_from_json_msg_parser_rejection_stays_a_json_data_exception(
         self, server_worker_config
     ) -> None:
-        """
-        Verifies a request_parser raising JsonDataException is not rewrapped.
-
-        This test verifies by:
-        1. Creating a handler whose request_parser raises JsonDataException
-        2. Asserting from_json_msg raises that same JsonDataException
-
-        Assumptions:
-        - The backend turns JsonDataException into a 422; any other exception is a 500
-        """
+        """A parser's JsonDataException is not rewrapped, so it stays a 422."""
 
         def parser(raw):
             raise JsonDataException({"ref_audio": "scheme not allowed"})

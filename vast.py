@@ -1742,6 +1742,25 @@ def vm__copy(args: argparse.Namespace):
         print("failed with error {r.status_code}".format(**locals()));
 '''
 
+def exit_on_copy_refusal(response):
+    """Print why a cloud copy was refused and exit non-zero, or return.
+
+    The API answers a refusal with a named reason and a sentence written for the
+    person who typed the command. Raising for status instead would replace that
+    sentence with a stack trace, and a bare status check would let a refusal
+    carried in a 200 body print "Cloud Copy Started".
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        body = {}
+    if response.status_code == 200 and body.get("success", True):
+        return
+    message = body.get("msg") or response.text or f"HTTP {response.status_code}"
+    print(message, file=sys.stderr)
+    sys.exit(1)
+
+
 @parser.command(
     argument("--src", help="path to source of object to copy", type=str),
     argument("--dst", help="path to target of copy operation", type=str, default="/workspace"),
@@ -1860,13 +1879,9 @@ def cloud__copy(args: argparse.Namespace):
                 return
         
     r = http_post(args, url, headers=headers,json=req_json)
-    r.raise_for_status()
-    if (r.status_code == 200):
-        print("Cloud Copy Started - check instance status bar for progress updates (~30 seconds delayed).")
-        print("When the operation is finished you should see 'Cloud Copy Operation Finished' in the instance status bar.")  
-    else:
-        print(r.text);
-        print("failed with error {r.status_code}".format(**locals()));
+    exit_on_copy_refusal(r)
+    print("Cloud Copy Started - check instance status bar for progress updates (~30 seconds delayed).")
+    print("When the operation is finished you should see 'Cloud Copy Operation Finished' in the instance status bar.")
 
 
 @parser.command(

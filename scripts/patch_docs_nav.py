@@ -107,6 +107,10 @@ def classify_new(name: str) -> str | None:
         return "Accounts"
     if name.endswith("-api-key"):
         return "Accounts"
+    # Local CLI setup and self-management, not a server resource: they sit with
+    # set-api-key rather than falling through to DEFAULT_GROUP ("Instances").
+    if name in ("set-role", "update", "uninstall", "repl"):
+        return "Accounts"
     if "invoice" in name or name == "fetch-contracts":
         return "Billing"
     if "team" in name:

@@ -14,6 +14,7 @@ from typing import Iterable
 
 INSTANCE_CREATE_FAILED = "instance_create_failed"
 INSTANCE_CREATE_MISSING_CONTRACT = "instance_create_missing_contract"
+INSTANCE_ID_HANDOFF_FAILED = "instance_id_handoff_failed"
 INSTANCE_STATUS_ERROR = "instance_status_error"
 INSTANCE_STATUS_POLL_FAILED = "instance_status_poll_failed"
 INSTANCE_START_TIMEOUT = "instance_start_timeout"
@@ -34,12 +35,23 @@ NCCL_FAILED = "nccl_failed"
 STRESS_GPU_BURN_FAILED = "stress_gpu_burn_failed"
 INTERRUPTED = "interrupted"
 CLEANUP_FAILED = "cleanup_failed"
+CUDA_ERROR_TOO_MANY_PEERS = "cuda_error_too_many_peers"
+CUDA_ERROR_CONTAINED = "cuda_error_contained"
+CUDA_OUT_OF_MEMORY = "cuda_out_of_memory"
+CUDA_DEVICE_UNAVAILABLE = "cuda_device_unavailable"
+CUDA_DRIVER_OR_INITIALIZATION_ERROR = "cuda_driver_or_initialization_error"
+CUDA_KERNEL_INCOMPATIBLE = "cuda_kernel_incompatible"
+CUDA_DEVICE_EXECUTION_FAILED = "cuda_device_execution_failed"
+CUDA_RUNTIME_ERROR = "cuda_runtime_error"
+PYTORCH_RUNTIME_ERROR = "pytorch_runtime_error"
+RESNET_PROCESS_ERROR = "resnet_process_error"
 PROGRESS_CONTAINER_PORT = "5000/tcp"
 
 
 RUNTIME_FAILURE_CODES = (
     INSTANCE_CREATE_FAILED,
     INSTANCE_CREATE_MISSING_CONTRACT,
+    INSTANCE_ID_HANDOFF_FAILED,
     INSTANCE_STATUS_ERROR,
     INSTANCE_STATUS_POLL_FAILED,
     INSTANCE_START_TIMEOUT,
@@ -60,6 +72,16 @@ RUNTIME_FAILURE_CODES = (
     STRESS_GPU_BURN_FAILED,
     INTERRUPTED,
     CLEANUP_FAILED,
+    CUDA_ERROR_TOO_MANY_PEERS,
+    CUDA_ERROR_CONTAINED,
+    CUDA_OUT_OF_MEMORY,
+    CUDA_DEVICE_UNAVAILABLE,
+    CUDA_DRIVER_OR_INITIALIZATION_ERROR,
+    CUDA_KERNEL_INCOMPATIBLE,
+    CUDA_DEVICE_EXECUTION_FAILED,
+    CUDA_RUNTIME_ERROR,
+    PYTORCH_RUNTIME_ERROR,
+    RESNET_PROCESS_ERROR,
 )
 
 
@@ -83,6 +105,15 @@ FAILURE_CATALOG: dict[str, FailureCatalogEntry] = {
         "Instance creation did not return a new contract id.",
         "Treat the create response as malformed or incomplete.",
         ("Inspect the raw create-instance response.", "Retry after confirming the offer is still rentable."),
+    ),
+    INSTANCE_ID_HANDOFF_FAILED: FailureCatalogEntry(
+        INSTANCE_ID_HANDOFF_FAILED,
+        "The instance was created, but the CLI could not durably publish its ID.",
+        "Verify the configured instance-ID handoff path is an absolute writable file path, then retry.",
+        (
+            "Confirm the CLI reported that cleanup destroyed the exact created instance.",
+            "Fix or remove VAST_SELF_TEST_CREATED_INSTANCE_ID_FILE before retrying.",
+        ),
     ),
     INSTANCE_STATUS_ERROR: FailureCatalogEntry(
         INSTANCE_STATUS_ERROR,
@@ -212,6 +243,111 @@ FAILURE_CATALOG: dict[str, FailureCatalogEntry] = {
         "Destroy the temporary test instance manually to avoid continued billing.",
         ("Run destroy instance for the temporary contract.", "Retry cleanup after checking API connectivity."),
     ),
+    CUDA_ERROR_TOO_MANY_PEERS: FailureCatalogEntry(
+        CUDA_ERROR_TOO_MANY_PEERS,
+        "CUDA peer-mapping resources were exhausted during the all-GPU ResNet test.",
+        "Do not verify the advertised all-GPU configuration; split the offer into smaller groups that pass self-test or use an NVSwitch-capable topology.",
+        (
+            "Inspect the retained traceback and GPU topology.",
+            "Rerun self-test after changing the offered GPU grouping or topology.",
+        ),
+    ),
+    CUDA_ERROR_CONTAINED: FailureCatalogEntry(
+        CUDA_ERROR_CONTAINED,
+        (
+            "CUDA reported a contained device exception during the all-GPU ResNet test, "
+            "commonly caused by certain invalid peer-memory accesses over NVLink or "
+            "certain hardware errors; this is not CUDA out-of-memory or VRAM exhaustion."
+        ),
+        (
+            "Terminate and relaunch the failed process/container, then diagnose the peer "
+            "fabric and hardware; do not treat this as tenant VRAM exhaustion."
+        ),
+        (
+            "Terminate and relaunch the failed self-test process/container before retrying.",
+            (
+                "Inspect nvidia-smi topo -m and run all-pairs P2P access/bandwidth tests "
+                "for the advertised GPU group."
+            ),
+            "Check NVLink/NVSwitch health plus Fabric Manager/NVLSM status and logs.",
+            (
+                "Review NVIDIA Xid/ECC/driver logs, then repair or isolate the affected "
+                "GPU or fabric path."
+            ),
+        ),
+    ),
+    CUDA_OUT_OF_MEMORY: FailureCatalogEntry(
+        CUDA_OUT_OF_MEMORY,
+        "CUDA memory was exhausted during the all-GPU ResNet test.",
+        "Stop competing GPU workloads, confirm free VRAM on every GPU, and rerun.",
+        (
+            "Check active processes and free VRAM on every advertised GPU.",
+            "Rerun self-test only after every GPU has sufficient free memory.",
+        ),
+    ),
+    CUDA_DEVICE_UNAVAILABLE: FailureCatalogEntry(
+        CUDA_DEVICE_UNAVAILABLE,
+        "CUDA reported that one or more GPUs were busy or unavailable.",
+        "Make every advertised GPU idle and healthy, then rerun self-test.",
+        (
+            "Check active GPU processes, compute mode, reset state, and NVIDIA Xid/driver logs.",
+            "Confirm every advertised GPU accepts a CUDA workload before retrying.",
+        ),
+    ),
+    CUDA_DRIVER_OR_INITIALIZATION_ERROR: FailureCatalogEntry(
+        CUDA_DRIVER_OR_INITIALIZATION_ERROR,
+        "NVIDIA driver initialization or CUDA runtime compatibility failed.",
+        "Check driver health and image compatibility, repair or upgrade as needed, then rerun.",
+        (
+            "Confirm nvidia-smi and a small CUDA workload succeed on every GPU.",
+            "Use a self-test image compatible with the host driver.",
+        ),
+    ),
+    CUDA_KERNEL_INCOMPATIBLE: FailureCatalogEntry(
+        CUDA_KERNEL_INCOMPATIBLE,
+        "The selected PyTorch/CUDA kernels do not support this GPU or runtime combination.",
+        "Use an image compatible with the GPUs and host driver, then rerun.",
+        (
+            "Verify the image contains kernels for the advertised GPU architecture.",
+            "Confirm the image CUDA runtime is supported by the host driver.",
+        ),
+    ),
+    CUDA_DEVICE_EXECUTION_FAILED: FailureCatalogEntry(
+        CUDA_DEVICE_EXECUTION_FAILED,
+        "CUDA failed while executing the all-GPU workload.",
+        "Review NVIDIA Xid/ECC and driver logs, repair unhealthy GPUs, and rerun.",
+        (
+            "Check the retained traceback and NVIDIA Xid/ECC logs for the failing device.",
+            "Confirm an isolated CUDA workload succeeds on every GPU before retrying.",
+        ),
+    ),
+    CUDA_RUNTIME_ERROR: FailureCatalogEntry(
+        CUDA_RUNTIME_ERROR,
+        "An unclassified CUDA runtime failure stopped the all-GPU ResNet test.",
+        "Review the retained traceback and NVIDIA driver logs before attributing the cause.",
+        (
+            "Check topology, driver compatibility, GPU health, and competing workloads.",
+            "Correct the observed condition, then rerun self-test.",
+        ),
+    ),
+    PYTORCH_RUNTIME_ERROR: FailureCatalogEntry(
+        PYTORCH_RUNTIME_ERROR,
+        "An unclassified PyTorch runtime failure stopped the all-GPU ResNet test.",
+        "Review the retained traceback before deciding whether the image or host is at fault.",
+        (
+            "Reproduce with a small isolated PyTorch workload on every GPU.",
+            "Correct the image or host runtime condition, then rerun self-test.",
+        ),
+    ),
+    RESNET_PROCESS_ERROR: FailureCatalogEntry(
+        RESNET_PROCESS_ERROR,
+        "The all-GPU ResNet subprocess exited without a more specific diagnosis.",
+        "Review the retained process output before attributing the failure, then correct it and rerun.",
+        (
+            "Inspect the container log for import, image, signal, or process-exit details.",
+            "Confirm the image can run its ResNet entry point before retrying.",
+        ),
+    ),
 }
 
 
@@ -225,14 +361,40 @@ STAGE_STARTUP = "startup"
 
 _STAGE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"^\s*Running system requirements test\.\.\.\s*$", re.IGNORECASE), STAGE_SYSTEM_REQUIREMENTS),
-    (re.compile(r"^\s*Running ResNet50/ResNet18 test\.\.\.\s*$", re.IGNORECASE), STAGE_RESNET),
-    (re.compile(r"^\s*Running ECC test\.\.\.\s*$", re.IGNORECASE), STAGE_ECC),
-    (re.compile(r"^\s*Running NCCL distributed test\.\.\.\s*$", re.IGNORECASE), STAGE_NCCL),
-    (re.compile(r"^\s*Running stress-ng and gpu-burn\.\.\.\s*$", re.IGNORECASE), STAGE_STRESS_GPU_BURN),
+    (re.compile(r"^\s*Running ResNet(?:50/ResNet18|18)(?: test(?: on all GPUs)?)?\.\.\.\s*$", re.IGNORECASE), STAGE_RESNET),
+    (re.compile(r"^\s*Running ECC test(?: on all GPUs)?\.\.\.\s*$", re.IGNORECASE), STAGE_ECC),
+    (re.compile(r"^\s*Running NCCL distributed test(?: with \d+ GPUs)?\.\.\.\s*$", re.IGNORECASE), STAGE_NCCL),
+    (re.compile(r"^\s*Running stress-ng and gpu-burn(?: tests simultaneously for \d+ seconds)?\.\.\.\s*$", re.IGNORECASE), STAGE_STRESS_GPU_BURN),
 )
+
+_SELF_TEST_FAILURE_RE = re.compile(
+    r"\bSELF_TEST_FAILURE\[([a-z0-9_]+)\]",
+    re.IGNORECASE,
+)
+_SELF_TEST_RESNET_FAILURE_CODES = (
+    CUDA_ERROR_TOO_MANY_PEERS,
+    CUDA_ERROR_CONTAINED,
+    CUDA_OUT_OF_MEMORY,
+    CUDA_DEVICE_UNAVAILABLE,
+    CUDA_DRIVER_OR_INITIALIZATION_ERROR,
+    CUDA_KERNEL_INCOMPATIBLE,
+    CUDA_DEVICE_EXECUTION_FAILED,
+    CUDA_RUNTIME_ERROR,
+    PYTORCH_RUNTIME_ERROR,
+    RESNET_PROCESS_ERROR,
+)
+_SELF_TEST_FAILURE_STAGES = {
+    code: STAGE_RESNET for code in _SELF_TEST_RESNET_FAILURE_CODES
+}
 
 _NVML_RE = re.compile(
     r"nvml|nvidia-smi|driver/library version mismatch|failed to initialize.*nvidia",
+    re.IGNORECASE,
+)
+_CUDA_ERROR_CONTAINED_RE = re.compile(
+    r"cudaerrorcontained|"
+    r"invalid access (?:of|to) peer gpu memory(?: over nvlink)?|"
+    r"invalid peer(?:-gpu)?[- ]memory access(?: over nvlink)?",
     re.IGNORECASE,
 )
 _RESNET_RE = re.compile(
@@ -242,6 +404,11 @@ _RESNET_RE = re.compile(
 _ECC_RE = re.compile(r"\becc\b|volatile double bit|aggregate single bit", re.IGNORECASE)
 _NCCL_RE = re.compile(r"\bnccl\b|unhandled system error|connection timed out|allreduce|peer access", re.IGNORECASE)
 _STRESS_RE = re.compile(r"stress-ng|gpu-burn|xid|thermal|power limit|burn-in|hardware error", re.IGNORECASE)
+_EXPLICIT_STRESS_RE = re.compile(r"stress-ng|gpu-burn|burn-in", re.IGNORECASE)
+_EXPLICIT_RESNET_RE = re.compile(
+    r"\bresnet(?:18|50)?\b|\btorch\b|\bpytorch\b|\bcudnn\b|\bcublas\b",
+    re.IGNORECASE,
+)
 
 _DOCKER_PULL_RE = re.compile(
     r"pull|manifest|not found|unauthorized|denied|repository does not exist|no such image|"
@@ -251,6 +418,29 @@ _DOCKER_PULL_RE = re.compile(
 _STARTUP_RE = re.compile(
     r"daemon|container|startup|start container|failed to start|oci runtime|runc|nvidia-container|"
     r"docker|exited|exec format error|permission denied|mount|entrypoint",
+    re.IGNORECASE,
+)
+_STATUS_ERROR_LINE_RE = re.compile(
+    r"^\s*(?:#\d+\s+(?:\d+(?:\.\d+)?\s+)?)?"
+    r"(?:(?:errors?|failed|failures?|exceptions?|tracebacks?)(?=[:\s]|$)|"
+    r"unauthorized(?=:))",
+    re.IGNORECASE | re.MULTILINE,
+)
+_STATUS_RECOVERABLE_LINE_RE = re.compile(
+    r"\bfailed to fetch\b[^\r\n]{0,240}"
+    r"\b(?:using cached|ignored|old (?:ones?|indexes?) used)\b",
+    re.IGNORECASE,
+)
+_STATUS_FATAL_MARKER_RE = re.compile(
+    r"\b(?:oci runtime|permission denied|pull access denied|"
+    r"repository does not exist|no such image|exec format error|failed to start|"
+    r"invalid reference format|manifest unknown|no matching manifest)\b|"
+    r"\bmanifest\b[^\r\n]{0,160}\bnot found\b|"
+    r"\brequested access\b[^\r\n]{0,160}\bdenied\b|"
+    r"\brpc error(?=[:\s]|$)|"
+    r"\bdocker:\s*error(?=[:\s]|$)|"
+    r"(?:docker_build\(\)|docker pull|containerd|dockerd|nvidia-container(?:-cli)?)"
+    r"[^\r\n]{0,160}\b(?:errors?|failed|failures?)(?=[:\s]|$)",
     re.IGNORECASE,
 )
 
@@ -372,17 +562,47 @@ def classify_legacy_error_line(line: str, stage: str | None = None) -> dict[str,
     stripped = line.strip()
     lowered_stage = stage.lower() if stage else None
 
-    code = LEGACY_PROGRESS_ERROR
-    if _NVML_RE.search(stripped):
-        code = NVML_FAILED
-    elif _NCCL_RE.search(stripped) or lowered_stage == STAGE_NCCL:
-        code = NCCL_FAILED
-    elif _ECC_RE.search(stripped) or lowered_stage == STAGE_ECC:
-        code = ECC_FAILED
-    elif _STRESS_RE.search(stripped) or lowered_stage == STAGE_STRESS_GPU_BURN:
-        code = STRESS_GPU_BURN_FAILED
-    elif _RESNET_RE.search(stripped) or lowered_stage == STAGE_RESNET:
-        code = RESNET_FAILED
+    marker_match = _SELF_TEST_FAILURE_RE.search(stripped)
+    marker_code = marker_match.group(1).lower() if marker_match else None
+    if marker_code in _SELF_TEST_FAILURE_STAGES:
+        code = marker_code
+        stage = _SELF_TEST_FAILURE_STAGES.get(code, stage)
+    else:
+        code = LEGACY_PROGRESS_ERROR
+        if _CUDA_ERROR_CONTAINED_RE.search(stripped):
+            code = CUDA_ERROR_CONTAINED
+            stage = STAGE_RESNET
+        elif _NVML_RE.search(stripped):
+            code = NVML_FAILED
+        # Explicit test names beat remembered progress state. The legacy
+        # endpoint can replace several stage lines between 20-second polls, so
+        # that state may be stale by the time its ERROR line arrives.
+        elif _NCCL_RE.search(stripped):
+            code = NCCL_FAILED
+            stage = STAGE_NCCL
+        elif _ECC_RE.search(stripped):
+            code = ECC_FAILED
+            stage = STAGE_ECC
+        elif _EXPLICIT_STRESS_RE.search(stripped):
+            code = STRESS_GPU_BURN_FAILED
+            stage = STAGE_STRESS_GPU_BURN
+        elif _EXPLICIT_RESNET_RE.search(stripped):
+            code = RESNET_FAILED
+            stage = STAGE_RESNET
+        # Use remembered stage for ambiguous text (for example, bare
+        # "hardware error") before applying broad compatibility heuristics.
+        elif lowered_stage == STAGE_NCCL:
+            code = NCCL_FAILED
+        elif lowered_stage == STAGE_ECC:
+            code = ECC_FAILED
+        elif lowered_stage == STAGE_STRESS_GPU_BURN:
+            code = STRESS_GPU_BURN_FAILED
+        elif lowered_stage == STAGE_RESNET:
+            code = RESNET_FAILED
+        elif _STRESS_RE.search(stripped):
+            code = STRESS_GPU_BURN_FAILED
+        elif _RESNET_RE.search(stripped):
+            code = RESNET_FAILED
 
     return make_failure(
         code,
@@ -426,6 +646,31 @@ def parse_legacy_progress(text: str) -> list[dict[str, object]]:
     return LegacyProgressParser().parse(text)
 
 
+def status_message_is_error(status_msg: str | None) -> bool:
+    """Return whether an in-progress instance status contains a fatal marker.
+
+    ``status_msg`` also carries ordinary Docker build output while an image is
+    loading. Match explicit error lines and unambiguous fatal phrases instead
+    of raw substrings such as ``error``, which also occur in package names such
+    as ``liberror-perl``.
+    """
+    if not status_msg:
+        return False
+
+    msg = status_msg.strip()
+    if not msg:
+        return False
+
+    if _STATUS_FATAL_MARKER_RE.search(msg):
+        return True
+
+    return any(
+        _STATUS_ERROR_LINE_RE.search(line)
+        and not _STATUS_RECOVERABLE_LINE_RE.search(line)
+        for line in msg.splitlines()
+    )
+
+
 def classify_status_msg(status_msg: str | None) -> dict[str, object] | None:
     """Classify startup/status messages reported while the instance starts."""
     if not status_msg:
@@ -452,6 +697,14 @@ def classify_status_msg(status_msg: str | None) -> dict[str, object] | None:
 
 __all__ = [
     "CLEANUP_FAILED",
+    "CUDA_DEVICE_EXECUTION_FAILED",
+    "CUDA_DEVICE_UNAVAILABLE",
+    "CUDA_DRIVER_OR_INITIALIZATION_ERROR",
+    "CUDA_ERROR_CONTAINED",
+    "CUDA_ERROR_TOO_MANY_PEERS",
+    "CUDA_KERNEL_INCOMPATIBLE",
+    "CUDA_OUT_OF_MEMORY",
+    "CUDA_RUNTIME_ERROR",
     "DAEMON_STARTUP_FAILED",
     "DOCKER_PULL_FAILED",
     "ECC_FAILED",
@@ -459,6 +712,7 @@ __all__ = [
     "FailureCatalogEntry",
     "INSTANCE_CREATE_FAILED",
     "INSTANCE_CREATE_MISSING_CONTRACT",
+    "INSTANCE_ID_HANDOFF_FAILED",
     "INSTANCE_OFFLINE_BEFORE_TEST",
     "INSTANCE_START_TIMEOUT",
     "INSTANCE_STATUS_ERROR",
@@ -470,11 +724,13 @@ __all__ = [
     "NCCL_FAILED",
     "NVML_FAILED",
     "PROGRESS_EMPTY_TIMEOUT",
+    "PYTORCH_RUNTIME_ERROR",
     "PROGRESS_CONTAINER_PORT",
     "PROGRESS_ENDPOINT_LOST",
     "PROGRESS_ENDPOINT_UNREACHABLE",
     "PROGRESS_PORT_NOT_MAPPED",
     "RESNET_FAILED",
+    "RESNET_PROCESS_ERROR",
     "RUNTIME_FAILURE_CODES",
     "RUNTIME_TEST_TIMEOUT",
     "STAGE_ECC",
@@ -492,5 +748,6 @@ __all__ = [
     "make_progress_endpoint_diagnostic",
     "parse_legacy_progress",
     "redact_secret_text",
+    "status_message_is_error",
     "stage_from_progress_line",
 ]

@@ -209,6 +209,8 @@ class EndpointHandlerFactory:
                     if user_request_parser:
                         try:
                             json_msg = user_request_parser(json_msg)
+                        except JsonDataException:
+                            raise   # a bad request (422), not a server error
                         except Exception as e:
                             raise Exception(f"Error in user response handler: {e}")
 

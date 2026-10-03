@@ -30,6 +30,7 @@ from aiohttp import (
     ClientSession,
     ClientConnectorError,
     ClientTimeout,
+    FormData,
     TCPConnector,
 )
 import asyncio
@@ -717,11 +718,50 @@ class Backend:
         else:
             return await self.__call_api(handler=handler, payload=payload)
 
+    @staticmethod
+    def __build_form_data(fields: Dict[str, Any]) -> FormData:
+        """A (filename, bytes, content_type) tuple is a file part, a list repeats the field,
+        None is omitted, a dict or nested list is sent as JSON, other scalars as text.
+        Bare bytes are refused: pass a file tuple."""
+        form = FormData(default_to_multipart=True)   # multipart even with no file part
+        for name, value in fields.items():
+            values = value if isinstance(value, list) else [value]
+            for item in values:
+                if item is None:
+                    continue
+                if isinstance(item, tuple):
+                    filename, content, content_type = item
+                    form.add_field(
+                        name, content, filename=filename, content_type=content_type
+                    )
+                elif isinstance(item, (bytes, bytearray)):
+                    raise TypeError(
+                        f"multipart field {name!r}: bytes must be a file part "
+                        "(filename, bytes, content_type)"
+                    )
+                elif isinstance(item, (dict, list)):
+                    form.add_field(name, json.dumps(item))
+                elif isinstance(item, bool):
+                    form.add_field(name, "true" if item else "false")
+                else:
+                    form.add_field(name, str(item))
+        return form
+
     async def __call_api(
         self, handler: EndpointHandler[ApiPayload_T], payload: ApiPayload_T
     ) -> ClientResponse:
+        multipart_fields = payload.generate_payload_multipart()
+        if multipart_fields is not None:
+            log.debug(
+                f"posting multipart to endpoint: '{handler.endpoint}', "
+                f"fields: {list(multipart_fields)}"
+            )
+            return await self.session.post(
+                url=handler.endpoint, data=self.__build_form_data(multipart_fields)
+            )
         api_payload = payload.generate_payload_json()
-        log.debug(f"posting to endpoint: '{handler.endpoint}', payload: {api_payload}")
+        # Keys only: values carry prompts and inline media.
+        log.debug(f"posting to endpoint: '{handler.endpoint}', payload keys: {list(api_payload) if isinstance(api_payload, dict) else type(api_payload).__name__}")
         return await self.session.post(url=handler.endpoint, json=api_payload)
 
     async def __call_remote_dispatch_function(

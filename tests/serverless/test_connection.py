@@ -8,7 +8,9 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
 import pytest
+from aiohttp import web
 
 from vastai.serverless.client.connection import (
     _backoff_delay,
@@ -1390,6 +1392,23 @@ class TestMakeRequest:
         assert result["ok"] is False
         assert result["json"] is None
 
+    async def test_make_request_opted_in_body_without_a_content_type_must_be_json(
+        self,
+        make_mock_http_response,
+        make_request_http_mocks,
+        patch_build_kwargs,
+    ) -> None:
+        """No declared type is neither text nor media: a non-JSON body still raises."""
+        mock_resp = make_mock_http_response(status=200, text="hello", json_side_effect=ValueError)
+        _, mock_client = make_request_http_mocks(mock_resp)
+
+        with pytest.raises(Exception, match="Invalid JSON"):
+            await _make_request(
+                client=mock_client, route="/x", api_key="sk-test",
+                url="https://worker.example.com", method="GET", retries=1,
+                allow_non_json=True,
+            )
+
     async def test_make_request_non_stream_timeout_retries_then_succeeds(
         self,
         make_mock_http_response,
@@ -1485,3 +1504,85 @@ class TestMakeRequest:
         async for obj in result["stream"]:
             collected.append(obj)
         assert collected == [{"a": 1}]
+
+
+class _RealClient:
+    """The two things _make_request needs from a client."""
+
+    def __init__(self, session):
+        self._session = session
+
+    async def _get_session(self):
+        return self._session
+
+    async def get_ssl_context(self):
+        return None
+
+
+def _text(body, status=200):
+    return lambda: web.Response(status=status, text=body)          # aiohttp: text/plain
+
+
+def _typed(body, content_type, status=200):
+    return lambda: web.Response(status=status, body=body, headers={"Content-Type": content_type})
+
+
+# (id, allow_non_json, response, expected)  expected: ("json"|"content"|"raises"|"error", value)
+_BODY_CASES = [
+    ("json labelled text/plain", False, _text('{"a": 1}'), ("json", {"a": 1})),
+    ("json labelled text/plain, opted in", True, _text(' \n{"a": 1}'), ("json", {"a": 1})),
+    ("json array labelled text/plain, opted in", True, _text("[1, 2]"), ("json", [1, 2])),
+    ("json labelled octet-stream, opted in", True,
+     _typed(b'{"a": 1}', "application/octet-stream"), ("json", {"a": 1})),
+    ("json array labelled octet-stream, opted in", True,
+     _typed(b"[1]", "application/octet-stream"), ("json", [1])),
+    ("plain text, not opted in", False, _text("hello world"), ("raises", "Invalid JSON")),
+    ("invalid json labelled json, opted in", True,
+     _typed(b"not json", "application/json"), ("raises", "Invalid JSON")),
+    ("transcript with a bad byte", True, _typed(b"caf\xe9", "text/plain"), ("content", "caf\ufffd")),
+    ("text transcript", True, _text("hello world"), ("content", "hello world")),
+    ("transcript of a number", True, _text("42\n"), ("content", "42\n")),
+    ("transcript starting with [", True, _text("[BLANK_AUDIO]"), ("content", "[BLANK_AUDIO]")),
+    ("empty transcript", True, _text(""), ("content", "")),
+    ("audio/mpeg", True, _typed(b"\xff\xfb\x90\x64", "audio/mpeg"),
+     ("content", b"\xff\xfb\x90\x64")),
+    ("audio, upper-case type", True, _typed(b"\xff\xfb", "Audio/MPEG"), ("content", b"\xff\xfb")),
+    ("empty audio", True, _typed(b"", "audio/mpeg"), ("content", b"")),
+    ("audio that parses as a number", True, _typed(b"42", "audio/mpeg"), ("content", b"42")),
+    ("audio, not opted in", False, _typed(b"\xff\xfb", "audio/mpeg"), ("raises", "Invalid JSON")),
+    ("error body in a media type", True,
+     _typed(b"engine exploded \xff", "audio/mpeg", status=500), ("error", "engine exploded")),
+    ("error body with a bad byte, not opted in", False,
+     _typed(b"boom \xff", "text/plain", status=500), ("error", "boom")),
+]
+
+
+class TestMakeRequestBodiesAgainstARealServer:
+    """What a caller gets back for each kind of body, from a real aiohttp server."""
+
+    @pytest.mark.parametrize("label,allow_non_json,respond,expected",
+                             _BODY_CASES, ids=[c[0] for c in _BODY_CASES])
+    async def test_body(self, label, allow_non_json, respond, expected, serve_aiohttp) -> None:
+        async def handler(_request):
+            return respond()
+
+        kind, value = expected
+        async with serve_aiohttp(handler, "/r") as url, aiohttp.ClientSession() as session:
+            call = _make_request(client=_RealClient(session), route="/r", api_key="k", url=url,
+                                 method="POST", retries=1, allow_non_json=allow_non_json)
+            if kind == "raises":
+                with pytest.raises(Exception, match=value):
+                    await call
+                return
+            result = await call
+
+        if kind == "json":
+            assert result["ok"] and result["json"] == value and result["content"] is None
+        elif kind == "content":
+            assert result["ok"] and result["content"] == value and result["json"] is None
+            assert result["content_type"] == ("audio/mpeg" if isinstance(value, bytes) else "text/plain")
+            if isinstance(value, bytes):
+                assert result["text"] == ""
+        else:
+            assert not result["ok"] and result["text"].startswith(value)
+            assert result["content"] is None

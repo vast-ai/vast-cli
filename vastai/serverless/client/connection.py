@@ -10,7 +10,9 @@ from vastai.utils import VERSION
 _JITTER_CAP_SECONDS = 5.0
 
 def _retryable(status: int) -> bool:
-    return status in (408, 429) or (500 <= status < 600)
+    # 409 means the worker is serving a superseded deployment version, so
+    # retrying re-routes to one that has finished rolling.
+    return status in (408, 409, 429) or (500 <= status < 600)
 
 def _backoff_delay(attempt: int) -> float:
     # capped exponential backoff with jitter

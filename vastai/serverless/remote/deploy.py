@@ -1,3 +1,4 @@
+import functools
 import inspect
 import threading
 import time
@@ -11,8 +12,18 @@ from vastai import AsyncClient
 from vastai._base import _APIKEY_SENTINEL
 from vastai.data.deployment import DeploymentConfig
 from vastai.serverless.client import ManagedDeployment
+from vastai.serverless.client.worker import Worker
 from . import serialization
-from .base import Deployment_, Config, DockerLogin, Image, Autoscaling
+from .base import (
+    Autoscaling,
+    Config,
+    Deployment_,
+    DockerLogin,
+    Image,
+    RemoteOptions,
+    RemoteOptionsDict,
+)
+from .progress import StartupProgress, WorkerStartupTimeout
 from .utils import create_deployment_tarball, compute_deployment_hash
 from os.path import getsize
 import tempfile
@@ -104,6 +115,75 @@ class _FullDeployment:
     deployment: ManagedDeployment
 
 
+_WARNED: set[tuple[str, Any]] = set()
+
+_WARNING_TEXT = {
+    "event_loop_blocked": (
+        "Worker {worker} reported its event loop was blocked. A synchronous "
+        "remote function body starves the worker's health reporting and the "
+        "worker may be reclaimed mid-batch. Define the function with plain "
+        "`def` (it will be threaded automatically) or wrap the work in "
+        "`asyncio.to_thread(...)`."
+    ),
+}
+
+
+def _warn_once(code: str, worker: Any) -> None:
+    """Surface a worker-reported problem to the caller, once per worker."""
+    key = (code, worker)
+    if key in _WARNED:
+        return
+    _WARNED.add(key)
+    template = _WARNING_TEXT.get(code)
+    if template is None:
+        logger.warning(f"Worker {worker} reported: {code}")
+    else:
+        logger.warning(template.format(worker=worker))
+
+
+class RemoteCall:
+    """An in-flight remote call that also reports where it ran.
+
+    ``await f(x)`` stays the simple path. When you need to know which worker
+    served a call — to verify a batch really spread across the pool, say — use
+    ``f.submit(x)`` and read the attributes after awaiting::
+
+        calls = [render.submit(i) for i in range(32)]
+        results = await asyncio.gather(*calls)
+        Counter(c.worker_id for c in calls)
+    """
+
+    __slots__ = (
+        "_coro",
+        "worker_id",
+        "worker_url",
+        "gpu",
+        "latency",
+        "duration_ms",
+        "deployment_version_id",
+    )
+
+    def __init__(self) -> None:
+        self._coro: Optional[Awaitable[Any]] = None
+        self.worker_id: Optional[int] = None
+        self.worker_url: Optional[str] = None
+        self.gpu: Optional[str] = None
+        self.latency: Optional[float] = None
+        self.duration_ms: Optional[float] = None
+        self.deployment_version_id: Optional[int] = None
+
+    def __await__(self):
+        if self._coro is None:
+            raise RuntimeError("RemoteCall was not dispatched")
+        return self._coro.__await__()
+
+    def __repr__(self) -> str:
+        return (
+            f"<RemoteCall worker={self.worker_id} gpu={self.gpu} "
+            f"latency={self.latency}>"
+        )
+
+
 P = ParamSpec("P")
 
 
@@ -115,6 +195,8 @@ class Deployment(Deployment_):  # TODO: Async Context Manager compatible with cl
         autoscaler_instance="prod",
         autoscaler_url: Optional[str] = None,
         webserver_url="https://console.vast.ai",
+        progress: str = "auto",
+        startup_timeout: float | None = 900.0,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -129,6 +211,34 @@ class Deployment(Deployment_):  # TODO: Async Context Manager compatible with cl
         self._autoscaling: Autoscaling | None = None
         self._ttl = ttl
         self._inner: _FullDeployment | None = None
+        # "auto" | "live" | "plain" | "off"
+        self._progress_mode = progress
+        # Refuse to block forever waiting for a worker that may never arrive.
+        self._startup_timeout = startup_timeout
+        self._progress: Optional[StartupProgress] = None
+        self._version_id: Optional[int] = None
+
+    # -- worker introspection ------------------------------------------------
+
+    async def workers(self) -> list[Worker]:
+        """Current workers for this deployment's endpoint.
+
+        Useful on its own, and the data source for startup progress and for
+        ``ensure_ready(wait=...)``.
+        """
+        if not isinstance(self._inner, _FullDeployment):
+            raise Exception("Deployment is not ready. Call .ensure_ready() first!")
+        endpoint = await self._inner.deployment.endpoint._get_routing_endpoint()
+        return await self.client.get_endpoint_workers(endpoint)
+
+    def _get_progress(self) -> StartupProgress:
+        if self._progress is None:
+            self._progress = StartupProgress(
+                name=self.name or "deployment",
+                fetch_workers=self.workers,
+                mode=self._progress_mode,
+            )
+        return self._progress
 
     def _compile_env(self, checked_image: Image) -> str:
         envs = [f"-p {port}:{port}/{type_}" for port, type_ in checked_image._ports]
@@ -225,7 +335,24 @@ class Deployment(Deployment_):  # TODO: Async Context Manager compatible with cl
             deployment.sync_heartbeat()
             time.sleep(interval)
 
-    async def async_ensure_ready(self):
+    async def async_ensure_ready(
+        self,
+        wait: bool | int = False,
+        timeout: float | None = None,
+        require_version: bool = True,
+    ):
+        """Register (and if needed upload) the deployment.
+
+        Args:
+            wait: ``False`` returns as soon as the deployment is registered —
+                the historical behaviour. ``True`` waits for one worker to be
+                serving this exact code version; an int waits for that many.
+            timeout: Seconds to wait when ``wait`` is set. Defaults to the
+                deployment's ``startup_timeout``.
+            require_version: Reject workers still serving a superseded version,
+                so a call made right after a rolling update cannot be answered
+                by the previous code.
+        """
         if not isinstance(self.root_module, str):
             raise Exception(
                 "Trying to deploy a deployment not yet bound to a Python module. Have any remote functions been registered?"
@@ -260,6 +387,12 @@ class Deployment(Deployment_):  # TODO: Async Context Manager compatible with cl
                         f"soft_update but no workergroup found for endpoint {deployment.endpoint_id}, skipping update_workers"
                     )
             self._inner = _FullDeployment(self.root_module, deployment)
+            if require_version:
+                try:
+                    self._version_id = (await deployment.get()).current_version_id
+                except Exception as ex:  # non-fatal: fall back to no pinning
+                    logger.debug(f"Could not resolve deployment version: {ex}")
+                    self._version_id = None
             if self._ttl is not None:
                 threading.Thread(
                     target=self._heartbeat_thread,
@@ -268,8 +401,74 @@ class Deployment(Deployment_):  # TODO: Async Context Manager compatible with cl
                 ).start()
         logger.info(f"Deployment '{self.name}' is ready (id={deployment.id})")
 
-    def ensure_ready(self):
-        asyncio.run(self.async_ensure_ready())
+        if wait:
+            want = 1 if wait is True else int(wait)
+            await self._wait_for_workers(
+                want,
+                timeout if timeout is not None else self._startup_timeout,
+                require_version=require_version,
+            )
+
+    async def _wait_for_workers(
+        self, want: int, timeout: float | None, require_version: bool = True
+    ) -> list[Worker]:
+        """Block until ``want`` workers can serve this deployment's version."""
+        deadline = None if timeout is None else time.monotonic() + timeout
+        progress = self._get_progress()
+        progress.acquire()
+        started = time.monotonic()
+        delay = 2.0
+        try:
+            while True:
+                try:
+                    workers = await self.workers()
+                except Exception as ex:
+                    logger.debug(f"worker poll failed while waiting: {ex}")
+                    workers = []
+
+                ready = [w for w in workers if w.is_ready]
+                if require_version and self._version_id is not None:
+                    # Treat "unknown version" as acceptable so older workers
+                    # that do not report the field are not excluded outright.
+                    ready = [
+                        w
+                        for w in ready
+                        if w.deployment_version_id in (None, self._version_id)
+                    ]
+                if len(ready) >= want:
+                    logger.info(
+                        f"Deployment '{self.name}': {len(ready)} worker(s) ready"
+                    )
+                    return ready
+
+                if deadline is None:
+                    await asyncio.sleep(delay)
+                else:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise WorkerStartupTimeout(
+                            self.name or "deployment",
+                            time.monotonic() - started,
+                            workers,
+                        )
+                    # Never sleep past the deadline, or a short timeout would
+                    # be rounded up to a whole backoff interval.
+                    await asyncio.sleep(min(delay, remaining))
+                delay = min(delay * 1.5, 10.0)
+        finally:
+            progress.release()
+
+    def ensure_ready(
+        self,
+        wait: bool | int = False,
+        timeout: float | None = None,
+        require_version: bool = True,
+    ):
+        asyncio.run(
+            self.async_ensure_ready(
+                wait=wait, timeout=timeout, require_version=require_version
+            )
+        )
 
     def _unwrap_worker_response(self, response: dict[str, Any]) -> serialization.JSON:
         try:
@@ -279,41 +478,102 @@ class Deployment(Deployment_):  # TODO: Async Context Manager compatible with cl
                 f"Remote function call failed with status code {response['status']}: {response['text']}"
             )
 
-    async def _dispatch(self, f_name, globals, sig, args, kwargs) -> Any:
+    def _record_call_meta(self, call: "RemoteCall | None", response: dict) -> None:
+        """Populate a RemoteCall from the transport + worker metadata.
+
+        The worker URL and latency were always available on the transport
+        response; the worker id and GPU come from the ``meta`` block that serve
+        mode attaches alongside ``result``.
+        """
+        if call is None:
+            return
+        call.worker_url = response.get("url")
+        call.latency = response.get("latency")
+        meta = {}
+        inner = response.get("response")
+        if isinstance(inner, dict):
+            meta = inner.get("meta") or {}
+        call.worker_id = meta.get("worker_id")
+        call.gpu = meta.get("gpu")
+        call.deployment_version_id = meta.get("deployment_version_id")
+        call.duration_ms = meta.get("duration_ms")
+        for warning in meta.get("warnings") or []:
+            _warn_once(warning, call.worker_id)
+
+    async def _dispatch(
+        self, f_name, globals, sig, args, kwargs, call: "RemoteCall | None" = None
+    ) -> Any:
         if not isinstance(self._inner, _FullDeployment):
             raise Exception("Deployment is not ready. Call .ensure_ready() first!")
         bound_args = sig.bind(*args, **kwargs)
         bound_args.apply_defaults()
         route = "/remote/" + "/".join(f_name)
         logger.debug(f"Dispatching remote call to {route}")
+
+        payload = {
+            "kwargs": {
+                k: serialization.serialize(v, self._inner.root_module)
+                for k, v in bound_args.arguments.items()
+            }
+        }
+        # Let the worker reject the call if it is serving superseded code, so a
+        # rolling update cannot silently answer with the previous version.
+        if self._version_id is not None:
+            payload["expect_version_id"] = self._version_id
+
+        response = await self._request_with_progress(route, payload)
+        self._record_call_meta(call, response)
+
         return serialization.deserialize_unwrap_error(
-            self._unwrap_worker_response(
-                await self._inner.deployment.endpoint.request(
-                    route,
-                    {
-                        "kwargs": {
-                            k: serialization.serialize(v, self._inner.root_module)
-                            for k, v in bound_args.arguments.items()
-                        }
-                    },
-                )
-            ),
+            self._unwrap_worker_response(response),
             self._inner.root_module,
             globals,
         )
 
+    async def _request_with_progress(self, route: str, payload: dict) -> dict:
+        """Issue the request, reporting startup progress while it waits.
+
+        The transport blocks internally polling for a routable worker. There is
+        no callback out of it, so progress is reported by a shared poller and
+        the overall wait is bounded by ``startup_timeout``.
+        """
+        assert isinstance(self._inner, _FullDeployment)
+        progress = self._get_progress()
+        progress.acquire()
+        started = time.monotonic()
+        try:
+            coro = self._inner.deployment.endpoint.request(route, payload)
+            if self._startup_timeout is None:
+                return await coro
+            try:
+                return await asyncio.wait_for(coro, timeout=self._startup_timeout)
+            except asyncio.TimeoutError:
+                raise WorkerStartupTimeout(
+                    self.name or "deployment",
+                    time.monotonic() - started,
+                    progress.last_workers,
+                ) from None
+        finally:
+            progress.release()
+
+    def _submit(self, f_name, globals, sig, args, kwargs) -> "RemoteCall":
+        """Dispatch a call and return an awaitable handle carrying metadata."""
+        call = RemoteCall()
+        call._coro = self._dispatch(f_name, globals, sig, args, kwargs, call=call)
+        return call
+
     def remote(
         self,
         f: Callable[P, Awaitable[Any]] | None = None,
-        *,
-        benchmark_dataset: list[dict] | None = None,
-        benchmark_generator: Callable[[], dict] | None = None,
-        benchmark_runs: int = 10,
-        workload_calculator: Callable[..., float] | None = None,
+        **opts: Unpack[RemoteOptionsDict],
     ) -> (
         Callable[P, Awaitable[Any]]
         | Callable[[Callable[P, Awaitable[Any]]], Callable[P, Awaitable[Any]]]
     ):
+        # Validate here so a bad option fails at decoration time with a useful
+        # message, even though only serve mode acts on most of them.
+        RemoteOptions.from_kwargs(**opts)
+
         def decorator(
             f: Callable[P, Awaitable[Any]], **_
         ) -> Callable[P, Awaitable[Any]]:
@@ -325,6 +585,12 @@ class Deployment(Deployment_):  # TODO: Async Context Manager compatible with cl
             def inner(*args: P.args, **kwargs: P.kwargs) -> Awaitable[Any]:
                 return self._dispatch(f_rel_name, f_globals, sig, args, kwargs)
 
+            functools.update_wrapper(inner, f)
+            # Opt-in richer handle: `call = f.submit(...)` then `await call`
+            # exposes which worker served it. See RemoteCall.
+            inner.submit = (  # type: ignore[attr-defined]
+                lambda *a, **kw: self._submit(f_rel_name, f_globals, sig, a, kw)
+            )
             return inner
 
         if f is not None:

@@ -1,6 +1,8 @@
-from .base import Config, Deployment_
+from .base import Config, Deployment_, RemoteOptions, RemoteOptionsDict
 from ..server.worker import Worker, WorkerConfig, HandlerConfig, BenchmarkConfig
 from .serialization import serialize, deserialize, serialize_ok, serialize_err
+from typing_extensions import Unpack
+import inspect
 from typing import (
     ParamSpec,
     Type,
@@ -84,13 +86,25 @@ class Deployment(Deployment_, AsyncContextManager):
         self.contexts = {}  # invalidate contexts
 
     def _wrap_remote_func(
-        self, root_module: str, func: Callable[..., Awaitable[Any]], func_globals: dict
+        self, root_module: str, func: Callable[..., Any], func_globals: dict
     ) -> Callable[..., Awaitable[Any]]:
         """Wrap a remote function with serialization/deserialization.
 
         Expects payload: {"args": [serialized_args], "kwargs": {serialized_kwargs}}
         Returns: {"ok": serialized_result} on success, {"err": serialized_exception} on failure.
+
+        A plain ``def`` function is run via ``asyncio.to_thread`` rather than
+        inline. GPU work is almost always synchronous, and running it on the
+        event loop starves the worker's health reporting badly enough that the
+        autoscaler can reclaim the worker mid-batch. Threading it by default
+        makes the obvious way to write a remote function the correct one.
         """
+        is_async = inspect.iscoroutinefunction(func)
+        if not is_async:
+            logger.debug(
+                f"Remote function {getattr(func, '__name__', func)!r} is "
+                f"synchronous; it will run in a worker thread."
+            )
 
         async def wrapper(*, args: list = [], kwargs: dict = {}) -> dict:
             deserialized_args = [
@@ -100,7 +114,12 @@ class Deployment(Deployment_, AsyncContextManager):
                 k: deserialize(v, root_module, func_globals) for k, v in kwargs.items()
             }
             try:
-                result = await func(*deserialized_args, **deserialized_kwargs)
+                if is_async:
+                    result = await func(*deserialized_args, **deserialized_kwargs)
+                else:
+                    result = await asyncio.to_thread(
+                        func, *deserialized_args, **deserialized_kwargs
+                    )
                 return serialize_ok(result, root_module)
             except Exception as e:
                 return serialize_err(e, root_module)
@@ -147,14 +166,20 @@ class Deployment(Deployment_, AsyncContextManager):
                     # format a real client sends (the wrapper deserializes them).
                     dataset = entry.benchmark_dataset
                     if dataset is not None:
+                        # Note the brace placement: the comprehension must be
+                        # over the list, not over the dict. Previously the
+                        # `for` sat inside the braces, making this a dict
+                        # comprehension with the constant key "kwargs" wrapped
+                        # in a 1-element list -- every entry but the last was
+                        # silently discarded.
                         dataset = [
                             {
                                 "kwargs": {
                                     k: serialize(v, self.root_module)
                                     for k, v in item.items()
                                 }
-                                for item in dataset
                             }
+                            for item in dataset
                         ]
                     benchmark_generator = None
                     if entry.benchmark_generator is not None:
@@ -206,28 +231,24 @@ class Deployment(Deployment_, AsyncContextManager):
     def remote(
         self,
         f: Callable[P, Awaitable[Any]] | None = None,
-        *,
-        allow_parallel_requests: bool = False,
-        max_queue_time: float = 30.0,
-        benchmark_dataset: list[dict] | None = None,
-        benchmark_generator: Callable[[], dict] | None = None,
-        benchmark_runs: int = 10,
-        workload_calculator: Callable[..., float] | None = None,
+        **opts: Unpack[RemoteOptionsDict],
     ) -> (
         Callable[P, Awaitable[Any]]
         | Callable[[Callable[P, Awaitable[Any]]], Callable[P, Awaitable[Any]]]
     ):
+        resolved = RemoteOptions.from_kwargs(**opts)
+
         def decorator(f: Callable[P, Awaitable[Any]]) -> Callable[P, Awaitable[Any]]:
             key = self.relativize(f)
             self.remote_funcs[key] = RemoteFunc(
                 func=f,
                 globals=f.__globals__,
-                allow_parallel_requests=allow_parallel_requests,
-                max_queue_time=max_queue_time,
-                benchmark_dataset=benchmark_dataset,
-                benchmark_generator=benchmark_generator,
-                benchmark_runs=benchmark_runs,
-                workload_calculator=workload_calculator,
+                allow_parallel_requests=resolved.allow_parallel_requests,
+                max_queue_time=resolved.max_queue_time,
+                benchmark_dataset=resolved.benchmark_dataset,
+                benchmark_generator=resolved.benchmark_generator,
+                benchmark_runs=resolved.benchmark_runs,
+                workload_calculator=resolved.workload_calculator,
             )
             return f
 

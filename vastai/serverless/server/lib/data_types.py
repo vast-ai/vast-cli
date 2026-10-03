@@ -361,6 +361,13 @@ class WorkerStatusData:
     additional_disk_usage: float
     working_request_idxs: list[int]
     url: str
+    # Which deployment code version this worker is serving, so a client can
+    # distinguish a rolled worker from one still running the previous version.
+    deployment_version_id: Optional[int] = None
+    # Worst event-loop stall observed since the last report, in seconds.
+    loop_lag_max: float = 0.0
+    # Self-reported problems, e.g. ["event_loop_blocked"].
+    warnings: list[str] = field(default_factory=list)
 
 
 class LogAction(Enum):

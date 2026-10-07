@@ -157,6 +157,7 @@ class Metrics:
         )
         self.system_metrics.model_is_loaded = True
         self.model_metrics.max_throughput = max_throughput
+        self.update_pending = True
 
     def _model_errored(self, error_msg: str) -> None:
         self.model_metrics.set_errored(error_msg)

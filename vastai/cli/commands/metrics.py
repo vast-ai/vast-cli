@@ -166,7 +166,8 @@ def metrics__gpu_trends(args):
     else:
         gpu_items = [(args.name, resp)]
 
-    sd_keys = ["rented_verified", "avail_verified", "rented_unverified", "avail_unverified", "total"]
+    sd_keys = ["rented_verified", "avail_verified", "rented_unverified", "avail_unverified",
+               "unavail_verified", "unavail_unverified", "total"]
     pr_keys = ["rented_p10", "rented_median", "rented_p90", "avail_p10", "avail_median", "avail_p90"]
 
     if args.raw:

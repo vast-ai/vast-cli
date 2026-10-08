@@ -54,7 +54,7 @@ def build_command_maps(parser, role=None):
     for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
             for name, sp in action.choices.items():
-                if getattr(sp, 'hidden', False):
+                if getattr(sp, 'hidden', False) or name != getattr(sp, 'command_name', name):
                     continue
                 if is_client_view(role) and getattr(sp, 'host_only', False):
                     continue

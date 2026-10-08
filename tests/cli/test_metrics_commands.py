@@ -93,6 +93,7 @@ class TestOldNames:
         assert capsys.readouterr().err == ""
 
     def test_old_names_are_hidden_from_help(self, cli_parser):
-        shown = {sp.command_name for sp in cli_parser.subparser_objs if not getattr(sp, "hidden", False)}
-        assert {"show gpu-metrics", "show gpu-trends", "show gpu-locations"} <= shown
-        assert not {"metrics gpu", "metrics gpu-trends", "metrics gpu-locations"} & shown
+        from vastai.cli.parser import build_command_maps
+        verbs, verb_objs, _ = build_command_maps(cli_parser.parser, role="host")
+        assert {"gpu-metrics", "gpu-trends", "gpu-locations"} <= verb_objs["show"]
+        assert "metrics" not in verbs

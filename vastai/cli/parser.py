@@ -344,6 +344,7 @@ class apwrap(object):
         if self.subparsers_ is None:
             kw["metavar"] = "command"
             kw["help"] = "command to run. one of:"
+            kw["dest"] = "command"  # the name as typed, so a command can tell when its alias was used
             self.subparsers_ = self.parser.add_subparsers(*a, **kw)
         return self.subparsers_
 

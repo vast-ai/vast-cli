@@ -54,7 +54,7 @@ def build_command_maps(parser, role=None):
     for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
             for name, sp in action.choices.items():
-                if getattr(sp, 'hidden', False):
+                if getattr(sp, 'hidden', False) or name != getattr(sp, 'command_name', name):
                     continue
                 if is_client_view(role) and getattr(sp, 'host_only', False):
                     continue
@@ -344,6 +344,7 @@ class apwrap(object):
         if self.subparsers_ is None:
             kw["metavar"] = "command"
             kw["help"] = "command to run. one of:"
+            kw["dest"] = "command"  # the name as typed, so a command can tell when its alias was used
             self.subparsers_ = self.parser.add_subparsers(*a, **kw)
         return self.subparsers_
 

@@ -118,8 +118,8 @@ def classify_new(name: str) -> str | None:
     # "cluster" also covers "remove-machine-from-cluster".
     if "cluster" in name or "overlay" in name:
         return "Host"
-    if name.startswith("metrics") or "gpu-trends" in name or "gpu-locations" in name:
-        # `metrics gpu`/`gpu-trends`/`gpu-locations` are [Host] GPU-market
+    if "gpu-metrics" in name or "gpu-trends" in name or "gpu-locations" in name:
+        # `show gpu-metrics`/`gpu-trends`/`gpu-locations` are [Host] GPU-market
         # analytics — they live alongside the other host-facing commands.
         return "Host"
     if name == "dump-logs" or "self-test" in name:

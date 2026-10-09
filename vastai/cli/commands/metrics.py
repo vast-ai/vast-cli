@@ -1,9 +1,10 @@
 """CLI commands for platform-wide GPU market metrics (host/admin access)."""
 
 import json
+import sys
 from datetime import datetime, timezone
 
-from vastai.cli.parser import argument
+from vastai.cli.parser import argument, hidden_aliases
 from vastai.cli.display import display_table, deindent
 from vastai.cli.utils import get_parser as _get_parser, get_client
 from vastai.api import metrics as metrics_api
@@ -18,10 +19,17 @@ _HOSTING_MAP = {"true": "secure_cloud", "false": "community", "all": "all"}
 _NEEDS_MACHINE_MSG = "No metrics available. This endpoint is for hosts with active machines."
 
 
+def notice_if_old_name(args, old, new):
+    if getattr(args, "command", None) == old:
+        print(f"NOTICE: `vastai {old}` is now `vastai {new}`. The old name will be removed in the next release.",
+              file=sys.stderr)
+
+
 _GPU_CURRENT_FIELDS = (
     ("gpu_name",          "GPU",      "{}",     None, True),
     ("total",             "Total",    "{}",     None, False),
     ("available",         "Avail",    "{}",     None, False),
+    ("unavailable",       "Unrent",   "{}",     None, False),
     ("usage",             "Usage%",   "{:.1f}", None, False),
     ("rented_verified",   "Rnt/Ver",  "{}",     None, False),
     ("avail_verified",    "Avl/Ver",  "{}",     None, False),
@@ -42,6 +50,8 @@ _GPU_TRENDS_FIELDS = (
     ("avail_verified",    "Avl/Ver",  "{}",     None, False),
     ("rented_unverified", "Rnt/Unv",  "{}",     None, False),
     ("avail_unverified",  "Avl/Unv",  "{}",     None, False),
+    ("unavail_verified",  "Unr/Ver",  "{}",     None, False),
+    ("unavail_unverified","Unr/Unv",  "{}",     None, False),
     ("total",             "Total",    "{}",     None, False),
     ("rented_p10",        "R.p10",    "{:.4f}", None, False),
     ("rented_median",     "R.med",    "{:.4f}", None, False),
@@ -57,7 +67,7 @@ _GPU_LOCATION_FIELDS = (
     ("city",         "City",      "{}",     None, True),
     ("country_code", "CC",        "{}",     None, True),
     ("num_gpus",     "GPUs",      "{}",     None, False),
-    ("rented",       "Rented",    "{}",     None, False),
+    ("state",        "State",     "{}",     None, False),
     ("verified",     "Verified",  "{}",     None, False),
     ("latitude",     "Lat",       "{:.4f}", None, False),
     ("longitude",    "Lon",       "{:.4f}", None, False),
@@ -69,24 +79,26 @@ _GPU_LOCATION_FIELDS = (
              help="Filter GPUs by verification status"),
     argument("--datacenter", type=str, choices=["true", "false", "all"], default="all",
              help="Filter GPUs by datacenter hosting type"),
-    argument("--num-gpus", type=str, choices=["all", "1", "2", "4", "8"], default="all",
-             help="Filter by machine GPU-count bucket (1x, 2x, 4x, 8x)"),
-    usage="vastai metrics gpu [OPTIONS]",
+    argument("--num-gpus", type=str, choices=["all", "1", "2", "4", "8", "other"], default="all",
+             help="Filter by machine GPU-count bucket (1x, 2x, 4x, 8x, or other)"),
+    usage="vastai show gpu-metrics [OPTIONS]",
+    aliases=hidden_aliases(["metrics gpu"]),
     help="[Host] Get current GPU market metrics",
     epilog=deindent("""
         Get current GPU metrics with counts, usage, performance, and pricing.
-        For historical metrics, see the `metrics gpu-trends` command.
+        For historical metrics, see the `show gpu-trends` command.
         Requires host or admin access.
 
         Examples:
-            vastai metrics gpu
-            vastai metrics gpu --verified true --datacenter true
-            vastai metrics gpu --num-gpus 8
-            vastai metrics gpu --raw
+            vastai show gpu-metrics
+            vastai show gpu-metrics --verified true --datacenter true
+            vastai show gpu-metrics --num-gpus 8
+            vastai show gpu-metrics --raw
     """),
 )
-def metrics__gpu(args):
+def show__gpu_metrics(args):
     """Get current GPU metrics."""
+    notice_if_old_name(args, "metrics gpu", "show gpu-metrics")
     client = get_client(args)
     resp = metrics_api.gpu_current(
         client,
@@ -110,32 +122,34 @@ def metrics__gpu(args):
              help="Filter by verified status"),
     argument("--datacenter", type=str, choices=["true", "false", "all"], default="all",
              help="Filter by datacenter hosting type"),
-    argument("--num-gpus", type=str, choices=["all", "1", "2", "4", "8"], default="all",
-             help="Filter by machine GPU-count bucket (1x, 2x, 4x, 8x)"),
+    argument("--num-gpus", type=str, choices=["all", "1", "2", "4", "8", "other"], default="all",
+             help="Filter by machine GPU-count bucket (1x, 2x, 4x, 8x, or other)"),
     argument("--start", type=int, default=None, help="Start unix timestamp"),
     argument("--end", type=int, default=None, help="End unix timestamp"),
     argument("--step", type=int, default=None,
              help="Time between data points in seconds (e.g. 3600 for hourly). Minimum 60s; step may be raised server-side to cap points returned."),
     argument("--full", action="store_true", default=False,
              help="Show all data points instead of sampling ~20"),
-    usage="vastai metrics gpu-trends [NAME] [OPTIONS]",
+    usage="vastai show gpu-trends [NAME] [OPTIONS]",
+    aliases=hidden_aliases(["metrics gpu-trends"]),
     help="[Host] Get GPU market history",
     epilog=deindent("""
         Show GPU supply/demand and pricing trends over time. Defaults to RTX 5090, 4090, 3090
         for the last 24 hours. Requires host or admin access.
 
         Examples:
-            vastai metrics gpu-trends
-            vastai metrics gpu-trends "RTX 4090"
-            vastai metrics gpu-trends "RTX 4090" --full
-            vastai metrics gpu-trends "RTX 4090" --raw
-            vastai metrics gpu-trends all --verified true --datacenter true
-            vastai metrics gpu-trends "RTX 5090" --num-gpus 8
-            vastai metrics gpu-trends "RTX 4090,H100_SXM" --start 1773298800 --end 1773817200 --step 3600
+            vastai show gpu-trends
+            vastai show gpu-trends "RTX 4090"
+            vastai show gpu-trends "RTX 4090" --full
+            vastai show gpu-trends "RTX 4090" --raw
+            vastai show gpu-trends all --verified true --datacenter true
+            vastai show gpu-trends "RTX 5090" --num-gpus 8
+            vastai show gpu-trends "RTX 4090,H100_SXM" --start 1773298800 --end 1773817200 --step 3600
     """),
 )
-def metrics__gpu_trends(args):
+def show__gpu_trends(args):
     """Get GPU metrics history."""
+    notice_if_old_name(args, "metrics gpu-trends", "show gpu-trends")
     # Accept underscores as space aliases: "H100_SXM" -> "H100 SXM"
     args.name = args.name.replace("_", " ")
     client = get_client(args)
@@ -163,7 +177,8 @@ def metrics__gpu_trends(args):
     else:
         gpu_items = [(args.name, resp)]
 
-    sd_keys = ["rented_verified", "avail_verified", "rented_unverified", "avail_unverified", "total"]
+    sd_keys = ["rented_verified", "avail_verified", "rented_unverified", "avail_unverified",
+               "unavail_verified", "unavail_unverified", "total"]
     pr_keys = ["rented_p10", "rented_median", "rented_p90", "avail_p10", "avail_median", "avail_p90"]
 
     if args.raw:
@@ -221,10 +236,13 @@ def metrics__gpu_trends(args):
     argument("--datacenter", type=str, choices=["true", "false", "all"], default="all",
              help="Filter by datacenter hosting type"),
     argument("--rented", type=str, choices=["true", "false", "all"], default="all",
-             help="Filter by rented status"),
+             help="Filter by rented status. 'false' covers both available and unrentable GPUs; use --state to tell them apart"),
+    argument("--state", type=str, choices=["all", "rented", "available", "unavailable"], default="all",
+             help="Filter by listing state. 'unavailable' means listed but neither rentable nor rented"),
     argument("--gpu", type=str, default=None,
              help="Filter by GPU name (comma-separated list). Underscores are accepted in place of spaces."),
-    usage="vastai metrics gpu-locations [OPTIONS]",
+    usage="vastai show gpu-locations [OPTIONS]",
+    aliases=hidden_aliases(["metrics gpu-locations"]),
     help="[Host] Get GPU location metrics",
     epilog=deindent("""
         Show geographic locations of GPUs on the platform. Filtering is applied
@@ -232,14 +250,15 @@ def metrics__gpu_trends(args):
         the rows locally. Requires host or admin access.
 
         Examples:
-            vastai metrics gpu-locations
-            vastai metrics gpu-locations --verified true --datacenter true
-            vastai metrics gpu-locations --gpu "RTX 4090,H100_SXM"
-            vastai metrics gpu-locations --rented false --raw
+            vastai show gpu-locations
+            vastai show gpu-locations --verified true --datacenter true
+            vastai show gpu-locations --gpu "RTX 4090,H100_SXM"
+            vastai show gpu-locations --rented false --raw
     """),
 )
-def metrics__gpu_locations(args):
+def show__gpu_locations(args):
     """Get GPU location metrics."""
+    notice_if_old_name(args, "metrics gpu-locations", "show gpu-locations")
     client = get_client(args)
     resp = metrics_api.gpu_locations(client)
     if resp.get("needs_machine"):
@@ -248,11 +267,20 @@ def metrics__gpu_locations(args):
 
     locations = resp.get("locations", [])
 
-    for field in ("verified", "datacenter", "rented"):
+    for field in ("verified", "datacenter"):
         choice = getattr(args, field)
         if choice != "all":
             want = choice == "true"
             locations = [loc for loc in locations if bool(loc.get(field)) == want]
+
+    # current servers send a three-valued state; older ones only the rented boolean
+    def state_of(loc):
+        return loc.get("state") or ("rented" if loc.get("rented") else "available")
+
+    if args.rented != "all":
+        locations = [loc for loc in locations if (state_of(loc) == "rented") == (args.rented == "true")]
+    if args.state != "all":
+        locations = [loc for loc in locations if state_of(loc) == args.state]
     if args.gpu:
         wanted_gpus = {g.strip().replace("_", " ") for g in args.gpu.split(",") if g.strip()}
         locations = [loc for loc in locations if loc.get("gpu_name") in wanted_gpus]

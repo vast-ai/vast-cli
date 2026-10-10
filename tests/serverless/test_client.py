@@ -1454,6 +1454,41 @@ class TestServerlessQueueEndpointRequest:
         assert result["response"] == worker_json
         assert result["url"] == "https://worker/"
 
+    async def test_queue_endpoint_request_returns_a_non_json_body_as_response(
+        self,
+        client_with_session,
+        make_serverless_endpoint,
+        make_route_response_mock,
+        patch_serverless_queue_async_stubs,
+    ) -> None:
+        """A non-JSON worker body, even an empty transcript, is the response; only the
+        worker call opts in."""
+        ep = make_serverless_endpoint(client_with_session)
+        ready = make_route_response_mock(
+            status="READY", url="https://worker/", request_idx=7, body={"token": "t"},
+        )
+
+        async def fake_route(*_a, **_kw):
+            return ready
+
+        with (
+            patch.object(Endpoint, "_route", side_effect=fake_route),
+            patch(
+                "vastai.serverless.client.client._make_request",
+                new_callable=AsyncMock,
+                return_value={"ok": True, "json": None, "content": "",
+                              "content_type": "text/plain"},
+            ) as worker_call,
+        ):
+            result = await client_with_session.queue_endpoint_request(
+                endpoint=ep, worker_route="/v1/audio/speech",
+                worker_payload={"input": "hi"}, cost=10,
+            )
+
+        assert result["response"] == ""
+        assert result["content_type"] == "text/plain"
+        assert worker_call.call_args.kwargs.get("allow_non_json") is True
+
 
 class TestServerlessQueueEndpointRequestBranches:
     """Additional queue_endpoint_request paths (timeouts, retries, session, cancel, stream)."""

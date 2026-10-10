@@ -757,6 +757,7 @@ class _ServerlessBase(Generic[R]):
                         retries=1,  # avoid stacking retries with the outer loop
                         timeout=worker_timeout,
                         stream=stream,
+                        allow_non_json=True,
                     )
                 except (
                     aiohttp.ClientConnectorError,
@@ -831,7 +832,12 @@ class _ServerlessBase(Generic[R]):
                     }
 
                 # Success
-                worker_response = result.get("stream") if stream else result.get("json")
+                if stream:
+                    worker_response = result.get("stream")
+                elif result.get("content") is not None:
+                    worker_response = result.get("content")
+                else:
+                    worker_response = result.get("json")
 
                 tracker.status = "Complete"
                 tracker.complete_time = time.time()
@@ -843,6 +849,7 @@ class _ServerlessBase(Generic[R]):
                     "ok": result.get("ok"),
                     "status": result.get("status"),
                     "text": result.get("text"),
+                    "content_type": result.get("content_type"),
                     "latency": tracker.complete_time - tracker.start_time,
                     "url": worker_url,
                     "request_idx": request_idx,

@@ -53,6 +53,10 @@ class ApiPayload(ABC):
         """defines how to convert an ApiPayload to JSON that will be sent to model API"""
         pass
 
+    def generate_payload_multipart(self) -> Optional[Dict[str, Any]]:
+        """form fields to POST as multipart, or None (default) to POST JSON"""
+        return None
+
     @abstractmethod
     def count_workload(self) -> float:
         """defines how to calculate workload for a payload"""

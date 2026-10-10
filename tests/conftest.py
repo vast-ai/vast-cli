@@ -41,7 +41,7 @@ import inspect
 import json
 import logging
 import os
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, asynccontextmanager, contextmanager
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -984,6 +984,26 @@ def make_sse_response():
         return mock_resp
 
     return _make
+
+
+@pytest.fixture
+def serve_aiohttp():
+    """Factory: run a POST handler on a local aiohttp server; yields its base URL."""
+
+    @asynccontextmanager
+    async def _serve(handler, path="/"):
+        app = web.Application()
+        app.router.add_post(path, handler)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        try:
+            yield f"http://127.0.0.1:{site._server.sockets[0].getsockname()[1]}"
+        finally:
+            await runner.cleanup()
+
+    return _serve
 
 
 @pytest.fixture

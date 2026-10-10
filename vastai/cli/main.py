@@ -106,16 +106,9 @@ parser = apwrap(
 def main():
     # Import all command modules - the import itself triggers decorator
     # registrations on the global parser via _get_parser().
-    from vastai.cli.commands import (  # noqa: F401
-        instances, offers, machines, teams, keys, endpoints,
-        billing, storage, auth, misc, deployments, metrics,
-        benchmarks,
-        price_increase,
-        repl,
-        update,
-        uninstall,
-        # clusters,  # cluster/overlay commands disabled for now
-    )
+    from vastai.cli.commands import register_all_commands
+    register_all_commands(parser)
+    from vastai.cli.commands import instances
 
     # Wire up tab completers now that command modules are loaded
     set_completers(

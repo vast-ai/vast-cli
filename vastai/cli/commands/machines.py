@@ -917,6 +917,23 @@ def self_test__machine(args):
             }
 
         def selected_offer_for_self_test(machine_id):
+            def search_on_demand(query):
+                # The /bundles/ endpoint resolves cpu_arch to amd64 when the query
+                # leaves it unspecified, so arm64 hosts (e.g. GB10 / DGX Spark) are
+                # invisible and the self-test reports a false "no offer" failure.
+                # Retry once forcing arm64 when the default (amd64) search is empty.
+                offers = offers_api.search_offers(
+                    client, query=query, offer_type="on-demand",
+                    order=[["score", "desc"]], storage=5.0, no_default=True,
+                )
+                if not offers:
+                    offers = offers_api.search_offers(
+                        client, query={**query, "cpu_arch": {"eq": "arm64"}},
+                        offer_type="on-demand",
+                        order=[["score", "desc"]], storage=5.0, no_default=True,
+                    )
+                return offers
+
             strict_query = {
                 "machine_id": {"eq": machine_id},
                 "verified": {"eq": "any"},
@@ -931,10 +948,7 @@ def self_test__machine(args):
                 "machine_lookup": None,
             }
             try:
-                strict_offers = offers_api.search_offers(
-                    client, query=strict_query, offer_type="on-demand",
-                    order=[["score", "desc"]], storage=5.0, no_default=True,
-                )
+                strict_offers = search_on_demand(strict_query)
             except requests.exceptions.HTTPError as e:
                 if http_status_code(e) in (401, 403):
                     diagnostics["search_error"] = offer_search_error_summary(e)
@@ -957,10 +971,7 @@ def self_test__machine(args):
                 "rented": {"eq": "any"},
             }
             try:
-                broader_offers = offers_api.search_offers(
-                    client, query=broader_query, offer_type="on-demand",
-                    order=[["score", "desc"]], storage=5.0, no_default=True,
-                )
+                broader_offers = search_on_demand(broader_query)
             except requests.exceptions.HTTPError as e:
                 if http_status_code(e) in (401, 403):
                     diagnostics["search_error"] = offer_search_error_summary(e)

@@ -130,6 +130,9 @@ def create__ssh_key(args):
     if not ssh_key_content:
         ssh_key_content = generate_ssh_key(args.yes)
     else:
+        # Accepts either a path to a .pub file or the key material itself,
+        # and rejects private keys / non-keys before they reach the account.
+        ssh_key_content = get_ssh_key(ssh_key_content)
         print("Adding provided SSH public key to account...")
 
     client = get_client(args)

@@ -312,31 +312,32 @@ def preprocess_search_query(query_str):
     if query_str is None:
         return False, False, query_str
 
-    from pyparsing import Word, alphas, alphanums, one_of, Group, ZeroOrMore
+    from vastai.api.query import query_pattern
 
-    key = Word(alphas + "_", alphanums + "_")
-    operator = one_of("= in != > < >= <=")
-    value = Word(alphanums + "_")
-    expr = Group(key + operator + value)
-    query = ZeroOrMore(expr)
-    parsed = query.parse_string(query_str)
+    # Tokenize exactly like parse_query() so quoted values, decimals and
+    # [lists] are kept. If it can't consume the whole string, pass it through
+    # unchanged so parse_query() rejects it instead of clauses being dropped.
+    parsed = re.findall(query_pattern, query_str.strip())
+    if ''.join(''.join(e) for e in parsed) != query_str.strip():
+        return False, False, query_str
 
     directives = {'georegion', 'chunked'}
     state = {}
     for d in directives:
-        state[d] = any([d, '=', 'true'] == list(e) for e in parsed)
+        state[d] = any(e[0] == d and e[1].strip() == '=' and e[3] == 'true' for e in parsed)
 
     if not any(state.values()):
         return False, False, query_str
 
     parts = []
     for e in parsed:
+        region = e[3].strip('"')
         if e[0] in directives:
             continue
-        elif e[0] == 'geolocation' and state['georegion'] and e[2] in _regions:
-            parts.append(f'geolocation in [{_regions[e[2]]}]')
+        elif e[0] == 'geolocation' and state['georegion'] and region in _regions:
+            parts.append(f'geolocation in [{_regions[region]}]')
         else:
-            parts.append(' '.join(e))
+            parts.append(''.join(e).strip())
 
     return state['georegion'], state['chunked'], ' '.join(parts)
 
@@ -351,7 +352,6 @@ def postprocess_search_results(results, georegion_active=False, chunked=False):
     _chunked_cutoffs = {
         'cpu_ram': 64 * 1024,
         'cpu_cores': 32,
-        'min_bid': 0,
     }
 
     filtered = []

@@ -220,6 +220,37 @@ def vastai_cmd() -> list[str]:
 # CLI introspection
 # ---------------------------------------------------------------------------
 
+# The hand-written SDK overview page. The CI wipe step keeps it on purpose, and
+# it documents the class rather than a method, so it is never stale.
+HAND_AUTHORED_SDK_PAGES = {"vastai"}
+
+_HELP_ENV: dict[str, str] | None = None
+
+
+def cli_help_env() -> dict[str, str]:
+    """
+    Environment for scraping `--help` with the *host* role.
+
+    `--help` hides host-only commands unless the stored CLI role is "host"
+    (vastai/cli/util.py get_role/is_client_view). The docs cover every command,
+    so scraping under the default client role reported ~24 published host
+    commands as removed. Point XDG_CONFIG_HOME at a throwaway directory holding
+    role=host, so the result doesn't depend on the runner's real config.
+    """
+    global _HELP_ENV
+    if _HELP_ENV is None:
+        import tempfile
+        from vastai.cli.util import APP_NAME, ROLE_FILE, ROLE_HOST
+
+        config_home = tempfile.mkdtemp(prefix="verify-docs-xdg-")
+        role_dir = os.path.join(config_home, APP_NAME)
+        os.makedirs(role_dir)
+        with open(os.path.join(role_dir, os.path.basename(ROLE_FILE)), "w") as f:
+            f.write(ROLE_HOST)
+        _HELP_ENV = {**os.environ, "XDG_CONFIG_HOME": config_home}
+    return _HELP_ENV
+
+
 def get_cli_commands() -> dict[str, list[str]]:
     """
     Run `vastai --help` to get commands, then `vastai <cmd> --help` for each
@@ -238,7 +269,7 @@ def get_cli_commands() -> dict[str, list[str]]:
     # Get help output
     result = subprocess.run(
         base + ["--help"],
-        capture_output=True, text=True, timeout=30,
+        capture_output=True, text=True, timeout=30, env=cli_help_env(),
     )
     if result.returncode != 0:
         raise RuntimeError(f"vastai --help failed: {result.stderr}")
@@ -251,7 +282,7 @@ def get_cli_commands() -> dict[str, list[str]]:
         try:
             sub_result = subprocess.run(
                 base + cmd_parts + ["--help"],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True, text=True, timeout=30, env=cli_help_env(),
             )
         except subprocess.TimeoutExpired:
             commands[doc_name] = []
@@ -478,6 +509,8 @@ def get_documented_sdk_methods(docs_path: Path) -> dict[str, list[str]]:
     methods = {}
     for mdx_file in ref_dir.glob("*.mdx"):
         method_name = mdx_file.stem  # e.g., "create-instance"
+        if method_name in HAND_AUTHORED_SDK_PAGES:
+            continue
         params = _parse_mdx_params(mdx_file, param_type="param")
         methods[method_name] = params
 

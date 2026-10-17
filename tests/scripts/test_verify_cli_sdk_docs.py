@@ -315,3 +315,78 @@ def test_variadic_markers_are_not_treated_as_parameters():
 
     assert open_signatures, "expected at least one **kwargs method"
     assert open_signatures <= set(methods)
+
+
+# ---------------------------------------------------------------------------
+# Inputs that made correct docs look drifted (2026-09-24)
+# ---------------------------------------------------------------------------
+
+def test_hand_authored_sdk_overview_is_not_a_method_page(tmp_path):
+    """sdk/python/reference/vastai.mdx is the class overview; it was reported stale."""
+    ref = tmp_path / "sdk" / "python" / "reference"
+    ref.mkdir(parents=True)
+    (ref / "vastai.mdx").write_text("# VastAI\n")
+    (ref / "show-instances.mdx").write_text('<ParamField path="owner">x</ParamField>')
+
+    assert set(verifier.get_documented_sdk_methods(tmp_path)) == {"show-instances"}
+
+
+def test_help_is_scraped_with_the_host_role():
+    """
+    `--help` hides host-only commands unless the stored role is "host", which
+    reported ~24 published host commands as removed. The scrape env must carry
+    a config dir whose role file reads "host", wherever the CLI looks for it.
+    """
+    import os
+    from vastai.cli.util import APP_NAME, ROLE_FILE, ROLE_HOST
+
+    env = verifier.cli_help_env()
+    role_file = Path(env["XDG_CONFIG_HOME"]) / APP_NAME / os.path.basename(ROLE_FILE)
+
+    assert role_file.read_text() == ROLE_HOST
+
+
+def test_every_cli_command_module_is_registered_for_the_generator():
+    """
+    main() and the docs generator must load the same command modules. They used
+    to keep separate lists, and repl/update/uninstall never got a docs page.
+    """
+    import ast
+
+    root = SCRIPTS_DIR.parent
+    main_src = (root / "vastai" / "cli" / "main.py").read_text()
+    assert "register_all_commands(parser)" in main_src
+
+    init = ast.parse((root / "vastai" / "cli" / "commands" / "__init__.py").read_text())
+    registered = {
+        alias.name
+        for node in ast.walk(init) if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+    }
+    modules = {
+        p.stem for p in (root / "vastai" / "cli" / "commands").glob("*.py")
+        if not p.stem.startswith("_")
+    }
+    # clusters is disabled on purpose (see the comment in register_all_commands).
+    assert modules - registered - {"clusters"} == set()
+
+
+def test_generator_skips_hidden_commands_but_documents_update():
+    """
+    repl and uninstall are hidden (unannounced). Once the generator loaded every
+    module they would have been published early, and the checker, which only
+    sees `--help`, would have reported both pages as stale.
+    """
+    import importlib.util
+
+    path = SCRIPTS_DIR / "generate_cli_sdk_docs.py"
+    spec = importlib.util.spec_from_file_location("generate_cli_sdk_docs_hidden", path)
+    gen = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = gen
+    spec.loader.exec_module(gen)
+
+    names = set(gen.collect_cli_commands(gen.load_cli_parser()))
+
+    assert "update" in names
+    assert "repl" not in names
+    assert "uninstall" not in names

@@ -406,6 +406,83 @@ def set__min_bid(args):
 
 
 # ---------------------------------------------------------------------------
+# machine overrides
+# ---------------------------------------------------------------------------
+
+def _override_ids(ids):
+    return [int(i) for i in ids.split(",")] if ids else None
+
+
+def _print_override_result(result, verb):
+    print(result.get("msg") or f"{verb} {result.get('field')} on {len(result.get('machine_ids') or [])} machine(s)")
+    if result.get("skipped_machine_ids"):
+        print(f"Not this host's machines (skipped): {result['skipped_machine_ids']}")
+
+
+@parser.command(
+    argument("field", help="field to override", choices=list(machines_api.OVERRIDE_FIELDS)),
+    argument("value", help='the value: "Region, CC" for geolocation (e.g. "Guangdong, CN"), Mbps for inet_up/inet_down'),
+    argument("--ids", help="comma-separated machine ids (default: all of the host's machines)", type=str),
+    argument("--host-id", dest="host_id", help="host whose machines to set (admins only)", type=int),
+    argument("--reason", help="why the value is overridden (required for an admin override)", type=str),
+    usage='vastai set machine-override FIELD VALUE [--ids IDS] [--host-id HOST_ID] [--reason REASON]',
+    help="[Host] Pin a machine field (location, bandwidth) to a manual value",
+    epilog=deindent("""
+        Sets a manual value for a machine field. Automatic updates (the IP location lookup,
+        speed tests) keep it until it is cleared with `vastai clear machine-override`.
+
+        Fields:
+          geolocation   where the machine is listed, as "Region, CC" (US/CN/CA/RU) or "Country, CC".
+                        Hosts can set it on their own machines, e.g. when they connect through a VPN.
+          inet_up       upload bandwidth in Mbps (admins only)
+          inet_down     download bandwidth in Mbps (admins only)
+
+        A value set by an admin is locked: the host cannot change or clear it.
+
+        Examples:
+          vastai set machine-override geolocation "Guangdong, CN" --ids 12345,12346
+          vastai set machine-override inet_down 950 --host-id 678 --ids 12345 --reason "verified on support ticket"
+    """),
+)
+def set__machine_override(args):
+    """Pin a machine field to a manual value."""
+    blob = machines_api._override_target(args.field, _override_ids(args.ids), args.host_id, args.reason)
+    if args.explain:
+        print("request json: ")
+        print({**blob, "value": args.value})
+    result = machines_api.set_machine_override(get_client(args), args.field, args.value,
+                                               machine_ids=_override_ids(args.ids), host_id=args.host_id,
+                                               reason=args.reason)
+    if args.raw:
+        return result
+    _print_override_result(result, "Set")
+
+
+@parser.command(
+    argument("field", help="field whose override to remove", choices=list(machines_api.OVERRIDE_FIELDS)),
+    argument("--ids", help="comma-separated machine ids (default: all of the host's machines)", type=str),
+    argument("--host-id", dest="host_id", help="host whose machines to clear (admins only)", type=int),
+    argument("--reason", help="why the override is cleared (required for an admin)", type=str),
+    usage='vastai clear machine-override FIELD [--ids IDS] [--host-id HOST_ID] [--reason REASON]',
+    help="[Host] Remove a manual machine field value so automatic detection takes over",
+    epilog=deindent("""
+        Removes a value set with `vastai set machine-override`. For geolocation the detected
+        location is restored right away; bandwidth returns to the latest speed test.
+
+        Examples:
+          vastai clear machine-override geolocation --ids 12345
+    """),
+)
+def clear__machine_override(args):
+    """Remove a manual machine field value."""
+    result = machines_api.clear_machine_override(get_client(args), args.field, machine_ids=_override_ids(args.ids),
+                                                 host_id=args.host_id, reason=args.reason)
+    if args.raw:
+        return result
+    _print_override_result(result, "Cleared")
+
+
+# ---------------------------------------------------------------------------
 # set defjob
 # ---------------------------------------------------------------------------
 

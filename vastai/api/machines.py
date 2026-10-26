@@ -271,3 +271,59 @@ def set_min_bid(client: VastClient, id: int, price: float = None) -> dict:
     return r.json()
 
 
+
+
+OVERRIDE_FIELDS = ("geolocation", "inet_up", "inet_down")
+
+
+def _override_target(field: str, machine_ids: list = None, host_id: int = None, reason: str = None) -> dict:
+    blob = {"field": field}
+    if machine_ids:
+        blob["machine_ids"] = [int(m) for m in machine_ids]
+    if host_id is not None:
+        blob["host_id"] = int(host_id)
+    if reason:
+        blob["reason"] = reason
+    return blob
+
+
+def set_machine_override(client: VastClient, field: str, value, machine_ids: list = None,
+                         host_id: int = None, reason: str = None) -> dict:
+    """Pin a machine field to a manual value that automatic updates keep until it is cleared.
+
+    Args:
+        client: VastClient instance.
+        field: "geolocation" (hosts and admins), or "inet_up" / "inet_down" in Mbps (admins only).
+        value: The value: "Region, CC" for geolocation (e.g. "Guangdong, CN"), a number for bandwidth.
+        machine_ids: Machine IDs to set; omitted means all of the host's machines.
+        host_id: Host whose machines to set (admins only; defaults to the caller).
+        reason: Why the value is overridden; required when an admin sets it.
+
+    Returns:
+        Response dict with the machine_ids set, plus locked_machine_ids (an admin value a host
+        cannot change) and skipped_machine_ids (ids that are not the host's).
+    """
+    blob = _override_target(field, machine_ids, host_id, reason)
+    blob["value"] = value if field == "geolocation" else float(value)
+    r = client.post("/machines/overrides/set/", json_data=blob)
+    r.raise_for_status()
+    return r.json()
+
+
+def clear_machine_override(client: VastClient, field: str, machine_ids: list = None,
+                           host_id: int = None, reason: str = None) -> dict:
+    """Remove a manual value so automatic detection updates the field again.
+
+    Args:
+        client: VastClient instance.
+        field: "geolocation", "inet_up" or "inet_down".
+        machine_ids: Machine IDs to clear; omitted means all of the host's machines.
+        host_id: Host whose machines to clear (admins only; defaults to the caller).
+        reason: Why the override is cleared; required when an admin clears it.
+
+    Returns:
+        Response dict with the machine_ids cleared and the restored values.
+    """
+    r = client.post("/machines/overrides/clear/", json_data=_override_target(field, machine_ids, host_id, reason))
+    r.raise_for_status()
+    return r.json()

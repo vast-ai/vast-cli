@@ -276,6 +276,15 @@ def parse_order(order, field_alias: Dict = None) -> List:
         parsed.append([field_alias.get(field, field), direction])
     return parsed
 
+# The offer search filters these fields server-side when a query doesn't name
+# them (cpu_arch=amd64, gpu_arch=nvidia). Dropping the term for a wildcard would
+# hand control back to that default and silently hide ARM/AMD machines, so a
+# wildcard on one of these sends every value instead.
+SERVER_DEFAULTED_FIELDS = {
+    "cpu_arch": ["amd64", "arm64"],
+    "gpu_arch": ["nvidia", "amd"],
+}
+
 def parse_query(query_str: str, res: Dict = None, fields = {}, field_alias = {}, field_multiplier = {}) -> Dict:
     """
     Basically takes a query string (like the ones in the examples of commands for the search__offers function) and
@@ -366,6 +375,8 @@ def parse_query(query_str: str, res: Dict = None, fields = {}, field_alias = {},
                 del v[field]
             if field in res:
                 del res[field]
+            if field in SERVER_DEFAULTED_FIELDS:
+                res[field] = {"in": list(SERVER_DEFAULTED_FIELDS[field])}
             continue
 
         if isinstance(value, str):

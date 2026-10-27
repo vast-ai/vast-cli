@@ -4307,8 +4307,9 @@ def search__invoices(args):
             # search for reliable machines with at least 4 gpus, unverified, order by num_gpus, allow conflicts
             vastai search offers 'reliability > 0.99  num_gpus>=4 verified=False rented=any' -o 'num_gpus-'
 
-            # search for arm64 cpu architecture
+            # results include amd64 and arm64 (e.g. GB200, GB10) hosts by default; narrow with cpu_arch
             vastai search offers 'cpu_arch=arm64'
+            vastai search offers 'cpu_arch=amd64'
             
         Available fields:
 

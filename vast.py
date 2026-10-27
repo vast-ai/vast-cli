@@ -2295,7 +2295,7 @@ def generate_ssh_key(auto_yes=False):
     argument("--launch_args",   help="launch args  string for create instance  ex: \"--onstart onstart_wget.sh  --env '-e ONSTART_PATH=https://s3.amazonaws.com/vast.ai/onstart_OOBA.sh' --image atinoda/text-generation-webui:default-nightly --disk 64\"", type=str),
     argument("--endpoint_name", help="deployment endpoint name (allows multiple workergroups to share same deployment endpoint)", type=str),
     argument("--endpoint_id",   help="deployment endpoint id (allows multiple workergroups to share same deployment endpoint)", type=int),
-    argument("--gpu_ram",     help="estimated GPU RAM req  (independent of search string)", type=float),
+    argument("--gpu_ram",     help="GB the worker downloads on first load; defaults to the launch_args --disk, else the template recommended disk", type=float),
     argument("--search_params", help="search param string for search offers    ex: \"gpu_ram>=23 num_gpus=2 gpu_name=RTX_4090 inet_down>200 direct_port_count>2 disk_space>=64\"", type=str),
     argument("--auto_instance", help=argparse.SUPPRESS, type=str, default="prod"),
     usage="vastai workergroup create [OPTIONS]",
@@ -7497,7 +7497,7 @@ def transfer__credit(args: argparse.Namespace):
 
 @parser.command(
     argument("id", help="id of autoscale group to update", type=int),
-    argument("--gpu_ram",   help="estimated GPU RAM req  (independent of search string)", type=float),
+    argument("--gpu_ram",   help="GB the worker downloads on first load; defaults to the launch_args --disk, else the template recommended disk", type=float),
     argument("--template_hash",   help="template hash (**Note**: if you use this field, you can skip search_params, as they are automatically inferred from the template)", type=str),
     argument("--template_id",   help="template id", type=int),
     argument("--search_params",   help="search param string for search offers    ex: \"gpu_ram>=23 num_gpus=2 gpu_name=RTX_4090 inet_down>200 direct_port_count>2 disk_space>=64\"", type=str),

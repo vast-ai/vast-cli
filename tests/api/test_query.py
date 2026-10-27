@@ -121,6 +121,24 @@ class TestParseQuery:
         result = parse_query("gpu_name=*", res={"gpu_name": {"eq": "RTX_3090"}}, fields=offers_fields)
         assert "gpu_name" not in result
 
+    # cpu_arch and gpu_arch are filtered server-side when absent, so dropping the
+    # term would fall back to amd64/nvidia only instead of "any".
+    def test_wildcard_cpu_arch_sends_every_arch(self):
+        result = parse_query("gpu_name=GB200 cpu_arch=any", fields=offers_fields)
+        assert result["cpu_arch"] == {"in": ["amd64", "arm64"]}
+
+    def test_wildcard_gpu_arch_sends_every_arch(self):
+        result = parse_query("gpu_arch=*", fields=offers_fields)
+        assert result["gpu_arch"] == {"in": ["nvidia", "amd"]}
+
+    def test_wildcard_cpu_arch_replaces_existing_filter(self):
+        result = parse_query("cpu_arch=?", res={"cpu_arch": {"eq": "amd64"}}, fields=offers_fields)
+        assert result["cpu_arch"] == {"in": ["amd64", "arm64"]}
+
+    def test_explicit_cpu_arch_unchanged(self):
+        result = parse_query("cpu_arch=arm64", fields=offers_fields)
+        assert result["cpu_arch"] == {"eq": "arm64"}
+
     def test_field_alias(self):
         result = parse_query("cuda_vers>=12.0", fields=offers_fields, field_alias=offers_alias)
         assert "cuda_max_good" in result

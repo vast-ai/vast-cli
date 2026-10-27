@@ -69,6 +69,10 @@ parser = _get_parser()
             # search for arm64 cpu architecture
             vastai search offers 'cpu_arch=arm64'
 
+            # ARM machines (e.g. GB200, GB300, GB10) and AMD GPUs are hidden unless the
+            # query names cpu_arch / gpu_arch; 'any' includes every architecture
+            vastai search offers 'gpu_name=GB200 cpu_arch=any'
+
         Available fields:
 
               Name                  Type       Description
@@ -190,6 +194,12 @@ def search__offers(args):
         return
 
     rows = r.json()["offers"]
+
+    # The server hides ARM machines unless the query names cpu_arch (it skips that
+    # default for machine_id/host_id lookups), which reads as "no supply".
+    if not rows and not any(k in query for k in ("cpu_arch", "machine_id", "host_id")):
+        print("No offers found. ARM machines (e.g. GB200, GB300) are excluded unless the query "
+              "names cpu_arch; add cpu_arch=any to include them.", file=sys.stderr)
 
     if args.raw:
         return rows

@@ -274,6 +274,28 @@ machine_fields = (
     ("gpu_occupancy", "occup", "{}", None, True),
 )
 
+# These fields are displayed when you do 'show machine-contracts'
+machine_contract_fields = (
+    ("contract_id", "ID", "{}", None, True),
+    ("rental_type", "type", "{}", None, True),
+    ("state", "state", "{}", None, True),
+    ("charge_types", "charges", "{}", lambda x: ",".join(x) or "-", True),
+    ("num_gpus", "#gpus", "{}", None, True),
+    ("gpu_price_dph", "gpu_$/h", "{:0.3f}", None, True),
+    ("disk_size_gb", "disk_GB", "{:0.1f}", None, True),
+    ("disk_price_dpgbm", "disk_$/GB/mo", "{:0.3f}", None, True),
+    ("vol_size_gb", "vol_GB", "{:0.1f}", None, True),
+    ("vol_price_dpgbm", "vol_$/GB/mo", "{:0.3f}", None, True),
+    ("inet_up_cost", "netu_$/TB", "{:0.2f}", None, True),
+    ("inet_down_cost", "netd_$/TB", "{:0.2f}", None, True),
+    ("earn_day", "earn_$/day", "{:0.2f}", None, True),
+    ("auto_renew", "renew", "{}", None, True),
+    ("start_date", "start (UTC)", "{}", lambda x: datetime.fromtimestamp(x, tz=timezone.utc).strftime('%Y-%m-%d/%H:%M'), True),
+    ("end_date", "end (UTC)", "{}", lambda x: datetime.fromtimestamp(x, tz=timezone.utc).strftime('%Y-%m-%d/%H:%M'), True),
+    ("sla_reliability_claim", "sla_R", "{:0.4f}", None, True),
+    ("sla_confidence", "sla_conf", "{}", None, True),
+)
+
 # These fields are displayed when you do 'show maints'
 maintenance_fields = (
     ("machine_id", "Machine ID", "{}", None, True),

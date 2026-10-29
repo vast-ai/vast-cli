@@ -13,7 +13,7 @@ import urllib3
 
 from vastai.cli.parser import argument
 from vastai.cli.display import (
-    display_table, machine_fields, maintenance_fields,
+    display_table, machine_contract_fields, machine_fields, maintenance_fields,
     network_disk_fields, network_disk_machine_fields, deindent,
 )
 from vastai.api import machines as machines_api
@@ -106,6 +106,51 @@ def show__machines(args):
             print(" ".join(id for id in ids))
         else:
             display_table(rows, machine_fields)
+
+
+# ---------------------------------------------------------------------------
+# show machine-contracts
+# ---------------------------------------------------------------------------
+
+@parser.command(
+    argument("Machine", help="id of machine to show contracts for", type=int),
+    argument("-q", "--quiet", action="store_true", help="only display numeric contract ids"),
+    usage="vastai show machine-contracts ID [OPTIONS]",
+    help="[Host] Show active contracts (rentals) on a hosted machine",
+    epilog=deindent("""
+        Show the active contracts on one of your machines: running instances,
+        storage-only (stopped) instances, and standalone volumes.
+
+        Prices are what you earn, after the platform fee. gpu_$/h is per GPU,
+        disk/vol prices are per GB per month, and network prices are per TB.
+        earn_$/day is yesterday's billed earnings, an estimate for contracts that
+        started today, or '-' while billing data is not yet available.
+
+        Examples:
+          vastai show machine-contracts 1234
+          vastai show machine-contracts 1234 --raw
+    """),
+)
+def show__machine_contracts(args):
+    """Show the active contracts on a machine the host owns."""
+    client = get_client(args)
+    result = machines_api.show_machine_contracts(client, id=args.Machine)
+    if args.raw:
+        return result
+    rows = result.get("contracts", [])
+    if args.quiet:
+        print(" ".join(f"{row['contract_id']}" for row in rows))
+        return
+    display_table(rows, machine_contract_fields)
+    if result.get("truncated"):
+        print(f"Warning: only the first {len(rows)} contracts were returned; the list is truncated.", file=sys.stderr)
+    if result.get("omitted_count"):
+        ids = ", ".join(str(cid) for cid in result.get("omitted_contract_ids", []))
+        print(f"Warning: {result['omitted_count']} contract(s) could not be loaded: {ids}", file=sys.stderr)
+    if result.get("billing_degraded"):
+        print("Warning: billing data is unavailable; some earnings are shown as '-'.", file=sys.stderr)
+    if result.get("aggregation_degraded"):
+        print("Warning: GPU/volume details are unavailable; some rows may be incomplete.", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------

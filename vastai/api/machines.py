@@ -31,6 +31,26 @@ def show_machines(client: VastClient) -> list:
     return r.json()["machines"]
 
 
+def show_machine_contracts(client: VastClient, id: int) -> dict:
+    """Show the active contracts (rentals) on a hosted machine.
+
+    Covers running, storage-only, and standalone volume contracts. Prices are
+    host-side (after the platform fee); inet costs are in $/TB.
+
+    Args:
+        client: VastClient instance.
+        id: Machine ID.
+
+    Returns:
+        Envelope dict with ``contracts`` (list of contract dicts), ``truncated``,
+        ``omitted_count``, ``omitted_contract_ids``, ``billing_degraded`` and
+        ``aggregation_degraded``.
+    """
+    r = client.get(f"/machines/{id}/contracts")
+    r.raise_for_status()
+    return r.json()
+
+
 def show_maints(client: VastClient, machine_ids: list) -> list:
     """Show maintenance information for host machines.
 

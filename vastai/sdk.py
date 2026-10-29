@@ -491,6 +491,14 @@ class VastAI:
             raise ValueError(f"Expected 1 machine for id={id}, got {len(result)}")
         return result[0]
 
+    def show_machine_contracts(self, id: int) -> dict:
+        """Return the active contracts on a hosted machine.
+
+        Returns the full response envelope: ``contracts`` plus the
+        ``truncated``/``omitted_*``/``*_degraded`` completeness flags.
+        """
+        return machines.show_machine_contracts(self.client, id)
+
     def show_maints(self, ids) -> list[dict]:
         """Show maintenance information for machines."""
         return machines.show_maints(self.client, ids)

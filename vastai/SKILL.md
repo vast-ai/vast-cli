@@ -325,6 +325,7 @@ vastai delete env-var KEY                                 # Delete env var
 vastai show machines                                     # List your machines
 vastai list machine <id>                                 # List/unlist machine on marketplace
 vastai show machine <id>                                 # Machine details
+vastai show machine-contracts <id>                       # Active contracts/rentals on a machine
 vastai cleanup machine <id>                              # Clean up machine state
 vastai schedule maint <id> ...                           # Schedule maintenance window
 vastai cancel maint <id>                                 # Cancel scheduled maintenance

@@ -1,0 +1,3000 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vast Serverless UI</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    color-scheme: dark;  /* native controls (number spinners, media bars) to match */
+    --bg: #0e1013; --panel: #161a1f; --panel-2: #1c2128; --line: #2a313a;
+    --text: #e8ecf1; --muted: #8b95a3; --accent: #5b8cff; --accent-2: #3d6fe8;
+    --field-line: #5d6776;  /* a form field's edge: 3:1 against the panel, as WCAG 1.4.11 asks */
+    --ok: #3ecf8e; --err: #ff6b6b; --warn: #f0b860; --code: #0b0d10;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    /* chart series: reference palette, dark steps; validated all-pairs on --panel */
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 16px 24px;
+           border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  .pill { font: 12px var(--mono); color: var(--muted); background: var(--panel-2);
+          border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; }
+  .pill.ok { color: var(--ok); }
+  main { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 20px; padding: 20px 24px;
+         max-width: 1600px; margin: 0 auto; align-items: start; }
+  /* The sidebar stays in view: the endpoints, and the workers of the one open, beside the work. */
+  .side { position: sticky; top: 16px; max-height: calc(100vh - 32px); display: flex; flex-direction: column;
+          gap: 16px; min-width: 0; }
+  .side > .card { flex: none; overflow-y: auto; }
+  .side > .card.workers-card { flex: 0 1 auto; min-height: 160px; padding: 0 16px 14px; }
+  @media (max-width: 900px) {
+    main { grid-template-columns: minmax(0, 1fr); padding: 16px; }
+    .side { position: static; max-height: none; }
+    .side > .card.workers-card { max-height: 320px; }
+  }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px;
+          min-width: 0; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 6px; }
+  label:first-child { margin-top: 0; }
+  input, textarea, select { width: 100%; background: var(--code); color: var(--text);
+    border: 1px solid var(--field-line); border-radius: 8px; padding: 9px 10px; font: inherit; }
+  input#key, textarea.json { font: 13px/1.5 var(--mono); }
+  textarea { min-height: 90px; resize: vertical; }
+  textarea.json { min-height: 220px; }
+  ::placeholder { color: var(--muted); opacity: 1; }  /* 6.4:1 on --code; the browser's grey is 4.2:1 */
+  input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  input[type=checkbox] { width: auto; margin: 0 6px 0 0; vertical-align: middle; }
+  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; }
+  .row label { margin-top: 12px; }
+  .check { display: flex; align-items: center; color: var(--muted); font-size: 13px; margin-top: 12px; }
+  .go-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; }
+  button { border-radius: 8px; padding: 9px 14px; font: 600 14px system-ui; cursor: pointer; }
+  .go { flex: 1; background: var(--accent-2); color: #fff; border: 0; }
+  .go:hover { background: #2f5fd4; }
+  .go:disabled { opacity: .55; cursor: not-allowed; }
+  .ghost { background: none; color: var(--muted); border: 1px solid var(--line); }
+  .ghost.small { padding: 2px 10px; font-size: 12px; border-radius: 999px; }
+  .smoke td.x { color: var(--err); }
+  .go-row select { width: auto; }
+  .hint { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+  .err { color: var(--err); font: 13px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere;
+         margin-top: 12px; }
+  .warn { color: var(--warn); font-size: 13px; margin: 6px 0 0; }
+  h2 { font-size: 14px; color: var(--muted); font-weight: 600; margin: 22px 0 8px; }
+  .eps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .eps button { width: 100%; display: flex; justify-content: space-between; gap: 10px; text-align: left;
+                background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+                font: 14px var(--mono); padding: 9px 12px; }
+  .eps button.on { border-color: var(--accent); }
+  .eps .state { color: var(--muted); font-size: 12px; }
+  .empty { color: var(--muted); text-align: center; padding: 80px 20px; }
+
+  .ws h3 { font-size: 16px; margin: 0; }
+  .ws h4 { font-size: 13px; color: var(--muted); font-weight: 600; margin: 18px 0 8px; }
+  .badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 4px; }
+  details.about { margin-top: 10px; }
+  details.about > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  .routes { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; padding: 0; margin: 0; }
+  .routes li { font: 13px var(--mono); background: var(--panel-2); border: 1px solid var(--line);
+               border-radius: 6px; padding: 3px 9px; }
+  .bench { color: var(--muted); font-size: 11px; margin-left: 6px; }
+  .group { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-top: 10px; }
+  .sub { font: 12px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+  table.env { width: 100%; border-collapse: collapse; margin-top: 8px; font: 12.5px var(--mono); }
+  table.env td { padding: 4px 8px 4px 0; border-top: 1px solid var(--line); vertical-align: top;
+                 overflow-wrap: anywhere; }
+  table.env td:first-child { color: var(--muted); white-space: nowrap; }
+  table.env .src { color: var(--muted); font-size: 11px; text-align: right; white-space: nowrap;
+                   overflow-wrap: normal; padding-right: 0; }
+  table.env .item { display: block; }
+  table.env .item + .item { margin-top: 2px; }
+  /* name value pairs that wrap as whole pairs, never between a name and its value */
+  .settings { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 10px 0 0; font: 12px var(--mono);
+              color: var(--muted); }
+  .settings span { white-space: nowrap; }
+  .settings b { color: var(--text); font-weight: 400; }
+  .wg-head .settings { margin: 2px 0 0; flex-basis: 100%; }
+
+  .tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 18px 0 0; padding-bottom: 10px;
+          border-bottom: 1px solid var(--line); align-items: center; }
+  .tabs button { background: none; border: 1px solid transparent; color: var(--muted);
+                 font: 13px system-ui; padding: 5px 11px; }
+  .tabs button.on { border-color: var(--line); background: var(--panel-2); color: var(--text);
+                    box-shadow: inset 0 -2px 0 var(--accent); }
+  .tabs button.unserved { font-style: italic; }
+  .tabs .check { margin: 0 0 0 auto; }
+  .editor { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; margin-top: 14px; }
+  @media (max-width: 1200px) { .editor { grid-template-columns: minmax(0, 1fr); } }
+  .code-head { display: flex; justify-content: space-between; align-items: center; margin: 0 0 6px; }
+  .code-head span { font: 12px var(--mono); color: var(--muted); }
+  .ctabs { display: flex; gap: 4px; }
+  .ctabs button { background: none; border: 1px solid transparent; color: var(--muted);
+                  font: 12px system-ui; padding: 3px 9px; }
+  .ctabs button.on { border-color: var(--line); background: var(--panel-2); color: var(--text); }
+  pre { margin: 0; background: var(--code); border: 1px solid var(--line); border-radius: 8px;
+        padding: 12px; font: 12.5px/1.55 var(--mono); overflow-x: auto; white-space: pre-wrap;
+        overflow-wrap: anywhere; color: #c9d4e3; }
+  .transcript { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+  .msg { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; white-space: pre-wrap;
+         overflow-wrap: anywhere; font-size: 14px; }
+  .msg b { display: block; font: 600 11px var(--mono); color: var(--muted); text-transform: uppercase;
+           margin-bottom: 2px; }
+  .msg.user { background: var(--panel-2); }
+  .convo-head { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+                margin-top: 14px; font: 12px var(--mono); color: var(--muted); }
+  .convo-head button { padding: 3px 9px; font-size: 12px; }
+  .result > .msg { margin-bottom: 10px; font-size: 13px; }
+  .batch .item { margin-bottom: 8px; } .batch audio { width: 100%; }
+  .formswitch { align-items: center; margin-bottom: 10px; }
+  .comfy-fields { display: grid; gap: 4px; margin-top: 6px; }
+  details.howto { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; font-size: 13px; }
+  details.howto > summary { cursor: pointer; font-weight: 600; }
+  details.howto p { margin: 6px 0; } details.howto pre { margin: 2px 0 8px; font-size: 12px; }
+  details.howto code { font: 12px var(--mono); }
+  .comfy-fields .num-field, .comfy-fields .seed-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+  .comfy-fields .num-field label, .comfy-fields .seed-row > label:first-child { flex-basis: 100%; }
+  .comfy-fields .num-field input, .comfy-fields .seed-row input[type=number] { width: 140px; }
+  .comfy-outs { display: flex; flex-wrap: wrap; gap: 12px; }
+  .comfy-out img, .comfy-out video { max-width: 100%; max-height: 420px; border-radius: 8px; display: block; }
+  .comfy-out audio { width: 320px; }
+  .help-link { display: block; margin-bottom: 8px; }
+  dialog.help { max-width: 560px; border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px;
+                background: var(--panel); color: var(--text); font-size: 14px; line-height: 1.55; }
+  dialog.help::backdrop { background: rgba(0, 0, 0, 0.55); }
+  dialog.help h3 { margin: 0 0 8px; font-size: 16px; }
+  dialog.help p { margin: 0 0 10px; color: var(--text); }
+  .formswitch .sub { font-size: 12px; margin: 0 4px; }
+  .attach { margin-top: 8px; }
+  .drop { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; min-height: 42px;
+          border: 1px dashed var(--line); border-radius: 8px; padding: 8px 12px; cursor: pointer;
+          color: var(--muted); font-size: 13px; background: var(--panel); position: relative; }
+  .drop:hover, .drop.over { border-color: var(--accent); color: var(--text); }
+  .drop:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .drop.over { background: var(--panel-2); }
+  .drop-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  .drop-note { color: var(--warn); font-size: 12px; }
+  .drop-note:empty { display: none; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; flex-basis: 100%; }
+  .chips:empty { display: none; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px 2px 10px; border-radius: 999px;
+          background: var(--panel-2); border: 1px solid var(--line); color: var(--text); font: 12px var(--mono); }
+  .chip button { background: none; border: 0; color: var(--muted); padding: 0; font-size: 14px; cursor: pointer;
+                 min-width: 24px; min-height: 24px; }
+  .chip button:hover { color: var(--text); }
+  .msg .thumb { display: block; max-width: 160px; max-height: 120px; margin-top: 6px; border-radius: 6px; }
+  .served-line { font: 12.5px var(--mono); color: var(--muted); margin: -4px 0 10px; }
+  .served b { color: var(--text); font-weight: 600; }
+  .think { margin-bottom: 8px; }
+  .think summary { cursor: pointer; font: 12px var(--mono); color: var(--muted); }
+  .think-text { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); font-size: 13px;
+                max-height: 240px; overflow-y: auto; margin-top: 6px; padding-left: 10px;
+                border-left: 2px solid var(--line); }
+
+  .results { display: flex; flex-direction: column; gap: 14px; margin-top: 20px; }
+  .result { border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
+  .result.bad { border-color: #5a2a2e; }
+  .result { position: relative; }
+  .result > .close { position: absolute; top: 4px; right: 4px; background: none; border: 0; padding: 0;
+                     min-width: 28px; min-height: 28px; color: var(--muted); font-size: 16px; line-height: 1;
+                     cursor: pointer; }
+  .result > .close:hover { color: var(--text); }
+  .result > .meta { padding-right: 24px; }
+  .results-bar { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 20px; }
+  .results-bar + .results { margin-top: 8px; }
+
+  details.keybox > summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+  details.keybox[open] > summary { margin-bottom: 8px; }
+  #ep-section { margin-top: 16px; }
+  /* Send and its neighbours stay on screen however long the form is. */
+  .go-row.send-row { position: sticky; bottom: 0; z-index: 1; background: var(--panel);
+                     padding: 10px 0; margin-top: 4px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font: 12px var(--mono);
+          color: var(--muted); margin-bottom: 10px; }
+  .meta .t { color: var(--ok); font-weight: 600; font-size: 13px; }
+  .meta .x { color: var(--err); font-weight: 600; font-size: 13px; }
+  .out { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+  .out img, .out video { max-width: 100%; border-radius: 8px; display: block; background: var(--panel-2); }
+  .out audio { width: 100%; }
+  .imgs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+  .choice + .choice { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; }
+  details.raw { margin-top: 10px; }
+  details.raw > summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  details.raw pre { margin-top: 6px; max-height: 420px; overflow: auto; }
+  .burst-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px;
+                margin-top: 10px; }
+  .cell { border: 1px solid var(--line); border-radius: 8px; padding: 6px; font: 12px var(--mono);
+          color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
+  .cell img { width: 100%; border-radius: 6px; display: block; margin-top: 4px; }
+  .cell.bad { color: var(--err); border-color: #5a2a2e; }
+
+  /* The card scrolls; the summary, with the counts, stays at its top. */
+  details.workers > summary { position: sticky; top: 0; background: var(--panel); padding: 14px 0 8px; }
+  details.traffic { margin-top: 14px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+  details.workers > summary .break { flex-basis: 100%; height: 0; }
+  details.workers > summary, details.traffic > summary { cursor: pointer; display: flex; flex-wrap: wrap;
+                              gap: 6px 12px; align-items: center; font: 12.5px var(--mono); color: var(--muted); }
+  details.workers > summary b, details.traffic > summary b { font: 600 14px system-ui; color: var(--text); }
+  .where { font: 12px/1.6 var(--mono); color: var(--muted); margin: 8px 0 4px; overflow-wrap: anywhere; }
+  .traffic-head { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font: 12.5px var(--mono);
+                  color: var(--muted); }
+  .eps .state.busy { color: var(--accent); }
+  table.wk td.text { white-space: normal; min-width: 260px; max-width: 520px; font: 12.5px/1.45 system-ui; }
+  td.text .ask { color: var(--muted); }
+  td.text .err { margin: 0; }
+  .st.routing, .st.streaming { color: var(--accent); border-color: #2c3f73; }
+  .st.done { color: var(--ok); border-color: #1f4d3a; }
+  .st.failed { color: var(--err); border-color: #5a2a2e; } .st.cancelled { color: var(--muted); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px;
+         background: var(--muted); vertical-align: 1px; }
+  .dot.live { background: var(--ok); } .dot.reconnecting, .dot.connecting { background: var(--warn); }
+  .dot.error { background: var(--err); }
+  .count.ready { color: var(--ok); } .count.loading { color: var(--warn); }
+  .count.bad { color: var(--err); } .count.jobs { color: var(--accent); font-weight: 600; }
+
+  .wg-head { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; margin: 14px 0 6px;
+             font-size: 13px; }
+  .wg-head .sub { font-size: 12px; }
+  .tablewrap { overflow-x: auto; }
+  table.wk { width: 100%; border-collapse: collapse; font: 12.5px var(--mono); }
+  table.wk th { text-align: left; color: var(--muted); font-weight: 400; padding: 4px 10px 4px 0;
+                border-bottom: 1px solid var(--line); white-space: nowrap; }
+  table.wk td { padding: 4px 10px 4px 0; border-bottom: 1px solid var(--panel-2); white-space: nowrap; }
+  table.wk td.num, table.wk th.num { text-align: right; }
+  /* a worker is two rows: id, status and counts, then what it runs on across the full width */
+  table.wk tr.worker td { border-bottom: 0; padding-top: 6px; }
+  /* one line, in the narrower proportional face; cut with … (full text on hover) if still too long */
+  table.wk tr.about td { padding: 0 0 6px; font: 12px/1.45 system-ui, sans-serif; color: var(--muted);
+                         max-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  table.wk tr.about .flag { margin: 0 0 0 6px; }
+  table.wk tr.off td { color: var(--muted); }
+  .st { border-radius: 999px; padding: 1px 8px; font-size: 11.5px; border: 1px solid var(--line); }
+  .st.ready { color: var(--ok); border-color: #1f4d3a; } .st.busy { color: var(--accent); border-color: #2c3f73; }
+  .st.loading { color: var(--warn); border-color: #5a4720; } .st.bad { color: var(--err); border-color: #5a2a2e; }
+  .st.off, .st.other { color: var(--muted); }
+  td.jobs.on { color: var(--accent); font-weight: 600; }
+  .flag { color: var(--warn); font-size: 11px; margin-right: 6px; }
+  .linkish { background: none; border: 0; color: var(--accent); padding: 0; font: 12px system-ui; cursor: pointer; }
+
+  .loadbox { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-top: 14px; }
+  .loadbox h4 { margin: 0 0 6px; }
+  table.profile { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+  table.profile th { text-align: left; color: var(--muted); font-weight: 400; padding: 0 6px 4px 0; }
+  table.profile td { padding: 2px 6px 2px 0; }
+  table.profile input { padding: 5px 7px; font: 13px var(--mono); }
+  table.profile td:last-child { width: 1%; }
+  .x-btn { background: none; border: 0; color: var(--muted); padding: 0; min-width: 28px; min-height: 28px;
+           font-size: 16px; }
+  .estimate { font: 12.5px var(--mono); color: var(--text); margin: 10px 0 0; }
+  .charts { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; position: relative; }
+  .chart-head { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; font-size: 12px;
+                color: var(--muted); }
+  .chart-head b { color: var(--text); font-weight: 600; }
+  .key { display: inline-flex; align-items: center; gap: 5px; }
+  .key i { display: inline-block; width: 14px; height: 2px; border-radius: 1px; }
+  .key span { font-family: var(--mono); color: var(--text); }
+  svg.chart { display: block; width: 100%; height: 110px; overflow: visible; }
+  svg.chart text { fill: var(--muted); font: 10.5px var(--mono); }
+  svg.chart .grid { stroke: var(--line); stroke-width: 1; }
+  svg.chart .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  svg.chart .end { stroke: var(--panel); stroke-width: 2; }
+  svg.chart .cross { stroke: var(--muted); stroke-width: 1; }
+  .tip { position: absolute; pointer-events: none; background: var(--panel-2); border: 1px solid var(--line);
+         border-radius: 8px; padding: 8px 10px; font: 12px var(--mono); color: var(--text); white-space: nowrap;
+         z-index: 2; }
+  .tip .k { color: var(--muted); }
+  .tip i { display: inline-block; width: 10px; height: 2px; margin-right: 6px; vertical-align: 3px; }
+  table.data { border-collapse: collapse; font: 12px var(--mono); margin-top: 6px; }
+  table.data th, table.data td { padding: 2px 12px 2px 0; text-align: right; white-space: nowrap; }
+  table.data th { color: var(--muted); font-weight: 400; }
+  table.data.labelled th:first-child, table.data.labelled td:first-child { text-align: left; }
+  table.view { border-collapse: collapse; font: 12.5px var(--mono); margin-top: 6px; width: 100%; }
+  table.view th { color: var(--muted); font-weight: 400; border-bottom: 1px solid var(--line); }
+  table.view th, table.view td { padding: 3px 0 3px 18px; vertical-align: top; }
+  table.view th:first-child, table.view td:first-child { padding-left: 0; }
+  table.view .l, table.view .m { text-align: left; } table.view .r { text-align: right; white-space: nowrap; }
+  table.view td.m { color: var(--muted); white-space: nowrap; }
+  [hidden] { display: none !important; }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);
+                     white-space: nowrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Vast Serverless UI</h1>
+  <span class="pill" id="key-pill">no key</span>
+  <span class="pill" id="ep-pill" hidden></span>
+</header>
+<main>
+  <aside class="side">
+  <section class="card">
+    <details class="keybox" id="key-box" open>
+    <summary id="key-summary">API key</summary>
+    <!-- No action and no input name: even if script fails, a submit cannot put the key in a URL.
+         The page's CSP (form-action 'none') blocks native submission as well. -->
+    <form id="key-form" autocomplete="off">
+      <div id="token-field" hidden>
+        <label for="token">Access token</label>
+        <input id="token" type="password" autocomplete="off" spellcheck="false"
+               data-1p-ignore data-lpignore="true" placeholder="this server's access token">
+      </div>
+      <div id="key-field">
+        <label for="key" class="visually-hidden">Vast API key</label>
+        <input id="key" type="password" autocomplete="off" spellcheck="false"
+               data-1p-ignore data-lpignore="true" placeholder="paste your key">
+      </div>
+      <div class="go-row">
+        <button class="go" id="connect" type="submit">Connect</button>
+        <button class="ghost" id="forget" type="button" hidden>Forget key</button>
+        <button class="ghost" id="forget-token" type="button" hidden>Forget token</button>
+      </div>
+      <p class="hint" id="key-hint">Held in this tab's memory only and sent with each request. It is never saved
+        in the browser or on the server, so reloading the page clears it.</p>
+    </form>
+    </details>
+    <div class="err" id="error" role="alert" hidden></div>
+    <div id="ep-section" hidden>
+      <ul class="eps"><li><button type="button" id="traffic-nav"><span>Proxy traffic</span>
+        <span class="state" id="traffic-count"></span></button></li></ul>
+      <h2>Endpoints</h2>
+      <ul class="eps" id="eps"></ul>
+    </div>
+  </section>
+  <section class="card workers-card" id="workers-card" aria-label="Workers" hidden></section>
+  </aside>
+  <section class="card ws" id="workspace"><div class="empty">Connect with your API key, then pick an endpoint.</div></section>
+</main>
+<script>
+"use strict";
+// The key lives in this variable (and in the key field until Connect clears it): never in
+// storage, cookies or the URL.
+let apiKey = "";
+let serverKey = false;    // the server was started with a key (VAST_API_KEY or --api-key)
+let needsToken = false;   // ... and an access token, which every request must carry
+let accessToken = "";     // once accepted, also kept in localStorage (the key never is)
+const TOKEN_STORE = "vast-serverless-ui-token";
+let selected = null;      // the endpoint picked in the list
+let found = null;         // its discovery result
+let tab = null;           // the open route tab: {route, form, editor, ...}
+const running = new Set(); // AbortControllers of requests in flight, from any tab
+let watching = null;      // AbortController of the workers stream
+let workersNow = null;    // the live workers view, sampled by load charts
+const workerHosts = new Map();  // "ip:port" -> worker id, from the workers stream
+let loadRun = null;       // AbortController of the running load
+// Requests through this server's proxy: one stream while connected, shown by its own view.
+const traffic = { rows: new Map(), state: "off", controller: null, redraw: null, filter: "", withheld: false };
+const $ = id => document.getElementById(id);
+// Where this page is served from. Requests go relative to it, so the page also works behind a
+// reverse proxy that serves it under a path (https://host/tools/ui/ as well as http://host:8765/),
+// opened with or without the trailing slash.
+const ROOT = location.pathname.endsWith("/") ? location.pathname : location.pathname + "/";
+const BASE = location.origin + ROOT.replace(/\/$/, "");
+const BLANK = "Connect with your API key, then pick an endpoint.";
+const MAX_RESULTS = 30;
+const keptResults = new Map();  // endpoint id -> its results, while the page is open
+
+// workers/openai/routes.py, in that order
+const ROUTES = ["/v1/completions", "/v1/chat/completions", "/v1/chat/completions/batch",
+  "/v1/embeddings", "/v1/rerank", "/v1/score", "/v1/audio/speech", "/v1/audio/speech/batch",
+  "/v1/audio/generate", "/v1/audio/transcriptions", "/v1/audio/translations",
+  "/v1/images/generations", "/v1/images/edits", "/v1/videos/sync"];
+const LABELS = {
+  "/v1/completions": "Completions", "/v1/chat/completions": "Chat",
+  "/v1/chat/completions/batch": "Chat batch", "/v1/embeddings": "Embeddings",
+  "/v1/rerank": "Rerank", "/v1/score": "Score", "/v1/audio/speech": "Speech",
+  "/v1/audio/speech/batch": "Speech batch", "/v1/audio/generate": "Audio generate",
+  "/v1/audio/transcriptions": "Transcribe", "/v1/audio/translations": "Translate",
+  "/v1/images/generations": "Images", "/v1/images/edits": "Image edits", "/v1/videos/sync": "Video",
+  "/generate/sync": "Workflow",
+};
+const STREAMABLE = new Set(["/v1/completions", "/v1/chat/completions"]);
+const UPLOADS = new Set(["/v1/audio/transcriptions", "/v1/audio/translations",
+  "/v1/images/edits", "/v1/videos/sync"]);
+const MIME = { jpeg: "image/jpeg", jpg: "image/jpeg", png: "image/png", webp: "image/webp" };
+
+// Sample bodies from pyworker's workers/openai/client.py.
+const SPEECH_TEXT = "A quick update on the project: the first round of testing went well.";
+const BATCH_TEXTS = ["Name a primary colour.", "Name a planet.", "Name an ocean."];
+const SPOKEN_LINES = ["Good morning, and welcome aboard.", "Your order has shipped and will arrive on Friday.",
+  "Thanks for calling. Goodbye!"];
+// A question, its answer and something unrelated: the similarity column shows the difference.
+const EMBED_TEXTS = ["How do I reset my password?", "Use the Forgot login link on the sign-in page and follow the email.",
+  "Our office is closed on public holidays."];
+const RERANK_QUERY = "How do I reset my password?";
+const RERANK_DOCS = ["To recover your account, use the 'Forgot login' link and follow the email.",
+  "Our office is closed on public holidays.", "Passwords must be at least 12 characters long.",
+  "The best pizza in Naples is a matter of fierce debate."];
+const UPLOAD_NOTE = "<base64 file: upload support is coming>";
+const SAMPLES = {
+  "/v1/embeddings": { input: [SPEECH_TEXT] },
+  "/v1/rerank": { query: RERANK_QUERY, documents: RERANK_DOCS },
+  "/v1/score": { queries: RERANK_QUERY, items: RERANK_DOCS },
+  "/v1/audio/speech": { input: SPEECH_TEXT, response_format: "wav" },
+  "/v1/audio/speech/batch": { items: BATCH_TEXTS.map(t => ({ input: t })), response_format: "wav" },
+  "/v1/audio/generate": { input: "Rain on a tin roof with distant thunder", audio_length: 10 },
+  "/v1/audio/transcriptions": { file: UPLOAD_NOTE, filename: "speech.wav" },
+  "/v1/audio/translations": { file: UPLOAD_NOTE, filename: "speech.wav" },
+  "/v1/images/edits": { image: UPLOAD_NOTE, filename: "input.png", prompt: "Make it a snowy winter scene" },
+  "/v1/videos/sync": { prompt: "A red kite flying over a beach, slow camera pan",
+                       width: 832, height: 480, num_frames: 33 },
+};
+
+// ---------- small DOM helpers: text only, nothing from a server is parsed as HTML ----------
+// Children may be nested arrays; null, undefined and false are skipped.
+function kids(children) {
+  return children.flat(Infinity).filter(c => c !== null && c !== undefined && c !== false);
+}
+function el(tag, props = {}, ...children) {
+  const node = Object.assign(document.createElement(tag), props);
+  node.append(...kids(children));
+  return node;
+}
+function pill(text) { return el("span", { className: "pill", textContent: text }); }
+function settings(pairs) {  // [[name, value], ...] as pairs that wrap whole
+  return el("div", { className: "settings" },
+    pairs.map(([name, value]) => el("span", {}, `${name} `, el("b", { textContent: String(value ?? "–") }))));
+}
+// Marks the chosen one of a set of buttons, for the eye (.on) and for screen readers.
+function choose(buttons, chosen, attr = "aria-pressed") {
+  buttons.forEach(b => { b.classList.toggle("on", b === chosen); b.setAttribute(attr, String(b === chosen)); });
+}
+function workspace(...children) { $("workspace").replaceChildren(...kids(children)); }
+function sidebarWorkers(box) { $("workers-card").replaceChildren(...kids([box])); $("workers-card").hidden = !box; }
+function placeholder(text) { workspace(el("div", { className: "empty", textContent: text })); }
+// Every control is named by its label, so a screen reader says what each field is.
+let fieldSeq = 0;
+function labelFor(label, input) { input.id ||= `field-${++fieldSeq}`; label.htmlFor = input.id; return label; }
+function field(labelText, input) { return [labelFor(el("label", { textContent: labelText }), input), input]; }
+// pyworker counts max_tokens as a request's workload, and this server sends it as the routing cost.
+function costHint(perConversation) {
+  return el("p", { className: "hint", textContent: "max_tokens is also the request's cost: the autoscaler and " +
+    `worker count it as that many tokens of work${perConversation ? ", once per conversation" : ""}, ` +
+    "used or not. Thinking models need room to reason before they answer." });
+}
+function num(value, props = {}) { return el("input", { type: "number", value, ...props }); }
+function select(options, value) {
+  return el("select", {}, options.map(([v, t]) => el("option", { value: v, textContent: t, selected: v === value })));
+}
+
+// ---------- attached files: placeholders in the JSON editor, put in when sending ----------
+// A file becomes "@file:N name (size)" in the body, so the editor stays readable; sending
+// replaces each placeholder with the file as a data: URI, which pyworker and vLLM both take.
+const attached = new Map();  // "@file:N" -> { name, type, size, url }
+let fileSeq = 0;
+
+function size(bytes) {
+  return bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${Math.round(bytes / 1024)} KB`
+    : `${(bytes / 1048576).toFixed(1)} MB`;
+}
+
+function attach(name, type, bytes, url) {
+  const id = `@file:${++fileSeq}`;
+  attached.set(id, { name, type: type || "application/octet-stream", size: bytes, url });
+  return `${id} ${name} (${size(bytes)})`;
+}
+
+function readFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(attach(file.name, file.type, file.size, reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function fileOf(value) {
+  const id = typeof value === "string" && value.match(/^@file:\d+/)?.[0];
+  return id ? attached.get(id) || { missing: id } : null;
+}
+
+// The body as sent: a copy with every placeholder replaced by its file.
+function withFiles(value) {
+  if (Array.isArray(value)) return value.map(withFiles);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, withFiles(v)]));
+  }
+  const file = fileOf(value);
+  if (file?.missing) throw new Error(`${file.missing} is no longer attached; choose the file again.`);
+  return file ? file.url : value;
+}
+
+// [path, file] for every placeholder in a body, for the code views.
+function filesIn(value, path = []) {
+  if (Array.isArray(value)) return value.flatMap((v, i) => filesIn(v, [...path, i]));
+  if (value && typeof value === "object") return Object.entries(value).flatMap(([k, v]) => filesIn(v, [...path, k]));
+  const file = fileOf(value);
+  return file && !file.missing ? [[path, file]] : [];
+}
+
+// A file chooser whose files become placeholders; onChange runs once they are read.
+// A file chooser that also takes dropped files. Each file becomes a placeholder; chosen files
+// show as chips with a ×. A picker for several files adds to its list; one for a single file
+// replaces it. onChange runs once the files are read.
+function filePicker(accept, multiple = false, label = multiple ? "Choose files or drop them here" : "Choose a file or drop it here") {
+  const input = el("input", { type: "file", accept, multiple, className: "drop-input" });
+  const chips = el("div", { className: "chips" });
+  const note = el("span", { className: "drop-note" });
+  const zone = el("label", { className: "drop" }, input,
+    el("span", { className: "drop-text", textContent: label }), note, chips);
+  const picked = { input, el: zone, tokens: [], names: [], onChange: null,
+    clear() { input.value = ""; picked.tokens = []; picked.names = []; draw(); } };
+  const draw = () => chips.replaceChildren(...picked.tokens.map((token, i) => {
+    const file = fileOf(token);
+    const remove = el("button", { type: "button", textContent: "×", title: `Remove ${file.name}` });
+    remove.setAttribute("aria-label", `Remove ${file.name}`);
+    remove.addEventListener("click", e => {
+      e.preventDefault();  // inside the label: don't open the file chooser
+      picked.tokens.splice(i, 1); picked.names.splice(i, 1);
+      draw(); picked.onChange?.();
+    });
+    return el("span", { className: "chip" }, `${file.name} · ${size(file.size)}`, remove);
+  }));
+  const add = async files => {
+    const ok = files.filter(f => accepts(accept, f));
+    note.textContent = ok.length < files.length
+      ? `Not added: ${files.filter(f => !ok.includes(f)).map(f => f.name).join(", ")} (wrong type)` : "";
+    if (!ok.length) return;
+    const tokens = await Promise.all((multiple ? ok : ok.slice(0, 1)).map(readFile));
+    const names = (multiple ? ok : ok.slice(0, 1)).map(f => f.name);
+    picked.tokens = multiple ? [...picked.tokens, ...tokens] : tokens;
+    picked.names = multiple ? [...picked.names, ...names] : names;
+    draw(); picked.onChange?.();
+  };
+  input.addEventListener("change", () => { add([...input.files]); input.value = ""; });
+  zone.addEventListener("dragover", e => { e.preventDefault(); zone.classList.add("over"); });
+  zone.addEventListener("dragleave", () => zone.classList.remove("over"));
+  zone.addEventListener("drop", e => {
+    e.preventDefault();
+    zone.classList.remove("over");
+    add([...e.dataTransfer.files]);
+  });
+  return picked;
+}
+
+// The input's accept list, applied to a dropped file: "image/*", "audio/wav", ".flac" and so on.
+function accepts(accept, file) {
+  if (!accept) return true;
+  const name = file.name.toLowerCase(), type = (file.type || "").toLowerCase();
+  return accept.split(",").map(a => a.trim().toLowerCase()).some(a =>
+    a.startsWith(".") ? name.endsWith(a) : a.endsWith("/*") ? type.startsWith(a.slice(0, -1)) : type === a);
+}
+
+// One file, or a list when there are several: the shape pyworker takes for repeatable fields.
+const oneOrMany = list => (list.length === 1 ? list[0] : list);
+
+// A chat message's content as text, naming what is attached.
+function contentText(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return JSON.stringify(content ?? "");
+  return content.map(p => p?.type === "text" ? p.text
+    : `[${(p?.type || "?").replace(/_url$/, "")}: ${fileOf(p?.[p.type]?.url)?.name || "url"}]`).join(" ");
+}
+
+// ---------- server calls ----------
+function headers() {  // without a pasted key, the server uses its own
+  return { ...(apiKey ? { "Authorization": `Bearer ${apiKey}` } : {}),
+           ...(accessToken ? { "X-Serverless-UI-Token": accessToken } : {}), "Content-Type": "application/json" };
+}
+
+// This server's own handlers never answer 404, so a 404 means it lacks the route:
+// it was started before an update. The page is re-read on every load; the server is not.
+function failure(resp, data, path) {
+  if (resp.status === 404) {
+    return new Error(`This server has no ${path.split("?")[0]}; it is older than this page. ` +
+                     "Restart it (Ctrl-C, then vastai run serverless-ui) to pick up the update.");
+  }
+  if (data.token) {  // the access token is missing, wrong or changed: ask again, and stop retrying
+    accessToken = "";
+    storeToken("");
+    showAccess();
+    return Object.assign(new Error(data.error), { token: true });
+  }
+  return new Error(data.error || `HTTP ${resp.status}`);
+}
+
+// This server always answers in JSON. Anything else, or no answer, came from something in
+// front of it: a proxy, or a sign-in that has expired.
+const FRONT = "That came from something in front of this server, not from it: a proxy, or a " +
+  "sign-in that has expired. Reload the page.";
+function notJson(resp) { return { error: `HTTP ${resp.status}. ${FRONT}` }; }
+
+// Same-origin credentials, fetch's default, written out on purpose: a sign-in proxy in front of
+// this server knows its users by a cookie, which must come along. This server ignores cookies;
+// the key travels in a header.
+async function post(path, body, signal) {
+  try {
+    return await fetch(ROOT + path, { method: "POST", cache: "no-store", credentials: "same-origin",
+                                      headers: headers(), body: JSON.stringify(body), signal });
+  } catch (e) {
+    if (e.name === "AbortError") throw e;
+    throw new Error(`Could not reach this server (${e.message}). ${FRONT}`);
+  }
+}
+
+async function api(path, body = {}, signal) {
+  const resp = await post(path, body, signal);
+  const data = await resp.json().catch(() => notJson(resp));
+  if (!resp.ok) throw failure(resp, data, path);
+  return data;
+}
+
+// POSTs and calls onLine for each NDJSON line. A JSON (non-stream) reply comes back as-is.
+async function ndjson(path, body, signal, onLine) {
+  const resp = await post(path, body, signal);
+  if (!(resp.headers.get("Content-Type") || "").includes("ndjson")) {
+    const data = await resp.json().catch(() => notJson(resp));
+    if (!resp.ok) throw failure(resp, data, path);
+    return data;
+  }
+  const reader = resp.body.getReader(), decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    let i;
+    while ((i = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, i).trim();
+      buffer = buffer.slice(i + 1);
+      if (line) onLine(JSON.parse(line));
+    }
+    if (done) return null;
+  }
+}
+
+// ---------- key and endpoint list ----------
+function showError(message) {
+  $("error").textContent = message || "";
+  $("error").hidden = !message;
+}
+
+// Leaving a view stops what is running in it, which may be a load run of many minutes: ask
+// first. (Finished results stay with their endpoint.)
+function busyWith() {
+  return [loadRun && "a load run",
+    running.size && `${running.size} request${running.size > 1 ? "s" : ""}`].filter(Boolean);
+}
+function confirmLeave(action) {
+  const busy = busyWith();
+  return !busy.length || confirm(`Still running: ${busy.join(" and ")}. ${action} stops ${
+    busy.length > 1 || running.size > 1 ? "them" : "it"}. Continue?`);
+}
+// Closing or reloading the tab would stop them too, and lose every result.
+window.addEventListener("beforeunload", event => { if (busyWith().length) event.preventDefault(); });
+
+function stopEverything() {
+  running.forEach(c => c.abort());
+  loadRun?.abort();
+}
+
+// The access token is remembered, so a shared server opens without asking each time. It is
+// not a Vast key: it only lets this browser use this server, and Forget token removes it.
+function storedToken() {
+  try { return localStorage.getItem(TOKEN_STORE) || ""; } catch { return ""; }
+}
+function storeToken(token) {
+  try { token ? localStorage.setItem(TOKEN_STORE, token) : localStorage.removeItem(TOKEN_STORE); } catch { /* not kept */ }
+}
+
+const KEY_HINT = "Held in this tab's memory only and sent with each request. It is never saved " +
+  "in the browser or on the server, so reloading the page clears it.";
+const SERVER_KEY_HINT = "Using the server's key (VAST_API_KEY or --api-key). Paste a key to " +
+  "use a different one for this tab; it is kept in memory only.";
+const TOKEN_HINT = "Open the link the server printed when it started, which carries the token, " +
+  "or enter the token here (SERVERLESS_UI_TOKEN or --access-token, if it was given one). " +
+  "This browser remembers it until you forget it.";
+
+// A shared server shows only the token field until a token is accepted, then the key field,
+// for using a different key than the server's.
+function showAccess() {
+  const locked = needsToken && !accessToken;
+  $("token-field").hidden = !locked;
+  $("key-field").hidden = locked;
+  $("forget-token").hidden = !needsToken || locked;
+  $("key-summary").textContent = locked ? "Access token" : "API key";
+  $("connect").textContent = locked ? "Unlock" : "Connect";
+  $("connect").className = !locked && serverKey ? "ghost" : "go";  // with the server's key, already connected
+  $("key-hint").textContent = locked ? TOKEN_HINT : serverKey ? SERVER_KEY_HINT : KEY_HINT;
+  if (locked) {
+    $("key-box").open = true;
+    placeholder("Enter this server's access token, then pick an endpoint.");
+  }
+}
+
+function setKey(key) {
+  apiKey = key;
+  $("key").value = "";
+  $("key-pill").textContent = key ? `key …${key.slice(-4)}` : serverKey ? "server's key" : "no key";
+  $("key-pill").classList.toggle("ok", !!key || serverKey);
+  $("forget").hidden = !key;
+}
+
+async function connect() {
+  showError("");
+  $("connect").disabled = true;
+  try {
+    const { endpoints } = await api("api/endpoints");
+    renderEndpoints(endpoints);
+    if (needsToken) storeToken(accessToken);  // it worked: remember it
+    if (!selected && endpoints.length) {
+      placeholder("Pick an endpoint to test, or Proxy traffic to watch requests from your own programs.");
+    }
+    // Connected: the list and the workers get the room. Focus goes with it, rather than
+    // being lost with the folded box.
+    const hadFocus = $("key-box").contains(document.activeElement) || document.activeElement === document.body;
+    $("key-box").open = false;
+    if (hadFocus) ($("eps").querySelector("button") || $("traffic-nav")).focus();
+    followTraffic();
+  } catch (e) {
+    if (apiKey) setKey("");
+    showError(e.message);
+  } finally {
+    $("connect").disabled = false;
+  }
+}
+
+// A server started with a key connects straight away; a pasted key still wins.
+(async () => {
+  try {
+    const resp = await fetch(ROOT + "api/server", { cache: "no-store", credentials: "same-origin" });
+    const info = await resp.json().catch(() => { throw new Error(notJson(resp).error); });
+    serverKey = !!info.has_key;
+    needsToken = !!info.needs_token;
+  } catch (e) {
+    return showError(`Could not read this server's settings: ${e.message}`);
+  }
+  if (needsToken) accessToken = tokenFromLink() || storedToken();
+  if (serverKey) {
+    $("key").placeholder = "optional: a different key";
+    setKey("");
+  }
+  showAccess();
+  if (needsToken && !accessToken) return $("token").focus();
+  if (serverKey) await connect();  // without one, the page waits for the caller's own key
+})();
+
+// The link the server prints carries the token in its fragment, which browsers never send.
+// It is taken once and removed from the address bar, so it isn't bookmarked or shared.
+function tokenFromLink() {
+  const token = new URLSearchParams(location.hash.slice(1)).get("token") || "";
+  if (token) history.replaceState(null, "", location.pathname);
+  return token;
+}
+
+function renderEndpoints(list) {
+  $("eps").replaceChildren(...list.map(ep => {
+    const btn = el("button", { type: "button" },
+      el("span", { textContent: ep.name }), el("span", { className: "state", textContent: ep.state || "" }));
+    btn.dataset.name = ep.name;
+    btn.addEventListener("click", () => selectEndpoint(ep, btn));
+    return el("li", {}, btn);
+  }));
+  $("ep-section").hidden = false;
+  if (!list.length) {
+    placeholder("This account has no serverless endpoints yet. Make one from a template with " +
+      "vastai create endpoint --endpoint_name NAME, then vastai create workergroup --endpoint_name NAME " +
+      "--template_hash HASH. It appears here once made: reconnect to look again.");
+  }
+}
+
+async function selectEndpoint(ep, btn) {
+  if (!confirmLeave(`Opening ${ep.name}`)) return;
+  stopEverything();
+  watching?.abort();
+  sidebarWorkers(null);
+  traffic.redraw = null;
+  selected = ep;
+  found = tab = null;
+  choose(document.querySelectorAll(".eps button"), btn, "aria-current");
+  $("ep-pill").textContent = ep.name;
+  $("ep-pill").hidden = false;
+  placeholder(`Reading ${ep.name}'s workergroups and templates…`);
+  try {
+    const result = await api("api/endpoint", { id: ep.id });
+    if (selected === ep) renderEndpoint(result);
+  } catch (e) {
+    if (selected === ep) workspace(el("div", { className: "err", textContent: e.message }));
+  }
+}
+
+// ---------- endpoint view: what it serves, then a tab per route ----------
+function renderEndpoint(result) {
+  found = result;
+  const { endpoint, summary, workergroups } = result;
+  const label = [summary.backend, summary.model].filter(Boolean).join(" · ");
+  $("ep-pill").textContent = label ? `${endpoint.name} · ${label}` : endpoint.name;
+  const comfy = summary.family === "comfyui-json";
+  const familyNote = summary.family === "openai" || comfy ? null
+    : !summary.family || summary.family === "unknown" ? "Backend not recognised, so no routes are known to be served."
+    : `Detected ${summary.family}: not supported yet.`;
+  const showAll = el("input", { type: "checkbox", checked: summary.family !== "openai" && !comfy });
+  const tabs = el("div", { className: "tabs" });
+  const panel = el("div");
+  // Each endpoint's results are kept while the page is open, so switching back finds them.
+  const results = keptResults.get(endpoint.id) || el("div", { className: "results" });
+  keptResults.set(endpoint.id, results);
+  const resultCount = el("span", { className: "sub", role: "status" });  // announces each new result
+  const clearAll = el("button", { className: "ghost small", type: "button", textContent: "Clear all",
+    title: "Remove every result, stopping anything still running" });
+  const resultsBar = el("div", { className: "results-bar", hidden: true }, resultCount, clearAll);
+  results.onChange = () => {
+    const n = results.children.length;
+    resultsBar.hidden = !n;
+    resultCount.textContent = `${n} result${n === 1 ? "" : "s"}` + (n >= MAX_RESULTS ? ` (the latest ${MAX_RESULTS}; older ones are dropped)` : "");
+  };
+  clearAll.addEventListener("click", () => {
+    if (!confirmLeave("Clearing")) return;
+    // Load runs, bursts and smoke tests take minutes to make again: ask before they go.
+    const costly = results.querySelectorAll(".charts, .burst-grid, .result.smoke").length;
+    if (costly && !confirm(`Clear all ${results.children.length} results, including ${costly} load ` +
+                           "run, burst or smoke test result(s)? This can't be undone.")) return;
+    stopEverything();
+    results.replaceChildren();
+    results.onChange();
+  });
+
+  const drawTabs = () => {
+    const served = new Set(summary.routes);
+    const shown = comfy ? [COMFY] : ROUTES.filter(r => showAll.checked || served.has(r));
+    tabs.replaceChildren(...shown.map(r => {
+      const b = el("button", { type: "button", textContent: LABELS[r],
+        className: (tab?.route === r ? "on " : "") + (served.has(r) ? "" : "unserved"),
+        title: served.has(r) ? r : `${r}: not in this endpoint's routes (expect 404)` });
+      b.setAttribute("aria-pressed", String(tab?.route === r));
+      b.addEventListener("click", () => { openTab(r, panel, results); drawTabs(); });
+      return b;
+    }), ...(comfy ? [] : [el("label", { className: "check" }, showAll, "show all routes")]));
+  };
+  showAll.addEventListener("change", drawTabs);
+
+  const smoke = el("button", { className: "ghost small", type: "button", textContent: "Smoke test…",
+    title: "One small request to each route this endpoint serves" });
+  smoke.addEventListener("click", () => placeResult(results, smokeCard(summary)));
+
+  workspace(
+    el("h3", { textContent: endpoint.name }),
+    el("div", { className: "badges" },
+      pill(`state: ${endpoint.state ?? "?"}`), pill(`backend: ${summary.backend ?? "?"}`),
+      comfy ? pill(`workflows: ${summary.comfy?.workflows.length ?? 0} provisioned`) : pill(`model: ${summary.model ?? "?"}`),
+      smoke),
+    familyNote && el("p", { className: "warn", textContent: familyNote }),
+    summary.warnings.map(w => el("p", { className: "warn", textContent: w })),
+    el("details", { className: "about" },
+      el("summary", { textContent: `Served routes and workergroups (${workergroups.length})` }),
+      renderAbout(summary, workergroups)),
+    tabs, panel, resultsBar, results);
+  results.onChange();  // results kept from an earlier visit
+  sidebarWorkers(watchWorkers(endpoint.id));
+
+  const first = summary.routes[0] || ROUTES[1];
+  openTab(first, panel, results);
+  drawTabs();
+}
+
+function renderAbout(summary, workergroups) {
+  const benchmarks = new Set(workergroups.map(g => g.detected.benchmark_route).filter(Boolean));
+  return [
+    el("h4", { textContent: `Served routes (${summary.routes.length})` }),
+    summary.routes.length
+      ? el("ul", { className: "routes" }, summary.routes.map(r => el("li", { textContent: r },
+          benchmarks.has(r) && el("span", { className: "bench", textContent: "benchmark" }))))
+      : el("div", { className: "sub", textContent: "None known." }),
+    el("h4", { textContent: `Workergroups (${workergroups.length})` }),
+    workergroups.map(renderGroup),
+  ];
+}
+
+function renderGroup(g) {
+  const t = g.template;
+  const where = t ? `${t.name ?? "unnamed"} · ${t.image}:${t.tag ?? "latest"} · ${t.hash_id}`
+    : g.template_error ? `template lookup failed: ${g.template_error}`
+    : g.template_missing ? "template not visible to this key (private to another account?)"
+    : "no template";
+  const rows = Object.entries(g.detected.env).map(([name, v]) =>
+    el("tr", {}, el("td", { textContent: name }),
+       el("td", {}, String(v.value).split(";").filter(Boolean).map(item => el("span", { className: "item", textContent: item }))),
+       el("td", { className: "src", textContent: v.from })));
+  return el("div", { className: "group" },
+    el("div", { textContent: `workergroup ${g.id}` }),
+    el("div", { className: "sub", textContent: where }),
+    g.has_launch_args && el("div", { className: "sub", textContent: "+ env from launch_args" }),
+    g.detected.warnings.map(w => el("p", { className: "warn", textContent: w })),
+    rows.length ? el("table", { className: "env" }, el("tbody", {}, rows))
+                : el("div", { className: "sub", textContent: "No recognised env vars." }));
+}
+
+// ---------- a route tab: an optional form that writes the JSON body, which is what is sent ----------
+function openTab(route, panel, results) {
+  const model = found.summary.model;
+  const withModel = body => (model ? { model, ...body } : body);
+  const editor = el("textarea", { className: "json", spellcheck: false });
+  editor.setAttribute("aria-label", `Request body for ${route} (JSON)`);
+  const code = el("pre", { hidden: true });
+  let form = null;
+  const formSlot = el("div");
+  const choices = formChoices(route);
+  const switcher = el("div", { className: "ctabs formswitch" });
+  const count = select([1, 4, 8, 16, 32, 64].map(n => [String(n), `×${n}`]), "1");
+  count.title = "Concurrent requests (a burst does not stream)";
+  count.setAttribute("aria-label", "Requests to send at once");
+  const send = el("button", { className: "go", type: "button", textContent: "Send" });
+  const stop = el("button", { className: "ghost", type: "button", textContent: "Stop", hidden: true });
+  const loadToggle = el("button", { className: "ghost", type: "button", textContent: "Load…",
+    title: "Send a stream of requests at a rate that changes over time" });
+  const status = el("p", { className: "err", role: "alert", hidden: true });
+  const viewJson = el("button", { type: "button", textContent: "JSON", className: "on", ariaPressed: "true" });
+  const viewSdk = el("button", { type: "button", textContent: "Python SDK" });
+  const viewOpenai = el("button", { type: "button", textContent: route === COMFY ? "HTTP via proxy" : "OpenAI client",
+    title: "The same call through this server's proxy" });
+  const self = tab = { route, form, editor, results, send, stop, status, count, controller: null, edits: {} };
+  // Puts a form in place; the switch calls it again, and the body follows.
+  const mount = choice => {
+    form = tab.form = choice.make(route, withModel);
+    self.edits = {};  // a different form writes a different body
+    form.onChange = sync;
+    form.inputs.forEach(i => i.addEventListener("input", sync));
+    formSlot.replaceChildren(...kids([helpButton(choices.length > 1 && HELP[choice.name] ? choice.name : route), form.el]));
+    switcher.replaceChildren(
+      el("span", { className: "sub", textContent: "form:" }),
+      ...choices.map(c => {
+        const b = el("button", { type: "button", textContent: c.name, className: c.name === choice.name ? "on" : "" });
+        b.setAttribute("aria-pressed", String(c.name === choice.name));
+        b.addEventListener("click", () => { if (c.name !== choice.name) mount(c); });
+        return b;
+      }),
+      ...(choice.match?.test(model || "") ? [el("span", { className: "sub", textContent: `chosen for ${model}` })] : []));
+    sync();
+  };
+
+  let mode = "json";
+  const showCode = () => {
+    code.textContent = mode === "openai" ? openaiCode(route, editor.value) : sdkCode(route, editor.value);
+  };
+  // Fields changed in the editor by hand (top level; undefined = removed) are kept when the
+  // form rewrites the body, and named under it, until Reset.
+  let formBody = {};
+  const edited = el("p", { className: "hint", hidden: true });
+  const resetEdits = el("button", { className: "linkish", type: "button", textContent: "reset from the form" });
+  resetEdits.addEventListener("click", () => { self.edits = {}; sync(); });
+  const showEdits = () => {
+    const keys = Object.keys(self.edits);
+    edited.hidden = !keys.length;
+    edited.replaceChildren(`Your edits to ${keys.join(", ")} are kept when the form changes · `, resetEdits);
+  };
+  const sync = () => {
+    formBody = form.body();
+    const body = { ...formBody };
+    for (const [k, v] of Object.entries(self.edits)) {
+      if (v === undefined) delete body[k]; else body[k] = v;
+    }
+    editor.value = JSON.stringify(body, null, 2);
+    showEdits();
+    showCode();
+  };
+  editor.addEventListener("input", () => {
+    let body;
+    try { body = JSON.parse(editor.value); } catch { body = null; }
+    if (body && typeof body === "object" && !Array.isArray(body)) {
+      const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+      self.edits = Object.fromEntries([...new Set([...Object.keys(formBody), ...Object.keys(body)])]
+        .filter(k => !same(formBody[k], body[k])).map(k => [k, body[k]]));
+      showEdits();
+    }
+    showCode();
+  });
+  const view = next => {
+    mode = next;
+    editor.hidden = mode !== "json"; code.hidden = mode === "json";
+    choose([viewJson, viewSdk, viewOpenai], { json: viewJson, sdk: viewSdk, openai: viewOpenai }[mode]);
+    showCode();
+  };
+  viewJson.addEventListener("click", () => view("json"));
+  viewSdk.addEventListener("click", () => view("sdk"));
+  viewOpenai.addEventListener("click", () => view("openai"));
+  send.addEventListener("click", () => run(tab));
+  stop.addEventListener("click", () => self.controller?.abort());
+  const loadBox = loadPanel(tab);
+  loadBox.hidden = true;
+  loadToggle.addEventListener("click", () => { loadBox.hidden = !loadBox.hidden; });
+
+  panel.replaceChildren(el("div", { className: "editor" },
+    el("div", {}, ...(choices.length > 1 ? [switcher] : []), formSlot,
+      el("div", { className: "go-row send-row" }, send, count, stop, loadToggle), status, loadBox),
+    el("div", {},
+      el("div", { className: "code-head" }, el("span", { textContent: `POST ${route}` }),
+        el("div", { className: "ctabs" }, viewJson, viewSdk, viewOpenai)),
+      editor, code, edited,
+      el("p", { className: "hint", textContent: "The form writes this body; edit it to send anything else." }))));
+  mount(firstChoice(route, model));
+}
+
+function rawForm(route, withModel) {
+  return { el: el("p", { className: "hint", textContent:
+      `${LABELS[route]} has no form yet. The body on the right is a sample from pyworker's client.py.` }),
+    inputs: [], body: () => withModel(SAMPLES[route] || {}) };
+}
+
+const FORMS = {
+  "/v1/completions": (route, withModel) => {
+    const prompt = el("textarea", { value: "The three most useful things to know about GPUs are" });
+    const maxTokens = num(128, { min: 1 }), temperature = num(0.7, { step: 0.1, min: 0 });
+    const stream = el("input", { type: "checkbox", checked: true });
+    return {
+      el: el("div", {}, field("prompt", prompt),
+        el("div", { className: "row" }, el("div", {}, field("max_tokens", maxTokens)),
+          el("div", {}, field("temperature", temperature))),
+        costHint(false),
+        el("label", { className: "check" }, stream, "stream")),
+      inputs: [prompt, maxTokens, temperature, stream],
+      body: () => withModel({ prompt: prompt.value, max_tokens: Number(maxTokens.value),
+        temperature: Number(temperature.value), stream: stream.checked,
+        ...(stream.checked ? { stream_options: { include_usage: true } } : {}) }),
+    };
+  },
+
+  "/v1/chat/completions": (route, withModel) => {
+    const system = el("textarea", { value: "", placeholder: "(optional)" });
+    system.style.minHeight = "60px";
+    const message = el("textarea", { value: "Explain what a serverless GPU endpoint is in two sentences." });
+    const maxTokens = num(2048, { min: 1 }), temperature = num(0.7, { step: 0.1, min: 0 });
+    const stream = el("input", { type: "checkbox", checked: true });
+    const files = filePicker("image/*,audio/*,video/*", true, "Attach images, audio or video: choose or drop them here");
+    const transcript = el("div", { className: "transcript" });
+    const convoHead = el("div", { className: "convo-head" });
+    const messageLabel = labelFor(el("label"), message);
+    const reset = el("button", { className: "ghost", type: "button", textContent: "New conversation" });
+    let history = [], conversation = 1;
+    const turns = msgs => msgs.filter(m => m.role === "user").length;
+    const form = {
+      inputs: [system, message, maxTokens, temperature, stream],
+      blank: () => !message.value.trim() && !files.tokens.length,
+      body: () => withModel({
+        messages: [...(system.value.trim() ? [{ role: "system", content: system.value }] : []),
+                   ...history, { role: "user", content: userContent() }],
+        max_tokens: Number(maxTokens.value), temperature: Number(temperature.value), stream: stream.checked,
+        ...(stream.checked ? { stream_options: { include_usage: true } } : {}) }),
+      // Heads a result card: which conversation and turn it was, and what was asked.
+      ask(sent) {
+        const msgs = Array.isArray(sent.messages) ? sent.messages : [];
+        const last = msgs.findLast(m => m?.role === "user");
+        return { tag: `conversation ${conversation} · turn ${turns(msgs)}`, text: contentText(last?.content) };
+      },
+      // After a reply: the conversation is what was sent plus the answer.
+      done(sent, reply) {
+        if (!Array.isArray(sent.messages) || !reply) return;  // no answer: let them retry the same turn
+        history = [...sent.messages.filter(m => m.role !== "system"), { role: "assistant", content: reply }];
+        message.value = "";
+        files.clear();  // sent: they stay in the conversation, and go again with each turn
+        draw();
+        form.onChange();
+      },
+    };
+    const draw = () => {
+      const n = turns(history);
+      convoHead.replaceChildren(
+        el("span", { textContent: n ? `Conversation ${conversation} · ${n} turn${n > 1 ? "s" : ""} so far`
+                                    : `Conversation ${conversation} · new` }),
+        ...(n ? [reset] : []));
+      transcript.hidden = !n;
+      transcript.replaceChildren(...history.map(m =>
+        el("div", { className: `msg ${m.role}` }, el("b", { textContent: m.role }), contentText(m.content),
+          ...filesIn(m.content).filter(([, f]) => f.type.startsWith("image/"))
+            .map(([, f]) => el("img", { className: "thumb", src: f.url, alt: f.name, title: f.name })))));
+      messageLabel.textContent = n ? `your reply · turn ${n + 1}, sent with the ${history.length} messages above`
+                                   : "message";
+      message.placeholder = n ? "Write a follow-up to continue, or start a new conversation." : "";
+    };
+    // Text, then each attached file as an OpenAI content part (vLLM's names for audio and video).
+    const userContent = () => !files.tokens.length ? message.value : [
+      { type: "text", text: message.value },
+      ...files.tokens.map(token => {
+        const kind = fileOf(token).type.split("/")[0];
+        const part = kind === "audio" ? "audio_url" : kind === "video" ? "video_url" : "image_url";
+        return { type: part, [part]: { url: token } };
+      })];
+    files.onChange = () => form.onChange();
+    reset.addEventListener("click", () => {
+      const n = turns(history);
+      if (n > 1 && !confirm(`Start a new conversation? The ${n} turns so far stay as results, but ` +
+                            "this conversation can't be continued.")) return;
+      history = []; conversation += 1; files.clear(); draw(); form.onChange(); message.focus();
+    });
+    draw();
+    form.el = el("div", {}, field("system", system), convoHead, transcript, messageLabel, message,
+      el("div", { className: "attach" }, files.el),
+      el("div", { className: "row" }, el("div", {}, field("max_tokens", maxTokens)),
+        el("div", {}, field("temperature", temperature))),
+      costHint(false),
+      el("label", { className: "check" }, stream, "stream"));
+    return form;
+  },
+
+  "/v1/chat/completions/batch": (route, withModel) => {
+    const prompts = el("textarea", { value: BATCH_TEXTS.join("\n") });
+    const maxTokens = num(64, { min: 1 });
+    return {
+      el: el("div", {}, field("prompts, one conversation per line", prompts), field("max_tokens", maxTokens),
+        costHint(true)),
+      inputs: [prompts, maxTokens],
+      body: () => withModel({
+        messages: prompts.value.split("\n").filter(l => l.trim()).map(l => [{ role: "user", content: l }]),
+        max_tokens: Number(maxTokens.value) }),
+    };
+  },
+
+  "/v1/images/generations": (route, withModel) => {
+    const prompt = el("textarea", { value: "A lighthouse on a rocky coast at dusk, oil painting" });
+    const size = select(["1024x1024", "1344x768", "768x1344", "1152x896", "896x1152", "1536x640"]
+      .map(s => [s, s]), "1024x1024");
+    const format = select([["jpeg", "jpeg"], ["png", "png"], ["webp", "webp"]], "jpeg");
+    const steps = el("input", { type: "number", min: 1, placeholder: "model default" });
+    const n = num(1, { min: 1, max: 8 });
+    return {
+      el: el("div", {}, field("prompt", prompt),
+        el("div", { className: "row" }, el("div", {}, field("size", size)),
+          el("div", {}, field("output_format", format)), el("div", {}, field("n", n)),
+          el("div", {}, field("num_inference_steps", steps)))),
+      inputs: [prompt, size, format, steps, n],
+      body: () => withModel({ prompt: prompt.value, size: size.value, output_format: format.value,
+        n: Number(n.value), ...(steps.value ? { num_inference_steps: Number(steps.value) } : {}) }),
+    };
+  },
+};
+
+const lines = text => text.split("\n").map(l => l.trim()).filter(Boolean);
+
+FORMS["/v1/embeddings"] = (route, withModel) => {
+  const input = el("textarea", { value: EMBED_TEXTS.join("\n") });
+  const dims = el("input", { type: "number", min: 1, placeholder: "model default" });
+  return {
+    el: el("div", {}, field("texts, one per line", input), field("dimensions (if the model supports it)", dims)),
+    inputs: [input, dims],
+    body: () => withModel({ input: lines(input.value), ...(dims.value ? { dimensions: Number(dims.value) } : {}) }),
+  };
+};
+
+FORMS["/v1/rerank"] = (route, withModel) => {
+  const query = el("input", { type: "text", value: RERANK_QUERY });
+  const docs = el("textarea", { value: RERANK_DOCS.join("\n") });
+  const topN = el("input", { type: "number", min: 1, placeholder: "all" });
+  return {
+    el: el("div", {}, field("query", query), field("documents, one per line", docs), field("top_n", topN)),
+    inputs: [query, docs, topN],
+    body: () => withModel({ query: query.value, documents: lines(docs.value),
+                            ...(topN.value ? { top_n: Number(topN.value) } : {}) }),
+  };
+};
+
+FORMS["/v1/score"] = (route, withModel) => {
+  const query = el("input", { type: "text", value: RERANK_QUERY });
+  const items = el("textarea", { value: RERANK_DOCS.join("\n") });
+  return {
+    el: el("div", {}, field("query", query), field("items to score against it, one per line", items)),
+    inputs: [query, items],
+    body: () => withModel({ queries: query.value, items: lines(items.value) }),
+  };
+};
+
+const SPEECH_FORMATS = ["wav", "mp3", "flac", "opus", "aac", "pcm"].map(f => [f, f]);
+
+FORMS["/v1/audio/speech"] = (route, withModel) => {
+  const input = el("textarea", { value: SPEECH_TEXT });
+  const voice = el("input", { type: "text", placeholder: "model default" });
+  const format = select(SPEECH_FORMATS, "wav");
+  const speed = num(1, { min: 0.25, max: 4, step: 0.05 });
+  return {
+    el: el("div", {}, field("text", input), el("div", { className: "row" }, el("div", {}, field("voice", voice)),
+      el("div", {}, field("response_format", format)), el("div", {}, field("speed", speed)))),
+    inputs: [input, voice, format, speed],
+    body: () => withModel({ input: input.value, ...(voice.value.trim() ? { voice: voice.value.trim() } : {}),
+      response_format: format.value, ...(Number(speed.value) !== 1 ? { speed: Number(speed.value) } : {}) }),
+  };
+};
+
+FORMS["/v1/audio/speech/batch"] = (route, withModel) => {
+  const input = el("textarea", { value: SPOKEN_LINES.join("\n") });
+  const voice = el("input", { type: "text", placeholder: "model default" });
+  const format = select(SPEECH_FORMATS, "wav");
+  return {
+    el: el("div", {}, field("texts, one item per line", input),
+      el("div", { className: "row" }, el("div", {}, field("voice", voice)), el("div", {}, field("response_format", format)))),
+    inputs: [input, voice, format],
+    body: () => withModel({ items: lines(input.value).map(t => ({ input: t })),
+      ...(voice.value.trim() ? { voice: voice.value.trim() } : {}), response_format: format.value }),
+  };
+};
+
+// Some models serve a route with a different request: vLLM-Omni serves YuE (music) on the
+// speech route, taking lyrics as input, the style as instructions and a length in frames.
+const YUE_FPS = 25;  // max_new_tokens per second of song (vLLM-Omni's YuE2 recipe)
+const MUSIC_LYRICS = "[verse]\nLights on the water, the night is young\nWe sing the songs that we always sung\n\n" +
+  "[chorus]\nHold on, hold on, the morning is near\nHold on, hold on, I'm still right here";
+function musicForm(route, withModel) {
+    const lyrics = el("textarea", { value: MUSIC_LYRICS });
+    lyrics.style.minHeight = "140px";
+    const style = el("input", { type: "text", value: "upbeat indie pop, female vocals, warm synths, 110 BPM" });
+    const seconds = num(20, { min: 2, max: 360 });
+    const seed = el("input", { type: "number", placeholder: "random" });
+    const plan = el("input", { type: "checkbox" });
+    return {
+      el: el("div", {}, field("lyrics ([verse], [chorus] … sections)", lyrics), field("style", style),
+        el("div", { className: "row" }, el("div", {}, field("length (seconds)", seconds)), el("div", {}, field("seed", seed))),
+        el("label", { className: "check" }, plan, "plan the song first (slower; sets cot)"),
+        el("p", { className: "hint", textContent: `A music model on the speech route: lyrics go in input, the style ` +
+          `in instructions, and the length as max_new_tokens (${YUE_FPS} a second). The song arrives when it is finished.` })),
+      inputs: [lyrics, style, seconds, seed, plan],
+      body: () => withModel({ input: lyrics.value, instructions: style.value,
+        max_new_tokens: Math.round(Number(seconds.value) * YUE_FPS), ...(seed.value ? { seed: Number(seed.value) } : {}),
+        response_format: "wav", extra_params: { cot: plan.checked ? "on" : "off" } }),
+  };
+}
+
+// Routes that can take more than one kind of request get a switch between forms. The first
+// whose `match` fits the endpoint's model is chosen to begin with, else the first listed; a
+// form without `make` is the route's usual one.
+const ALT_FORMS = {
+  "/v1/audio/speech": [{ name: "speech" }, { name: "music", match: /yue/i, make: musicForm }],
+};
+function formChoices(route) {
+  return (ALT_FORMS[route] || [{ name: "form" }]).map(f => ({ ...f, make: f.make || FORMS[route] || rawForm }));
+}
+function firstChoice(route, model) {
+  const choices = formChoices(route);
+  return choices.find(f => f.match?.test(model || "")) || choices[0];
+}
+
+FORMS["/v1/audio/generate"] = (route, withModel) => {
+  const sample = SAMPLES["/v1/audio/generate"];
+  const input = el("textarea", { value: sample.input });
+  const length = num(sample.audio_length, { min: 1, max: 600 });
+  return {
+    el: el("div", {}, field("prompt", input), field("audio_length (seconds)", length)),
+    inputs: [input, length],
+    body: () => withModel({ input: input.value, audio_length: Number(length.value) }),
+  };
+};
+
+FORMS["/v1/audio/transcriptions"] = (route, withModel) => audioUploadForm(withModel, true);
+FORMS["/v1/audio/translations"] = (route, withModel) => audioUploadForm(withModel, false);
+
+function audioUploadForm(withModel, withLanguage) {
+  const audio = filePicker("audio/*,video/mp4,video/webm,.flac,.m4a,.mp3,.mpga,.ogg,.wav,.webm");
+  const language = el("input", { type: "text", placeholder: "auto" });
+  const prompt = el("input", { type: "text", placeholder: "(optional) words to expect" });
+  const format = select(["json", "text", "verbose_json", "srt", "vtt"].map(f => [f, f]), "json");
+  const form = {
+    el: el("div", {}, field("audio file (up to 25 MB)", audio.el),
+      el("div", { className: "row" }, withLanguage && el("div", {}, field("language", language)),
+        el("div", {}, field("response_format", format))),
+      field("prompt", prompt)),
+    inputs: [language, prompt, format],
+    body: () => withModel({
+      ...(audio.tokens.length ? { file: audio.tokens[0], filename: audio.names[0] } : {}),
+      ...(withLanguage && language.value.trim() ? { language: language.value.trim() } : {}),
+      ...(prompt.value.trim() ? { prompt: prompt.value.trim() } : {}),
+      response_format: format.value }),
+  };
+  audio.onChange = () => form.onChange();
+  return form;
+}
+
+FORMS["/v1/images/edits"] = (route, withModel) => {
+  const images = filePicker("image/*", true);
+  const mask = filePicker("image/png");
+  const prompt = el("textarea", { value: "Make it a snowy winter scene" });
+  const sizeSel = select([["", "as the input"], ...["1024x1024", "1344x768", "768x1344"].map(s => [s, s])], "");
+  const n = num(1, { min: 1, max: 8 });
+  const form = {
+    el: el("div", {}, field("images (several are allowed)", images.el), field("prompt", prompt),
+      el("div", { className: "row" }, el("div", {}, field("size", sizeSel)), el("div", {}, field("n", n)),
+        el("div", {}, field("mask (optional, PNG)", mask.el)))),
+    inputs: [prompt, sizeSel, n],
+    body: () => withModel({
+      ...(images.tokens.length ? { image: oneOrMany(images.tokens), filename: oneOrMany(images.names) } : {}),
+      ...(mask.tokens.length ? { mask: mask.tokens[0], mask_filename: mask.names[0] } : {}),
+      prompt: prompt.value, ...(sizeSel.value ? { size: sizeSel.value } : {}), n: Number(n.value) }),
+  };
+  images.onChange = mask.onChange = () => form.onChange();
+  return form;
+};
+
+FORMS["/v1/videos/sync"] = (route, withModel) => {
+  const sample = SAMPLES["/v1/videos/sync"];
+  const prompt = el("textarea", { value: sample.prompt });
+  const width = num(sample.width, { min: 64, step: 16 }), height = num(sample.height, { min: 64, step: 16 });
+  const frames = num(sample.num_frames, { min: 1 });
+  const reference = filePicker("image/*");
+  const form = {
+    el: el("div", {}, field("prompt", prompt),
+      el("div", { className: "row" }, el("div", {}, field("width", width)), el("div", {}, field("height", height)),
+        el("div", {}, field("num_frames", frames))),
+      field("reference image (optional: image to video)", reference.el)),
+    inputs: [prompt, width, height, frames],
+    body: () => withModel({
+      prompt: prompt.value, width: Number(width.value), height: Number(height.value), num_frames: Number(frames.value),
+      ...(reference.tokens.length ? { input_reference: reference.tokens[0], input_reference_filename: reference.names[0] } : {}) }),
+  };
+  reference.onChange = () => form.onChange();
+  return form;
+};
+
+// ---------- what each route is for, shown by the "What is this?" button ----------
+// Each entry: a title and short paragraphs. Keyed by route, or by form name for a route that
+// has more than one kind of request (music on the speech route).
+const HELP = {
+  "/v1/completions": ["Completions", [
+    "The model continues your text. No chat template is applied, so what you send is exactly what the model sees: useful for base models, prompts in a fixed format, and benchmarking.",
+    "max_tokens caps the reply, and is also the request's cost when pyworker weighs it. With stream on, text arrives as it is generated, and the card shows time to first token and tokens per second."]],
+  "/v1/chat/completions": ["Chat", [
+    "A conversation: messages with roles (system, user, assistant). The engine applies the model's chat template, so the same request works across models.",
+    "Each turn sends the whole conversation again; the model keeps no memory between requests. Multimodal models also take images, audio and video as parts of a message.",
+    "Thinking models write their reasoning first, in a separate field. If max_tokens runs out before the answer starts, raise it."]],
+  "/v1/chat/completions/batch": ["Chat batch", [
+    "Several independent conversations in one request. The worker hands them to the engine together, which schedules them as a batch, and the reply has one choice per conversation, in order.",
+    "Useful for offline work: classifying, summarising or translating many short texts. The cost is max_tokens for each conversation."]],
+  "/v1/embeddings": ["Embeddings", [
+    "An embedding model turns each text into a vector: a list of numbers, 1024 of them for bge-m3. Texts with similar meaning get vectors that point in similar directions, even when they share no words.",
+    "That makes them the basis of semantic search, retrieval for RAG, clustering and finding duplicates: embed your documents once, embed each query, and compare.",
+    "The comparison is usually cosine similarity: 1 means the same direction, near 0 means unrelated. The table shows each text's similarity to the first. With the default texts, the answer to the question scores higher than the unrelated sentence. Compare scores with each other rather than reading them as absolute: each model has its own range."]],
+  "/v1/rerank": ["Rerank", [
+    "A reranker reads the query and each document together and scores how well the document answers the query. Reading them together makes it more accurate than comparing embeddings, but slower, as every document is a separate pass.",
+    "The usual pattern is to find a few dozen candidates quickly with embeddings, then rerank them and keep the best few. The table lists the documents best first. Scores rank documents for one query; they are not probabilities to compare across queries."]],
+  "/v1/score": ["Score", [
+    "The same kind of model as rerank, asked a different way: one score for each item against the query, in the order sent, without sorting. Use it when you want the raw numbers, for example to apply your own threshold.",
+    "This is vLLM's score API. SGLang serves a different API on the same path, so prefer rerank there."]],
+  "/v1/audio/speech": ["Text to speech", [
+    "Turns text into spoken audio, returned as a file in the format you ask for (wav, mp3 and so on). Which voices exist, and whether speed is honoured, depends on the model.",
+    "The card plays the result. The request's cost is weighed by the length of the text."]],
+  "music": ["Music from lyrics", [
+    "A music model served on the speech route: YuE writes a song with vocals from your lyrics, in the style you describe.",
+    "Lyrics go in input, in sections such as [verse] and [chorus]. The style (genre, instruments, voice, tempo) goes in instructions. The length is max_new_tokens, at 25 per second of song.",
+    "The whole song arrives when it is finished, so a long one takes a while. \"Plan the song first\" lets the model sketch the melody before writing it: often better, and slower."]],
+  "/v1/audio/speech/batch": ["Speech batch", [
+    "Several texts spoken in one request, each returned as its own clip. An item can fail on its own (an unknown voice, say), so the request can succeed while some items carry an error instead of audio."]],
+  "/v1/audio/generate": ["Audio generation", [
+    "Sound or music from a text description, with no lyrics or voice: rain, an engine, an ambient loop. audio_length sets the duration in seconds.",
+    "The model renders the whole clip, so cost grows with the length asked for."]],
+  "/v1/audio/transcriptions": ["Transcription", [
+    "Speech to text, in the language spoken. Whisper detects the language unless you name it, and a prompt can list unusual words to expect.",
+    "response_format chooses plain text, JSON, JSON with timed segments (verbose_json), or subtitles (srt, vtt)."]],
+  "/v1/audio/translations": ["Translation", [
+    "Speech in any language to English text, in one step: Whisper's translate task. Speech that is already English comes back as a transcript."]],
+  "/v1/images/generations": ["Image generation", [
+    "A picture from a text description. size sets the resolution and n how many images to make. Images come back in the reply, encoded as base64.",
+    "Time grows with resolution and the number of steps, so a smaller size is a quick way to try a prompt."]],
+  "/v1/images/edits": ["Image editing", [
+    "Changes an image you send, following an instruction: restyle it, add or remove something. Some models take several images, for example a subject and a style to combine.",
+    "A mask, if given, limits the change to the marked area."]],
+  "/generate/sync": ["ComfyUI workflows", [
+    "A ComfyUI endpoint runs whole workflows: the graph of nodes you build in ComfyUI, sent as JSON in its API format (ComfyUI: Export (API)). Each request runs one workflow and returns what its Save nodes produce: images, video or audio.",
+    "Each worker keeps the workflows its template provisions, converted to the API format, in /opt/comfyui-api-wrapper/workflows/: the tab shows how to copy them off a worker. Drop one in and its most useful inputs (prompts, seed, size, steps) become fields; anything else can be edited in the JSON.",
+    "Input images and audio are named as files already on the worker (templates provision sample inputs) or as http(s) URLs the worker downloads.",
+    "A seed of __RANDOM_INT__ is replaced with a new random number for each request, so repeated requests give different results. Outputs come back inline, as base64, up to 10 MB each."]],
+  "/v1/videos/sync": ["Video", [
+    "A short clip from a text description, or with a reference image, starting from that picture (image to video). num_frames and the size set its length and resolution; at 24 frames per second, 33 frames is under a second and a half.",
+    "This waits for the whole clip, which can take a minute or more, and returns it as an MP4."]],
+};
+
+function helpButton(key) {
+  const help = HELP[key];
+  if (!help) return null;
+  const [title, paragraphs] = help;
+  const close = el("button", { type: "button", className: "ghost small", textContent: "Close" });
+  const dialog = el("dialog", { className: "help" }, el("h3", { textContent: title }),
+    ...paragraphs.map(p => el("p", { textContent: p })), el("div", { className: "go-row" }, close));
+  close.addEventListener("click", () => dialog.close());
+  dialog.addEventListener("click", e => { if (e.target === dialog) dialog.close(); });  // the backdrop
+  const open = el("button", { type: "button", className: "linkish", textContent: `About ${title.toLowerCase()}` });
+  open.addEventListener("click", () => dialog.showModal());
+  return el("span", { className: "help-link" }, open, dialog);
+}
+
+// ---------- ComfyUI: a whole API-format workflow, with its useful inputs as fields ----------
+const COMFY = "/generate/sync";
+const COMFY_NUMBERS = ["steps", "cfg", "denoise", "width", "height", "length", "num_frames", "frame_rate", "fps",
+  "batch_size", "seconds", "duration"];
+// The workflow loaded in the Workflow tab, for the smoke test: {endpoint, workflow}.
+let comfyLoaded = null;
+// Where convert-workflows.sh (vast.ai ComfyUI image) leaves each provisioned workflow, in the
+// API format /generate/sync takes, seeds already __RANDOM_INT__.
+const COMFY_DIR = "/opt/comfyui-api-wrapper/workflows";
+
+function comfyBody(workflow) { return { input: { workflow_json: workflow, return_outputs_as_base64: true } }; }
+
+const isApiWorkflow = w => w && typeof w === "object" && !Array.isArray(w) && Object.keys(w).length > 0
+  && Object.values(w).every(n => n && typeof n === "object" && typeof n.class_type === "string");
+
+// [{id, key, kind, label, value}] for the inputs a person would change. A text's role comes
+// from the input it feeds (a sampler's positive or negative).
+function comfyFields(workflow) {
+  const feeds = {};
+  for (const node of Object.values(workflow)) {
+    for (const [key, value] of Object.entries(node.inputs || {})) {
+      if (Array.isArray(value) && value.length === 2) (feeds[String(value[0])] ||= []).push(key);
+    }
+  }
+  const fields = [];
+  const ids = Object.keys(workflow).sort((a, b) => Number(a) - Number(b) || a.localeCompare(b));
+  for (const id of ids) {
+    const node = workflow[id];
+    for (const [key, value] of Object.entries(node.inputs || {})) {
+      if (Array.isArray(value)) continue;  // a link to another node
+      const where = `node ${id} · ${node.class_type}`;
+      if ((key === "text" || key === "prompt") && typeof value === "string") {
+        const role = feeds[id]?.includes("positive") ? "positive prompt" : feeds[id]?.includes("negative") ? "negative prompt" : key;
+        fields.push({ id, key, kind: "text", label: role, where, order: role === "negative prompt" ? 1 : 0, value });
+      } else if (key === "seed" || key === "noise_seed") {
+        fields.push({ id, key, kind: "seed", label: key, where, order: 4, value });
+      } else if (/^Load(Image|Audio|Video)/.test(node.class_type) && ["image", "audio", "video", "file"].includes(key)
+                 && typeof value === "string") {
+        fields.push({ id, key, kind: "file", label: `input ${key}`, where, order: 2, value });
+      } else if (COMFY_NUMBERS.includes(key) && typeof value === "number") {
+        fields.push({ id, key, kind: "number", label: key, where, order: 3, value });
+      }
+    }
+  }
+  return fields.sort((a, b) => a.order - b.order);
+}
+
+// How to fetch the endpoint's own workflows from one of its workers, with that worker's id
+// filled in from the workers panel when there is one.
+function comfyHowTo(summary) {
+  const names = [...(summary?.comfy?.workflows || [])].sort();
+  const body = el("div");
+  const box = el("details", { className: "howto", open: true },
+    el("summary", { textContent: "Get this endpoint's workflows" }), body);
+  // Only a ready worker is sure to have the files: until one is, the commands have a
+  // placeholder. Redrawn only when the worker changes, so a selection being copied survives.
+  let shown = null;
+  const draw = () => {
+    const workers = workersNow ? allWorkers(workersNow) : [];
+    const pick = workers.find(w => ["ready", "busy"].includes(statusClass(w)));
+    const id = pick ? String(pick.id) : "<worker id>";
+    if (id === shown) return;
+    shown = id;
+    const one = names[0] || "<name>.json";
+    body.replaceChildren(
+      el("p", { textContent: "Each worker keeps the workflows its template provisions, already converted to the " +
+        `API format this route takes (the benchmark runs one of them), in ${COMFY_DIR}/. Copy them from a worker, ` +
+        "then drop one below." }),
+      names.length ? el("p", {}, "This endpoint's template provisions: ",
+        ...names.flatMap((n, i) => [i ? ", " : "", el("code", { textContent: n }), i === 0 ? " (the benchmark's)" : ""]), ".")
+        : el("p", { className: "sub", textContent: "The template names no workflows, so list the folder to see what the worker has." }),
+      pick ? el("p", { className: "sub", textContent: `From worker ${id}, which is ready; any ready worker of this endpoint has the same files.` })
+        : el("p", { className: "warn", textContent: "No worker is ready yet. The commands fill in with one when it is." }),
+      el("label", { textContent: "all of them, with the Vast CLI" }),
+      el("pre", { textContent: `vastai copy C.${id}:${COMFY_DIR}/ local:comfy-workflows/` }),
+      el("label", { textContent: "or one, over SSH" }),
+      el("pre", { textContent: `ssh $(vastai ssh-url ${id}) cat ${COMFY_DIR}/${one} > ${one}` }),
+      el("p", { className: "sub", textContent: "Or open the workflow in ComfyUI and use Export (API): the same format." }));
+  };
+  draw();
+  box.addEventListener("toggle", draw);
+  const tick = setInterval(() => { if (!box.isConnected) clearInterval(tick); else if (box.open) draw(); }, 3000);
+  return box;
+}
+
+function comfyForm() {
+  let workflow = {};
+  const summary = found?.summary;
+  const endpointId = found?.endpoint.id;
+  const status = el("p", { className: "hint", textContent: "No workflow loaded yet." });
+  const fieldsBox = el("div", { className: "comfy-fields" });
+  const own = filePicker("application/json,.json", false, "Drop an API-format workflow (.json) here, or choose one");
+  const inputsHere = summary?.comfy?.inputs || [];
+  const inputList = el("datalist", { id: `comfy-inputs-${Math.random().toString(36).slice(2)}` },
+    ...inputsHere.map(name => el("option", { value: name })));
+  const howTo = comfyHowTo(summary);
+  const form = {
+    el: el("div", {}, howTo, own.el, status, fieldsBox, inputList),
+    inputs: [],
+    body: () => comfyBody(workflow),
+  };
+  const changed = () => {
+    comfyLoaded = { endpoint: endpointId, workflow };
+    document.dispatchEvent(new Event("comfy-workflow"));  // smoke-test cards waiting for one
+    form.onChange?.();
+  };
+  const set = (f, value) => { workflow[f.id].inputs[f.key] = value; changed(); };
+
+  const draw = () => fieldsBox.replaceChildren(...comfyFields(workflow).map(f => {
+    const tag = el("span", { className: "sub", textContent: ` ${f.where}` });
+    const label = el("label", {}, f.label, tag);
+    if (f.kind === "text") {
+      const box = el("textarea", { value: f.value });
+      labelFor(label, box);
+      box.style.minHeight = f.label === "negative prompt" ? "50px" : "80px";
+      box.addEventListener("input", () => set(f, box.value));
+      return el("div", {}, label, box);
+    }
+    if (f.kind === "file") {
+      const box = el("input", { type: "text", value: f.value, placeholder: "a file on the worker, or an http(s) URL" });
+      box.setAttribute("list", inputList.id);
+      labelFor(label, box);
+      box.addEventListener("input", () => set(f, box.value.trim()));
+      return el("div", {}, label, box, el("p", { className: "hint", textContent: inputsHere.length
+        ? `On this endpoint's workers: ${inputsHere.join(", ")}. Or an http(s) URL the worker can download.`
+        : "A file already on the worker, or an http(s) URL the worker can download." }));
+    }
+    if (f.kind === "seed") {
+      const random = el("input", { type: "checkbox", checked: f.value === "__RANDOM_INT__" });
+      const box = num(f.value === "__RANDOM_INT__" ? 42 : f.value, { min: 0, disabled: random.checked });
+      labelFor(label, box);
+      const apply = () => { box.disabled = random.checked; set(f, random.checked ? "__RANDOM_INT__" : Number(box.value)); };
+      random.addEventListener("change", apply);
+      box.addEventListener("input", apply);
+      return el("div", { className: "seed-row" }, label, box, el("label", { className: "check" }, random, "random each request"));
+    }
+    const box = num(f.value, { step: f.key === "cfg" || f.key === "denoise" ? 0.1 : 1 });
+    labelFor(label, box);
+    box.addEventListener("input", () => set(f, Number(box.value)));
+    return el("div", { className: "num-field" }, label, box);
+  }));
+
+  const load = (candidate, from) => {
+    if (Array.isArray(candidate?.nodes)) {
+      status.className = "warn";
+      status.textContent = "That is ComfyUI's GUI format, which this route does not take. Copy the converted one " +
+        "from a worker (above), or open it in ComfyUI and use Export (API).";
+      return;
+    }
+    if (isApiWorkflow(candidate?.input?.workflow_json)) candidate = candidate.input.workflow_json;  // a whole request
+    if (!isApiWorkflow(candidate)) {
+      status.className = "warn";
+      status.textContent = "Not an API-format ComfyUI workflow: expected node ids mapping to {class_type, inputs}.";
+      return;
+    }
+    workflow = structuredClone(candidate);
+    howTo.open = false;
+    status.className = "hint";
+    status.textContent = `${Object.keys(workflow).length} nodes, from ${from}. The fields below are the inputs ` +
+      "most worth changing; everything else is in the JSON.";
+    draw();
+    changed();
+  };
+
+  own.onChange = () => {
+    const file = fileOf(own.tokens[0]);
+    if (!file) return;
+    try {
+      load(JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(file.url.split(",")[1]), c => c.charCodeAt(0)))),
+           file.name);
+    } catch (e) {
+      status.className = "warn"; status.textContent = `${file.name} is not JSON: ${e.message}`;
+    }
+  };
+  if (comfyLoaded?.endpoint === endpointId) load(comfyLoaded.workflow, "this tab earlier");  // survives a tab switch
+  return form;
+}
+FORMS[COMFY] = () => comfyForm();
+
+// ---------- the Python SDK equivalent of the body in the editor ----------
+function py(value, indent = "") {
+  const next = indent + "    ";
+  if (value === null || value === undefined) return "None";
+  if (value === true) return "True";
+  if (value === false) return "False";
+  if (typeof value === "string" || typeof value === "number") return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    if (!value.length) return "[]";
+    return `[\n${value.map(v => next + py(v, next)).join(",\n")},\n${indent}]`;
+  }
+  const entries = Object.entries(value);
+  if (!entries.length) return "{}";
+  return `{\n${entries.map(([k, v]) => `${next}${JSON.stringify(k)}: ${py(v, next)}`).join(",\n")},\n${indent}}`;
+}
+
+// Attached files, read from disk in the generated code: a data: URI each, as the page sends.
+const DATA_URI = ["import base64, mimetypes", "",
+  "def data_uri(path):",
+  "    kind = mimetypes.guess_type(path)[0] or \"application/octet-stream\"",
+  "    return f\"data:{kind};base64,\" + base64.b64encode(open(path, \"rb\").read()).decode()", ""];
+function fileLines(body, name) {
+  return filesIn(body).map(([path, file]) =>
+    `${name}${path.map(k => `[${JSON.stringify(k)}]`).join("")} = data_uri(${JSON.stringify(file.name)})`);
+}
+
+function sdkCode(route, text) {
+  let body;
+  try { body = JSON.parse(text); } catch { return "# The JSON body does not parse yet."; }
+  const streams = STREAMABLE.has(route) && body?.stream === true;
+  const call = `await endpoint.request(${JSON.stringify(route)}, payload${streams ? ", stream=True" : ""})`;
+  const files = fileLines(body, "payload");
+  return [
+    "import asyncio",
+    "from vastai import Serverless",
+    ...(files.length ? DATA_URI : [""]),
+    `payload = ${py(body)}`,
+    ...files,
+    "",
+    "async def main():",
+    "    async with Serverless() as client:  # reads VAST_API_KEY from the environment",
+    `        endpoint = await client.get_endpoint(name=${JSON.stringify(found.endpoint.name)})`,
+    `        resp = ${call}`,
+    ...(streams ? ["        async for chunk in resp[\"response\"]:", "            print(chunk)"]
+                : ["        print(resp[\"response\"])"]),
+    "",
+    "asyncio.run(main())",
+  ].join("\n");
+}
+
+// The same call through this server's /v1 proxy, with the openai package. The typed methods
+// for the routes OpenAI defines; client.post for pyworker's own routes.
+const OPENAI_METHODS = {
+  "/v1/chat/completions": "client.chat.completions.create", "/v1/completions": "client.completions.create",
+  "/v1/embeddings": "client.embeddings.create",
+};
+// Upload routes: the typed methods take files, as multipart; the proxy turns them into pyworker's JSON.
+const OPENAI_UPLOADS = {
+  "/v1/audio/transcriptions": ["client.audio.transcriptions.create", { file: "filename" }],
+  "/v1/audio/translations": ["client.audio.translations.create", { file: "filename" }],
+  "/v1/images/edits": ["client.images.edit", { image: "filename", mask: "mask_filename" }],
+};
+function uploadCode(route, body, head) {
+  const opened = (field, nameField) => {
+    const names = [body[nameField]].flat().filter(Boolean);
+    delete body[field]; delete body[nameField];
+    return names.map(n => `open(${JSON.stringify(n)}, "rb")`);
+  };
+  if (route === "/v1/videos/sync") {  // no typed method: multipart with httpx
+    const files = Object.keys(body).filter(k => fileOf(body[k])).flatMap(k =>
+      opened(k, `${k}_filename`).map(f => `(${JSON.stringify(k)}, ${f})`));
+    const auth = proxyAuth();
+    return [...auth.imports, "import httpx", "", auth.note,
+      `base_url = ${JSON.stringify(`${BASE}/e/${encodeURIComponent(found.endpoint.name)}/v1`)}`, "",
+      `fields = ${py(body)}`,
+      `resp = httpx.post(base_url + "/videos/sync", data={k: str(v) for k, v in fields.items()},`,
+      `                  files=[${files.join(", ")}], timeout=600${auth.httpx})`,
+      "print(resp.headers.get(\"x-vast-worker\"), resp.headers.get(\"content-type\"), len(resp.content))"].join("\n");
+  }
+  const [method, fields] = OPENAI_UPLOADS[route];
+  const args = Object.entries(fields).map(([f, n]) => {
+    const files = opened(f, n);
+    return files.length ? `${f}=${f === "image" && files.length > 1 ? `[${files.join(", ")}]` : files[0]}` : null;
+  }).filter(Boolean);
+  return [...head, `body = ${py(body)}`, `resp = ${method}(${[...args, "**body"].join(", ")})`, "print(resp)"].join("\n");
+}
+
+// How proxy code authenticates, with secrets read from the environment (never written into
+// the code). A server holding the Vast key takes its access token as the API key; one without
+// takes the caller's own Vast key there, and the token in its own header.
+function proxyAuth() {
+  const env = name => `os.environ[\'${name}\']`;
+  if (needsToken && serverKey) return {
+    imports: ["import os"],
+    note: "# This server holds the Vast key; send its access token as the API key. Export it first:\n" +
+          "# the `export SERVERLESS_UI_TOKEN=...` line printed when the server started.",
+    client: 'api_key=os.environ["SERVERLESS_UI_TOKEN"]',
+    httpx: `, headers={"Authorization": f"Bearer {${env("SERVERLESS_UI_TOKEN")}}"}`,
+  };
+  if (needsToken) return {
+    imports: ["import os"],
+    note: "# Send your own Vast key as the API key, and this server's access token in its header.\n" +
+          "# Export the token first: the `export SERVERLESS_UI_TOKEN=...` line printed when the server started.",
+    client: 'api_key=os.environ["VAST_API_KEY"], default_headers={"X-Serverless-UI-Token": os.environ["SERVERLESS_UI_TOKEN"]}',
+    httpx: `, headers={"Authorization": f"Bearer {${env("VAST_API_KEY")}}", "X-Serverless-UI-Token": ${env("SERVERLESS_UI_TOKEN")}}`,
+  };
+  return serverKey ? {
+    imports: [],
+    note: "# This server holds the Vast key (VAST_API_KEY or --api-key); the client's key is unused.",
+    client: 'api_key="unused"',
+    httpx: "",
+  } : {
+    imports: ["import os"],
+    note: "# Send your own Vast key as the API key.",
+    client: 'api_key=os.environ["VAST_API_KEY"]',
+    httpx: `, headers={"Authorization": f"Bearer {${env("VAST_API_KEY")}}"}`,
+  };
+}
+
+function openaiCode(route, text) {
+  let body;
+  try { body = JSON.parse(text); } catch { return "# The JSON body does not parse yet."; }
+  const auth = proxyAuth();
+  const head = [
+    ...auth.imports,
+    "from openai import OpenAI",
+    "",
+    auth.note,
+    `# /e/<endpoint>/v1 pins the endpoint; plain ${BASE}/v1 picks it by model.`,
+    `client = OpenAI(base_url=${JSON.stringify(`${BASE}/e/${encodeURIComponent(found.endpoint.name)}/v1`)}, ${auth.client})`,
+    "",
+  ];
+  if (route === COMFY) {  // not OpenAI-shaped: plain JSON through the proxy
+    return [...auth.imports, "import httpx", "",
+      auth.note,
+      `url = ${JSON.stringify(`${BASE}/e/${encodeURIComponent(found.endpoint.name)}/generate/sync`)}`, "",
+      `body = ${py(body)}`,
+      `resp = httpx.post(url, json=body, timeout=600${auth.httpx})`,
+      "print(resp.headers.get(\"x-vast-worker\"), resp.json()[\"status\"])",
+      "for out in resp.json()[\"output\"]:",
+      "    print(out[\"filename\"], out.get(\"mimetype\"))"].join("\n");
+  }
+  if (OPENAI_UPLOADS[route] || route === "/v1/videos/sync") return uploadCode(route, body, head);
+  const files = fileLines(body, "body");
+  const method = OPENAI_METHODS[route];
+  const streams = STREAMABLE.has(route) && body?.stream === true;
+  const call = method ? `${method}(**body)`
+    : `client.post(${JSON.stringify(route.slice(3))}, body=body, cast_to=httpx.Response)`;
+  const show = streams ? ["for chunk in resp:", "    print(chunk)"]
+    : method ? ["print(resp)"]
+    : ["print(resp.headers.get(\"x-vast-worker\"), resp.headers.get(\"content-type\"))",
+       "print(resp.json() if \"json\" in resp.headers.get(\"content-type\", \"\") else len(resp.content))"];
+  return [
+    ...(method ? [] : ["import httpx"]),
+    ...(files.length ? DATA_URI.slice(0, -1) : []),
+    ...head,
+    `body = ${py(body)}`,
+    ...files,
+    `resp = ${call}`,
+    ...show,
+  ].join("\n");
+}
+
+// ---------- sending ----------
+// Bursts and load runs time whole replies, so a streaming body is sent without streaming;
+// the form keeps its setting. Returns the body to send and whether anything was changed.
+function unstreamed(route, body) {
+  if (!STREAMABLE.has(route) || body?.stream !== true) return [body, false];
+  const { stream, stream_options, ...rest } = body;
+  return [rest, true];
+}
+const UNSTREAMED = "sent without streaming";
+
+async function run(t) {
+  let body;
+  try { body = JSON.parse(t.editor.value); }
+  catch (e) { return say(t, `The body is not valid JSON: ${e.message}`); }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return say(t, "The body must be a JSON object.");
+  if (t.form.blank?.() && !("messages" in t.edits)) {
+    return say(t, "Write a message first: an empty turn would still be sent to the model.");
+  }
+  const n = Number(t.count.value);
+  const streams = STREAMABLE.has(t.route) && body.stream === true && n === 1;
+  let unstreamedBurst = false;
+  if (n > 1) [body, unstreamedBurst] = unstreamed(t.route, body);
+  let sent;
+  try { sent = withFiles(body); } catch (e) { return say(t, e.message); }
+  say(t, "");
+  // body keeps the placeholders: card headings and the conversation use it, not the files.
+  const request = { endpoint: found.endpoint.id, route: t.route, body: sent, shown: body, unstreamedBurst };
+  const controller = t.controller = new AbortController();
+  running.add(controller);
+  t.send.disabled = true; t.stop.hidden = false;
+  try {
+    if (n > 1) await runBurst(t, request, n, controller.signal);
+    else await runOne(t, request, streams, controller.signal);
+  } catch (e) {
+    if (e.name !== "AbortError") say(t, e.message);
+  } finally {
+    running.delete(controller);
+    if (t.controller === controller) t.controller = null;
+    t.send.disabled = false; t.stop.hidden = true;
+  }
+}
+
+function say(t, message) { t.status.textContent = message; t.status.hidden = !message; }
+
+function addResult(t, node, controller = null) { placeResult(t.results, node, controller); }
+
+// Newest first, each with a × that removes it, stopping it first if it is still running.
+function placeResult(results, node, controller = null) {
+  const close = el("button", { className: "close", type: "button", textContent: "×",
+    title: "Remove this result (stops it if it is still running)" });
+  close.setAttribute("aria-label", "Remove this result");
+  close.addEventListener("click", () => { controller?.abort(); node.remove(); results.onChange?.(); });
+  node.prepend(close);
+  results.prepend(node);
+  while (results.children.length > MAX_RESULTS) results.lastChild.remove();
+  results.onChange?.();
+  node.scrollIntoView({ block: "nearest", behavior: "smooth" });  // below the form, often off screen
+}
+
+async function runOne(t, { shown, unstreamedBurst, ...request }, streams, signal) {
+  const card = el("div", { className: "result" });
+  const meta = el("div", { className: "meta", role: "status" }, el("span", { textContent: `${LABELS[t.route]} · waiting for a worker…` }));
+  const asked = t.form.ask?.(shown);
+  if (asked) {
+    card.append(el("div", { className: "msg user" }, el("b", { textContent: asked.tag }),
+      typeof asked.text === "string" ? asked.text : JSON.stringify(asked.text ?? null)));
+  }
+  card.append(meta);
+  addResult(t, card, t.controller);
+  const started = performance.now();
+  if (!streams) {
+    let env;
+    try { env = await api("api/call", request, signal); }
+    catch (e) { return fail(card, meta, e, started); }
+    renderEnvelope(card, meta, env, request.body);
+    if (env.ok) t.form.done?.(shown, replyText(t.route, env.response));
+    return;
+  }
+  // Streaming: show text as it arrives, timings when done.
+  const out = el("div", { className: "out" });
+  const chunks = [];
+  let text = "", thought = "", finish = null, done = null, error = null, streamedFrom = null;
+  let thinking = null;
+  card.append(out);
+  let reply;
+  try {
+    reply = await ndjson("api/call", request, signal, line => {
+      if (line.type === "start") {
+        streamedFrom = line.worker;
+        meta.replaceChildren(el("span", { textContent: `${LABELS[t.route]} · streaming` }));
+        meta.after(servedLine(line.worker));
+      } else if (line.type === "chunk") {
+        chunks.push(line.data);
+        const c = line.data?.choices?.[0];
+        finish = c?.finish_reason ?? finish;
+        const thinkPiece = thinkingOf(c?.delta);
+        if (thinkPiece) {
+          if (!thinking) { thinking = thinkingBlock("", true); out.before(thinking); }
+          thought += thinkPiece;
+          thinking.lastChild.textContent = thought;
+        }
+        const piece = c?.delta?.content ?? c?.text ?? "";
+        if (piece) {
+          if (thinking) thinking.open = false;  // the answer has started
+          text += piece; out.textContent = text;
+        }
+      } else if (line.type === "done") {
+        done = line;
+      } else if (line.type === "error") {
+        error = line.error;
+      }
+    });
+  } catch (e) {
+    return fail(card, meta, e, started);
+  }
+  if (reply) {  // the worker answered without streaming
+    renderEnvelope(card, meta, reply, request.body);
+    if (reply.ok) t.form.done?.(shown, replyText(t.route, reply.response));
+    return;
+  }
+  meta.replaceChildren(...metaParts({ route: t.route, ok: !error, status: 200, worker: streamedFrom, ...done }));
+  if (error) card.append(el("div", { className: "err", textContent: error }));
+  else if (!text && t.route === "/v1/chat/completions") out.replaceWith(noAnswer(finish));
+  card.append(rawBlock({ chunks }));
+  if (!error) t.form.done?.(shown, text);
+}
+
+// Reasoning models (vLLM or SGLang with a reasoning parser) stream their thinking as
+// reasoning_content (newer vLLM: reasoning) and only the answer as content.
+function thinkingOf(m) { return m?.reasoning_content ?? m?.reasoning ?? null; }
+
+function thinkingBlock(text, open) {
+  return el("details", { className: "think", open }, el("summary", { textContent: "thinking" }),
+    el("div", { className: "think-text", textContent: text }));
+}
+
+function noAnswer(finish) {
+  return el("p", { className: "warn", textContent: "No answer text, only thinking" +
+    (finish === "length" ? ": the model ran out of max_tokens before answering." : ".") +
+    " Raise max_tokens and send again; the conversation has not moved on." });
+}
+
+function fail(card, meta, e, started) {
+  if (e.name === "AbortError") {
+    meta.replaceChildren(el("span", { className: "x", textContent: "stopped" }));
+    return;
+  }
+  card.classList.add("bad");
+  meta.replaceChildren(el("span", { className: "x", textContent: "failed" }),
+    el("span", { textContent: `${((performance.now() - started) / 1000).toFixed(2)}s` }));
+  if (!card.querySelector(".served-line")) meta.after(servedLine(null));
+  card.append(el("div", { className: "err", textContent: e.message }));
+}
+
+function host(url) {
+  try { return new URL(url).host; } catch { return url || "?"; }
+}
+
+// Which worker a reply came from. A reply names only the worker's URL; the workers stream
+// maps addresses to worker ids, and every label updates when that map grows.
+// form: "line" on a card, "cell" in a table under a worker heading, "short" (the id) in a burst cell.
+function servedBy(url, form = "line") {
+  const span = el("span", { className: "served" });
+  span.dataset.host = url ? host(url) : "";
+  span.dataset.form = form;
+  labelServed(span);
+  return span;
+}
+
+function labelServed(span) {
+  const h = span.dataset.host;
+  if (!h) return span.replaceChildren("no worker reached");
+  const id = workerHosts.get(h);
+  const w = id != null && workersNow ? allWorkers(workersNow).find(x => x.id === id) : null;
+  const gpu = w?.gpu_name ? `${w.num_gpus > 1 ? `${w.num_gpus}× ` : ""}${w.gpu_name}` : "";
+  const name = id != null ? `worker ${id}` : "worker ?";
+  span.title = [name, gpu, h].filter(Boolean).join(" · ") +
+    (id == null ? " (not matched to a worker yet: addresses are looked up as workers appear)" : "");
+  if (span.dataset.form === "short") return span.replaceChildren(el("b", { textContent: id ?? h }));
+  span.replaceChildren(...(span.dataset.form === "line" ? ["served by "] : []), el("b", { textContent: name }),
+    ...(gpu ? [` · ${gpu}`] : []), ` · ${h}`);
+}
+
+function servedLine(url) { return el("div", { className: "served-line" }, servedBy(url)); }
+
+function metaParts(r) {  // only the parts this result has
+  return [
+    r.route && el("span", { textContent: LABELS[r.route] || r.route }),
+    r.ok ? el("span", { className: "t", textContent: `${r.status ?? ""} ${r.seconds ?? "?"}s`.trim() })
+         : el("span", { className: "x", textContent: `${r.status ?? "error"}${r.seconds != null ? ` ${r.seconds}s` : ""}` }),
+    r.worker_seconds != null && el("span", { textContent: `worker ${r.worker_seconds}s` }),
+    r.ttft != null && el("span", { textContent: `ttft ${r.ttft}s` }),
+    r.tokens_per_second != null && el("span", { textContent: `${r.tokens_per_second} tok/s` }),
+    r.usage?.completion_tokens != null && el("span", { textContent: `${r.usage.completion_tokens} tokens` }),
+    r.chunks != null && el("span", { textContent: `${r.chunks} chunks` }),
+  ].filter(Boolean);
+}
+
+function renderEnvelope(card, meta, env, body) {
+  card.classList.toggle("bad", !env.ok);
+  meta.replaceChildren(...metaParts(env));
+  meta.after(servedLine(env.worker));
+  if (!env.ok) card.append(el("div", { className: "err", textContent: env.error || "failed" }));
+  else card.append(renderOutput(env, body));
+  card.append(rawBlock(env));
+}
+
+// The useful part of a reply, by shape: media, images, text choices, else nothing (raw below).
+function renderOutput(env, body) {
+  const out = el("div", { className: "out" });
+  if (env.media) {
+    const src = `data:${env.media.type};base64,${env.media.b64}`;
+    const kind = env.media.type.split("/")[0];
+    out.append(kind === "audio" ? el("audio", { controls: true, src })
+      : kind === "video" ? el("video", { controls: true, src })
+      : kind === "image" ? el("img", { src, alt: "Generated image" })
+      : el("div", { className: "sub", textContent: `${env.media.type}, ${Math.round(env.media.b64.length * 0.75)} bytes` }));
+    return out;
+  }
+  const r = env.response;
+  if (Array.isArray(r?.data) && r.data.some(d => d?.b64_json || (d?.url && typeof d.url === "string"))) {
+    const mime = MIME[r.output_format || body?.output_format] || "image/png";
+    out.append(el("div", { className: "imgs" }, r.data.map(d =>
+      el("img", { alt: d.revised_prompt || "Generated image", src: d.b64_json ? `data:${mime};base64,${d.b64_json}` : d.url }))));
+    return out;
+  }
+  if (Array.isArray(r?.choices)) {
+    for (const c of r.choices) {
+      const thought = thinkingOf(c?.message);
+      if (thought) out.append(thinkingBlock(thought, false));
+      const said = c?.message?.content ?? c?.text;
+      out.append(said ? el("div", { className: "choice", textContent: said })
+        : c?.message ? noAnswer(c.finish_reason) : el("div", { className: "choice", textContent: JSON.stringify(c) }));
+    }
+    return out;
+  }
+  if (env.route === COMFY && r && typeof r === "object") return comfyOutput(r, out);
+  const view = routeView(env, body);
+  if (view) { out.append(view); return out; }
+  if (typeof r?.text === "string") {  // a transcription or translation
+    out.append(el("div", { className: "choice", textContent: r.text }),
+      ...(Array.isArray(r.segments) ? [el("div", { className: "sub", textContent:
+        `${r.segments.length} segments${r.language ? ` · ${r.language}` : ""}${r.duration ? ` · ${r.duration}s` : ""}` })] : []));
+    return out;
+  }
+  if (typeof r === "string") out.textContent = r;
+  return out;
+}
+
+// ComfyUI's reply: each output inline (data + mimetype) when asked for, and the timings.
+function comfyOutput(r, out) {
+  if (r.status && !["completed", "success"].includes(r.status)) {
+    out.append(el("p", { className: "warn", textContent: `${r.status}: ${r.message || ""}` }));
+  }
+  const media = (r.output || []).map(o => {
+    const name = el("div", { className: "sub", textContent: o.filename || "output" });
+    if (o.data && o.mimetype) {
+      const src = `data:${o.mimetype};base64,${o.data}`;
+      const kind = o.mimetype.split("/")[0];
+      const player = kind === "image" ? el("img", { src, alt: o.filename || "" })
+        : kind === "video" ? el("video", { controls: true, src })
+        : kind === "audio" ? el("audio", { controls: true, src })
+        : el("div", { className: "sub", textContent: `${o.mimetype}, ${size(Math.round(o.data.length * 0.75))}` });
+      return el("div", { className: "comfy-out" }, player, name);
+    }
+    return el("div", { className: "comfy-out" }, name, el("div", { className: o.error ? "err" : "sub",
+      textContent: o.error || "not returned inline (ask for return_outputs_as_base64, or configure S3)" }));
+  });
+  if (!media.length) out.append(el("p", { className: "sub", textContent: r.message || "No outputs." }));
+  out.append(el("div", { className: "comfy-outs" }, media));
+  const timings = Object.entries(r.timings || {}).filter(([, v]) => typeof v === "number");
+  if (timings.length) out.append(el("div", { className: "sub", textContent: timings.map(([k, v]) => `${k} ${v.toFixed(2)}s`).join(" · ") }));
+  return out;
+}
+
+function cosine(a, b) {
+  let dot = 0, na = 0, nb = 0;
+  a.forEach((x, i) => { dot += x * b[i]; na += x * x; nb += b[i] * b[i]; });
+  return dot / (Math.sqrt(na * nb) || 1);
+}
+
+// Views for replies that are tables or lists of media rather than text.
+function routeView(env, body) {
+  const r = env.response;
+  // align: a letter per column, l (text) or r (numbers); "m" is left and muted.
+  const table = (head, rows, align) => el("div", { className: "tablewrap" }, el("table", { className: "view" },
+    el("thead", {}, el("tr", {}, head.map((h, i) => el("th", { textContent: h, className: align[i] })))),
+    el("tbody", {}, rows.map(row => el("tr", {}, row.map((v, i) => el("td", { textContent: String(v), className: align[i] })))))));
+  const clip = t => (t.length > 90 ? `${t.slice(0, 90)}…` : t);
+  switch (env.route) {
+    case "/v1/embeddings": {
+      const vectors = Array.isArray(r?.data) ? r.data.map(d => d?.embedding).filter(Array.isArray) : [];
+      if (!vectors.length) return null;
+      const inputs = [body?.input].flat();
+      return el("div", {}, el("div", { textContent: `${vectors.length} vector${vectors.length === 1 ? "" : "s"} of ` +
+          `${vectors[0].length} dimensions${r.usage?.prompt_tokens ? ` · ${r.usage.prompt_tokens} prompt tokens` : ""}` }),
+        table(["input", "similarity to the first", "first values"], vectors.slice(0, 10).map((v, i) => [
+          clip(String(inputs[i] ?? i)), i ? cosine(vectors[0], v).toFixed(3) : "–",
+          v.slice(0, 3).map(x => x.toFixed(3)).join(", ") + " …"]), "lrm"));
+    }
+    case "/v1/rerank": {
+      const results = Array.isArray(r) ? r : r?.results;  // SGLang answers with a bare list
+      if (!Array.isArray(results)) return null;
+      const docs = body?.documents || [];
+      const scored = results.map(x => [x.relevance_score ?? x.score, x.index, x.document?.text ?? docs[x.index] ?? ""])
+        .sort((a, b) => b[0] - a[0]);
+      return table(["rank", "score", "doc", "text"], scored.map(([sc, i, t], rank) => [rank + 1, Number(sc).toFixed(4), i, clip(String(t))]), "rrrl");
+    }
+    case "/v1/score": {
+      if (!Array.isArray(r?.data)) return null;
+      const items = [body?.items ?? body?.text_2].flat();
+      return table(["item", "score", "text"], r.data.map(d => [d.index, Number(d.score).toFixed(4), clip(String(items[d.index] ?? ""))]), "rrl");
+    }
+    case "/v1/audio/speech/batch": {
+      if (!Array.isArray(r?.results)) return null;
+      const texts = (body?.items || []).map(i => i?.input);
+      return el("div", { className: "batch" }, r.results.map(x => el("div", { className: "item" },
+        el("div", { className: "sub", textContent: `#${x.index} ${clip(String(texts[x.index] ?? ""))}` }),
+        x.status === "success" && x.audio_data
+          ? el("audio", { controls: true, src: `data:${x.media_type || "audio/wav"};base64,${x.audio_data}` })
+          : el("div", { className: "err", textContent: x.error || x.status || "failed" }))));
+    }
+  }
+  return null;
+}
+
+function replyText(route, r) {
+  return route === "/v1/chat/completions" ? r?.choices?.[0]?.message?.content ?? null : null;
+}
+
+// Raw JSON, with long strings (base64 media) shortened so the page stays usable.
+function rawBlock(value) {
+  const short = JSON.stringify(value, (k, v) =>
+    typeof v === "string" && v.length > 400 ? `<${v.length} chars>` : v, 2);
+  return el("details", { className: "raw" }, el("summary", { textContent: "raw response" }),
+    el("pre", { textContent: short }));
+}
+
+async function runBurst(t, { shown, unstreamedBurst, ...request }, n, signal) {
+  const card = el("div", { className: "result" });
+  const meta = el("div", { className: "meta", role: "status" });
+  const grid = el("div", { className: "burst-grid" });
+  card.append(meta, grid);
+  addResult(t, card, t.controller);
+  const times = [];
+  let okCount = 0, landed = 0;
+  const draw = () => {
+    const sorted = [...times].sort((a, b) => a - b);
+    const at = q => sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] : null;
+    meta.replaceChildren(...kids([el("span", { textContent: `${LABELS[t.route]} burst` }),
+      unstreamedBurst && el("span", { textContent: UNSTREAMED }),
+      el("span", { className: okCount === landed ? "t" : "x",
+        textContent: `${okCount}/${landed} ok of ${n}` }),
+      sorted.length > 0 && el("span", { textContent:
+        `min ${sorted[0]}s · p50 ${at(0.5)}s · p95 ${at(0.95)}s · max ${sorted[sorted.length - 1]}s` })]));
+  };
+  draw();
+  try {
+    await ndjson(`api/burst?n=${n}`, request, signal, r => {
+      landed += 1;
+      if (r.ok) { okCount += 1; times.push(r.seconds); }
+      const cell = el("div", { className: "cell" + (r.ok ? "" : " bad"),
+        textContent: `#${r.index} ${r.ok ? `${r.seconds}s` : (r.error || r.status)} · ` });
+      cell.append(servedBy(r.worker, "short"));
+      // Every image in the response: a request with n > 1 returns several.
+      const images = r.ok && Array.isArray(r.response?.data) ? r.response.data.filter(d => d?.b64_json) : [];
+      const mime = MIME[r.response?.output_format || request.body.output_format] || "image/png";
+      if (images.length > 1) cell.append(` · ${images.length} images`);
+      cell.append(...images.map((d, i) => el("img", { alt: `Generated image ${i + 1}`, src: `data:${mime};base64,${d.b64_json}` })));
+      grid.append(cell);
+      draw();
+    });
+  } catch (e) {
+    if (e.name !== "AbortError") card.append(el("div", { className: "err", textContent: e.message }));
+  }
+}
+
+// ---------- load runs: a rate profile, sent open-loop by /api/load ----------
+const PRESETS = [
+  ["Steady 1/s for 2 min", [[1, 1, 120]]],
+  ["Ramp 0 → 4/s over 3 min", [[0, 4, 180]]],
+  ["Up, hold, down (0 → 4/s)", [[0, 4, 120], [4, 4, 120], [4, 0, 120]]],
+  ["Step 1 → 4 → 1/s", [[1, 1, 60], [4, 4, 120], [1, 1, 60]]],
+  ["Spike to 8/s for 20 s", [[0.5, 0.5, 60], [8, 8, 20], [0.5, 0.5, 60]]],
+];
+const MAX_RPS = 20, MAX_SECONDS = 1800;
+const LATENCY_WINDOW = 5;  // seconds of completions behind each rate and latency point
+
+function clock(seconds) {
+  const s = Math.max(0, Math.round(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function loadPanel(t) {
+  let segments = PRESETS[2][1].map(([from, to, seconds]) => ({ from, to, seconds }));
+  const preset = select(PRESETS.map(([name], i) => [String(i), name]), "2");
+  const arrivals = select([["even", "evenly spaced"], ["poisson", "random (Poisson)"]], "even");
+  const unique = el("input", { type: "checkbox", checked: true });
+  const rows = el("tbody");
+  const estimate = el("p", { className: "estimate" });
+  const start = el("button", { className: "go", type: "button", textContent: "Start load" });
+  const stop = el("button", { className: "ghost", type: "button", textContent: "Stop load", hidden: true });
+  const add = el("button", { className: "linkish", type: "button", textContent: "+ add segment" });
+
+  const draw = () => {
+    rows.replaceChildren(...segments.map((seg, i) => {
+      const cell = (key, props) => {
+        const input = num(seg[key], { min: 0, step: "any", ...props });
+        input.setAttribute("aria-label", `segment ${i + 1}: ${key === "seconds" ? "seconds" : `${key} (requests/s)`}`);
+        input.addEventListener("input", () => { seg[key] = Number(input.value); summarise(); });
+        return el("td", {}, input);
+      };
+      const remove = el("button", { className: "x-btn", type: "button", textContent: "×", title: "Remove segment",
+        disabled: segments.length === 1 });
+      remove.setAttribute("aria-label", `Remove segment ${i + 1}`);
+      remove.addEventListener("click", () => { segments.splice(i, 1); draw(); });
+      return el("tr", {}, cell("from", { max: MAX_RPS }), cell("to", { max: MAX_RPS }),
+        cell("seconds", { min: 1 }), el("td", {}, remove));
+    }));
+    summarise();
+  };
+  const summarise = () => {
+    const total = segments.reduce((n, s) => n + (s.seconds || 0), 0);
+    const expected = segments.reduce((n, s) => n + ((s.from || 0) + (s.to || 0)) / 2 * (s.seconds || 0), 0);
+    const peak = Math.max(...segments.map(s => Math.max(s.from || 0, s.to || 0)));
+    const bad = total > MAX_SECONDS ? `at most ${MAX_SECONDS / 60} minutes`
+      : peak > MAX_RPS ? `at most ${MAX_RPS} requests/s` : null;
+    estimate.textContent = bad ? `Too long or too fast: ${bad}.`
+      : `≈ ${Math.round(expected).toLocaleString()} requests over ${clock(total)}, peaking at ${peak}/s. Load can scale up workers, which adds instance time.`;
+    start.disabled = !!bad || expected <= 0;
+  };
+  preset.addEventListener("change", () => {
+    segments = PRESETS[Number(preset.value)][1].map(([from, to, seconds]) => ({ from, to, seconds }));
+    draw();
+  });
+  add.addEventListener("click", () => {
+    const last = segments[segments.length - 1];
+    segments.push({ from: last.to, to: last.to, seconds: 60 });
+    draw();
+  });
+  start.addEventListener("click", () => startLoad(t, segments.map(s => ({ ...s })), arrivals.value, unique.checked,
+    { start, stop }));
+  stop.addEventListener("click", () => loadRun?.abort());
+  draw();
+  return el("div", { className: "loadbox" },
+    el("h4", { textContent: "Load run" }),
+    el("p", { className: "hint", textContent:
+      "Sends the body above on a schedule, whether or not earlier requests have answered, so queueing and scaling show. Rates are requests per second; each segment ramps from one rate to the next." }),
+    field("preset", preset),
+    el("table", { className: "profile" },
+      el("thead", {}, el("tr", {}, el("th", { textContent: "from /s" }), el("th", { textContent: "to /s" }),
+        el("th", { textContent: "seconds" }), el("th"))), rows),
+    add,
+    el("div", { className: "row" }, el("div", {}, field("arrivals", arrivals))),
+    el("label", { className: "check" }, unique, "make each request unique (defeats prompt caching)"),
+    estimate,
+    el("div", { className: "go-row" }, start, stop));
+}
+
+async function startLoad(t, profile, arrivals, unique, buttons) {
+  let body;
+  try { body = JSON.parse(t.editor.value); }
+  catch (e) { return say(t, `The body is not valid JSON: ${e.message}`); }
+  let unstreamedLoad;
+  [body, unstreamedLoad] = unstreamed(t.route, body);
+  try { body = withFiles(body); } catch (e) { return say(t, e.message); }
+  say(t, "");
+  loadRun?.abort();
+  const controller = loadRun = new AbortController();
+  const run = { route: t.route, total: profile.reduce((n, s) => n + s.seconds, 0), state: "starting", unstreamedLoad,
+                seconds: [], results: [], counts: { sent: 0, skipped: 0 }, inflight: 0, hover: null };
+  // The meta line is redrawn every second: it is not announced. This says only state changes.
+  const meta = el("div", { className: "meta" });
+  const spoken = el("p", { className: "visually-hidden", role: "status" });
+  const charts = el("div", { className: "charts" });
+  const table = el("details", { className: "raw" }, el("summary", { textContent: "per-second data" }));
+  const byWorker = el("details", { className: "raw", open: true }, el("summary"), el("div"));
+  const card = el("div", { className: "result" }, spoken, meta, charts, byWorker, table);
+  addResult(t, card, controller);
+  let said = "";
+  const draw = () => {
+    drawLoad(run, meta, charts, table);
+    drawByWorker(run, byWorker);
+    if (run.state !== said) {
+      said = run.state;
+      spoken.textContent = `${LABELS[run.route]} load run ${{
+        starting: "starting", running: "running", draining: "finishing the requests in flight",
+        done: `done: ${run.counts.sent} sent, ${run.counts.skipped} skipped`,
+        stopped: "stopped", failed: `failed: ${run.error}`,
+      }[run.state] || run.state}`;
+    }
+  };
+  run.redraw = draw;
+  // On the container, which outlives each redraw, so hovering doesn't fight the redraws.
+  charts.addEventListener("pointermove", e => {
+    if (!run.rowCount) return;
+    const box = charts.getBoundingClientRect();
+    const t = Math.round((e.clientX - box.left - CHART_L) / (box.width - CHART_L - CHART_R) * run.xMax);
+    const hover = Math.max(0, Math.min(run.rowCount - 1, t));
+    if (hover !== run.hover) { run.hover = hover; draw(); }
+  });
+  charts.addEventListener("pointerleave", () => { run.hover = null; draw(); });
+  buttons.start.disabled = true; buttons.stop.hidden = false;
+  draw();
+  try {
+    await ndjson("api/load", { endpoint: found.endpoint.id, route: t.route, body, profile, arrivals, unique },
+      controller.signal, line => {
+        if (line.type === "start") Object.assign(run, { state: "running", total: line.seconds, expected: line.expected });
+        else if (line.type === "tick") recordTick(run, line);
+        else if (line.type === "done") Object.assign(run, { state: "done", counts: { sent: line.sent, skipped: line.skipped } });
+        draw();
+      });
+  } catch (e) {
+    if (e.name === "AbortError") run.state = "stopped";
+    else { run.state = "failed"; run.error = e.message; }
+  } finally {
+    if (loadRun === controller) loadRun = null;
+    buttons.start.disabled = false; buttons.stop.hidden = true;
+    draw();
+  }
+}
+
+// One row per second: what the server reported, and the workers panel's counts at that moment.
+function recordTick(run, line) {
+  const s = Math.round(line.t);
+  if (line.target_rps === null && run.state === "running") run.state = "draining";
+  const w = workersNow ? allWorkers(workersNow) : [];
+  run.seconds[s] = {
+    target: line.target_rps, inflight: line.inflight,
+    ready: workersNow?.last ? w.filter(x => ["ready", "busy"].includes(statusClass(x))).length : null,
+    loading: workersNow?.last ? w.filter(x => statusClass(x) === "loading").length : null,
+  };
+  run.inflight = line.inflight;
+  run.counts = { sent: line.sent, skipped: line.skipped };
+  run.results.push(...line.results);
+}
+
+// Which workers served the run: requests, failures and latency per worker.
+function drawByWorker(run, box) {
+  const groups = new Map();
+  for (const r of run.results) {
+    const key = r.worker ? host(r.worker) : "";
+    const g = groups.get(key) || groups.set(key, { url: r.worker, n: 0, failed: 0, times: [] }).get(key);
+    g.n += 1;
+    if (r.ok) g.times.push(r.seconds); else g.failed += 1;
+  }
+  const rows = [...groups.values()].sort((a, b) => b.n - a.n);
+  const served = rows.filter(g => g.url).length;
+  box.firstChild.textContent = `served by ${served} worker${served === 1 ? "" : "s"}`;
+  box.lastChild.replaceChildren(rows.length ? el("div", { className: "tablewrap" }, el("table", { className: "data labelled" },
+    el("thead", {}, el("tr", {}, ["worker", "requests", "failed", "p50 s", "p95 s"].map(h => el("th", { textContent: h })))),
+    el("tbody", {}, rows.map(g => {
+      const sorted = [...g.times].sort((a, b) => a - b);
+      return el("tr", {}, el("td", {}, servedBy(g.url, "cell")),
+        ...[g.n, g.failed, fmt(quantile(sorted, 0.5)), fmt(quantile(sorted, 0.95))]
+          .map(v => el("td", { textContent: String(v) })));
+    })))) : el("p", { className: "hint", textContent: "No replies yet." }));
+}
+
+function quantile(sorted, q) {
+  if (!sorted.length) return null;
+  return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
+}
+
+// Per-second series. Completions and latency use a trailing window so low rates don't saw-tooth.
+function loadSeries(run) {
+  const n = run.seconds.length;
+  const okAt = Array(n).fill(0), failAt = Array(n).fill(0), lat = Array.from({ length: n }, () => []);
+  for (const r of run.results) {
+    const s = Math.min(n - 1, Math.max(0, Math.ceil(r.done_at)));
+    if (r.ok) { okAt[s] += 1; lat[s].push(r.seconds); } else failAt[s] += 1;
+  }
+  const rows = [];
+  for (let s = 0; s < n; s++) {
+    const from = Math.max(0, s - LATENCY_WINDOW + 1), span = s - from + 1;
+    let ok = 0, fail = 0, window = [];
+    for (let k = from; k <= s; k++) { ok += okAt[k]; fail += failAt[k]; window = window.concat(lat[k]); }
+    window.sort((a, b) => a - b);
+    const tick = run.seconds[s] || {};
+    rows.push({ t: s, target: tick.target ?? null, ok: s ? ok / span : null, failed: s ? fail / span : null,
+                inflight: tick.inflight ?? null, ready: tick.ready ?? null, loading: tick.loading ?? null,
+                p50: quantile(window, 0.5), p95: quantile(window, 0.95) });
+  }
+  return rows;
+}
+
+const CHARTS = [
+  { title: "Requests per second", unit: "/s", series: [
+    { key: "target", name: "target", color: "var(--s1)" },
+    { key: "ok", name: `completed (${LATENCY_WINDOW}s avg)`, color: "var(--s2)" },
+    { key: "failed", name: `failed (${LATENCY_WINDOW}s avg)`, color: "var(--s3)" }] },
+  { title: "Concurrency", unit: "", series: [
+    { key: "inflight", name: "in flight", color: "var(--s1)" },
+    { key: "ready", name: "ready workers", color: "var(--s2)" },
+    { key: "loading", name: "loading workers", color: "var(--s3)" }] },
+  { title: `Latency, ${LATENCY_WINDOW}s window`, unit: "s", series: [
+    { key: "p50", name: "p50", color: "var(--s1)" },
+    { key: "p95", name: "p95", color: "var(--s2)" }] },
+];
+
+function fmt(v, unit = "") {
+  if (v === null || v === undefined) return "–";
+  const a = Math.abs(v);
+  const r = a === 0 ? 0 : a >= 100 ? Math.round(v) : a >= 1 ? Math.round(v * 10) / 10
+    : Number(v.toPrecision(2));  // sub-second latencies keep two significant figures
+  return `${r}${unit}`;
+}
+
+function drawLoad(run, meta, charts, table) {
+  const ok = run.results.filter(r => r.ok).length, failed = run.results.length - ok;
+  const elapsed = run.seconds.length ? run.seconds.length - 1 : 0;
+  meta.replaceChildren(...kids([
+    el("span", { textContent: `${LABELS[run.route]} load` }),
+    run.unstreamedLoad && el("span", { textContent: UNSTREAMED }),
+    el("span", { className: run.state === "failed" ? "x" : "t", textContent: run.state }),
+    el("span", { textContent: `${clock(elapsed)} / ${clock(run.total)}` }),
+    el("span", { textContent: `sent ${run.counts.sent}${run.expected ? ` of ≈${run.expected}` : ""}` }),
+    el("span", { textContent: `ok ${ok}` }),
+    failed > 0 && el("span", { className: "x", textContent: `failed ${failed}` }),
+    run.counts.skipped > 0 && el("span", { className: "x", textContent: `skipped ${run.counts.skipped} (in-flight cap)` }),
+    el("span", { textContent: `in flight ${run.inflight}` }),
+  ]));
+  if (run.error) meta.append(el("span", { className: "x", textContent: run.error }));
+
+  const rows = loadSeries(run);
+  const xMax = Math.max(run.total, rows.length - 1, 1);
+  const width = Math.max(320, charts.clientWidth || 900);
+  Object.assign(run, { xMax, rowCount: rows.length, width });
+  const tip = el("div", { className: "tip", hidden: run.hover === null });
+  charts.replaceChildren(...CHARTS.map((spec, i) => lineChart(spec, rows, xMax, run, i === CHARTS.length - 1, width)), tip);
+  if (run.hover !== null && rows[run.hover]) {
+    const row = rows[run.hover];
+    tip.append(el("div", { className: "k", textContent: `at ${clock(row.t)}` }),
+      ...CHARTS.flatMap(spec => spec.series.map(sr =>
+        el("div", {}, el("i", { style: `background:${sr.color}` }),
+          `${sr.name}: ${fmt(row[sr.key], spec.unit)}`))));
+    const x = CHART_L + (run.hover / xMax) * (width - CHART_L - CHART_R);
+    tip.style.top = "24px";
+    tip.style.left = x > charts.clientWidth / 2 ? "" : `${x + 14}px`;
+    tip.style.right = x > charts.clientWidth / 2 ? `${charts.clientWidth - x + 14}px` : "";
+  }
+
+  const recent = rows.slice(-120).reverse();
+  const head = ["t", "target/s", "ok/s", "failed/s", "in flight", "ready", "loading", "p50 s", "p95 s"];
+  table.replaceChildren(table.firstChild, el("div", { className: "tablewrap" }, el("table", { className: "data" },
+    el("thead", {}, el("tr", {}, head.map(h => el("th", { textContent: h })))),
+    el("tbody", {}, recent.map(r => el("tr", {}, [clock(r.t), fmt(r.target), fmt(r.ok), fmt(r.failed),
+      fmt(r.inflight), fmt(r.ready), fmt(r.loading), fmt(r.p50), fmt(r.p95)].map(v => el("td", { textContent: v }))))))),
+    rows.length > 120 && el("p", { className: "hint", textContent: "Latest 120 seconds." }));
+}
+
+const SVG = "http://www.w3.org/2000/svg";
+function svg(tag, attrs = {}, ...children) {
+  const node = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  node.append(...kids(children));
+  return node;
+}
+
+function niceMax(v) {
+  if (!(v > 0)) return 1;
+  const p = 10 ** Math.floor(Math.log10(v));
+  return [1, 2, 2.5, 5, 10].map(m => m * p).find(m => m >= v);
+}
+
+// One small multiple: lines over a shared time axis, a legend with the latest values,
+// and a crosshair that follows the pointer across every chart of the run.
+const CHART_L = 44, CHART_R = 8;  // plot margins in px, shared with the hover maths
+function lineChart(spec, rows, xMax, run, showTime, W) {
+  const H = 110, L = CHART_L, R = CHART_R, T = 6, B = showTime ? 18 : 6;
+  const values = rows.flatMap(r => spec.series.map(s => r[s.key])).filter(v => v !== null && v !== undefined);
+  const yMax = niceMax(Math.max(...values, 0));
+  const X = t => L + (t / xMax) * (W - L - R);
+  const Y = v => T + (1 - v / yMax) * (H - T - B);
+  const latest = key => { for (let i = rows.length - 1; i >= 0; i--) if (rows[i][key] != null) return rows[i][key]; return null; };
+
+  const head = el("div", { className: "chart-head" }, el("b", { textContent: spec.title }),
+    spec.series.map(s => el("span", { className: "key" }, el("i", { style: `background:${s.color}` }),
+      `${s.name} `, el("span", { textContent: fmt(latest(s.key), spec.unit) }))));
+
+  const grid = [0, yMax / 2, yMax].map(v => [
+    svg("line", { class: "grid", x1: L, x2: W - R, y1: Y(v), y2: Y(v) }),
+    svg("text", { x: L - 6, y: Y(v) + 3.5, "text-anchor": "end" }, document.createTextNode(fmt(v))),
+  ]);
+  const step = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600].find(s => xMax / s <= 8) || 600;
+  const times = showTime ? Array.from({ length: Math.floor(xMax / step) + 1 }, (_, i) => i * step).map(t =>
+    svg("text", { x: X(t), y: H - 4, "text-anchor": "middle" }, document.createTextNode(clock(t)))) : [];
+
+  const lines = spec.series.flatMap(s => {
+    const parts = [];
+    let current = [];
+    rows.forEach(r => {
+      if (r[s.key] === null || r[s.key] === undefined) { if (current.length) parts.push(current); current = []; }
+      else current.push(`${X(r.t).toFixed(1)},${Y(r[s.key]).toFixed(1)}`);
+    });
+    if (current.length) parts.push(current);
+    const last = [...rows].reverse().find(r => r[s.key] != null);
+    return [
+      ...parts.map(pts => svg("polyline", { class: "line", points: pts.join(" "), stroke: s.color })),
+      last && svg("circle", { class: "end", cx: X(last.t), cy: Y(last[s.key]), r: 4, fill: s.color }),
+    ];
+  });
+  const cross = run.hover !== null && svg("line", { class: "cross", x1: X(run.hover), x2: X(run.hover), y1: T, y2: H - B });
+
+  const chart = svg("svg", { class: "chart", viewBox: `0 0 ${W} ${H}`, width: W, height: H,
+    role: "img", "aria-label": `${spec.title} over time` }, grid, times, lines, cross);
+  return el("div", {}, head, chart);
+}
+
+// ---------- workers: pushed by the autoscaler, relayed by /api/watch ----------
+const STATUS_CLASS = {
+  idle: "ready", running: "ready", Busy: "busy",
+  created: "loading", creating: "loading", starting: "loading", loading: "loading",
+  model_loading: "loading", rebooting: "loading",
+  inactive: "off", stopped: "off", stopping: "off", stop_queued: "off", destroying: "off",
+  error: "bad", exited: "bad", offline: "bad", unavail: "bad",
+};
+const CLASS_ORDER = { busy: 0, ready: 1, loading: 2, bad: 3, other: 4, off: 5 };
+const statusClass = w => STATUS_CLASS[w.status] || "other";
+
+function sleep(ms, signal) {
+  return new Promise(resolve => {
+    const t = setTimeout(resolve, ms);
+    signal.addEventListener("abort", () => { clearTimeout(t); resolve(); }, { once: true });
+  });
+}
+
+// ---------- smoke test: one small request per served route, checked for the right kind of reply ----------
+const SMOKE_BODIES = {
+  "/v1/completions": { prompt: "The capital of France is", max_tokens: 16 },
+  "/v1/chat/completions": { messages: [{ role: "user", content: "Reply with the single word OK." }], max_tokens: 64 },
+  "/v1/chat/completions/batch": { messages: [[{ role: "user", content: "Say OK." }],
+                                             [{ role: "user", content: "Say yes." }]], max_tokens: 16 },
+  "/v1/embeddings": { input: ["smoke test"] },
+  "/v1/rerank": SAMPLES["/v1/rerank"],
+  "/v1/score": SAMPLES["/v1/score"],
+  "/v1/audio/speech": { input: "Smoke test.", response_format: "wav" },
+  "/v1/audio/speech/batch": { items: [{ input: "One." }, { input: "Two." }], response_format: "wav" },
+  "/v1/audio/generate": { input: "A short chime", audio_length: 2 },
+  "/v1/images/generations": { prompt: "A red cube on a white table", n: 1 },
+  "/v1/videos/sync": SAMPLES["/v1/videos/sync"],
+};
+const SMOKE_OFF = new Set(["/v1/videos/sync"]);  // expensive: ticked by hand
+
+// Tiny files for the upload routes: half a second of silence, and a 64x64 square.
+function smokeWav() {
+  const rate = 16000, samples = rate / 2, view = new DataView(new ArrayBuffer(44 + samples * 2));
+  const text = (at, s) => [...s].forEach((c, i) => view.setUint8(at + i, c.charCodeAt(0)));
+  text(0, "RIFF"); view.setUint32(4, 36 + samples * 2, true); text(8, "WAVEfmt ");
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, rate, true); view.setUint32(28, rate * 2, true); view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true); text(36, "data"); view.setUint32(40, samples * 2, true);
+  const bytes = new Uint8Array(view.buffer);
+  return attach("smoke.wav", "audio/wav", bytes.length, `data:audio/wav;base64,${btoa(String.fromCharCode(...bytes))}`);
+}
+function smokePng() {
+  const canvas = Object.assign(document.createElement("canvas"), { width: 64, height: 64 });
+  const g = canvas.getContext("2d");
+  g.fillStyle = "#3987e5"; g.fillRect(0, 0, 64, 64); g.fillStyle = "#fff"; g.fillRect(16, 16, 32, 32);
+  const url = canvas.toDataURL("image/png");
+  return attach("smoke.png", "image/png", Math.round((url.length - 22) * 0.75), url);
+}
+function smokeUploads() {
+  const wav = smokeWav(), png = smokePng();
+  return {
+    "/v1/audio/transcriptions": { file: wav, filename: "smoke.wav" },
+    "/v1/audio/translations": { file: wav, filename: "smoke.wav" },
+    "/v1/images/edits": { image: png, filename: "smoke.png", prompt: "Make the square red" },
+  };
+}
+const SMOKE_PARALLEL = 3;
+
+// What a healthy reply to each route looks like: [passed, what came back].
+function smokeCheck(route, env) {
+  const r = env.response;
+  const media = env.media ? `${env.media.type}, ${Math.round(env.media.b64.length * 0.75 / 1024)} KB` : null;
+  if (!env.ok) return [false, env.error || `HTTP ${env.status}`];
+  switch (route) {
+    case "/v1/completions":
+    case "/v1/chat/completions": {
+      const c = r?.choices?.[0];
+      if (!c) return [false, "no choices in the reply"];
+      const text = c.message?.content ?? c.text ?? "";
+      const thought = thinkingOf(c.message);
+      return [true, text ? JSON.stringify(text.trim().slice(0, 60))
+        : thought ? `thinking only (${c.finish_reason || "?"}): raise max_tokens for an answer` : "empty answer"];
+    }
+    case "/v1/embeddings": {
+      const v = r?.data?.[0]?.embedding;
+      return Array.isArray(v) && v.length ? [true, `${r.data.length} vector(s) of ${v.length}`] : [false, "no embedding"];
+    }
+    case "/v1/audio/transcriptions":
+    case "/v1/audio/translations": {  // silence: any text, even none, is a healthy reply
+      const text = typeof r === "string" ? r : r?.text;
+      return typeof text === "string" ? [true, text.trim() ? JSON.stringify(text.trim().slice(0, 60)) : "no speech heard (silence sent)"]
+        : [false, "no text in the reply"];
+    }
+    case "/v1/images/edits":
+    case "/v1/images/generations": {
+      const n = Array.isArray(r?.data) ? r.data.filter(d => d?.b64_json || d?.url).length : 0;
+      return n ? [true, `${n} image(s)`] : [false, "no image in the reply"];
+    }
+    case "/v1/audio/speech":
+    case "/v1/audio/generate":
+      return env.media?.type.startsWith("audio/") ? [true, media] : [false, `expected audio, got ${env.content_type || "JSON"}`];
+    case "/v1/videos/sync":
+      return env.media?.type.startsWith("video/") ? [true, media] : [false, `expected video, got ${env.content_type || "JSON"}`];
+    case COMFY: {
+      const outs = (r?.output || []).filter(o => o.data);
+      return outs.length ? [true, `${outs.length} output(s): ${outs.map(o => o.mimetype).join(", ")}`]
+        : [false, r?.message || r?.status || "no outputs inline"];
+    }
+    default:  // pyworker passes these to the backend as they are: any non-empty reply passes
+      return media || (r && JSON.stringify(r) !== "{}") ? [true, media || `${JSON.stringify(r).length} bytes of JSON`]
+        : [false, "empty reply"];
+  }
+}
+
+function smokeCard(summary) {
+  const withModel = body => (summary.model ? { model: summary.model, ...body } : body);
+  const routes = [...ROUTES, COMFY].filter(r => summary.routes.includes(r));
+  const uploads = routes.some(r => UPLOADS.has(r)) ? smokeUploads() : {};
+  const rows = routes.map(route => {
+    const box = el("input", { type: "checkbox", checked: !SMOKE_OFF.has(route) });
+    const result = el("td", { className: "sub", textContent: uploads[route] ? "sends a tiny generated file" : "" });
+    const cells = { status: el("td", { className: "num" }), secs: el("td", { className: "num" }), worker: el("td") };
+    const tr = el("tr", {}, el("td", {}, el("label", { className: "check" }, box, LABELS[route])),
+      cells.status, cells.secs, cells.worker, result);
+    const music = firstChoice(route, summary.model).name === "music"
+      ? { input: "[verse]\nHello, hello", instructions: "pop", max_new_tokens: 5 * YUE_FPS, response_format: "wav",
+          extra_params: { cot: "off" } } : null;
+    return { route, box, result, cells, tr,
+             body: route === COMFY ? "(the workflow loaded in the Workflow tab)"
+               : withModel(music || uploads[route] || SMOKE_BODIES[route] || SAMPLES[route] || {}) };
+  });
+  const run = el("button", { className: "go", type: "button", textContent: "Run" });
+  const meta = el("div", { className: "meta", role: "status" });
+  const count = () => {
+    const n = rows.filter(r => r.box.checked).length;
+    meta.replaceChildren(el("span", { textContent: "Smoke test" }),
+      el("span", { textContent: `${n} request${n === 1 ? "" : "s"}, small bodies` }));
+    run.disabled = !n;
+  };
+  rows.forEach(r => r.box.addEventListener("change", count));
+  // The workflow route can run only once a workflow is loaded, which may come after the card.
+  const endpointId = found.endpoint.id;
+  const comfyRow = rows.find(r => r.route === COMFY);
+  const comfyReady = () => {
+    const ready = comfyLoaded?.endpoint === endpointId;
+    comfyRow.result.textContent = ready ? "runs the workflow loaded in the Workflow tab"
+                                        : "load a workflow in the Workflow tab first";
+    comfyRow.box.disabled = !ready;
+    if (!ready) comfyRow.box.checked = false;
+    return ready;
+  };
+  if (comfyRow) {
+    comfyRow.box.checked = comfyReady();
+    const onLoad = () => {
+      if (!comfyRow.box.isConnected) return document.removeEventListener("comfy-workflow", onLoad);
+      if (comfyReady()) { comfyRow.box.checked = true; count(); }
+    };
+    document.addEventListener("comfy-workflow", onLoad);
+  }
+  count();
+  const card = el("div", { className: "result smoke" }, meta,
+    routes.length ? el("div", { className: "tablewrap" }, el("table", { className: "wk" },
+      el("thead", {}, el("tr", {}, ["route", "status", "s", "worker", "result"].map((h, i) =>
+        el("th", { textContent: h, className: i === 1 || i === 2 ? "num" : "" })))),
+      el("tbody", {}, rows.map(r => r.tr))))
+      : el("p", { className: "sub", textContent: "No routes are known for this endpoint." }),
+    el("details", { className: "raw" }, el("summary", { textContent: "bodies sent" }),
+      el("pre", { textContent: JSON.stringify(Object.fromEntries(rows.map(r => [r.route, r.body])), null, 2) })),
+    el("div", { className: "go-row" }, run));
+
+  run.addEventListener("click", async () => {
+    const chosen = rows.filter(r => r.box.checked);
+    rows.forEach(r => { r.box.disabled = true; });
+    run.disabled = true;
+    let passed = 0, done = 0;
+    const tally = () => meta.replaceChildren(el("span", { textContent: "Smoke test" }),
+      el("span", { className: passed === done ? "t" : "x", textContent: `${passed}/${done} passed` }),
+      el("span", { textContent: done < chosen.length ? `${chosen.length - done} running` : "done" }));
+    tally();
+    const one = async r => {
+      r.result.className = "sub"; r.result.textContent = "running…";
+      const started = performance.now();
+      let ok = false, detail, env = null;
+      try {
+        const sent = r.route === COMFY ? comfyBody(comfyLoaded.workflow) : withFiles(r.body);
+        env = await api("api/call", { endpoint: found.endpoint.id, route: r.route, body: sent });
+        [ok, detail] = smokeCheck(r.route, env);
+      } catch (e) {
+        detail = e.message;
+      }
+      r.cells.status.textContent = env?.status ?? "–";
+      r.cells.secs.textContent = env?.seconds ?? ((performance.now() - started) / 1000).toFixed(2);
+      r.cells.worker.replaceChildren(env?.worker ? servedBy(env.worker, "short") : "–");
+      r.result.className = ok ? "" : "x";
+      r.result.replaceChildren(el("span", { className: `st ${ok ? "done" : "failed"}`, textContent: ok ? "pass" : "fail" }),
+        " ", detail);
+      done += 1; passed += ok ? 1 : 0;
+      tally();
+    };
+    const queue = [...chosen];
+    await Promise.all(Array.from({ length: Math.min(SMOKE_PARALLEL, queue.length) }, async () => {
+      while (queue.length) await one(queue.shift());
+    }));
+    rows.forEach(r => { r.box.disabled = false; });
+    if (comfyRow) comfyReady();
+    run.disabled = false;
+    run.textContent = "Run again";
+  });
+  return card;
+}
+
+// ---------- proxy traffic: requests other programs send through /v1, as they happen ----------
+const TRAFFIC_ROWS = 100;
+const IN_FLIGHT = new Set(["routing", "streaming"]);
+
+// Runs from connecting until the key is forgotten, so the count shows wherever you are.
+function followTraffic() {
+  traffic.controller?.abort();
+  const controller = traffic.controller = new AbortController();
+  const signal = controller.signal;
+  traffic.rows.clear();
+  const changed = () => { drawTrafficCount(); traffic.redraw?.(); };
+  const tick = setInterval(() => {
+    if ([...traffic.rows.values()].some(r => IN_FLIGHT.has(r.state))) changed();
+  }, 1000);
+  (async () => {
+    for (let attempt = 0; !signal.aborted; attempt++) {
+      try {
+        await ndjson("api/traffic", {}, signal, line => {
+          if (line.type === "history") {
+            traffic.rows.clear();
+            line.requests.forEach(r => traffic.rows.set(r.id, r));
+            traffic.withheld = !!line.withheld;
+            traffic.state = "live"; attempt = 0;
+          } else if (line.type === "request") {
+            traffic.rows.set(line.id, line);
+            while (traffic.rows.size > TRAFFIC_ROWS) traffic.rows.delete(traffic.rows.keys().next().value);
+          } else return;
+          changed();
+        });
+        traffic.state = "reconnecting";
+      } catch (e) {
+        if (e.name === "AbortError" || e.token) break;
+        traffic.state = `error: ${e.message}`;
+      }
+      changed();
+      await sleep(Math.min(30000, 1000 * 2 ** attempt), signal);
+    }
+    clearInterval(tick);
+  })();
+}
+
+function drawTrafficCount() {
+  const rows = [...traffic.rows.values()];
+  const flying = rows.filter(r => IN_FLIGHT.has(r.state)).length;
+  $("traffic-count").textContent = flying ? `${flying} in flight` : rows.length ? String(rows.length) : "";
+  $("traffic-count").classList.toggle("busy", flying > 0);
+}
+
+function showTraffic() {
+  if (!confirmLeave("Opening proxy traffic")) return;
+  stopEverything();
+  watching?.abort();
+  sidebarWorkers(null);
+  selected = found = tab = null;
+  choose(document.querySelectorAll(".eps button"), $("traffic-nav"), "aria-current");
+  $("ep-pill").textContent = "proxy traffic";
+  $("ep-pill").hidden = false;
+  const filter = el("select", {}, el("option", { value: "", textContent: "all endpoints" }),
+    ...[...document.querySelectorAll(".eps [data-name]")].map(b =>
+      el("option", { value: b.dataset.name, textContent: b.dataset.name, selected: b.dataset.name === traffic.filter })));
+  filter.addEventListener("change", () => { traffic.filter = filter.value; traffic.redraw?.(); });
+  const summary = el("div", { className: "traffic-head" });
+  const body = el("div");
+  workspace(el("h3", { textContent: "Proxy traffic" }),
+    el("p", { className: "hint", textContent: "Requests other programs send through this server's " +
+      "OpenAI-compatible proxy, as they happen, with the worker that served each one." }),
+    el("div", { className: "where" },
+      el("div", { textContent: `${BASE}/v1 — the endpoint is picked by model` }),
+      el("div", { textContent: `${BASE}/e/<endpoint>/v1 — one endpoint` })),
+    el("div", { className: "go-row" }, labelFor(el("label", { textContent: "show" }), filter), filter, summary),
+    body);
+  traffic.redraw = () => drawTraffic(summary, body);
+  traffic.redraw();
+}
+
+function drawTraffic(summary, body) {
+  const list = [...traffic.rows.values()].reverse().filter(r => !traffic.filter || r.endpoint === traffic.filter);
+  const flying = list.filter(r => IN_FLIGHT.has(r.state)).length;
+  const failed = list.filter(r => r.state === "failed").length;
+  const state = traffic.state;
+  summary.replaceChildren(
+    el("span", {}, el("span", { className: `dot ${state === "live" ? "live" : state.startsWith("error") ? "error" : "connecting"}` }),
+      state === "live" ? "live" : state),
+    el("span", { textContent: `${list.length} request${list.length === 1 ? "" : "s"}` }),
+    ...(flying ? [el("span", { className: "count jobs", textContent: `${flying} in flight` })] : []),
+    ...(failed ? [el("span", { className: "count bad", textContent: `${failed} failed` })] : []));
+  const withheld = traffic.withheld && el("p", { className: "hint", textContent: "Requests made with " +
+    "the server's key are not shown: this server is reachable beyond localhost, and they may be " +
+    "other people's. Start it with --share-traffic to show them." });
+  if (!list.length) return body.replaceChildren(...kids([withheld, el("p", { className: "sub", textContent:
+    "None yet. Point an OpenAI client at one of the URLs above." })]));
+  const now = Date.now() / 1000;
+  const th = (t, num) => el("th", { textContent: t, className: num ? "num" : "" });
+  const td = (t, cls = "") => el("td", { textContent: t ?? "–", className: cls });
+  const worker = r => r.worker_id != null
+    ? el("b", { textContent: String(r.worker_id), title: host(r.worker) })
+    : r.worker ? servedBy(r.worker, "short") : el("span", { className: "sub", textContent: "–" });
+  body.replaceChildren(...kids([withheld, el("div", { className: "tablewrap" }, el("table", { className: "wk traffic-table" },
+    el("thead", {}, el("tr", {}, th("time"), th("endpoint"), th("route"), th("state"), th("status", true),
+      th("s", true), th("ttft", true), th("tokens", true), th("worker"), th("prompt → reply"))),
+    el("tbody", {}, list.map(r => el("tr", {},
+      td(new Date(r.at * 1000).toLocaleTimeString()),
+      td(r.endpoint),
+      td(LABELS[r.route] || r.route),
+      el("td", {}, el("span", { className: `st ${r.state}`, textContent: r.state + (r.stream ? " ⇢" : "") })),
+      td(r.status, "num"),
+      td(IN_FLIGHT.has(r.state) ? `${Math.max(0, now - r.at).toFixed(0)}…` : r.seconds?.toFixed(2), "num"),
+      td(r.ttft?.toFixed(2), "num"),
+      td(r.tokens, "num"),
+      el("td", {}, worker(r)),
+      el("td", { className: "text" }, el("div", { className: "ask", textContent: r.prompt || "" }),
+        r.error ? el("div", { className: "err", textContent: r.error })
+                : el("div", { textContent: r.reply || (IN_FLIGHT.has(r.state) ? "…" : "") })))))))]));
+}
+
+// Returns the panel and keeps it current until the endpoint changes. If this server's stream
+// drops, it reconnects with backoff; the server handles the autoscaler's socket.
+function watchWorkers(endpointId) {
+  const controller = watching = new AbortController();
+  const signal = controller.signal;
+  const view = { config: null, groups: new Map(), active: new Map(), endpoint: null, state: "connecting",
+                 detail: "", retryAt: 0, last: 0, polled: false, warnings: new Set(), showStopped: false };
+  workersNow = view;
+  const summary = el("summary");
+  const body = el("div", { className: "workers-body" });
+  const box = el("details", { className: "workers", open: true }, summary, body);
+  const draw = () => drawWorkers(view, summary, body);
+  const tick = setInterval(draw, 1000);
+  view.redraw = draw;
+  draw();
+  (async () => {
+    for (let attempt = 0; !signal.aborted; attempt++) {
+      try {
+        await ndjson("api/watch", { endpoint: endpointId }, signal, line => {
+          if (line.type === "status" && line.state === "live") attempt = 0;
+          applyWatch(view, line);
+          draw();
+        });
+        Object.assign(view, { state: "reconnecting", detail: "the server's stream ended" });
+      } catch (e) {
+        if (e.name === "AbortError") break;
+        Object.assign(view, { state: "error", detail: e.message });
+        if (e.token) { draw(); break; }
+      }
+      const wait = Math.min(30000, 1000 * 2 ** attempt);
+      view.retryAt = Date.now() + wait;
+      draw();
+      await sleep(wait, signal);
+    }
+    clearInterval(tick);
+  })();
+  return box;
+}
+
+function applyWatch(view, line) {
+  if (line.type === "config") view.config = line;
+  else if (line.type === "status") {
+    Object.assign(view, { state: line.state, detail: line.detail || "",
+      retryAt: line.retry_in ? Date.now() + line.retry_in * 1000 : 0 });
+  } else if (line.type === "warning") view.warnings.add(line.detail);
+  else if (line.type === "hosts") {
+    for (const [h, id] of Object.entries(line.hosts || {})) workerHosts.set(h, id);
+    document.querySelectorAll(".served").forEach(labelServed);
+  }
+  else if (line.type === "workers") {
+    if (line.topic === "workergroup") {
+      view.groups.set(line.id, line.workers);
+      view.active.set(line.id, !!line.active_update);
+    } else view.endpoint = line.workers;
+    view.last = Date.now();
+    view.polled = !!line.polled;
+  }
+}
+
+function age(seconds) {
+  if (!(seconds >= 0)) return "–";
+  if (seconds < 90) return `${Math.round(seconds)}s`;
+  if (seconds < 5400) return `${Math.round(seconds / 60)}m`;
+  if (seconds < 172800) return `${(seconds / 3600).toFixed(1)}h`;
+  return `${Math.round(seconds / 86400)}d`;
+}
+
+function round(x, digits = 1) {
+  return typeof x === "number" ? String(Math.round(x * 10 ** digits) / 10 ** digits) : "–";
+}
+
+function allWorkers(view) {
+  if (view.endpoint) return view.endpoint;
+  const seen = new Map();
+  for (const list of view.groups.values()) for (const w of list) seen.set(w.id, w);
+  return [...seen.values()];
+}
+
+function drawWorkers(view, summary, body) {
+  const workers = allWorkers(view);
+  const by = cls => workers.filter(w => statusClass(w) === cls).length;
+  const jobs = workers.reduce((n, w) => n + (w.reqs_working || 0), 0);
+  const since = view.last ? Math.round((Date.now() - view.last) / 1000) : null;
+  const stateText = view.state === "live" ? "live"
+    : view.state === "connecting" ? "connecting…"
+    : view.retryAt > Date.now() ? `${view.state}, retry in ${Math.ceil((view.retryAt - Date.now()) / 1000)}s`
+    : view.state;
+  summary.replaceChildren(...kids([
+    el("b", { textContent: "Workers" }),
+    el("span", {}, el("span", { className: `dot ${view.state}` }), stateText),
+    since !== null && el("span", { textContent: `updated ${since}s ago${view.polled ? " (polled)" : ""}` }),
+    el("span", { className: "break" }),
+    el("span", { className: "count ready", textContent: `${by("ready") + by("busy")} ready` }),
+    el("span", { className: "count loading", textContent: `${by("loading")} loading` }),
+    by("bad") > 0 && el("span", { className: "count bad", textContent: `${by("bad")} error` }),
+    by("off") > 0 && el("span", { textContent: `${by("off")} stopped` }),
+    el("span", { className: "count jobs", textContent: `${jobs} in flight` }),
+  ]));
+
+  const c = view.config;
+  const e = c?.endpoint;
+  const parts = [];
+  if (view.state !== "live" && view.detail) parts.push(el("p", { className: "warn", textContent: view.detail }));
+  for (const w of view.warnings) parts.push(el("p", { className: "warn", textContent: w }));
+  if (e) parts.push(settings([["cold_workers", e.cold_workers], ["max_workers", e.max_workers],
+    ["min_load", e.min_load], ["target_util", e.target_util],
+    ["target_queue_time", e.target_queue_time != null ? `${e.target_queue_time}s` : null],
+    ["max_queue_time", e.max_queue_time != null ? `${e.max_queue_time}s` : null]]));
+
+  const stopped = workers.filter(w => statusClass(w) === "off").length;
+  if (stopped) {
+    const toggle = el("button", { className: "linkish", type: "button",
+      textContent: view.showStopped ? `hide stopped (${stopped})` : `show stopped (${stopped})` });
+    toggle.addEventListener("click", () => { view.showStopped = !view.showStopped; view.redraw(); });
+    parts.push(el("p", { className: "hint" }, toggle));
+  }
+
+  const groups = c?.workergroups || [];
+  if (groups.length) {
+    const grouped = new Set();
+    for (const g of groups) {
+      const list = view.groups.get(g.id);
+      list?.forEach(w => grouped.add(w.id));
+      parts.push(el("div", { className: "wg-head" },
+        el("span", { textContent: `workergroup ${g.id}` }),
+        settings([["cold_workers", g.cold_workers], ["min_load", g.min_load],
+          ["gpu_ram", g.gpu_ram != null ? `${g.gpu_ram} GB` : null]]),
+        view.active.get(g.id) && el("span", { className: "flag", textContent: "rolling update in progress" })));
+      parts.push(list ? workerTable(list, view.showStopped) : el("div", { className: "sub", textContent: "waiting for the first update…" }));
+    }
+    const others = (view.endpoint || []).filter(w => !grouped.has(w.id));
+    if (others.length && groups.every(g => view.groups.has(g.id))) {
+      parts.push(el("div", { className: "wg-head" }, el("span", { textContent: "not in a listed workergroup" })));
+      parts.push(workerTable(others, view.showStopped));
+    }
+  } else if (view.endpoint) {
+    parts.push(workerTable(view.endpoint, view.showStopped));
+  } else if (view.state === "live") {
+    parts.push(el("div", { className: "sub", textContent: "waiting for the first update…" }));
+  }
+  body.replaceChildren(...parts);
+}
+
+function workerTable(list, showStopped) {
+  if (!list.length) return el("div", { className: "sub", textContent: "No workers." });
+  const now = Date.now() / 1000;
+  const shown = list.filter(w => showStopped || statusClass(w) !== "off")
+    .sort((a, b) => (CLASS_ORDER[statusClass(a)] - CLASS_ORDER[statusClass(b)]) || a.id - b.id);
+  if (!shown.length) return el("div", { className: "sub", textContent: "All stopped." });
+  const th = (t, num) => el("th", { textContent: t, className: num ? "num" : "" });
+  const td = (t, cls = "") => el("td", { textContent: t, className: cls });
+  return el("div", { className: "tablewrap" }, el("table", { className: "wk" },
+    el("thead", {}, el("tr", {}, th("worker"), th("status"), th("jobs", true), th("load", true))),
+    el("tbody", {}, shown.map(w => {
+      const cls = statusClass(w);
+      const loadTime = w.loaded_at > 0 && w.started_at > 0 ? w.loaded_at - w.started_at : null;
+      const about = [`${(w.num_gpus ?? 1) > 1 ? `${w.num_gpus}× ` : ""}${w.gpu_name ?? "?"}`,
+        w.started_at > 0 && `up ${age(now - w.started_at)}`,
+        loadTime !== null && `loaded ${age(loadTime)}`,
+        `perf ${round(w.measured_perf || w.perf)}`].filter(Boolean).join(" · ");
+      const off = cls === "off" ? " off" : "";
+      return [
+        el("tr", { className: `worker${off}` },
+          td(String(w.id)),
+          el("td", {}, el("span", { className: `st ${cls}`, textContent: w.status })),
+          td(String(w.reqs_working ?? 0), `num jobs${w.reqs_working > 0 ? " on" : ""}`),
+          td(round(w.cur_load), "num")),
+        el("tr", { className: `about${off}` }, el("td", { colSpan: 4, title: `${w.num_gpus ?? 1}× ${w.gpu_name ?? "?"}` +
+            (w.started_at > 0 ? ` · up ${age(now - w.started_at)}` : "") +
+            (loadTime !== null ? ` · loaded in ${age(loadTime)}` : "") + ` · perf ${round(w.measured_perf || w.perf)}` }, about,
+          w.outdated && el("span", { className: "flag", textContent: "outdated" }),
+          w.replaces_worker_id > 0 && el("span", { className: "flag", textContent: `replaces ${w.replaces_worker_id}` }),
+          w.ready_ever === false && cls === "ready" && el("span", { className: "flag", textContent: "never ready" }))),
+      ];
+    }))));
+}
+
+// ---------- wiring ----------
+$("key-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  if (needsToken && !accessToken) {  // unlocking: nothing is open yet
+    const token = $("token").value.trim();
+    if (!token) return showError("Enter this server's access token.");
+    accessToken = token;
+    $("token").value = "";
+    if (serverKey) await connect();  // without a server key, the caller's own key comes next
+    return showAccess();
+  }
+  const key = $("key").value.trim();
+  if (!key && !serverKey) return showError("Enter your Vast API key.");
+  if (!confirmLeave("Connecting again")) return;
+  forgetEndpoint();
+  setKey(key);
+  await connect();
+});
+
+function forgetEndpoint() {
+  stopEverything();
+  watching?.abort();
+  sidebarWorkers(null);
+  traffic.controller?.abort();
+  traffic.rows.clear();
+  traffic.redraw = null;
+  selected = found = tab = null;
+  keptResults.clear();  // another key: another account's results
+  $("eps").replaceChildren();
+  $("ep-section").hidden = true;
+  $("ep-pill").hidden = true;
+  placeholder(BLANK);
+}
+
+$("traffic-nav").addEventListener("click", showTraffic);
+
+$("forget-token").addEventListener("click", () => {
+  if (!confirmLeave("Forgetting the token")) return;
+  forgetEndpoint();
+  setKey("");
+  accessToken = "";
+  storeToken("");
+  showError("");
+  showAccess();
+  $("token").focus();
+});
+
+$("forget").addEventListener("click", async () => {
+  if (!confirmLeave("Forgetting the key")) return;
+  forgetEndpoint();
+  setKey("");
+  showError("");
+  if (serverKey) await connect();  // back to the server's key
+});
+</script>
+</body>
+</html>

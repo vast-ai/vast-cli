@@ -147,6 +147,7 @@ COMMAND_GROUPS = {
     'vastai.cli.commands.billing':      'Billing & account',
     'vastai.cli.commands.endpoints':    'Serverless',
     'vastai.cli.commands.deployments':  'Serverless',
+    'vastai.cli.commands.serverless_ui': 'Serverless',
     'vastai.cli.commands.metrics':      'Metrics',
     'vastai.cli.commands.storage':      'Storage volumes',
     'vastai.cli.commands.misc':         'Other',

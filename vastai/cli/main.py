@@ -123,6 +123,7 @@ def main():
         instances, offers, machines, teams, keys, endpoints,
         billing, storage, auth, misc, deployments, metrics,
         benchmarks,
+        serverless_ui,
         price_increase,
         repl,
         update,

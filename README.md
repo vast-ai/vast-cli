@@ -97,6 +97,12 @@ print(text)
 
 Find more examples in the `examples/` directory.
 
+## Serverless UI
+
+`vastai run serverless-ui` serves a local page for trying your serverless endpoints (a form for
+each route, live workers, bursts and load runs) and an OpenAI-compatible proxy to them, at
+http://127.0.0.1:8765. See [docs/serverless-ui.md](docs/serverless-ui.md).
+
 ## AI Agents
 
 Vast.ai has a skill for AI coding agents (Claude Code, Cursor, Windsurf, Codex, etc.):

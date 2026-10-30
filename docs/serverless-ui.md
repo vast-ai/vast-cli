@@ -137,6 +137,9 @@ looks idle to the autoscaler and doesn't scale up.
   `GET /v1/models` lists them. When several endpoints serve one model, `--prefer` ranks them.
 - All of pyworker's routes pass through, streams as server-sent events. File uploads arrive
   as multipart, as OpenAI clients send them, and are passed on as pyworker expects.
+- ComfyUI endpoints take `POST /e/<endpoint>/generate/sync` with a workflow in ComfyUI's API
+  format: not an OpenAI route, so plain HTTP rather than an OpenAI client. See
+  [ComfyUI endpoints](#comfyui-endpoints), and the page's "HTTP via proxy" view for an example.
 - Every response carries `X-Vast-Endpoint`, `X-Vast-Worker` (address) and, once known,
   `X-Vast-Worker-Id`.
 - The proxy uses the server's key; the client's is ignored unless the server has none. With an

@@ -764,6 +764,17 @@ function tokenFromLink() {
   return token;
 }
 
+// The link opened in a tab already showing the page changes only the fragment, which reloads
+// nothing: take the token here too (a new run's link in a tab left from the last run, say).
+window.addEventListener("hashchange", async () => {
+  const token = tokenFromLink();
+  if (!token || !needsToken || token === accessToken) return;
+  accessToken = token;
+  showError("");
+  showAccess();
+  if (serverKey) await connect();
+});
+
 function renderEndpoints(list) {
   $("eps").replaceChildren(...list.map(ep => {
     const btn = el("button", { type: "button" },

@@ -581,3 +581,25 @@ async def test_a_client_that_goes_away_takes_its_request_with_it(proxy, vast_api
             break
     assert vast_api.state.get("chat_cancelled") == 1
     assert rows[-1]["state"] == "cancelled"
+
+
+async def test_stopping_the_server_ends_open_streams_at_once(vast_api):
+    """Ctrl+C with a page open: its traffic and worker streams never end on their own, and
+    aiohttp would wait its whole grace period for them (60s here), then trip on its own race."""
+    import aiohttp
+    from aiohttp import web
+    base = str(vast_api.make_url("")).rstrip("/")
+    runner = web.AppRunner(ui.make_app(base, autoscaler_url=base), handler_cancellation=True,
+                           shutdown_timeout=60)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    port = site._server.sockets[0].getsockname()[1]
+    async with aiohttp.ClientSession() as session:
+        resp = await session.post(f"http://127.0.0.1:{port}/api/traffic", json={},
+                                  headers={"Authorization": f"Bearer {KEY}", "Host": f"127.0.0.1:{port}"})
+        assert json.loads(await resp.content.readline())["type"] == "history"
+        started = asyncio.get_running_loop().time()
+        await runner.cleanup()
+        assert asyncio.get_running_loop().time() - started < 5
+        resp.close()

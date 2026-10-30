@@ -75,6 +75,7 @@ TRAFFIC = web.AppKey("traffic", object)
 SHARE_TRAFFIC = web.AppKey("share_traffic", bool)
 ACCESS_TOKEN = web.AppKey("access_token", str)
 TIMEOUT = web.AppKey("request_timeout", float)
+HANDLING = web.AppKey("handling", set)  # the tasks of requests being handled, ended on shutdown
 TOKEN_HEADER = "X-Serverless-UI-Token"
 OPEN_PATHS = frozenset({"/", "/api/server"})  # the page, and how it learns it needs the token
 MIN_TOKEN = 16
@@ -1549,6 +1550,8 @@ async def guard(request, handler):
     Secrets are recorded from a clean slate and forgotten when the request ends, even if
     aiohttp serves the next keep-alive request in the same context."""
     token = _secrets.set(())
+    task = asyncio.current_task()
+    request.app[HANDLING].add(task)
     try:
         if refused := same_site(request):
             return web.json_response({"error": refused}, status=403, headers=SECURITY_HEADERS)
@@ -1591,6 +1594,18 @@ async def guard(request, handler):
         return resp
     finally:
         _secrets.reset(token)
+        request.app[HANDLING].discard(task)
+
+
+async def end_requests(app: web.Application):
+    """On shutdown, before aiohttp waits for requests still being handled: end them, as a
+    client going away would. The page's worker and traffic streams never end on their own, so
+    otherwise Ctrl+C waits out the whole grace period, and a request finishing just as it
+    runs out trips aiohttp (InvalidStateError)."""
+    for task in list(app[HANDLING]):
+        task.cancel()
+    if app[HANDLING]:
+        await asyncio.wait(list(app[HANDLING]), timeout=3)
 
 
 def make_app(vast_web_url: str = VAST_WEB_URL, autoscaler_url: str = "", api_key: str = "",
@@ -1612,6 +1627,8 @@ def make_app(vast_web_url: str = VAST_WEB_URL, autoscaler_url: str = "", api_key
     app[SHARE_TRAFFIC] = share_traffic
     app[ACCESS_TOKEN] = access_token
     app[TIMEOUT] = float(request_timeout)
+    app[HANDLING] = set()
+    app.on_shutdown.append(end_requests)
     app.add_routes([web.get("/v1/models", proxy_models), web.post("/v1/{route:.+}", proxy),
                     web.get("/e/{endpoint}/v1/models", proxy_models),
                     web.post("/e/{endpoint}/v1/{route:.+}", proxy),
@@ -1693,7 +1710,7 @@ def serve(api_key: str = "", key_source: str = "none", host: str = "127.0.0.1", 
                              share_traffic=not shared or share_traffic, access_token=token,
                              request_timeout=request_timeout),
                     host=host, port=port, print=started, access_log_format='%a "%r" %s %b %Tfs',
-                    handler_cancellation=True)
+                    handler_cancellation=True, shutdown_timeout=5)
     except OSError as e:
         if e.errno == errno.EADDRINUSE:
             sys.exit(f"Port {port} on {host} is in use. Pass --port N (or set SERVERLESS_UI_PORT).")

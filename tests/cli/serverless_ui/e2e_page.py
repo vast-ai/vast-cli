@@ -688,6 +688,16 @@ async def main():
         await linked.wait_for_selector("#eps button")
         assert "token" not in linked.url and not await linked.locator("#token-field").is_visible(), linked.url
         await linked.close()
+        # The link opened in a tab that already shows the page (locked): only the fragment
+        # changes, nothing reloads, and the page still takes the token
+        tab = await browser.new_page(viewport={"width": 1400, "height": 1000})
+        tab.on("pageerror", lambda e: problems.append(f"pageerror (hash): {e}"))
+        await tab.goto("http://127.0.0.1:8814/")
+        await tab.wait_for_selector("#token-field:not([hidden])")
+        await tab.evaluate(f"location.hash = '#token={TOKEN}'")
+        await tab.wait_for_selector("#eps button")
+        assert "token" not in tab.url, tab.url
+        await tab.close()
         print("access token ok")
 
         # Under a path, behind a proxy that wants its cookie back, opened without the trailing

@@ -61,6 +61,16 @@ class TestSearchOffers:
         assert "cpu_arch" not in patch_get_client.post.call_args[1]["json_data"]
 
 
+    def test_search_offers_table_shows_cpu_arch(self, parse_argv, patch_get_client, mock_response, capsys):
+        patch_get_client.post.return_value = mock_response(200, {
+            "offers": [{"id": 1, "gpu_name": "GB200", "cpu_arch": "arm64", "num_gpus": 1}]
+        })
+        args = parse_argv(["search", "offers"])
+        args.func(args)
+        out = capsys.readouterr().out
+        assert "arch" in out and "arm64" in out
+
+
 class TestSearchTemplates:
     def test_search_templates(self, parse_argv, patch_get_client, mock_response, capsys):
         patch_get_client.get.return_value = mock_response(200, [

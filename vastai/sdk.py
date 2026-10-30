@@ -286,7 +286,7 @@ class VastAI:
             storage: Allocated storage in GiB for pricing.
             no_default: Skip default filters (verified, rentable, etc.).
         """
-        from vastai.api.query import default_cpu_arch, parse_query, offers_fields, offers_alias, offers_mult
+        from vastai.api.query import parse_query, offers_fields, offers_alias, offers_mult
         from vastai.utils import preprocess_search_query, postprocess_search_results
 
         # Expand georegion/chunked directives before parsing.
@@ -302,8 +302,6 @@ class VastAI:
                 "rentable": {"eq": True},
             }
             query = parse_query(query, base, offers_fields, offers_alias, offers_mult)
-            if not no_default:
-                query.setdefault("cpu_arch", default_cpu_arch())
             defaults_applied = True
 
         # Parse order string into list
@@ -418,7 +416,7 @@ class VastAI:
             storage: Allocated storage in GiB for pricing.
             no_default: Skip default filters (verified, rentable, etc.).
         """
-        from vastai.api.query import default_cpu_arch, parse_query, offers_fields, offers_alias, offers_mult
+        from vastai.api.query import parse_query, offers_fields, offers_alias, offers_mult
         from vastai.utils import preprocess_search_query, postprocess_search_results
 
         georegion_active, chunked = False, False
@@ -430,8 +428,6 @@ class VastAI:
                 "rentable": {"eq": True},
             }
             query = parse_query(query, base, offers_fields, offers_alias, offers_mult)
-            if not no_default:
-                query.setdefault("cpu_arch", default_cpu_arch())
             defaults_applied = True
 
         order_list = parse_order(order)

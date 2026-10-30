@@ -129,7 +129,7 @@ def search__offers(args):
 
     :param argparse.Namespace args: should supply all the command-line options
     """
-    from vastai.api.query import default_cpu_arch, parse_query, offers_fields, offers_alias, offers_mult
+    from vastai.api.query import parse_query, offers_fields, offers_alias, offers_mult
 
     try:
         if args.no_default:
@@ -140,7 +140,8 @@ def search__offers(args):
         if args.query is not None:
             query = parse_query(args.query, query, offers_fields, offers_alias, offers_mult)
         if not args.no_default:
-            query.setdefault("cpu_arch", default_cpu_arch())
+            # Request every cpu arch like the console (CLN-3461); explicit cpu_arch wins.
+            query.setdefault("cpu_arch", {"in": ["amd64", "arm64"]})
 
         order = []
         for name in args.order.split(","):

@@ -4,8 +4,8 @@ from typing import Optional
 from vastai.api.billing import show_user
 from vastai.api.client import VastClient
 from vastai.api.instances import resolve_runtype
-from vastai.api.query import (default_cpu_arch, parse_order, parse_query,
-                              offers_alias, offers_fields, offers_mult)
+from vastai.api.query import (parse_order, parse_query, offers_alias,
+                              offers_fields, offers_mult)
 from vastai.utils import parse_env
 
 
@@ -31,8 +31,7 @@ def search_offers(client: VastClient, query: dict = None, offer_type: str = "on-
         q = query or {}
     else:
         q = {"verified": {"eq": True}, "external": {"eq": False},
-             "rentable": {"eq": True}, "rented": {"eq": False},
-             "cpu_arch": default_cpu_arch()}
+             "rentable": {"eq": True}, "rented": {"eq": False}}
         if query:
             q.update(query)
 
@@ -79,8 +78,7 @@ def search_offers_new(client: VastClient, query: dict = None, offer_type: str = 
         q = query or {}
     else:
         q = {"verified": {"eq": True}, "external": {"eq": False},
-             "rentable": {"eq": True}, "rented": {"eq": False},
-             "cpu_arch": default_cpu_arch()}
+             "rentable": {"eq": True}, "rented": {"eq": False}}
         if query:
             q.update(query)
 
@@ -547,8 +545,7 @@ def launch_instance(client: VastClient, gpu_name: str, num_gpus: str, image: str
         if disk:
             args_query += f" disk_space>={disk}"
         base_query = {"verified": {"eq": True}, "external": {"eq": False},
-                      "rentable": {"eq": True}, "rented": {"eq": False},
-                      "cpu_arch": default_cpu_arch()}
+                      "rentable": {"eq": True}, "rented": {"eq": False}}
         query = parse_query(args_query, base_query, offers_fields, offers_alias, offers_mult)
 
     # Parse order string

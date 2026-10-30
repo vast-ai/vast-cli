@@ -213,3 +213,26 @@ class TestFieldSets:
     def test_offers_mult_values(self):
         assert offers_mult["cpu_ram"] == 1000
         assert offers_mult["duration"] == 86400.0
+
+
+class TestDefaultCpuArch:
+    def test_api_search_offers_requests_amd64_and_arm64(self):
+        from unittest.mock import MagicMock
+        from vastai.api.offers import search_offers
+        client = MagicMock()
+        client.post.return_value.json.return_value = {"offers": []}
+        search_offers(client)
+        assert client.post.call_args.kwargs["json_data"]["cpu_arch"] == {"in": ["amd64", "arm64"]}
+
+    def test_caller_cpu_arch_overrides_default(self):
+        from unittest.mock import MagicMock
+        from vastai.api.offers import search_offers
+        client = MagicMock()
+        client.post.return_value.json.return_value = {"offers": []}
+        search_offers(client, query={"cpu_arch": {"eq": "amd64"}})
+        assert client.post.call_args.kwargs["json_data"]["cpu_arch"] == {"eq": "amd64"}
+
+    def test_each_call_gets_a_fresh_list(self):
+        from vastai.api.query import default_cpu_arch
+        default_cpu_arch()["in"].append("riscv64")
+        assert default_cpu_arch() == {"in": ["amd64", "arm64"]}

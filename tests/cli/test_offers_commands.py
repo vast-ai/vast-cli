@@ -36,6 +36,31 @@ class TestSearchOffers:
         assert "ID" in captured.out
 
 
+    def test_search_offers_requests_amd64_and_arm64_by_default(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.post.return_value = mock_response(200, {"offers": []})
+        args = parse_argv(["search", "offers", "--raw"])
+        args.func(args)
+        assert patch_get_client.post.call_args[1]["json_data"]["cpu_arch"] == {"in": ["amd64", "arm64"]}
+
+    def test_search_offers_explicit_cpu_arch_narrows_default(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.post.return_value = mock_response(200, {"offers": []})
+        args = parse_argv(["search", "offers", "--raw", "cpu_arch=arm64"])
+        args.func(args)
+        assert patch_get_client.post.call_args[1]["json_data"]["cpu_arch"] == {"eq": "arm64"}
+
+    def test_search_offers_cpu_arch_any_sends_every_arch(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.post.return_value = mock_response(200, {"offers": []})
+        args = parse_argv(["search", "offers", "--raw", "cpu_arch=any"])
+        args.func(args)
+        assert patch_get_client.post.call_args[1]["json_data"]["cpu_arch"] == {"in": ["amd64", "arm64"]}
+
+    def test_search_offers_no_default_omits_cpu_arch(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.post.return_value = mock_response(200, {"offers": []})
+        args = parse_argv(["search", "offers", "--no-default", "--raw"])
+        args.func(args)
+        assert "cpu_arch" not in patch_get_client.post.call_args[1]["json_data"]
+
+
 class TestSearchTemplates:
     def test_search_templates(self, parse_argv, patch_get_client, mock_response, capsys):
         patch_get_client.get.return_value = mock_response(200, [

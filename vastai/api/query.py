@@ -75,6 +75,11 @@ def version_string_sort(a, b) -> int:
     return 0
 
 
+def default_cpu_arch():
+    """Offer searches request every cpu arch, matching the console (CLN-3461)."""
+    return {"in": ["amd64", "arm64"]}
+
+
 vol_offers_fields = {
         "cpu_arch",
         "cuda_vers",

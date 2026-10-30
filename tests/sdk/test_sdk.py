@@ -179,6 +179,11 @@ class TestSearchOffers:
             assert isinstance(query, dict)
             assert "num_gpus" in query
 
+    def test_string_query_requests_amd64_and_arm64(self, sdk):
+        with patch("vastai.api.offers.search_offers", return_value=[]) as mock:
+            sdk.search_offers("num_gpus=1")
+            assert mock.call_args.kwargs["query"]["cpu_arch"] == {"in": ["amd64", "arm64"]}
+
     def test_dict_query_passed_through(self, sdk):
         q = {"num_gpus": {"eq": 1}}
         with patch("vastai.api.offers.search_offers", return_value=[]) as mock:

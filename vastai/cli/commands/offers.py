@@ -30,7 +30,7 @@ parser = _get_parser()
     argument("--limit", type=int, help=""),
     argument("--storage", type=float, default=5.0, help="Amount of storage to use for pricing, in GiB. default=5.0GiB"),
     argument("-o", "--order", type=str, help="Comma-separated list of fields to sort on. postfix field with - to sort desc. ex: -o 'num_gpus,total_flops-'.  default='score-'", default='score-'),
-    argument("query", help="Query to search for. default: 'external=false rentable=true verified=true', pass -n to ignore default", nargs="*", default=None),
+    argument("query", help="Query to search for. default: 'external=false rentable=true verified=true cpu_arch in [amd64,arm64]', pass -n to ignore default", nargs="*", default=None),
     usage="vastai search offers [--help] [--api-key API_KEY] [--raw] <query>",
     help="Search for instance types using custom query",
     epilog=deindent("""
@@ -129,7 +129,7 @@ def search__offers(args):
 
     :param argparse.Namespace args: should supply all the command-line options
     """
-    from vastai.api.query import parse_query, offers_fields, offers_alias, offers_mult
+    from vastai.api.query import default_cpu_arch, parse_query, offers_fields, offers_alias, offers_mult
 
     try:
         if args.no_default:
@@ -139,6 +139,8 @@ def search__offers(args):
 
         if args.query is not None:
             query = parse_query(args.query, query, offers_fields, offers_alias, offers_mult)
+        if not args.no_default:
+            query.setdefault("cpu_arch", default_cpu_arch())
 
         order = []
         for name in args.order.split(","):

@@ -9,6 +9,7 @@ from vastai.api.query import (
     offers_fields, offers_alias, offers_mult,
     benchmarks_fields, templates_fields, invoices_fields,
 )
+from vastai.utils import preprocess_search_query
 
 
 @pytest.fixture
@@ -179,6 +180,109 @@ class TestParseQuery:
     def test_underscore_replaced_with_space_in_value(self):
         result = parse_query("gpu_name=RTX_4090", fields=offers_fields)
         assert result["gpu_name"]["eq"] == "RTX 4090"
+
+
+class TestPreprocessSearchQueryKeepsEveryTerm:
+    """``preprocess_search_query`` rebuilds the query from its own parse, so a
+    value form its grammar cannot read is not reported as an error -- the term
+    silently disappears, and so does every term after it. Every value form
+    ``parse_query`` accepts has to survive it.
+
+    Only a query carrying ``georegion=true`` or ``chunked=true`` is rebuilt at
+    all, so every case here carries one.
+    """
+
+    # The query shape SkyPilot's Vast provisioner sends. The quoted geolocation
+    # is the third term, so this used to preprocess to '' -- a search with no
+    # filters at all.
+    SKYPILOT_QUERY = ('chunked=true georegion=true geolocation="AS" '
+                      'disk_space>=40 num_gpus=1 gpu_name="L40S" '
+                      'cpu_ram>="64.0"')
+
+    def test_quoted_value_does_not_truncate_the_query(self):
+        geo, chunked, q = preprocess_search_query(self.SKYPILOT_QUERY)
+        assert geo is True
+        assert chunked is True
+        assert 'geolocation in [' in q and 'JP' in q
+        for term in ('disk_space >= 40', 'num_gpus = 1',
+                     'gpu_name = "L40S"', 'cpu_ram >= "64.0"'):
+            assert term in q
+
+    def test_quoted_value_containing_a_space_survives(self):
+        _geo, _chunked, q = preprocess_search_query(
+            'chunked = true gpu_name = "RTX 4090" num_gpus = 1')
+        assert 'gpu_name = "RTX 4090"' in q
+        assert 'num_gpus = 1' in q
+
+    def test_single_quoted_value_survives(self):
+        _geo, _chunked, q = preprocess_search_query(
+            "chunked = true gpu_name = 'RTX 4090' num_gpus = 1")
+        assert "gpu_name = 'RTX 4090'" in q
+        assert 'num_gpus = 1' in q
+
+    def test_decimal_value_keeps_its_fraction(self):
+        _geo, _chunked, q = preprocess_search_query(
+            'chunked = true duration > 2.5 num_gpus = 1')
+        assert 'duration > 2.5' in q
+
+    def test_decimal_value_does_not_swallow_later_terms(self):
+        """A decimal used to match only its integer part, then stop the parse."""
+        _geo, _chunked, q = preprocess_search_query(
+            'chunked = true reliability > 0.99 num_gpus = 1')
+        assert 'reliability > 0.99' in q
+        assert 'num_gpus = 1' in q
+
+    def test_bracketed_list_survives(self):
+        _geo, _chunked, q = preprocess_search_query(
+            'chunked = true geolocation in [JP,TW] num_gpus = 1')
+        assert 'geolocation in [JP,TW]' in q
+        assert 'num_gpus = 1' in q
+
+    def test_value_with_several_dots_survives(self):
+        _geo, _chunked, q = preprocess_search_query(
+            'chunked = true driver_version >= 535.104.05 num_gpus = 1')
+        assert 'driver_version >= 535.104.05' in q
+        assert 'num_gpus = 1' in q
+
+    def test_quoted_region_code_is_expanded(self):
+        """The region code is compared unquoted, so a quoted one still expands."""
+        geo, _chunked, q = preprocess_search_query(
+            'geolocation = "NA" georegion = true')
+        assert geo is True
+        assert 'geolocation in [CA,US]' in q
+
+    def test_unparsable_query_is_returned_untouched(self):
+        """What cannot be read in full is never rebuilt from a partial parse."""
+        query = 'chunked = true num_gpus'
+        assert preprocess_search_query(query) == (False, False, query)
+
+    def test_unparsable_query_warns(self, capsys):
+        """Passing it through changes what the search does -- the directives
+        stay in the query as if they were fields and nothing is expanded -- so
+        it cannot be silent."""
+        preprocess_search_query('chunked = true num_gpus')
+        assert 'Warning' in capsys.readouterr().err
+
+    def test_quoted_directive_is_recognised(self):
+        """A directive is compared unquoted, the same as a region code."""
+        _geo, chunked, q = preprocess_search_query('chunked="true" num_gpus=1')
+        assert chunked is True
+        assert 'chunked' not in q
+        assert 'num_gpus = 1' in q
+
+    def test_every_filter_reaches_the_parsed_query(self):
+        """End to end: preprocess -> parse_query. Before the fix this produced
+        an empty dict, so search_offers ran with no filters."""
+        _geo, _chunked, query_str = preprocess_search_query(
+            self.SKYPILOT_QUERY + ' duration>2.5')
+        query = parse_query(query_str, {}, offers_fields, offers_alias,
+                            offers_mult)
+        assert 'JP' in query['geolocation']['in']
+        assert query['disk_space'] == {'gte': '40'}
+        assert query['num_gpus'] == {'eq': '1'}
+        assert query['gpu_name'] == {'eq': 'L40S'}   # quotes stripped downstream
+        assert query['cpu_ram'] == {'gte': 64.0 * 1000}
+        assert query['duration'] == {'gt': 2.5 * 24 * 60 * 60}
 
 
 class TestFieldSets:

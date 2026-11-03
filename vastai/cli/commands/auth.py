@@ -237,13 +237,14 @@ def set__api_key(args):
     """Set the api-key."""
     from vastai.cli.util import APIKEY_FILE, APIKEY_FILE_HOME
 
+    # Exit rather than return 1: under --raw a returned value is printed as JSON and exits 0.
     api_key = args.new_api_key.strip() if args.new_api_key is not None else read_api_key_input()
     if not api_key:
         print(f"\n{FAIL} Error: No API key given. Create one at https://console.vast.ai/manage-keys/")
-        return 1
+        sys.exit(1)
     if not API_KEY_PATTERN.fullmatch(api_key):
         print(f"\n{FAIL} Error: That isn't a Vast API key (expected 64 hex characters), so it wasn't saved.")
-        return 1
+        sys.exit(1)
 
     write_private_file(APIKEY_FILE, api_key)
     print("Your api key has been saved in {}".format(APIKEY_FILE))

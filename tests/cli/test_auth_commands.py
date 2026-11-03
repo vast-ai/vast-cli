@@ -128,11 +128,22 @@ class TestSetApiKey:
     def test_rejects_what_is_not_an_api_key(self, key_file, capsys, bad):
         key_file.write_text(OTHER_API_KEY)
         from vastai.cli.commands.auth import set__api_key
-        assert set__api_key(argparse.Namespace(new_api_key=bad)) == 1
+        with pytest.raises(SystemExit) as exit_info:
+            set__api_key(argparse.Namespace(new_api_key=bad))
+        assert exit_info.value.code == 1
         assert key_file.read_text() == OTHER_API_KEY
         out = capsys.readouterr().out
         assert "64 hex characters" in out
         assert bad not in out
+
+    def test_rejection_fails_the_command_under_raw(self, key_file, parse_argv):
+        # --raw prints a command's return value as JSON and exits 0, so a rejection
+        # signalled by returning would look like success to a script.
+        from vastai.cli.main import run_command
+        with pytest.raises(SystemExit) as exit_info:
+            run_command(parse_argv(["set", "api-key", "YOUR_API_KEY", "--raw"]))
+        assert exit_info.value.code == 1
+        assert not key_file.exists()
 
     def test_key_is_optional_on_the_command_line(self, parse_argv):
         assert parse_argv(["set", "api-key"]).new_api_key is None
@@ -151,7 +162,9 @@ class TestSetApiKey:
         monkeypatch.setattr("sys.stdin", TerminalStdin())
         monkeypatch.setattr("getpass.getpass", cancel)
         from vastai.cli.commands.auth import set__api_key
-        assert set__api_key(argparse.Namespace(new_api_key=None)) == 1
+        with pytest.raises(SystemExit) as exit_info:
+            set__api_key(argparse.Namespace(new_api_key=None))
+        assert exit_info.value.code == 1
         assert not key_file.exists()
 
     def test_left_out_key_is_read_from_piped_stdin(self, key_file, monkeypatch):
@@ -163,7 +176,9 @@ class TestSetApiKey:
     def test_empty_stdin_saves_nothing(self, key_file, monkeypatch, capsys):
         monkeypatch.setattr("sys.stdin", io.StringIO(""))
         from vastai.cli.commands.auth import set__api_key
-        assert set__api_key(argparse.Namespace(new_api_key=None)) == 1
+        with pytest.raises(SystemExit) as exit_info:
+            set__api_key(argparse.Namespace(new_api_key=None))
+        assert exit_info.value.code == 1
         assert not key_file.exists()
         assert "No API key given" in capsys.readouterr().out
 

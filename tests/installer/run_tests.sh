@@ -168,10 +168,10 @@ run_install_tty() {
     esac
 }
 
-# run_install_pty REPLY [VAR=VAL ...] — real install.sh on a pty, typing REPLY and Enter at the
-# API-key prompt once it shows (a beat later, as a person would: input that lands before
-# `read -s` turns echo off is echoed). `stty -a` runs on the same pty afterwards, so a test can
-# see whether the installer left echo off. Same ${VASTAI_TEST_TTY_BASH:-/bin/bash} as above.
+# run_install_pty REPLY [VAR=VAL ...] — real install.sh on a pty, typing REPLY and Enter the
+# instant the API-key prompt shows, like a paste or a password manager would; that reply must
+# not be echoed either. `stty -a` runs on the same pty afterwards, so a test can see whether
+# the installer left echo off. Same ${VASTAI_TEST_TTY_BASH:-/bin/bash} as above.
 run_install_pty() {
     local reply="$1"; shift
     # `trap : INT` (a handler, not an ignore, which children would inherit) keeps the wrapper
@@ -198,7 +198,6 @@ while time.time() < deadline:
         break
     out += chunk
     if not sent and b"press Enter to skip" in out:
-        time.sleep(0.3)
         os.write(fd, os.fsencode(reply) + b"\n")
         sent = True
 else:
@@ -458,7 +457,16 @@ test_api_key_rejected() { # a bad key fails before anything installs, and is nev
 
 test_api_key_prompt() { # at a terminal with no key: hidden prompt saves a typed key; Enter skips
     new_sandbox keyprompt
-    run_install_pty "$KEY" || { cat "$SB_OUT"; return 1; }
+    # A slow `stty -g` holds open any gap between the prompt appearing and echo going off, so
+    # the instant reply below is echoed unless echo is already off when the prompt shows.
+    mkdir -p "$SB/slowbin"
+    cat > "$SB/slowbin/stty" <<EOF
+#!/bin/sh
+[ "\$1" = "-g" ] && sleep 0.5
+exec $(command -v stty) "\$@"
+EOF
+    chmod +x "$SB/slowbin/stty"
+    run_install_pty "$KEY" "PATH=$SB/slowbin:$PATH" || { cat "$SB_OUT"; return 1; }
     assert "asked for the key" out_contains "press Enter to skip" &&
     assert "typed key saved" key_saved "$KEY" &&
     assert "key file is owner-only" [ "$(key_mode)" = "600" ] &&

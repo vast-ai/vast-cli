@@ -488,15 +488,16 @@ is_api_key() {
     return 0
 }
 
-# save_api_key KEY — the file `vastai set api-key` writes: owner-only from the first byte,
-# and renamed into place so it is never half-written.
+# save_api_key KEY — the file `vastai set api-key` writes: owner-only from the first byte, via a
+# temp file unique to this run renamed into place, so it is never half-written and concurrent
+# runs never touch each other's file.
 save_api_key() {
     local dir tmp
     dir="$(dirname "$API_KEY_FILE")"
-    tmp="$API_KEY_FILE.tmp"
     mkdir -p "$dir" || die "could not create $dir"
-    rm -f "$tmp"
-    if ! ( umask 077 && printf '%s' "$1" > "$tmp" ) || ! mv -f "$tmp" "$API_KEY_FILE"; then
+    tmp="$(umask 077 && mktemp "$dir/.vast_api_key.XXXXXX")" \
+        || die "could not save the API key to $API_KEY_FILE"
+    if ! printf '%s' "$1" > "$tmp" || ! mv -f "$tmp" "$API_KEY_FILE"; then
         rm -f "$tmp"
         die "could not save the API key to $API_KEY_FILE"
     fi
@@ -510,11 +511,14 @@ save_api_key() {
 # the script itself, so the reply comes from /dev/tty. Fails when skipped or not a key.
 prompt_api_key() {
     local key=""
-    printf '  Paste your API key from %s\n  (input is hidden; press Enter to skip): ' \
-        "$API_KEYS_URL" > /dev/tty
-    # `stty echo` is the least a restore must do if the full state couldn't be read.
+    # Echo goes off before the prompt shows, so a reply that arrives the instant it appears (a
+    # paste, a password manager) is never displayed. `stty echo` is the least a restore must do
+    # if the full state couldn't be read.
     PROMPT_TTY="$(stty -g < /dev/tty 2>/dev/null || true)"
     PROMPT_TTY="${PROMPT_TTY:-echo}"
+    stty -echo < /dev/tty 2>/dev/null || true
+    printf '  Paste your API key from %s\n  (input is hidden; press Enter to skip): ' \
+        "$API_KEYS_URL" > /dev/tty
     read -rs key < /dev/tty || true
     prompt_end
     [ -n "$key" ] || return 1

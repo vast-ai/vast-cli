@@ -495,7 +495,9 @@ test_api_key_prompt_interrupt() { # Ctrl-C at the hidden prompt must hand the te
     new_sandbox keypromptint
     run_install_pty "$(printf '\003')" && { echo "    expected the interrupt to fail the run"; return 1; }
     assert "interrupted at the prompt" out_contains "press Enter to skip" &&
-    assert "terminal echo restored" out_contains_raw " echo " &&
+    # stty -a prints its flags on one line or one per line depending on platform and terminal
+    # width; "echo" as a whole token (not -echo, echoe, ...) means echo is back on.
+    assert "terminal echo restored" grep -qaE '(^|[[:space:]])echo([[:space:]]|$)' "$SB_OUT" &&
     assert "nothing saved" [ ! -e "$(key_file)" ]
 }
 

@@ -11,6 +11,12 @@ Provides both the CLI and SDK for managing Vast.ai GPU cloud resources, plus a s
 curl -fsSL https://vast.ai/install.sh | bash
 ```
 
+At a terminal, it then asks for your API key. To set the key in the same command instead (scripts, coding agents):
+
+```bash
+curl -fsSL https://vast.ai/install.sh | bash -s -- YOUR_API_KEY
+```
+
 Update anytime with `vastai update`.
 
 **Windows, or using the Python SDK** — install from PyPI instead:
@@ -23,9 +29,9 @@ pip install vastai
 
 1. Get your API key from [https://cloud.vast.ai/manage-keys/](https://cloud.vast.ai/manage-keys/)
 
-2. Set your API key:
+2. Set your API key (skip this if the installer saved it). Paste the key when asked, which keeps it out of your shell history:
 ```bash
-vastai set api-key YOUR_API_KEY
+vastai set api-key
 ```
 
 3. Test a search:

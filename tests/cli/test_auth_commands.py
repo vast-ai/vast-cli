@@ -1,6 +1,9 @@
 """Integration tests for auth CLI commands with mocked HTTP."""
 
 import argparse
+import io
+import stat
+import sys
 from unittest.mock import patch
 
 import pytest
@@ -85,19 +88,84 @@ class TestDeleteEnvVar:
         assert call_args[1]["json_data"]["key"] == "MY_NAME"
 
 
+API_KEY = "0123456789abcdef" * 4
+OTHER_API_KEY = "fedcba9876543210" * 4
+
+
+class TerminalStdin(io.StringIO):
+    def isatty(self):
+        return True
+
+
 class TestSetApiKey:
-    def test_writes_byte_exact_no_text_mode_translation(self, tmp_path, monkeypatch):
+    @pytest.fixture
+    def key_file(self, tmp_path, monkeypatch):
+        key_file = tmp_path / "vast_api_key"
+        monkeypatch.setattr("vastai.cli.util.APIKEY_FILE", str(key_file))
+        monkeypatch.setattr("vastai.cli.util.APIKEY_FILE_HOME", str(tmp_path / ".vast_api_key"))
+        monkeypatch.delenv("VAST_API_KEY", raising=False)
+        return key_file
+
+    def test_writes_byte_exact_no_text_mode_translation(self, key_file, monkeypatch):
         # `open(path, "w").write(key)` on Windows turns `\n` -> `\r\n`; the key
         # file must contain exactly the key bytes and nothing else, so trailing
         # whitespace bugs are also caught.
-        key_file = tmp_path / "vast_api_key"
-        legacy_file = tmp_path / ".vast_api_key"
-        monkeypatch.setattr("vastai.cli.util.APIKEY_FILE", str(key_file))
-        monkeypatch.setattr("vastai.cli.util.APIKEY_FILE_HOME", str(legacy_file))
         monkeypatch.setattr("vastai.api.machines.show_machines", lambda client: [])
         from vastai.cli.commands.auth import set__api_key
-        set__api_key(argparse.Namespace(new_api_key="test-key-abc-123"))
-        assert key_file.read_bytes() == b"test-key-abc-123"
+        set__api_key(argparse.Namespace(new_api_key=API_KEY))
+        assert key_file.read_bytes() == API_KEY.encode()
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
+    def test_key_file_is_owner_only_when_replacing_an_existing_one(self, key_file):
+        key_file.write_text(OTHER_API_KEY)
+        key_file.chmod(0o644)
+        from vastai.cli.commands.auth import set__api_key
+        set__api_key(argparse.Namespace(new_api_key=API_KEY))
+        assert key_file.read_text() == API_KEY
+        assert stat.S_IMODE(key_file.stat().st_mode) == 0o600
+
+    @pytest.mark.parametrize("bad", ["YOUR_API_KEY", API_KEY + "0", "g" * 64])
+    def test_rejects_what_is_not_an_api_key(self, key_file, capsys, bad):
+        key_file.write_text(OTHER_API_KEY)
+        from vastai.cli.commands.auth import set__api_key
+        assert set__api_key(argparse.Namespace(new_api_key=bad)) == 1
+        assert key_file.read_text() == OTHER_API_KEY
+        out = capsys.readouterr().out
+        assert "64 hex characters" in out
+        assert bad not in out
+
+    def test_key_is_optional_on_the_command_line(self, parse_argv):
+        assert parse_argv(["set", "api-key"]).new_api_key is None
+
+    def test_left_out_key_is_asked_for_at_a_hidden_prompt(self, key_file, monkeypatch, capsys):
+        monkeypatch.setattr("sys.stdin", TerminalStdin())
+        monkeypatch.setattr("getpass.getpass", lambda prompt: f"  {API_KEY}\n")
+        from vastai.cli.commands.auth import set__api_key
+        set__api_key(argparse.Namespace(new_api_key=None))
+        assert key_file.read_text() == API_KEY
+        assert API_KEY not in capsys.readouterr().out
+
+    def test_cancelled_prompt_saves_nothing(self, key_file, monkeypatch):
+        def cancel(prompt):
+            raise KeyboardInterrupt
+        monkeypatch.setattr("sys.stdin", TerminalStdin())
+        monkeypatch.setattr("getpass.getpass", cancel)
+        from vastai.cli.commands.auth import set__api_key
+        assert set__api_key(argparse.Namespace(new_api_key=None)) == 1
+        assert not key_file.exists()
+
+    def test_left_out_key_is_read_from_piped_stdin(self, key_file, monkeypatch):
+        monkeypatch.setattr("sys.stdin", io.StringIO(API_KEY + "\n"))
+        from vastai.cli.commands.auth import set__api_key
+        set__api_key(argparse.Namespace(new_api_key=None))
+        assert key_file.read_text() == API_KEY
+
+    def test_empty_stdin_saves_nothing(self, key_file, monkeypatch, capsys):
+        monkeypatch.setattr("sys.stdin", io.StringIO(""))
+        from vastai.cli.commands.auth import set__api_key
+        assert set__api_key(argparse.Namespace(new_api_key=None)) == 1
+        assert not key_file.exists()
+        assert "No API key given" in capsys.readouterr().out
 
     def test_sdk_reads_back_key_written_by_cli(self, tmp_path, monkeypatch):
         # End-to-end: `set api-key` writes the file; VastAI() picks it up.
@@ -113,12 +181,12 @@ class TestSetApiKey:
         monkeypatch.setattr("vastai.api.machines.show_machines", lambda client: [])
 
         from vastai.cli.commands.auth import set__api_key
-        set__api_key(argparse.Namespace(new_api_key="round-trip-key"))
+        set__api_key(argparse.Namespace(new_api_key=API_KEY))
 
         from vastai import VastAI
         with patch("vastai.sdk.VastClient") as MockClient:
             VastAI()
-            assert MockClient.call_args[0][0] == "round-trip-key"
+            assert MockClient.call_args[0][0] == API_KEY
 
 
 class TestSetRole:

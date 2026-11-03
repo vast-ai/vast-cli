@@ -24,9 +24,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Without setsid we can't guarantee a detached tty; force no-modify-path then.
+# Without setsid we can't guarantee a detached tty; force no-modify-path and no-prompt then.
 HAVE_SETSID=""
 command -v setsid >/dev/null 2>&1 && HAVE_SETSID=1
+
+# Well-formed API keys (64 hex characters, the shape every Vast API key has).
+KEY="$(printf '0123456789abcdef%.0s' 1 2 3 4)"
+OTHER_KEY="$(printf 'fedcba9876543210%.0s' 1 2 3 4)"
 
 sha256_of() {
     if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
@@ -125,7 +129,7 @@ new_sandbox() {
 run_install() {
     # VAST_API_KEY=/XDG_CONFIG_HOME= keep a developer's real key from flipping the api-key hint.
     local envs=("HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" "VAST_API_KEY=" "XDG_CONFIG_HOME=" "$@")
-    [ -z "$HAVE_SETSID" ] && envs+=("VASTAI_NO_MODIFY_PATH=1")
+    [ -z "$HAVE_SETSID" ] && envs+=("VASTAI_NO_MODIFY_PATH=1" "VASTAI_NO_PROMPT=1")
     if [ -n "$HAVE_SETSID" ]; then
         setsid -w env "${envs[@]}" bash "$INSTALL_SH" >"$SB_OUT" 2>&1 </dev/null
     else
@@ -133,12 +137,29 @@ run_install() {
     fi
 }
 
+# run_install_piped [VAR=VAL ...] -- ARG... — the documented `curl | bash -s -- ARG...` form:
+# the script arrives on stdin and ARGs reach it through `bash -s --`. Detached like run_install.
+run_install_piped() {
+    local envs=("HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" "VAST_API_KEY=" "XDG_CONFIG_HOME=")
+    while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do envs+=("$1"); shift; done
+    shift
+    [ -z "$HAVE_SETSID" ] && envs+=("VASTAI_NO_MODIFY_PATH=1" "VASTAI_NO_PROMPT=1")
+    if [ -n "$HAVE_SETSID" ]; then
+        setsid -w env "${envs[@]}" bash -s -- "$@" <"$INSTALL_SH" >"$SB_OUT" 2>&1
+    else
+        env "${envs[@]}" bash -s -- "$@" <"$INSTALL_SH" >"$SB_OUT" 2>&1
+    fi
+}
+
 # run_install_tty [VAR=VAL ...] — real install.sh with stderr on a pty (so the progress UI
 # engages), under ${VASTAI_TEST_TTY_BASH:-/bin/bash} — macOS CI points that at stock bash 3.2,
 # which is the regression guarantee for the TTY-only array and $'...' paths. Needs script(1).
+# No API-key prompt here: BSD and util-linux script(1) handle stdin EOF differently, so whether
+# the prompt would return or block isn't ours to rely on — run_install_pty drives it instead.
 run_install_tty() {
     local cmd=(env "HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" \
-        "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" "VAST_API_KEY=" "XDG_CONFIG_HOME=" "$@" \
+        "VASTAI_CLI_BASE_URL=$SERVER/good" "SHELL=/bin/bash" "VAST_API_KEY=" "XDG_CONFIG_HOME=" \
+        "VASTAI_NO_PROMPT=1" "$@" \
         "${VASTAI_TEST_TTY_BASH:-/bin/bash}" "$INSTALL_SH")
     case "$(uname -s)" in
         Darwin*) script -q /dev/null "${cmd[@]}" >"$SB_OUT" 2>&1 </dev/null ;;
@@ -146,6 +167,54 @@ run_install_tty() {
         *)       script -qec "${cmd[*]}" /dev/null >"$SB_OUT" 2>&1 </dev/null ;;
     esac
 }
+
+# run_install_pty REPLY [VAR=VAL ...] — real install.sh on a pty, typing REPLY and Enter at the
+# API-key prompt once it shows (a beat later, as a person would: input that lands before
+# `read -s` turns echo off is echoed). `stty -a` runs on the same pty afterwards, so a test can
+# see whether the installer left echo off. Same ${VASTAI_TEST_TTY_BASH:-/bin/bash} as above.
+run_install_pty() {
+    local reply="$1"; shift
+    # `trap : INT` (a handler, not an ignore, which children would inherit) keeps the wrapper
+    # alive through a typed Ctrl-C, so the stty report still runs. The inner sh expands "$@".
+    # shellcheck disable=SC2016
+    python3 -I - "$reply" "$SB_OUT" sh -c 'trap : INT; "$@"; rc=$?; stty -a </dev/tty; exit $rc' sh \
+        env "HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" "VASTAI_CLI_BASE_URL=$SERVER/good" \
+        "SHELL=/bin/bash" "VAST_API_KEY=" "XDG_CONFIG_HOME=" "VASTAI_NO_MODIFY_PATH=1" "$@" \
+        "${VASTAI_TEST_TTY_BASH:-/bin/bash}" "$INSTALL_SH" <<'PY'
+import os, pty, select, sys, time
+reply, out_path, cmd = sys.argv[1], sys.argv[2], sys.argv[3:]
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvp(cmd[0], cmd)
+out, sent, deadline = b"", False, time.time() + 60
+while time.time() < deadline:
+    if not select.select([fd], [], [], 0.2)[0]:
+        continue
+    try:
+        chunk = os.read(fd, 4096)
+    except OSError:  # Linux reports the closed child side as EIO rather than EOF
+        chunk = b""
+    if not chunk:
+        break
+    out += chunk
+    if not sent and b"press Enter to skip" in out:
+        time.sleep(0.3)
+        os.write(fd, os.fsencode(reply) + b"\n")
+        sent = True
+else:
+    os.kill(pid, 9)
+    out += b"\n[run_install_pty: timed out]\n"
+with open(out_path, "wb") as f:
+    f.write(out)
+_, status = os.waitpid(pid, 0)
+sys.exit(os.WEXITSTATUS(status) if os.WIFEXITED(status) else 1)
+PY
+}
+
+key_file() { printf '%s' "$SB_HOME/.config/vastai/vast_api_key"; }
+key_saved() { [ "$(cat "$(key_file)" 2>/dev/null)" = "$1" ]; }
+# GNU stat first; BSD (macOS) stat reads -c as a bad flag and falls through.
+key_mode() { stat -c %a "$(key_file)" 2>/dev/null || stat -f %Lp "$(key_file)"; }
 
 assert() { # assert DESC command...
     local desc="$1"; shift
@@ -187,7 +256,7 @@ test_xdg_data_home_default() { # no VASTAI_INSTALL_DIR -> installs under $XDG_DA
     new_sandbox xdgdata
     local xdg_data="$SB/xdgdata"
     env "HOME=$SB_HOME" "XDG_DATA_HOME=$xdg_data" "VASTAI_CLI_BASE_URL=$SERVER/good" \
-        "SHELL=/bin/bash" "VASTAI_NO_MODIFY_PATH=1" \
+        "SHELL=/bin/bash" "VASTAI_NO_MODIFY_PATH=1" "VASTAI_NO_PROMPT=1" \
         bash "$INSTALL_SH" >"$SB_OUT" 2>&1 </dev/null || { cat "$SB_OUT"; return 1; }
     assert "installed under \$XDG_DATA_HOME/vastai/current" [ -d "$xdg_data/vastai/current" ] &&
     assert "installed CLI runs" [ "$("$xdg_data/vastai/bin/vastai" --version)" = "1.2.3" ] &&
@@ -334,6 +403,102 @@ test_api_key_hint() { # no key -> get-started hint; key on disk -> checkmark ins
     assert "help hint always printed" out_contains "All commands"
 }
 
+test_api_key_arg() { # `curl | bash -s -- KEY` saves the key owner-only, without printing it
+    new_sandbox keyarg
+    run_install_piped -- "$KEY" || { cat "$SB_OUT"; return 1; }
+    assert "key saved where the CLI reads it" key_saved "$KEY" &&
+    assert "key file is owner-only" [ "$(key_mode)" = "600" ] &&
+    assert "reports the saved key" out_contains "API key: *✓ saved" &&
+    assert "no get-started hint once saved" out_lacks "Get started" &&
+    assert "key never printed" out_lacks "$KEY"
+}
+
+test_api_key_flag_and_env() { # --api-key KEY, --api-key=KEY and VASTAI_API_KEY=KEY save it too
+    new_sandbox keyflag
+    run_install_piped -- --no-prompt --api-key "$KEY" || { cat "$SB_OUT"; return 1; }
+    assert "--api-key KEY saved" key_saved "$KEY" || return 1
+    new_sandbox keyflageq
+    run_install_piped -- "--api-key=$KEY" || { cat "$SB_OUT"; return 1; }
+    assert "--api-key=KEY saved" key_saved "$KEY" || return 1
+    new_sandbox keyenv
+    run_install "VASTAI_API_KEY=$KEY" || { cat "$SB_OUT"; return 1; }
+    assert "VASTAI_API_KEY saved" key_saved "$KEY"
+}
+
+test_api_key_replaces_existing() { # a given key replaces the saved one; the env var's precedence is called out
+    new_sandbox keyreplace
+    mkdir -p "$(dirname "$(key_file)")"
+    printf '%s' "$OTHER_KEY" > "$(key_file)"
+    chmod 644 "$(key_file)"
+    run_install_piped "VAST_API_KEY=$OTHER_KEY" -- "$KEY" || { cat "$SB_OUT"; return 1; }
+    assert "new key replaced the old one" key_saved "$KEY" &&
+    assert "replaced file is owner-only" [ "$(key_mode)" = "600" ] &&
+    assert "warns that VAST_API_KEY still wins" out_contains "VAST_API_KEY is set in your environment"
+}
+
+test_api_key_rejected() { # a bad key fails before anything installs, and is never echoed back
+    local bad i=0
+    for bad in YOUR_API_KEY "${KEY}0" "$(printf 'g%.0s' $(seq 64))"; do
+        i=$((i + 1))
+        new_sandbox "keybad$i"
+        run_install_piped -- "$bad" && { echo "    expected failure for a bad key"; return 1; }
+        assert "names the expected shape" out_contains "64 hex characters" &&
+        assert "bad value not echoed" out_lacks "$bad" &&
+        assert "no install root created" [ ! -e "$SB_ROOT" ] &&
+        assert "no key file written" [ ! -e "$(key_file)" ] || return 1
+    done
+    new_sandbox keytwice
+    run_install_piped -- "$KEY" --api-key "$OTHER_KEY" && { echo "    expected failure for two keys"; return 1; }
+    assert "refuses two keys" out_contains "pass one API key" &&
+    assert "no install root created" [ ! -e "$SB_ROOT" ] || return 1
+    new_sandbox keynovalue
+    run_install_piped -- --api-key && { echo "    expected failure for a missing value"; return 1; }
+    assert "asks for the value" out_contains "needs a value"
+}
+
+test_api_key_prompt() { # at a terminal with no key: hidden prompt saves a typed key; Enter skips
+    new_sandbox keyprompt
+    run_install_pty "$KEY" || { cat "$SB_OUT"; return 1; }
+    assert "asked for the key" out_contains "press Enter to skip" &&
+    assert "typed key saved" key_saved "$KEY" &&
+    assert "key file is owner-only" [ "$(key_mode)" = "600" ] &&
+    assert "typed key not echoed" out_lacks "$KEY" &&
+    assert "reports the saved key" out_contains "API key: *✓ saved" || return 1
+
+    new_sandbox keypromptskip
+    run_install_pty "" || { cat "$SB_OUT"; return 1; }
+    assert "Enter skips to the get-started hint" out_contains "Get started" &&
+    assert "nothing saved on skip" [ ! -e "$(key_file)" ] || return 1
+
+    new_sandbox keypromptbad
+    run_install_pty "vastai show user" || { cat "$SB_OUT"; return 1; }
+    assert "a non-key is refused" out_contains "isn't a Vast API key" &&
+    assert "nothing saved for a non-key" [ ! -e "$(key_file)" ] &&
+    assert "falls back to the get-started hint" out_contains "Get started"
+}
+
+test_api_key_no_prompt() { # never asks when told not to, or when a key is already configured
+    new_sandbox keynoprompt
+    run_install_pty "$KEY" VASTAI_NO_PROMPT=1 || { cat "$SB_OUT"; return 1; }
+    assert "VASTAI_NO_PROMPT=1 skips the prompt" out_lacks "press Enter to skip" &&
+    assert "nothing saved" [ ! -e "$(key_file)" ] || return 1
+
+    new_sandbox keypromptfound
+    mkdir -p "$(dirname "$(key_file)")"
+    printf '%s' "$OTHER_KEY" > "$(key_file)"
+    run_install_pty "$KEY" || { cat "$SB_OUT"; return 1; }
+    assert "existing key: no prompt" out_lacks "press Enter to skip" &&
+    assert "existing key untouched" key_saved "$OTHER_KEY"
+}
+
+test_api_key_prompt_interrupt() { # Ctrl-C at the hidden prompt must hand the terminal back echoing
+    new_sandbox keypromptint
+    run_install_pty "$(printf '\003')" && { echo "    expected the interrupt to fail the run"; return 1; }
+    assert "interrupted at the prompt" out_contains "press Enter to skip" &&
+    assert "terminal echo restored" out_contains_raw " echo " &&
+    assert "nothing saved" [ ! -e "$(key_file)" ]
+}
+
 test_completion_files_generated() { # static completion scripts precomputed under share/
     new_sandbox compgen
     run_install || { cat "$SB_OUT"; return 1; }
@@ -396,7 +561,7 @@ test_progress_failure_shows_tool_error() { # the bar must not swallow diagnostic
 # Runner
 # ---------------------------------------------------------------------------
 
-ALL_TESTS=(fresh_install pinned_reinstall xdg_data_home_default wheel_url_install wheel_url_pin_fallback checksum_abort truncation_guard glibc_floor rc_safety env_sh pip_shadowing pip_shadowing_quiet pip_shadowing_rerun api_key_hint completion_files_generated tty_install progress_bar progress_opt_out progress_failure_shows_tool_error)
+ALL_TESTS=(fresh_install pinned_reinstall xdg_data_home_default wheel_url_install wheel_url_pin_fallback checksum_abort truncation_guard glibc_floor rc_safety env_sh pip_shadowing pip_shadowing_quiet pip_shadowing_rerun api_key_hint api_key_arg api_key_flag_and_env api_key_replaces_existing api_key_rejected api_key_prompt api_key_no_prompt api_key_prompt_interrupt completion_files_generated tty_install progress_bar progress_opt_out progress_failure_shows_tool_error)
 # No "${@:-...}": expanding $@ with zero args under set -u is itself fatal on
 # old bash, and this harness must run under macOS's stock bash 3.2 (see
 # test_tty_install).

@@ -1,8 +1,11 @@
 """CLI commands for authentication and 2FA."""
 
+import getpass
 import json
 import os
+import re
 import sys
+import tempfile
 from datetime import datetime, timezone
 
 from vastai.cli.parser import argument
@@ -196,17 +199,53 @@ parser = _get_parser()
 # set api-key
 # ---------------------------------------------------------------------------
 
+# Vast API keys are 64 hex characters.
+API_KEY_PATTERN = re.compile(r"[0-9a-fA-F]{64}")
+
+
+def read_api_key_input():
+    """The key from a hidden prompt at a terminal, else the first line of stdin
+    (``vastai set api-key < keyfile``); empty when none was given."""
+    if not sys.stdin.isatty():
+        return sys.stdin.readline().strip()
+    try:
+        return getpass.getpass("Paste your API key (input is hidden): ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return ""
+
+
+def write_private_file(path, text):
+    """Write ``text`` to ``path`` readable by the owner only from the first
+    byte, via a temp file renamed into place so it is never half-written."""
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".vast_api_key.")
+    try:
+        with os.fdopen(fd, "wb") as f:  # binary: no \n -> \r\n translation on Windows
+            f.write(text.encode())
+        os.replace(tmp, path)
+    except BaseException:
+        os.unlink(tmp)
+        raise
+
+
 @parser.command(
-    argument("new_api_key", help="Api key to set as currently logged in user"),
-    usage="vastai set api-key APIKEY",
+    argument("new_api_key", nargs="?", help="API key to save. Leave it out to paste it at a hidden prompt (or pipe it on stdin), which keeps it out of your shell history"),
+    usage="vastai set api-key [APIKEY]",
     help="Set api-key (get your api-key from the console/CLI)",
 )
 def set__api_key(args):
     """Set the api-key."""
     from vastai.cli.util import APIKEY_FILE, APIKEY_FILE_HOME
 
-    with open(APIKEY_FILE, "w") as writer:
-        writer.write(args.new_api_key)
+    api_key = args.new_api_key.strip() if args.new_api_key is not None else read_api_key_input()
+    if not api_key:
+        print(f"\n{FAIL} Error: No API key given. Create one at https://console.vast.ai/manage-keys/")
+        return 1
+    if not API_KEY_PATTERN.fullmatch(api_key):
+        print(f"\n{FAIL} Error: That isn't a Vast API key (expected 64 hex characters), so it wasn't saved.")
+        return 1
+
+    write_private_file(APIKEY_FILE, api_key)
     print("Your api key has been saved in {}".format(APIKEY_FILE))
 
     if os.path.exists(APIKEY_FILE_HOME):

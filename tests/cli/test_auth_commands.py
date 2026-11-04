@@ -167,18 +167,15 @@ class TestSetApiKey:
         assert exit_info.value.code == 1
         assert not key_file.exists()
 
-    def test_left_out_key_is_read_from_piped_stdin(self, key_file, monkeypatch):
-        monkeypatch.setattr("sys.stdin", io.StringIO(API_KEY + "\n"))
-        from vastai.cli.commands.auth import set__api_key
-        set__api_key(argparse.Namespace(new_api_key=None))
-        assert key_file.read_text() == API_KEY
-
-    def test_empty_stdin_saves_nothing(self, key_file, monkeypatch, capsys):
-        monkeypatch.setattr("sys.stdin", io.StringIO(""))
+    def test_left_out_key_without_a_terminal_fails_without_reading_stdin(self, key_file, monkeypatch, capsys):
+        # An agent or CI job holding an open pipe on stdin must fail at once, not wait on it.
+        piped = io.StringIO(API_KEY + "\n")
+        monkeypatch.setattr("sys.stdin", piped)
         from vastai.cli.commands.auth import set__api_key
         with pytest.raises(SystemExit) as exit_info:
             set__api_key(argparse.Namespace(new_api_key=None))
         assert exit_info.value.code == 1
+        assert piped.tell() == 0
         assert not key_file.exists()
         assert "No API key given" in capsys.readouterr().out
 

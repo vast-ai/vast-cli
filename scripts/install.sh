@@ -564,6 +564,8 @@ main() {
                 api_key="$2"; key_args=$(( key_args + 1 )); shift ;;
             --api-key=*) api_key="${1#--api-key=}"; key_args=$(( key_args + 1 )) ;;
             -*) die "unknown option: $1" ;;
+            no-modify-path|no-prompt|version) die "unknown argument: $1 (did you mean --$1?)" ;;
+            api-key|api-key=*) die "unknown argument (did you mean --api-key?)" ;;
             *) api_key="$1"; key_args=$(( key_args + 1 )) ;;
         esac
         shift

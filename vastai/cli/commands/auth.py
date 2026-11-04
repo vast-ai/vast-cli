@@ -204,10 +204,10 @@ API_KEY_PATTERN = re.compile(r"[0-9a-fA-F]{64}")
 
 
 def read_api_key_input():
-    """The key from a hidden prompt at a terminal, else the first line of stdin
-    (``vastai set api-key < keyfile``); empty when none was given."""
+    """The key from a hidden prompt at a terminal; empty without one, so a script
+    whose stdin is an open pipe fails at once instead of waiting on it."""
     if not sys.stdin.isatty():
-        return sys.stdin.readline().strip()
+        return ""
     try:
         return getpass.getpass("Paste your API key (input is hidden): ").strip()
     except (EOFError, KeyboardInterrupt):
@@ -229,7 +229,7 @@ def write_private_file(path, text):
 
 
 @parser.command(
-    argument("new_api_key", nargs="?", help="API key to save. Leave it out to paste it at a hidden prompt (or pipe it on stdin), which keeps it out of your shell history"),
+    argument("new_api_key", nargs="?", help="API key to save. Leave it out at a terminal to paste it at a hidden prompt, which keeps it out of your shell history"),
     usage="vastai set api-key [APIKEY]",
     help="Set api-key (get your api-key from the console/CLI)",
 )
@@ -240,7 +240,7 @@ def set__api_key(args):
     # Exit rather than return 1: under --raw a returned value is printed as JSON and exits 0.
     api_key = args.new_api_key.strip() if args.new_api_key is not None else read_api_key_input()
     if not api_key:
-        print(f"\n{FAIL} Error: No API key given. Create one at https://console.vast.ai/manage-keys/")
+        print(f"\n{FAIL} Error: No API key given. Pass it (vastai set api-key KEY) or run this at a terminal to be prompted. Create one at https://cloud.vast.ai/manage-keys/?tab=api-keys")
         sys.exit(1)
     if not API_KEY_PATTERN.fullmatch(api_key):
         print(f"\n{FAIL} Error: That isn't a Vast API key (expected 64 hex characters), so it wasn't saved.")

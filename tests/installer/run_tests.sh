@@ -179,7 +179,7 @@ run_install_pty() {
     # shellcheck disable=SC2016
     python3 -I - "$reply" "$SB_OUT" sh -c 'trap : INT; "$@"; rc=$?; stty -a </dev/tty; exit $rc' sh \
         env "HOME=$SB_HOME" "VASTAI_INSTALL_DIR=$SB_ROOT" "VASTAI_CLI_BASE_URL=$SERVER/good" \
-        "SHELL=/bin/bash" "VAST_API_KEY=" "XDG_CONFIG_HOME=" "VASTAI_NO_MODIFY_PATH=1" "$@" \
+        "SHELL=/bin/bash" "TERM=dumb" "VAST_API_KEY=" "XDG_CONFIG_HOME=" "VASTAI_NO_MODIFY_PATH=1" "$@" \
         "${VASTAI_TEST_TTY_BASH:-/bin/bash}" "$INSTALL_SH" <<'PY'
 import os, pty, select, sys, time
 reply, out_path, cmd = sys.argv[1], sys.argv[2], sys.argv[3:]
@@ -452,7 +452,15 @@ test_api_key_rejected() { # a bad key fails before anything installs, and is nev
     assert "no install root created" [ ! -e "$SB_ROOT" ] || return 1
     new_sandbox keynovalue
     run_install_piped -- --api-key && { echo "    expected failure for a missing value"; return 1; }
-    assert "asks for the value" out_contains "needs a value"
+    assert "asks for the value" out_contains "needs a value" || return 1
+    new_sandbox keyoptiontypo
+    run_install_piped -- no-modify-path && { echo "    expected failure for a dashless option"; return 1; }
+    assert "suggests the option" out_contains "did you mean --no-modify-path" &&
+    assert "no install root created" [ ! -e "$SB_ROOT" ] || return 1
+    new_sandbox keyflagtypo
+    run_install_piped -- "api-key=$KEY" && { echo "    expected failure for a dashless --api-key"; return 1; }
+    assert "suggests --api-key" out_contains "did you mean --api-key" &&
+    assert "key in a dashless flag not echoed" out_lacks "$KEY"
 }
 
 test_api_key_prompt() { # at a terminal with no key: hidden prompt saves a typed key; Enter skips

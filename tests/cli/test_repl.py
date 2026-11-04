@@ -107,11 +107,8 @@ def instance_ids():
 
 
 class TestDiscoverability:
-    def test_repl_is_hidden_until_it_is_announced(self):
-        """Hidden from --help and tab completion while it is tested internally.
-        That is a discoverability gate, not an access gate: `vastai repl` still
-        runs when typed. Drop the HIDDEN_COMMANDS entry to announce it."""
-        assert is_hidden_command("repl") is True
+    def test_repl_is_listed_in_help_and_completion(self):
+        assert is_hidden_command("repl") is False
 
 
 class TestCommandCatalog:

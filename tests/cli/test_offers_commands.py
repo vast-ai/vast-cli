@@ -26,6 +26,27 @@ class TestSearchOffers:
         json_data = call_args[1]["json_data"]
         assert "num_gpus" in json_data
 
+    def test_search_offers_cpu_arch_any_sends_every_arch(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.post.return_value = mock_response(200, {"offers": []})
+        args = parse_argv(["search", "offers", "--raw", "gpu_name=GB200 cpu_arch=any"])
+        args.func(args)
+        json_data = patch_get_client.post.call_args[1]["json_data"]
+        assert json_data["cpu_arch"] == {"in": ["amd64", "arm64"]}
+
+    def test_search_offers_empty_hints_at_hidden_arm(self, parse_argv, patch_get_client, mock_response, capsys):
+        patch_get_client.post.return_value = mock_response(200, {"offers": []})
+        args = parse_argv(["search", "offers", "--raw", "gpu_name=GB200"])
+        assert args.func(args) == []
+        captured = capsys.readouterr()
+        assert "cpu_arch=any" in captured.err
+        assert captured.out == ""
+
+    def test_search_offers_empty_no_hint_when_arch_named(self, parse_argv, patch_get_client, mock_response, capsys):
+        patch_get_client.post.return_value = mock_response(200, {"offers": []})
+        args = parse_argv(["search", "offers", "--raw", "gpu_name=GB200 cpu_arch=arm64"])
+        args.func(args)
+        assert "cpu_arch" not in capsys.readouterr().err
+
     def test_search_offers_display(self, parse_argv, patch_get_client, mock_response, capsys):
         patch_get_client.post.return_value = mock_response(200, {
             "offers": [{"id": 1, "gpu_name": "RTX_3090", "dph_total": 0.5, "num_gpus": 1}]

@@ -2,6 +2,7 @@
 # Vast.ai CLI installer.
 #
 #   curl -fsSL https://vast.ai/install.sh | bash
+#   curl -fsSL https://vast.ai/install.sh | bash -s -- YOUR_API_KEY   # also saves your API key
 #
 # Installs a self-contained vastai CLI following the XDG Base Directory
 # Specification (no Python required on the machine, no sudo): the program
@@ -9,10 +10,15 @@
 # under $XDG_STATE_HOME/vastai (default ~/.local/state/vastai), and the
 # binary is symlinked into ~/.local/bin. Nothing outside those directories is
 # touched except one setup line in your shell rc (enabled by default at a
-# real terminal; skip with --no-modify-path; never written non-interactively/CI).
+# real terminal; skip with --no-modify-path; never written non-interactively/CI)
+# and, when you give it one, your API key in $XDG_CONFIG_HOME/vastai/vast_api_key
+# (default ~/.config/vastai) — the file `vastai set api-key` writes.
 # Design: install-design.md in https://github.com/vast-ai/vast-cli
 #
 # Options (env vars, or flags after `bash -s --`):
+#   VASTAI_API_KEY=KEY         save this API key  (flag: --api-key KEY, or just KEY);
+#                              with no key at a real terminal, you're asked for one
+#   VASTAI_NO_PROMPT=1         never ask for an API key  (flag: --no-prompt)
 #   VASTAI_VERSION=1.2.3       install a specific version (default: latest)
 #   VASTAI_INSTALL_DIR=DIR     install root (default: $XDG_DATA_HOME/vastai)
 #   VASTAI_CLI_BASE_URL=URL    manifest base (default: https://vast.ai/cli)
@@ -35,15 +41,19 @@ XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 ROOT="${VASTAI_INSTALL_DIR:-$XDG_DATA_HOME/vastai}"
 LOCAL_BIN="$HOME/.local/bin"
 NO_MODIFY_PATH="${VASTAI_NO_MODIFY_PATH:-}"
+NO_PROMPT="${VASTAI_NO_PROMPT:-}"
+API_KEY_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/vastai/vast_api_key"
+API_KEYS_URL="https://cloud.vast.ai/manage-keys/?tab=api-keys"
 WORKDIR=""
 RC_UPDATED=""
+PROMPT_TTY=""       # set only while the API-key prompt is up: the terminal state to restore
 
 # Anything that prints first tears down the live progress region (no-op when it's not up).
 say()  { ui_end; printf '  %s\n' "$*"; }
 warn() { ui_end; printf '  warning: %s\n' "$*" >&2; }
 die()  { ui_end; printf '  error: %s\n' "$*" >&2; exit 1; }
 
-cleanup() { ui_end; [ -n "$WORKDIR" ] && rm -rf "$WORKDIR"; }
+cleanup() { ui_end; prompt_end; [ -n "$WORKDIR" ] && rm -rf "$WORKDIR"; }
 trap cleanup EXIT
 # Ctrl-C must reach cleanup too, or a hidden cursor and a half-drawn region outlive us.
 trap 'exit 130' INT
@@ -466,8 +476,66 @@ setup_path() {
 # Mirrors the CLI's key lookup (env var, XDG config file, legacy dotfile).
 has_api_key() {
     [ -n "${VAST_API_KEY:-}" ] && return 0
-    [ -s "${XDG_CONFIG_HOME:-$HOME/.config}/vastai/vast_api_key" ] && return 0
+    [ -s "$API_KEY_FILE" ] && return 0
     [ -s "$HOME/.vast_api_key" ]
+}
+
+# is_api_key KEY — Vast API keys are 64 hex characters, so anything else (a placeholder
+# left in, a truncated paste, a pasted command) is refused rather than saved.
+is_api_key() {
+    [ "${#1}" -eq 64 ] || return 1
+    case "$1" in *[![:xdigit:]]*) return 1 ;; esac
+    return 0
+}
+
+# save_api_key KEY — the file `vastai set api-key` writes: owner-only from the first byte, via a
+# temp file unique to this run renamed into place, so it is never half-written and concurrent
+# runs never touch each other's file.
+save_api_key() {
+    local dir tmp
+    dir="$(dirname "$API_KEY_FILE")"
+    mkdir -p "$dir" || die "could not create $dir"
+    tmp="$(umask 077 && mktemp "$dir/.vast_api_key.XXXXXX")" \
+        || die "could not save the API key to $API_KEY_FILE"
+    if ! printf '%s' "$1" > "$tmp" || ! mv -f "$tmp" "$API_KEY_FILE"; then
+        rm -f "$tmp"
+        die "could not save the API key to $API_KEY_FILE"
+    fi
+    # Same notice `vastai set api-key` gives: the env var outranks the file in the CLI's lookup.
+    if [ -n "${VAST_API_KEY:-}" ] && [ "$VAST_API_KEY" != "$1" ]; then
+        warn "VAST_API_KEY is set in your environment and overrides the saved key; unset it to use the saved key."
+    fi
+}
+
+# prompt_api_key — ask for the key at the terminal, input hidden; under `curl | bash` stdin is
+# the script itself, so the reply comes from /dev/tty. Fails when skipped or not a key.
+prompt_api_key() {
+    local key=""
+    # Echo goes off before the prompt shows, so a reply that arrives the instant it appears (a
+    # paste, a password manager) is never displayed. `stty echo` is the least a restore must do
+    # if the full state couldn't be read.
+    PROMPT_TTY="$(stty -g < /dev/tty 2>/dev/null || true)"
+    PROMPT_TTY="${PROMPT_TTY:-echo}"
+    stty -echo < /dev/tty 2>/dev/null || true
+    printf '  Paste your API key from %s\n  (input is hidden; press Enter to skip): ' \
+        "$API_KEYS_URL" > /dev/tty
+    read -rs key < /dev/tty || true
+    prompt_end
+    [ -n "$key" ] || return 1
+    if ! is_api_key "$key"; then
+        warn "that isn't a Vast API key (64 hex characters), so it wasn't saved."
+        return 1
+    fi
+    save_api_key "$key"
+}
+
+# prompt_end — give the terminal back its echo and end the prompt's line; idempotent. The EXIT
+# trap runs it too: Ctrl-C at the prompt exits through the INT trap, which skips bash's own
+# `read -s` cleanup and would otherwise leave the user's terminal not echoing.
+prompt_end() {
+    [ -n "$PROMPT_TTY" ] || return 0
+    { stty "$PROMPT_TTY" < /dev/tty; printf '\n' > /dev/tty; } 2>/dev/null || true
+    PROMPT_TTY=""
 }
 
 check_pip_coexistence() {
@@ -485,13 +553,28 @@ check_pip_coexistence() {
 }
 
 main() {
-    for arg in "$@"; do
-        case "$arg" in
+    local api_key="${VASTAI_API_KEY:-}" key_args=0
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
             --no-modify-path) NO_MODIFY_PATH=1 ;;
+            --no-prompt) NO_PROMPT=1 ;;
             --version) die "pass a version with VASTAI_VERSION=x.y.z instead" ;;
-            *) die "unknown option: $arg" ;;
+            --api-key)
+                [ "$#" -ge 2 ] || die "--api-key needs a value"
+                api_key="$2"; key_args=$(( key_args + 1 )); shift ;;
+            --api-key=*) api_key="${1#--api-key=}"; key_args=$(( key_args + 1 )) ;;
+            -*) die "unknown option: $1" ;;
+            no-modify-path|no-prompt|version) die "unknown argument: $1 (did you mean --$1?)" ;;
+            api-key|api-key=*) die "unknown argument (did you mean --api-key?)" ;;
+            *) api_key="$1"; key_args=$(( key_args + 1 )) ;;
         esac
+        shift
     done
+    [ "$key_args" -le 1 ] || die "pass one API key, not $key_args"
+    # Checked before anything downloads, so a bad key fails the run instead of a half-done setup.
+    if { [ "$key_args" -eq 1 ] || [ -n "$api_key" ]; } && ! is_api_key "$api_key"; then
+        die "that isn't a Vast API key (64 hex characters); copy yours from $API_KEYS_URL"
+    fi
 
     need_cmd uname
     need_cmd tar
@@ -531,13 +614,23 @@ main() {
 
     printf '\n'
     say "vastai $version installed"
-    # A returning user (key already configured) gets a check instead of the setup hint.
-    if has_api_key; then
+    # A key given to the installer is saved; a returning user (key already configured) gets a
+    # check; anyone else at a real terminal is asked once, and the setup hint covers a skip.
+    local key_status=""
+    if [ -n "$api_key" ]; then
+        save_api_key "$api_key"
+        key_status="saved"
+    elif has_api_key; then
+        key_status="found"
+    elif [ -z "$NO_PROMPT" ] && is_interactive && prompt_api_key; then
+        key_status="saved"
+    fi
+    if [ -n "$key_status" ]; then
         local check='✓'
         [ -t 1 ] && [ "${TERM:-dumb}" != dumb ] && check="$(printf '\033[32m✓\033[0m')"
-        say "  API key:       $check found"
+        say "  API key:       $check $key_status"
     else
-        say "  Get started:   vastai set api-key YOUR_API_KEY   (https://cloud.vast.ai/manage-keys/?tab=api-keys)"
+        say "  Get started:   vastai set api-key   (paste your key from $API_KEYS_URL)"
     fi
     say "  All commands:  vastai --help"
 }

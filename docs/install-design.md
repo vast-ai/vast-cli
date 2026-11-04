@@ -58,7 +58,8 @@ curl -fsSL https://vast.ai/install.sh | bash
    ├── current/                              (single active venv; update = build temp → verify → swap)
    └── python/                               (uv-managed CPython 3.12, shared)
 
-  ~/.config/vastai/        vast_api_key, etc. — untouched by install/uninstall
+  ~/.config/vastai/        vast_api_key, etc. — install writes vast_api_key only when
+                           given a key (§2 "API key"); uninstall leaves it alone
   ~/.cache/vastai/         disposable (uv-pruned after each update)
   ~/.local/state/vastai/   update_check.json (nudge throttle)
         │
@@ -125,6 +126,20 @@ lines total, ending with the next steps.
   the coexistence warning prints only when the rc line couldn't be written
   (non-interactive, `--no-modify-path`, unknown shell).
 
+### API key
+
+`curl … | bash && vastai set api-key KEY` can fail on a fresh machine (the rc line only reaches
+future shells), so the installer saves the key itself, to the file `vastai set api-key` writes.
+It takes the key as an argument (`bash -s -- KEY` or `--api-key KEY`), as `VASTAI_API_KEY`, or at a
+hidden prompt after a successful install at a real TTY (skipped with `--no-prompt`, or when a key
+is already configured).
+
+- Only 64-hex keys are accepted, checked before anything downloads, and the key is never echoed.
+- Written owner-only through a per-run temp file renamed into place.
+- `VASTAI_API_KEY`, not the CLI's `VAST_API_KEY`: an exported `VAST_API_KEY` is ambient config.
+- An argument sits in `ps` and shell history, like `vastai set api-key KEY`; the prompt avoids both.
+- With no key, `vastai set api-key` prompts the same way at a TTY and fails immediately otherwise.
+
 ## 3. On-disk layout
 
 Layout follows the [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/latest/)
@@ -150,7 +165,7 @@ hermetic tests use):
 ├── env.sh                                  (sourced by the rc line: PATH precedence + completion)
 └── python/                                 (uv-managed CPython 3.12, shared)
 
-~/.config/vastai/                 vast_api_key, etc. — untouched by install/uninstall
+~/.config/vastai/                 vast_api_key, etc. — written by install only when given a key
 ~/.cache/vastai/                  disposable (e.g. a future download cache, §6)
 ~/.local/state/vastai/            update_check.json (throttle timestamp)
 ```
@@ -316,6 +331,10 @@ is.
 - `VASTAI_PROGRESS=0|1` — force the progress bar off/on (default: on at a TTY, §2).
 - `VASTAI_NO_UPDATE_CHECK=1` — suppress the nudge.
 - `--no-modify-path` — skip PATH/completion edits.
+- `VASTAI_API_KEY=KEY` / `--api-key KEY` / a bare `KEY` argument — save this
+  API key (§2 "API key").
+- `VASTAI_NO_PROMPT=1` / `--no-prompt` — never ask for an API key (scripted
+  runs that still have a TTY, e.g. under `expect` or `docker run -it`).
 
 *Future ergonomic win:* consolidate the CI/ephemeral story into one documented
 switch (uv does this with `UV_UNMANAGED_INSTALL`: custom path + no profile mods
@@ -453,3 +472,5 @@ manual runbook above is the break-glass fallback.
   `psutil` is pinned `~=7.0` (6.x had no musl wheels). New native deps must have
   musl wheels or alpine breaks; the `installer-ci` OS matrix (incl. `alpine:latest`)
   gates this, triggered on `pyproject.toml` changes.
+- **The installer saves the API key** (argument, `VASTAI_API_KEY` or a TTY prompt; §2 "API key"),
+  so one copyable command installs and authenticates with no PATH assumption.

@@ -159,7 +159,7 @@ def parse_env(envs):
                 pass
         else:
             if (prev == "-p"):
-                if set(e).issubset(set("0123456789:tcp/udp")):
+                if set(e).issubset(set("0123456789:-tcp/udp")):
                     result["-p " + e] = "1"
                 else:
                     pass

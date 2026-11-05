@@ -1,6 +1,10 @@
 """Integration tests for storage/volume CLI commands with mocked HTTP."""
 
 import pytest
+from requests.exceptions import HTTPError
+
+
+CP_ID = "cp_0123456789abcdef"
 
 
 class TestShowVolumes:
@@ -70,6 +74,33 @@ class TestCloudCopy:
 
 
 class TestCopy:
+    @pytest.mark.parametrize("src,dst", [("123:/data", "456:/data"), ("V.123:/data", "C.456:/data")])
+    def test_prints_copy_id(self, parse_argv, patch_get_client, mock_response, capsys, src, dst):
+        patch_get_client.put.return_value = mock_response(200, {"success": True, "cp_id": CP_ID})
+        args = parse_argv(["copy", src, dst])
+        args.func(args)
+        assert CP_ID in capsys.readouterr().out
+
+    def test_conflict_prints_holder_and_cancel_command(self, parse_argv, patch_get_client, mock_response, capsys):
+        from vastai.cli.main import run_command
+        patch_get_client.put.return_value = mock_response(409, {
+            "success": False, "error": "copy_in_progress", "cp_id": CP_ID,
+            "holder": {"cp_id": CP_ID, "state": "running",
+                       "src": {"kind": "volume", "id": 123}, "dst": {"kind": "instance", "id": 456}},
+        })
+        args = parse_argv(["copy", "V.123:/data", "C.456:/data"])
+        run_command(args)
+        out = capsys.readouterr().err
+        assert f"Copy {CP_ID} (running)" in out
+        assert f"vastai cancel copy {CP_ID}" in out
+
+    @pytest.mark.parametrize("status,error", [(409, "other_conflict"), (403, "forbidden")])
+    def test_other_errors_propagate(self, parse_argv, patch_get_client, mock_response, status, error):
+        patch_get_client.put.return_value = mock_response(status, {"error": error})
+        args = parse_argv(["copy", "123:/data", "456:/data"])
+        with pytest.raises(HTTPError):
+            args.func(args)
+
     def test_copy_hf_prefix_passthrough(self, parse_argv, patch_get_client, mock_response):
         patch_get_client.put.return_value = mock_response(200, {"success": True})
         args = parse_argv([
@@ -82,6 +113,36 @@ class TestCopy:
         call_args = patch_get_client.put.call_args
         assert "/commands/copy_direct/" in call_args[0][0]
         assert call_args[1]["json_data"]["src_id"] == "hf.101"
+
+
+class TestCancelCopy:
+    @pytest.mark.parametrize("status,state", [(202, "cancelling"), (200, "cancelling"),
+                                            (200, "cancelled"), (200, "done"), (200, "failed")])
+    def test_copy_id_uses_copies_endpoint(self, parse_argv, patch_get_client, mock_response, capsys, status, state):
+        patch_get_client.delete.return_value = mock_response(status, {"success": True, "cp_id": CP_ID, "state": state})
+        args = parse_argv(["cancel", "copy", CP_ID])
+        args.func(args)
+        patch_get_client.delete.assert_called_once_with(f"/copies/{CP_ID}/")
+        patch_get_client.get.assert_not_called()
+        assert f"Copy {CP_ID}: {state}" in capsys.readouterr().out
+
+    @pytest.mark.parametrize("extra", [{}, {"cp_id": CP_ID, "state": "cancelling"}])
+    def test_legacy_instance_id(self, parse_argv, patch_get_client, mock_response, capsys, extra):
+        patch_get_client.delete.return_value = mock_response(200, {"success": True, **extra})
+        args = parse_argv(["cancel", "copy", "12371"])
+        args.func(args)
+        patch_get_client.delete.assert_called_once_with(
+            "/commands/copy_direct/", json_data={"client_id": "me", "dst_id": "12371"})
+        out = capsys.readouterr().out
+        assert "Remote copy canceled" not in out
+        if extra:
+            assert f"Copy {CP_ID}: cancelling" in out
+
+    def test_not_found_propagates(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.delete.return_value = mock_response(404, {"success": False, "error": "not_found"})
+        args = parse_argv(["cancel", "copy", CP_ID])
+        with pytest.raises(HTTPError):
+            args.func(args)
 
 
 class TestShowInstanceBackupFiles:

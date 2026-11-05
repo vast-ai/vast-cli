@@ -226,7 +226,12 @@ def run_command(args):
 
         except requests.exceptions.HTTPError as e:
             try:
-                errmsg = e.response.json().get("msg")
+                error = e.response.json()
+                errmsg = error.get("msg")
+                if e.response.status_code == 409 and error.get("error") == "copy_in_progress":
+                    holder = error["holder"]
+                    errmsg = (f"Copy {holder['cp_id']} ({holder['state']}) is already in progress. "
+                              f"Cancel with: vastai cancel copy {holder['cp_id']}")
             except JSONDecodeError:
                 if e.response.status_code == 401:
                     errmsg = "Please log in or sign up"

@@ -781,6 +781,9 @@ class VastAI:
             src: Source in vast URL format, e.g. "instance_id:/path" or just "/local/path".
             dst: Destination in vast URL format.
 
+        Returns:
+            dict: Start response, including cp_id when supplied by the server.
+
         Examples:
             vast.copy("6003036:/workspace/", "6003038:/workspace/")
             vast.copy("C.11824:/data/test", "local:data/test")
@@ -796,7 +799,7 @@ class VastAI:
         return storage.copy(self.client, src_id, dst_id, src_path, dst_path)
 
     def cancel_copy(self, dst_id) -> dict:
-        """Cancel a file copy operation."""
+        """Cancel by copy ID (cp_...) or legacy instance ID; return cp_id and state when supplied."""
         return storage.cancel_copy(self.client, dst_id)
 
     def cancel_sync(self, dst_id) -> dict:

@@ -522,6 +522,18 @@ class VastAI:
         """Set the minimum bid price for a machine."""
         return machines.set_min_bid(self.client, id, price=price)
 
+    def set_machine_override(self, field: str, value, machine_ids: Optional[List[int]] = None,
+                             host_id: Optional[int] = None, reason: Optional[str] = None) -> dict:
+        """Pin a machine field (geolocation, inet_up, inet_down) to a manual value until cleared."""
+        return machines.set_machine_override(self.client, field, value, machine_ids=machine_ids,
+                                             host_id=host_id, reason=reason)
+
+    def clear_machine_override(self, field: str, machine_ids: Optional[List[int]] = None,
+                               host_id: Optional[int] = None, reason: Optional[str] = None) -> dict:
+        """Remove a manual machine field value so automatic detection takes over again."""
+        return machines.clear_machine_override(self.client, field, machine_ids=machine_ids,
+                                               host_id=host_id, reason=reason)
+
     def schedule_maint(self, id: int, sdate, duration, category: str = "not provided") -> dict:
         """Schedule maintenance for a machine."""
         return machines.schedule_maint(self.client, id, sdate, duration, maintenance_category=category)

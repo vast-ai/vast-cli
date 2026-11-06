@@ -471,6 +471,15 @@ class TestShowMachineUnwraps:
             assert result == {"id": 42, "gpu_name": "RTX_4090"}
 
 
+class TestShowMachineContracts:
+    def test_returns_full_envelope(self, sdk):
+        envelope = {"contracts": [{"contract_id": 7}], "truncated": False, "omitted_count": 0,
+                    "omitted_contract_ids": [], "billing_degraded": False, "aggregation_degraded": False}
+        with patch("vastai.api.machines.show_machine_contracts", return_value=envelope) as mock:
+            assert sdk.show_machine_contracts(id=42) == envelope
+            mock.assert_called_once_with(sdk.client, 42)
+
+
 class TestListMachines:
     def test_calls_per_id(self, sdk):
         with patch("vastai.api.machines.list_machine", return_value={"success": True}) as mock:

@@ -51,6 +51,61 @@ class TestShowMachine:
         assert result == [{"id": 1, "gpu_name": "RTX_3090"}]
 
 
+class TestShowMachineContracts:
+    CONTRACT = {
+        "contract_id": 555, "machine_id": 1, "rental_type": "ondemand", "ask_duration": None,
+        "state": "running", "start_date": 1767225600, "end_date": None,
+        "charge_types": ["gpu", "disk"], "earn_hour": 0.5, "earn_day": 12.0,
+        "auto_renew": False, "gpu_price_dph": 0.25, "num_gpus": 2, "gpu_slots": [0, 1],
+        "disk_size_gb": 50.0, "disk_price_dpgbm": 0.1, "vol_size_gb": None,
+        "vol_price_dpgbm": None, "inet_up_cost": 2.0, "inet_down_cost": 1.0,
+    }
+
+    def envelope(self, **overrides):
+        body = {"contracts": [self.CONTRACT], "truncated": False, "omitted_count": 0,
+                "omitted_contract_ids": [], "billing_degraded": False, "aggregation_degraded": False}
+        body.update(overrides)
+        return body
+
+    def test_raw_returns_envelope_from_machine_contracts_route(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.get.return_value = mock_response(200, self.envelope())
+        args = parse_argv(["show", "machine-contracts", "1", "--raw"])
+        result = args.func(args)
+        patch_get_client.get.assert_called_once()
+        assert patch_get_client.get.call_args[0][0] == "/machines/1/contracts"
+        assert result == self.envelope()
+
+    def test_display_table(self, parse_argv, patch_get_client, mock_response, capsys):
+        patch_get_client.get.return_value = mock_response(200, self.envelope())
+        args = parse_argv(["show", "machine-contracts", "1"])
+        args.func(args)
+        captured = capsys.readouterr()
+        assert "555" in captured.out
+        assert "gpu,disk" in captured.out
+        assert "2026-01-01/00:00" in captured.out
+        assert captured.err == ""
+
+    def test_quiet_prints_contract_ids(self, parse_argv, patch_get_client, mock_response, capsys):
+        second = dict(self.CONTRACT, contract_id=556)
+        patch_get_client.get.return_value = mock_response(200, self.envelope(contracts=[self.CONTRACT, second]))
+        args = parse_argv(["show", "machine-contracts", "1", "-q"])
+        args.func(args)
+        assert capsys.readouterr().out.strip() == "555 556"
+
+    def test_warns_on_incomplete_response(self, parse_argv, patch_get_client, mock_response, capsys):
+        patch_get_client.get.return_value = mock_response(200, self.envelope(
+            truncated=True, omitted_count=1, omitted_contract_ids=[999],
+            billing_degraded=True, aggregation_degraded=True,
+        ))
+        args = parse_argv(["show", "machine-contracts", "1"])
+        args.func(args)
+        err = capsys.readouterr().err
+        assert "truncated" in err
+        assert "999" in err
+        assert "billing data" in err
+        assert "GPU/volume" in err
+
+
 class TestListMachineMinChunkDefault:
     # Backend web/views/machines.py:53 does `int(params.get("min_chunk", 1))` — if the
     # key is present but null, int(None) raises and is caught as HTTPBadRequest

@@ -157,3 +157,13 @@ def test_copy_conflict_prints_holder_and_cancel_command(raw, mock_response, caps
     err = capsys.readouterr().err
     assert f"Copy {cp_id} (cancel_failed)" in err
     assert f"vastai cancel copy {cp_id}" in err
+
+
+@pytest.mark.parametrize("holder", [None, "a cloud copy", {"state": "running"}])
+def test_copy_conflict_without_holder_id_keeps_server_message(holder, mock_response, capsys):
+    msg = "A cloud copy is already running on this instance. Cancel it or wait for it to finish."
+    body = {"success": False, "error": "copy_in_progress", "msg": msg, "copy_id": None}
+    if holder is not None:
+        body["holder"] = holder
+    run_command(_args(func=MagicMock(side_effect=HTTPError(response=mock_response(409, body)))))
+    assert msg in capsys.readouterr().err

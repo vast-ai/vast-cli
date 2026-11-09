@@ -186,11 +186,7 @@ def _error_detail(exc):
     status = getattr(resp, "status_code", 0)
     try:
         error = resp.json()
-        msg = error.get("msg")
-        if status == 409 and error.get("error") == "copy_in_progress":
-            holder = error["holder"]
-            msg = (f"Copy {holder['cp_id']} ({holder['state']}) is already in progress. "
-                   f"Cancel with: vastai cancel copy {holder['cp_id']}")
+        msg = cli_main.copy_conflict_message(status, error) or error.get("msg")
     except (ValueError, AttributeError):
         msg = None
     if not isinstance(msg, str):

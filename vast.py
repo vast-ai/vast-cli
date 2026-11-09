@@ -9796,6 +9796,23 @@ except:
   pass
 
 
+def copy_conflict_message(status_code, error):
+    """Name the copy holding the endpoint and how to cancel it, or None to keep the server's msg.
+
+    Cloud copy conflicts share the ``copy_in_progress`` code but carry no ``holder``
+    object, and older servers send none either, so a missing or malformed holder
+    falls back to the server's message instead of raising.
+    """
+    if status_code != 409 or not isinstance(error, dict) or error.get("error") != "copy_in_progress":
+        return None
+    holder = error.get("holder")
+    if not isinstance(holder, dict) or not isinstance(holder.get("cp_id"), str):
+        return None
+    cp_id = holder["cp_id"]
+    return (f"Copy {cp_id} ({holder.get('state', 'unknown')}) is already in progress. "
+            f"Cancel with: vastai cancel copy {cp_id}")
+
+
 def main():
     global ARGS
     if not os.environ.get("_ARGCOMPLETE") and "--raw" not in sys.argv:
@@ -9856,11 +9873,7 @@ def main():
         except requests.exceptions.HTTPError as e:
             try:
                 error = e.response.json()
-                errmsg = error.get("msg")
-                if e.response.status_code == 409 and error.get("error") == "copy_in_progress":
-                    holder = error["holder"]
-                    errmsg = (f"Copy {holder['cp_id']} ({holder['state']}) is already in progress. "
-                              f"Cancel with: vastai cancel copy {holder['cp_id']}")
+                errmsg = copy_conflict_message(e.response.status_code, error) or error.get("msg")
             except JSONDecodeError:
                 if e.response.status_code == 401:
                     errmsg = "Please log in or sign up"

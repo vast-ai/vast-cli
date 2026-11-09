@@ -181,3 +181,16 @@ def test_cancel_copy_not_found(legacy_vast, mock_response):
     with patch.object(legacy_vast, "http_del", return_value=mock_response(404, {"error": "not_found"})):
         with pytest.raises(HTTPError):
             legacy_vast.cancel__copy(args)
+
+
+def test_copy_conflict_without_holder_keeps_server_message(legacy_vast, mock_response, capsys):
+    msg = "Instance 456 is already part of a copy. Cancel that copy or wait for it to finish."
+    args = SimpleNamespace(src="C.123:/data", dst="C.456:/data", api_key=None,
+                           url="https://example.test", explain=False, raw=False, func=legacy_vast.copy)
+    response = mock_response(409, {"success": False, "error": "copy_in_progress", "msg": msg})
+    with patch.object(legacy_vast, "http_put", return_value=response), \
+         patch.object(legacy_vast, "TABCOMPLETE", False), \
+         patch.object(legacy_vast, "parser") as parser:
+        parser.parse_args.return_value = args
+        legacy_vast.main()
+    assert msg in capsys.readouterr().out

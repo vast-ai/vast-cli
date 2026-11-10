@@ -460,23 +460,24 @@ class TestBackendSessionCreate:
         ],
     )
     @pytest.mark.asyncio
-    async def test_session_create_null_or_missing_auth_data_raises_attribute_error(
+    async def test_session_create_null_or_missing_auth_data_returns_422(
         self, serverless_backend_and_handler_default, serverless_backend_testkit, body
     ) -> None:
-        """
-        Documents current behavior: ``auth_data`` must be a mapping; ``null`` or a missing
-        key yields ``None`` and ``auth_data.get`` raises (not a structured 4xx).
-        """
+        """``auth_data`` that is ``null`` or missing is rejected with 422."""
         backend, _ = serverless_backend_and_handler_default
         req = serverless_backend_testkit.json_request(body)
-        with pytest.raises(AttributeError):
-            await backend.session_create_handler(req)
+        resp = await backend.session_create_handler(req)
+        assert resp.status == 422
+        assert serverless_backend_testkit.response_json(resp) == {
+            "auth_data": "field missing"
+        }
+        assert backend.sessions == {}
 
     @pytest.mark.asyncio
-    async def test_session_create_null_payload_raises_attribute_error(
+    async def test_session_create_null_payload_returns_422(
         self, serverless_backend_and_handler_default, serverless_backend_testkit
     ) -> None:
-        """Documents current behavior when ``payload`` JSON is ``null``."""
+        """``payload`` that is ``null`` is rejected with 422."""
         backend, _ = serverless_backend_and_handler_default
         req = serverless_backend_testkit.json_request(
             {
@@ -484,8 +485,153 @@ class TestBackendSessionCreate:
                 "payload": None,
             },
         )
-        with pytest.raises(AttributeError):
-            await backend.session_create_handler(req)
+        resp = await backend.session_create_handler(req)
+        assert resp.status == 422
+        assert serverless_backend_testkit.response_json(resp) == {
+            "payload": "field missing"
+        }
+        assert backend.sessions == {}
+
+    @pytest.mark.parametrize(
+        "lifetime",
+        [
+            pytest.param(0, id="zero"),
+            pytest.param(-1, id="negative"),
+            pytest.param("60", id="string"),
+            pytest.param(True, id="bool"),
+            pytest.param(None, id="null"),
+            pytest.param(float("inf"), id="inf"),
+            pytest.param(float("nan"), id="nan"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_session_create_invalid_lifetime_returns_422(
+        self, serverless_backend_and_handler_default, serverless_backend_testkit, lifetime
+    ) -> None:
+        """Non-numeric, non-finite, and non-positive ``lifetime`` values are rejected."""
+        backend, _ = serverless_backend_and_handler_default
+        req = serverless_backend_testkit.json_request(
+            {
+                "auth_data": {"request_idx": 0, "reqnum": 1, "cost": 1.0},
+                "payload": {"lifetime": lifetime},
+            },
+        )
+        resp = await backend.session_create_handler(req)
+        assert resp.status == 422
+        assert backend.sessions == {}
+
+    @pytest.mark.asyncio
+    async def test_session_create_clamps_lifetime_to_max(
+        self, serverless_backend_and_handler_default, serverless_backend_testkit
+    ) -> None:
+        """A ``lifetime`` above ``MAX_SESSION_LIFETIME`` is clamped, not rejected."""
+        from vastai.serverless.server.lib.backend import MAX_SESSION_LIFETIME
+
+        backend, _ = serverless_backend_and_handler_default
+        fixed_id = "sess-clamped"
+        req = serverless_backend_testkit.json_request(
+            {
+                "auth_data": {"request_idx": 0, "reqnum": 1, "cost": 1.0},
+                "payload": {"lifetime": 999999999},
+            },
+        )
+        before = time.time()
+        with patch.object(backend, "generate_session_id", return_value=fixed_id):
+            resp = await backend.session_create_handler(req)
+        assert resp.status == 201
+        stored = backend.sessions[fixed_id]
+        assert stored.lifetime == MAX_SESSION_LIFETIME
+        assert stored.expiration == pytest.approx(
+            before + MAX_SESSION_LIFETIME, abs=2.0
+        )
+
+    @pytest.mark.asyncio
+    async def test_session_create_non_string_on_close_route_returns_422(
+        self, serverless_backend_and_handler_default, serverless_backend_testkit
+    ) -> None:
+        """``on_close_route`` must be a string when present."""
+        backend, _ = serverless_backend_and_handler_default
+        req = serverless_backend_testkit.json_request(
+            {
+                "auth_data": {"request_idx": 0, "reqnum": 1, "cost": 1.0},
+                "payload": {"on_close_route": {"url": "/x"}},
+            },
+        )
+        resp = await backend.session_create_handler(req)
+        assert resp.status == 422
+        assert backend.sessions == {}
+
+    @pytest.mark.asyncio
+    async def test_session_create_secured_valid_signature_returns_201(
+        self, serverless_backend_testkit, make_serverless_test_rsa_key
+    ) -> None:
+        """Secured mode accepts a bundle signed over this worker's own URL."""
+        key = make_serverless_test_rsa_key()
+        backend, _ = serverless_backend_testkit.make_backend(unsecured=False)
+        backend._pubkey = key.publickey()
+        body = serverless_backend_testkit.signed_auth(backend.metrics.url, key)
+        body["auth_data"]["cost"] = 1.0
+        body["payload"] = {"lifetime": 30.0}
+        resp = await backend.session_create_handler(
+            serverless_backend_testkit.json_request(body)
+        )
+        assert resp.status == 201
+        session_id = serverless_backend_testkit.response_json(resp)["session_id"]
+        assert backend.sessions[session_id].auth_data == body["auth_data"]
+
+    @pytest.mark.asyncio
+    async def test_session_create_secured_forged_signature_returns_401(
+        self, serverless_backend_testkit, make_serverless_test_rsa_key
+    ) -> None:
+        """Secured mode rejects a bundle whose signature was not made by the autoscaler key."""
+        key = make_serverless_test_rsa_key()
+        attacker_key = make_serverless_test_rsa_key()
+        backend, _ = serverless_backend_testkit.make_backend(unsecured=False)
+        backend._pubkey = key.publickey()
+        body = serverless_backend_testkit.signed_auth(backend.metrics.url, attacker_key)
+        body["payload"] = {"lifetime": 30.0}
+        resp = await backend.session_create_handler(
+            serverless_backend_testkit.json_request(body)
+        )
+        assert resp.status == 401
+        assert backend.sessions == {}
+
+    @pytest.mark.asyncio
+    async def test_session_create_secured_signature_for_other_worker_returns_401(
+        self, serverless_backend_testkit, make_serverless_test_rsa_key
+    ) -> None:
+        """A genuine bundle issued for a different worker URL does not open a session here."""
+        key = make_serverless_test_rsa_key()
+        backend, _ = serverless_backend_testkit.make_backend(unsecured=False)
+        backend._pubkey = key.publickey()
+        body = serverless_backend_testkit.signed_auth("https://10.0.0.9:41234", key)
+        body["payload"] = {"lifetime": 30.0}
+        resp = await backend.session_create_handler(
+            serverless_backend_testkit.json_request(body)
+        )
+        assert resp.status == 401
+        assert backend.sessions == {}
+
+    @pytest.mark.asyncio
+    async def test_session_create_secured_incomplete_auth_data_returns_422(
+        self, serverless_backend_testkit, make_serverless_test_rsa_key
+    ) -> None:
+        """Secured mode requires every ``AuthData`` field before checking the signature."""
+        key = make_serverless_test_rsa_key()
+        backend, _ = serverless_backend_testkit.make_backend(unsecured=False)
+        backend._pubkey = key.publickey()
+        req = serverless_backend_testkit.json_request(
+            {
+                "auth_data": {"cost": 1, "request_idx": 0, "reqnum": 0},
+                "payload": {"lifetime": 30.0},
+            },
+        )
+        resp = await backend.session_create_handler(req)
+        assert resp.status == 422
+        out = serverless_backend_testkit.response_json(resp)
+        assert out["signature"] == "missing parameter"
+        assert out["url"] == "missing parameter"
+        assert backend.sessions == {}
 
     @pytest.mark.asyncio
     async def test_session_create_on_close_route_without_on_close_payload(
@@ -1227,12 +1373,11 @@ class TestBackendHandleRequest:
         - Message format matches __check_signature (json.dumps with indent=4, sort_keys=True)
         """
         key = make_serverless_test_rsa_key()
-        url = "https://tenant.example/v1/predict"
         backend, handler = serverless_backend_testkit.make_backend(unsecured=False)
         backend._pubkey = key.publickey()
         fn = backend.create_handler(handler)
         req = serverless_backend_testkit.json_request(
-            serverless_backend_testkit.signed_auth(url, key)
+            serverless_backend_testkit.signed_auth(backend.metrics.url, key)
         )
         mock_model = MagicMock()
         with patch.object(
@@ -1367,6 +1512,62 @@ class TestBackendHandleRequest:
             resp = await fn(req)
         assert resp.status == 401
         mock_cb.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_handle_request_signature_for_other_worker_returns_401(
+        self, serverless_backend_testkit, make_serverless_test_rsa_key
+    ) -> None:
+        """A genuine bundle for another worker is rejected even though its own URL and signature match."""
+        key = make_serverless_test_rsa_key()
+        backend, handler = serverless_backend_testkit.make_backend(unsecured=False)
+        backend._pubkey = key.publickey()
+        fn = backend.create_handler(handler)
+        req = serverless_backend_testkit.json_request(
+            serverless_backend_testkit.signed_auth("https://10.0.0.9:41234", key)
+        )
+        with patch.object(
+            backend, "_Backend__call_backend", new_callable=AsyncMock
+        ) as mock_cb:
+            resp = await fn(req)
+        assert resp.status == 401
+        mock_cb.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_handle_request_session_extension_capped_at_max_lifetime(
+        self,
+        serverless_backend_testkit,
+        make_pyworker_session,
+    ) -> None:
+        """Per-request extension never pushes expiration past now + ``MAX_SESSION_LIFETIME``."""
+        from vastai.serverless.server.lib.backend import MAX_SESSION_LIFETIME
+
+        backend, handler = serverless_backend_testkit.make_backend()
+        fn = backend.create_handler(handler)
+        sid = "capped-sess"
+        sess = make_pyworker_session(
+            session_id=sid,
+            lifetime=MAX_SESSION_LIFETIME,
+            auth_data={},
+            expiration=time.time() + MAX_SESSION_LIFETIME,
+            on_close_route=None,
+            on_close_payload=None,
+            session_reqnum=0,
+        )
+        backend.sessions[sid] = sess
+        data = serverless_backend_testkit.auth_payload()
+        data["session_id"] = sid
+        with patch.object(
+            backend, "_Backend__call_backend", new_callable=AsyncMock
+        ), patch.object(
+            handler,
+            "generate_client_response",
+            new_callable=AsyncMock,
+            return_value=web.json_response({"s": "ok"}),
+        ):
+            resp = await fn(serverless_backend_testkit.json_request(data))
+        after = time.time()
+        assert resp.status == 200
+        assert sess.expiration <= after + MAX_SESSION_LIFETIME
 
     @pytest.mark.asyncio
     async def test_handle_request_session_request_extends_expiration(

@@ -3,6 +3,7 @@ import sys
 import json
 import time
 import base64
+import math
 import dataclasses
 import logging
 from asyncio import sleep, gather, Semaphore, create_task
@@ -61,6 +62,7 @@ log = logging.getLogger(__file__)
 LOG_POLL_INTERVAL = 0.1
 # Defines waiting interval for session garbage collection
 SESSION_GC_INTERVAL = 5.0
+MAX_SESSION_LIFETIME = 24 * 60 * 60.0
 BENCHMARK_INDICATOR_FILE = ".has_benchmark"
 MAX_PUBKEY_FETCH_ATTEMPTS = 5
 
@@ -298,10 +300,43 @@ class Backend:
     async def session_create_handler(self, request: web.Request) -> web.Response:
         try:
             data = await request.json()
-            auth_data = data.get("auth_data")
-            payload = data.get("payload")
         except json.JSONDecodeError:
             return web.json_response(dict(error="invalid JSON"), status=422)
+
+        if not isinstance(data, dict):
+            return web.json_response(dict(error="invalid JSON"), status=422)
+        auth_data = data.get("auth_data")
+        payload = data.get("payload")
+        if not isinstance(auth_data, dict):
+            return web.json_response(dict(auth_data="field missing"), status=422)
+        if not isinstance(payload, dict):
+            return web.json_response(dict(payload="field missing"), status=422)
+
+        lifetime = payload.get("lifetime", 60.0)
+        if (
+            isinstance(lifetime, bool)
+            or not isinstance(lifetime, (int, float))
+            or not math.isfinite(lifetime)
+            or lifetime <= 0
+        ):
+            return web.json_response(
+                dict(error="lifetime must be a positive number"), status=422
+            )
+        lifetime = min(lifetime, MAX_SESSION_LIFETIME)
+
+        on_close_route = payload.get("on_close_route")
+        if on_close_route is not None and not isinstance(on_close_route, str):
+            return web.json_response(
+                dict(error="on_close_route must be a string"), status=422
+            )
+
+        if not self.unsecured:
+            try:
+                signed_auth_data = AuthData.from_json_msg(auth_data)
+            except JsonDataException as e:
+                return web.json_response(data=e.message, status=422)
+            if self.__check_signature(signed_auth_data) is False:
+                return web.Response(status=401)
 
         now = time.time()
         session_request_metrics = RequestMetrics(
@@ -323,18 +358,14 @@ class Backend:
                 return web.Response(status=429)
 
             # Set the session expiration time, and the TTL extension per request/get
-            lifetime = payload.get("lifetime", 60.0)
             now = time.time()
             expiration = now + lifetime
 
             session_id = self.generate_session_id()
 
-            on_close_route = None
             on_close_payload = None
-            if payload.get("on_close_route") is not None:
-                on_close_route = payload.get("on_close_route")
-                if payload.get("on_close_payload") is not None:
-                    on_close_payload = payload.get("on_close_payload")
+            if on_close_route is not None:
+                on_close_payload = payload.get("on_close_payload")
 
             session = Session(
                 session_id=session_id,
@@ -458,7 +489,10 @@ class Backend:
                 session = self.sessions.get(session_id)
                 if session is None:
                     return web.json_response(dict(error="invalid session"), status=410)
-                session.expiration += session.lifetime
+                session.expiration = min(
+                    session.expiration + session.lifetime,
+                    time.time() + MAX_SESSION_LIFETIME,
+                )
                 session.requests.append(request)
                 session.session_reqnum += 1
                 request_metrics.session = session
@@ -805,7 +839,7 @@ class Backend:
             except (ValueError, TypeError):
                 return False
 
-        message = {"url": auth_data.url}
+        message = {"url": self.metrics.url}
 
         if verify_signature(
             json.dumps(message, indent=4, sort_keys=True), auth_data.signature

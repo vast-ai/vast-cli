@@ -20,7 +20,6 @@ from typing import (
     AsyncContextManager,
 )
 from functools import cached_property
-from urllib.parse import urlsplit
 from distutils.util import strtobool
 from collections import deque
 from asyncio import sleep, CancelledError
@@ -211,32 +210,19 @@ class Backend:
 
         try:
             timeout = ClientTimeout(total=10)
-            if self.__is_absolute_url(on_close_route):
-                async with ClientSession(timeout=timeout) as client:
-                    await self.__post_on_close(client, on_close_route, body, timeout)
-            else:
-                await self.__post_on_close(
-                    self.session, on_close_route, body, timeout
-                )
+            async with self.session.post(
+                url=on_close_route,
+                json=body,
+                timeout=timeout,
+            ) as resp:
+                text = await resp.text()
+                if resp.status >= 400:
+                    log.debug(
+                        f"on_close POST failed: route={on_close_route} status={resp.status} body={text[:512]!r}"
+                    )
         except Exception as e:
             log.debug(f"on_close POST exception: route={on_close_route} error={e!r}")
             return
-
-    @staticmethod
-    async def __post_on_close(
-        client: ClientSession, route: str, body: Dict[str, Any], timeout: ClientTimeout
-    ) -> None:
-        async with client.post(url=route, json=body, timeout=timeout) as resp:
-            text = await resp.text()
-            if resp.status >= 400:
-                log.debug(
-                    f"on_close POST failed: route={route} status={resp.status} body={text[:512]!r}"
-                )
-
-    @staticmethod
-    def __is_absolute_url(route: str) -> bool:
-        parts = urlsplit(route)
-        return bool(parts.scheme or parts.netloc)
 
     async def __close_session(self, session_id: str) -> bool:
         """
@@ -351,11 +337,6 @@ class Backend:
                 return web.json_response(data=e.message, status=422)
             if self.__check_signature(signed_auth_data) is False:
                 return web.Response(status=401)
-
-        if on_close_route and self.__is_absolute_url(on_close_route):
-            log.warning(
-                f"Session on_close_route is an absolute URL; absolute callback URLs may be restricted in a future release: {on_close_route}"
-            )
 
         now = time.time()
         session_request_metrics = RequestMetrics(

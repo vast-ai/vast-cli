@@ -562,41 +562,6 @@ class TestBackendSessionCreate:
         assert backend.sessions == {}
 
     @pytest.mark.asyncio
-    async def test_session_create_absolute_on_close_route_logs_warning(
-        self, serverless_backend_and_handler_default, serverless_backend_testkit
-    ) -> None:
-        """Absolute callback URLs are still accepted but logged as a warning."""
-        backend, _ = serverless_backend_and_handler_default
-        req = serverless_backend_testkit.json_request(
-            {
-                "auth_data": {"request_idx": 0, "reqnum": 1, "cost": 1.0},
-                "payload": {"on_close_route": "https://hooks.example/done"},
-            },
-        )
-        with patch("vastai.serverless.server.lib.backend.log") as mock_log:
-            resp = await backend.session_create_handler(req)
-        assert resp.status == 201
-        mock_log.warning.assert_called_once()
-        assert "https://hooks.example/done" in mock_log.warning.call_args[0][0]
-
-    @pytest.mark.asyncio
-    async def test_session_create_relative_on_close_route_does_not_warn(
-        self, serverless_backend_and_handler_default, serverless_backend_testkit
-    ) -> None:
-        """Relative callback routes to the model server are the documented flow."""
-        backend, _ = serverless_backend_and_handler_default
-        req = serverless_backend_testkit.json_request(
-            {
-                "auth_data": {"request_idx": 0, "reqnum": 1, "cost": 1.0},
-                "payload": {"on_close_route": "/cancel_task"},
-            },
-        )
-        with patch("vastai.serverless.server.lib.backend.log") as mock_log:
-            resp = await backend.session_create_handler(req)
-        assert resp.status == 201
-        mock_log.warning.assert_not_called()
-
-    @pytest.mark.asyncio
     async def test_session_create_secured_valid_signature_returns_201(
         self, serverless_backend_testkit, make_serverless_test_rsa_key
     ) -> None:
@@ -1802,7 +1767,7 @@ class TestBackendHelpers:
             lifetime=1.0,
             auth_data={},
             expiration=time.time() + 10,
-            on_close_route="/internal/hook",
+            on_close_route="http://internal/hook",
             on_close_payload={"foo": "bar"},
         )
         mock_sess = attach_serverless_backend_mock_aiohttp_session(
@@ -1811,48 +1776,11 @@ class TestBackendHelpers:
         await backend._Backend__run_session_on_close(session)
         mock_sess.post.assert_called_once()
         call_kw = mock_sess.post.call_args.kwargs
-        assert call_kw["url"] == "/internal/hook"
+        assert call_kw["url"] == "http://internal/hook"
         assert call_kw["timeout"] == ClientTimeout(total=10)
         body = call_kw["json"]
         assert body["foo"] == "bar"
         assert body["session_id"] == "cb1"
-
-    @pytest.mark.asyncio
-    async def test_run_session_on_close_absolute_url_uses_separate_client(
-        self,
-        serverless_backend_and_handler_default,
-        make_pyworker_session,
-        attach_serverless_backend_mock_aiohttp_session,
-        make_serverless_aiohttp_get_context_manager,
-    ) -> None:
-        """Absolute callback URLs are not sent through the model-server session."""
-        backend, _ = serverless_backend_and_handler_default
-        model_sess = attach_serverless_backend_mock_aiohttp_session(backend)
-        session = make_pyworker_session(
-            session_id="cb-abs",
-            lifetime=1.0,
-            auth_data={},
-            expiration=time.time() + 10,
-            on_close_route="https://hooks.example/done",
-            on_close_payload={"k": 1},
-        )
-        mock_resp = MagicMock()
-        mock_resp.status = 200
-        mock_resp.text = AsyncMock(return_value="ok")
-        mock_client = MagicMock()
-        mock_client.post = MagicMock(
-            return_value=make_serverless_aiohttp_get_context_manager(mock_resp)
-        )
-        with patch(
-            "vastai.serverless.server.lib.backend.ClientSession",
-            return_value=make_serverless_aiohttp_get_context_manager(mock_client),
-        ):
-            await backend._Backend__run_session_on_close(session)
-        model_sess.post.assert_not_called()
-        mock_client.post.assert_called_once()
-        call_kw = mock_client.post.call_args.kwargs
-        assert call_kw["url"] == "https://hooks.example/done"
-        assert call_kw["json"] == {"k": 1, "session_id": "cb-abs"}
 
     @pytest.mark.asyncio
     async def test_run_session_on_close_wraps_scalar_payload(
@@ -1877,7 +1805,7 @@ class TestBackendHelpers:
             lifetime=1.0,
             auth_data={},
             expiration=time.time() + 10,
-            on_close_route="/hook/cb",
+            on_close_route="http://hook/cb",
             on_close_payload="done",
         )
         mock_sess = attach_serverless_backend_mock_aiohttp_session(
@@ -1943,7 +1871,7 @@ class TestBackendHelpers:
             lifetime=1.0,
             auth_data={},
             expiration=time.time() + 10,
-            on_close_route="/notify/",
+            on_close_route="http://notify/",
             on_close_payload=None,
         )
         mock_sess = attach_serverless_backend_mock_aiohttp_session(backend)
@@ -1979,7 +1907,7 @@ class TestBackendHelpers:
             lifetime=1.0,
             auth_data={},
             expiration=time.time() + 10,
-            on_close_route="/hook/err",
+            on_close_route="http://hook/err",
             on_close_payload={},
         )
         with patch("vastai.serverless.server.lib.backend.log") as mock_log:
@@ -2014,7 +1942,7 @@ class TestBackendHelpers:
             lifetime=1.0,
             auth_data={},
             expiration=time.time() + 10,
-            on_close_route="/hook/x",
+            on_close_route="http://hook/x",
             on_close_payload={},
         )
         with patch("vastai.serverless.server.lib.backend.log") as mock_log:

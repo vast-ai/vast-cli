@@ -1388,41 +1388,50 @@ def attach__ssh(args):
     print(r.json())
 
 @parser.command(
-    argument("dst", help="instance_id:/path to target of copy operation", type=str),
-    usage="vastai cancel copy DST",
-    help="Cancel a remote copy in progress, specified by DST id",
+    argument("dst", help="Copy ID (cp_...), or legacy instance ID", type=str),
+    usage="vastai cancel copy CP_ID",
+    help="Cancel a remote copy by copy ID (legacy instance IDs also accepted)",
     epilog=deindent("""
-        Use this command to cancel any/all current remote copy operations copying to a specific named instance, given by DST.
+        Cancel a remote copy using the cp_id printed by copy. Prints the returned state without waiting.
+        A legacy instance ID resolves the active copy on that instance.
 
         Examples:
+         vastai cancel copy cp_0123456789abcdef
          vastai cancel copy 12371
 
-        The first example cancels all copy operations currently copying data into instance 12371
+        The first example cancels a specific copy. The second preserves legacy instance ID usage.
 
     """),
 )
 def cancel__copy(args: argparse.Namespace):
     """
-    Cancel a remote copy in progress, specified by DST id"
+    Cancel a remote copy by copy ID or legacy instance ID.
 
-    @param dst: ID of copy instance Target to cancel.
+    @param dst: Copy ID (cp_...), or legacy instance ID.
     """
 
-    url = apiurl(args, f"/commands/copy_direct/")
     dst_id = args.dst
     if (dst_id is None):
         print("invalid arguments")
         return
 
-    print(f"canceling remote copies to {dst_id} ")
+    print(f"Requesting copy cancellation for {dst_id}")
 
-    req_json = { "client_id": "me", "dst_id": dst_id, }
-    r = http_del(args, url, headers=headers,json=req_json)
+    if isinstance(dst_id, str) and dst_id.startswith("cp_"):
+        url = apiurl(args, f"/copies/{quote_plus(dst_id, safe='')}/")
+        r = http_del(args, url, headers=headers)
+    else:
+        url = apiurl(args, "/commands/copy_direct/")
+        req_json = {"client_id": "me", "dst_id": dst_id}
+        r = http_del(args, url, headers=headers, json=req_json)
     r.raise_for_status()
-    if (r.status_code == 200):
+    if r.status_code in (200, 202):
         rj = r.json();
         if (rj["success"]):
-            print("Remote copy canceled - check instance status bar for progress updates (~30 seconds delayed).")
+            if rj.get("cp_id") or rj.get("state"):
+                print(f"Copy {rj.get('cp_id', dst_id)}: {rj.get('state', '')}")
+            else:
+                print("Remote copy cancellation requested - check instance status for progress.")
         else:
             print(rj["msg"]);
     else:
@@ -1615,6 +1624,8 @@ def clone__volume(args: argparse.Namespace):
         You can see more information about constraints here: https://vast.ai/docs/gpu-instances/data-movement#constraints
         Volume copy is currently only supported for copying to other volumes, instances, or cloud services, not local.
 
+        Remote copies print a cp_id when supplied by the server. Cancel with vastai cancel copy <cp_id>.
+
         Examples:
          vastai copy 6003036:/workspace/ 6003038:/workspace/
          vastai copy C.11824:/data/test local:data/test
@@ -1671,6 +1682,8 @@ def copy(args: argparse.Namespace):
     r.raise_for_status()
     if (r.status_code == 200):
         rj = r.json()
+        if rj.get("cp_id"):
+            print(f"Copy {rj['cp_id']}")
         #print(json.dumps(rj, indent=1, sort_keys=True))
         if (rj["success"]) and ((src_id is None or src_id == "local") or (dst_id is None or dst_id == "local")):
             homedir = subprocess.getoutput("echo $HOME")
@@ -9783,6 +9796,23 @@ except:
   pass
 
 
+def copy_conflict_message(status_code, error):
+    """Name the copy holding the endpoint and how to cancel it, or None to keep the server's msg.
+
+    Cloud copy conflicts share the ``copy_in_progress`` code but carry no ``holder``
+    object, and older servers send none either, so a missing or malformed holder
+    falls back to the server's message instead of raising.
+    """
+    if status_code != 409 or not isinstance(error, dict) or error.get("error") != "copy_in_progress":
+        return None
+    holder = error.get("holder")
+    if not isinstance(holder, dict) or not isinstance(holder.get("cp_id"), str):
+        return None
+    cp_id = holder["cp_id"]
+    return (f"Copy {cp_id} ({holder.get('state', 'unknown')}) is already in progress. "
+            f"Cancel with: vastai cancel copy {cp_id}")
+
+
 def main():
     global ARGS
     if not os.environ.get("_ARGCOMPLETE") and "--raw" not in sys.argv:
@@ -9842,7 +9872,8 @@ def main():
         
         except requests.exceptions.HTTPError as e:
             try:
-                errmsg = e.response.json().get("msg");
+                error = e.response.json()
+                errmsg = copy_conflict_message(e.response.status_code, error) or error.get("msg")
             except JSONDecodeError:
                 if e.response.status_code == 401:
                     errmsg = "Please log in or sign up"

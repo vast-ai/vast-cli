@@ -55,6 +55,8 @@ parser = _get_parser()
         You can see more information about constraints here: https://vast.ai/docs/gpu-instances/data-movement#constraints
         Volume copy is currently only supported for copying to other volumes, instances, or cloud services, not local.
 
+        Remote copies print a cp_id when supplied by the server. Cancel with vastai cancel copy <cp_id>.
+
         Examples:
          vastai copy 6003036:/workspace/ 6003038:/workspace/
          vastai copy C.11824:/data/test local:data/test
@@ -90,6 +92,9 @@ def copy(args):
         print({"client_id": "me", "src_id": src_id, "dst_id": dst_id, "src_path": src_path, "dst_path": dst_path})
 
     rj = storage_api.copy(client, src_id=src_id, dst_id=dst_id, src_path=src_path, dst_path=dst_path)
+
+    if rj.get("cp_id"):
+        print(f"Copy {rj['cp_id']}")
 
     if (rj.get("success")) and ((src_id is None or src_id == "local") or (dst_id is None or dst_id == "local")):
         ssh_args = ["ssh"]
@@ -129,32 +134,37 @@ def copy(args):
 
 
 @parser.command(
-    argument("dst", help="instance_id:/path to target of copy operation", type=str),
-    usage="vastai cancel copy DST",
-    help="Cancel a remote copy in progress, specified by DST id",
+    argument("dst", help="Copy ID (cp_...), or legacy instance ID", type=str),
+    usage="vastai cancel copy CP_ID",
+    help="Cancel a remote copy by copy ID (legacy instance IDs also accepted)",
     epilog=deindent("""
-        Use this command to cancel any/all current remote copy operations copying to a specific named instance, given by DST.
+        Cancel a remote copy using the cp_id printed by copy. Prints the returned state without waiting.
+        A legacy instance ID resolves the active copy on that instance.
 
         Examples:
+         vastai cancel copy cp_0123456789abcdef
          vastai cancel copy 12371
 
-        The first example cancels all copy operations currently copying data into instance 12371
+        The first example cancels a specific copy. The second preserves legacy instance ID usage.
 
     """),
 )
 def cancel__copy(args):
-    """Cancel a remote copy in progress, specified by DST id."""
+    """Cancel a remote copy by copy ID or legacy instance ID."""
     client = get_client(args)
     dst_id = args.dst
     if dst_id is None:
         print("invalid arguments")
         return
 
-    print(f"canceling remote copies to {dst_id} ")
+    print(f"Requesting copy cancellation for {dst_id}")
 
     rj = storage_api.cancel_copy(client, dst_id=dst_id)
     if rj.get("success"):
-        print("Remote copy canceled - check instance status bar for progress updates (~30 seconds delayed).")
+        if rj.get("cp_id") or rj.get("state"):
+            print(f"Copy {rj.get('cp_id', dst_id)}: {rj.get('state', '')}")
+        else:
+            print("Remote copy cancellation requested - check instance status for progress.")
     else:
         print(rj.get("msg", rj))
 

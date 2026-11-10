@@ -185,7 +185,8 @@ def _error_detail(exc):
     resp = exc.response
     status = getattr(resp, "status_code", 0)
     try:
-        msg = resp.json().get("msg")
+        error = resp.json()
+        msg = cli_main.copy_conflict_message(status, error) or error.get("msg")
     except (ValueError, AttributeError):
         msg = None
     if not isinstance(msg, str):

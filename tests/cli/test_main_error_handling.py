@@ -144,3 +144,26 @@ class TestSearchQuotaDenial:
         assert capsys.readouterr().err.strip() == (
             "Failed with error 429: Daily search row quota exhausted. Resets at 2026-10-17 00:00 UTC."
         )
+
+
+@pytest.mark.parametrize("raw", [False, True])
+def test_copy_conflict_prints_holder_and_cancel_command(raw, mock_response, capsys):
+    cp_id = "cp_0123456789abcdef"
+    response = mock_response(409, {
+        "error": "copy_in_progress", "cp_id": cp_id,
+        "holder": {"cp_id": cp_id, "state": "cancel_failed"},
+    })
+    run_command(_args(raw=raw, func=MagicMock(side_effect=HTTPError(response=response))))
+    err = capsys.readouterr().err
+    assert f"Copy {cp_id} (cancel_failed)" in err
+    assert f"vastai cancel copy {cp_id}" in err
+
+
+@pytest.mark.parametrize("holder", [None, "a cloud copy", {"state": "running"}])
+def test_copy_conflict_without_holder_id_keeps_server_message(holder, mock_response, capsys):
+    msg = "A cloud copy is already running on this instance. Cancel it or wait for it to finish."
+    body = {"success": False, "error": "copy_in_progress", "msg": msg, "copy_id": None}
+    if holder is not None:
+        body["holder"] = holder
+    run_command(_args(func=MagicMock(side_effect=HTTPError(response=mock_response(409, body)))))
+    assert msg in capsys.readouterr().err

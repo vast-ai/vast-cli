@@ -1,6 +1,7 @@
 """Storage, volume, and data transfer API functions for the Vast.ai SDK."""
 
 import time
+from urllib.parse import quote
 
 
 def copy(client, src_id, dst_id, src_path, dst_path):
@@ -38,9 +39,9 @@ def copy(client, src_id, dst_id, src_path, dst_path):
         dst_path (str): Destination path.
 
     Returns:
-        dict: API response data. For local transfers this includes the
-            ``src_addr``/``src_port`` or ``dst_addr``/``dst_port`` the caller
-            uses to run rsync.
+        dict: API response data, including ``cp_id`` when supplied. For local
+            transfers this includes the ``src_addr``/``src_port`` or
+            ``dst_addr``/``dst_port`` the caller uses to run rsync.
 
     Examples:
         copy(client, 6003036, 6003038, \"/workspace/\", \"/workspace/\")
@@ -70,17 +71,20 @@ def copy(client, src_id, dst_id, src_path, dst_path):
 def cancel_copy(client, dst_id):
     """Cancel a remote copy in progress.
 
-    DELETE /commands/copy_direct/
+    DELETE /copies/{cp_id}/, or the legacy DELETE /commands/copy_direct/.
 
     Args:
         client: VastClient instance.
-        dst_id: ID of copy destination to cancel.
+        dst_id: Copy ID (cp_...), or an instance ID for legacy callers.
 
     Returns:
         dict: API response data.
     """
-    req_json = {"client_id": "me", "dst_id": dst_id}
-    r = client.delete("/commands/copy_direct/", json_data=req_json)
+    if isinstance(dst_id, str) and dst_id.startswith("cp_"):
+        r = client.delete(f"/copies/{quote(dst_id, safe='')}/")
+    else:
+        req_json = {"client_id": "me", "dst_id": dst_id}
+        r = client.delete("/commands/copy_direct/", json_data=req_json)
     r.raise_for_status()
     return r.json()
 

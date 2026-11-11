@@ -40,7 +40,8 @@ dependencies = [
   "curlify>=2.2",
   "rich>=13.0",
   "cryptography==49.0.0",
-  "pillow==12.2.0",
+  "pillow>=12.3.0",
+  "setuptools>=83.0.0",
   "typing-extensions>=4.6.0"
 ]
 

@@ -90,7 +90,20 @@ class TestShowMachineContracts:
         patch_get_client.get.return_value = mock_response(200, self.envelope(contracts=[self.CONTRACT, second]))
         args = parse_argv(["show", "machine-contracts", "1", "-q"])
         args.func(args)
-        assert capsys.readouterr().out.strip() == "555 556"
+        captured = capsys.readouterr()
+        assert captured.out.strip() == "555 556"
+        assert captured.err == ""
+
+    def test_quiet_still_warns_on_incomplete_response(self, parse_argv, patch_get_client, mock_response, capsys):
+        patch_get_client.get.return_value = mock_response(200, self.envelope(
+            truncated=True, omitted_count=1, omitted_contract_ids=[999],
+        ))
+        args = parse_argv(["show", "machine-contracts", "1", "-q"])
+        args.func(args)
+        captured = capsys.readouterr()
+        assert captured.out.strip() == "555"
+        assert "truncated" in captured.err
+        assert "999" in captured.err
 
     def test_warns_on_incomplete_response(self, parse_argv, patch_get_client, mock_response, capsys):
         patch_get_client.get.return_value = mock_response(200, self.envelope(

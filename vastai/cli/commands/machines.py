@@ -140,8 +140,9 @@ def show__machine_contracts(args):
     rows = result.get("contracts", [])
     if args.quiet:
         print(" ".join(f"{row['contract_id']}" for row in rows))
-        return
-    display_table(rows, machine_contract_fields)
+    else:
+        display_table(rows, machine_contract_fields)
+    # Warnings go to stderr even with --quiet, so scripts can tell a partial ID list from a complete one.
     if result.get("truncated"):
         print(f"Warning: only the first {len(rows)} contracts were returned; the list is truncated.", file=sys.stderr)
     if result.get("omitted_count"):

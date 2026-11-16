@@ -1226,3 +1226,47 @@ class TestSelfTestMachineDiagnostics:
         assert endpoint["last_error_type"] is None
         assert result["diagnostics"]["runtime_failure"]["progress_endpoint"] == endpoint
         assert destroy.call_count >= 1
+
+
+class TestMachineOverrides:
+    def _body(self, client):
+        return client.post.call_args.kwargs["json_data"]
+
+    def test_set_geolocation_sends_the_string_and_parsed_ids(self, parse_argv, patch_get_client, mock_response, capsys):
+        patch_get_client.post.return_value = mock_response(200, {
+            "success": True, "field": "geolocation", "value": "Guangdong, CN", "machine_ids": [12, 13],
+            "locked_machine_ids": [], "skipped_machine_ids": [], "msg": "Set geolocation to 'Guangdong, CN' on 2 machine(s)."})
+        args = parse_argv(["set", "machine-override", "geolocation", "Guangdong, CN", "--ids", "12,13"])
+        args.func(args)
+        assert patch_get_client.post.call_args[0][0] == "/machines/overrides/set/"
+        assert self._body(patch_get_client) == {"field": "geolocation", "value": "Guangdong, CN", "machine_ids": [12, 13]}
+        assert "Set geolocation" in capsys.readouterr().out
+
+    def test_set_bandwidth_sends_a_number_with_admin_target_and_reason(self, parse_argv, patch_get_client, mock_response):
+        patch_get_client.post.return_value = mock_response(200, {"success": True, "field": "inet_down", "machine_ids": [12]})
+        args = parse_argv(["set", "machine-override", "inet_down", "950", "--host-id", "678", "--ids", "12",
+                           "--reason", "verified on support ticket"])
+        args.func(args)
+        assert self._body(patch_get_client) == {"field": "inet_down", "value": 950.0, "machine_ids": [12],
+                                                "host_id": 678, "reason": "verified on support ticket"}
+
+    def test_set_rejects_an_unknown_field(self, parse_argv):
+        with pytest.raises(SystemExit):
+            parse_argv(["set", "machine-override", "hostname", "x"])
+
+    def test_clear_sends_the_field_only_by_default(self, parse_argv, patch_get_client, mock_response, capsys):
+        patch_get_client.post.return_value = mock_response(200, {
+            "success": True, "field": "geolocation", "machine_ids": [12], "skipped_machine_ids": [99],
+            "msg": "Cleared the geolocation override on 1 machine(s)."})
+        args = parse_argv(["clear", "machine-override", "geolocation"])
+        args.func(args)
+        assert patch_get_client.post.call_args[0][0] == "/machines/overrides/clear/"
+        assert self._body(patch_get_client) == {"field": "geolocation"}
+        out = capsys.readouterr().out
+        assert "Cleared the geolocation override" in out and "[99]" in out
+
+    def test_raw_returns_the_response(self, parse_argv, patch_get_client, mock_response):
+        body = {"success": True, "field": "geolocation", "machine_ids": [12]}
+        patch_get_client.post.return_value = mock_response(200, body)
+        args = parse_argv(["clear", "machine-override", "geolocation", "--ids", "12", "--raw"])
+        assert args.func(args) == body

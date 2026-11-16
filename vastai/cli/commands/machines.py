@@ -122,7 +122,7 @@ def show__machines(args):
         storage-only (stopped) instances, and standalone volumes.
 
         Prices are what you earn, after the platform fee. gpu_$/h is per GPU,
-        disk/vol prices are per GB per month, and network prices are per TB.
+        disk prices are per GB per month, and network prices are per TB.
         earn_$/day is yesterday's billed earnings, an estimate for contracts that
         started today, or '-' while billing data is not yet available.
 
@@ -151,7 +151,7 @@ def show__machine_contracts(args):
     if result.get("billing_degraded"):
         print("Warning: billing data is unavailable; some earnings are shown as '-'.", file=sys.stderr)
     if result.get("aggregation_degraded"):
-        print("Warning: GPU/volume details are unavailable; some rows may be incomplete.", file=sys.stderr)
+        print("Warning: GPU details are unavailable; #gpus may show 0 for some contracts.", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------

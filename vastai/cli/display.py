@@ -284,8 +284,6 @@ machine_contract_fields = (
     ("gpu_price_dph", "gpu_$/h", "{:0.3f}", None, True),
     ("disk_size_gb", "disk_GB", "{:0.1f}", None, True),
     ("disk_price_dpgbm", "disk_$/GB/mo", "{:0.3f}", None, True),
-    ("vol_size_gb", "vol_GB", "{:0.1f}", None, True),
-    ("vol_price_dpgbm", "vol_$/GB/mo", "{:0.3f}", None, True),
     ("inet_up_cost", "netu_$/TB", "{:0.2f}", None, True),
     ("inet_down_cost", "netd_$/TB", "{:0.2f}", None, True),
     ("earn_day", "earn_$/day", "{:0.2f}", None, True),

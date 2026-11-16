@@ -57,8 +57,8 @@ class TestShowMachineContracts:
         "state": "running", "start_date": 1767225600, "end_date": None,
         "charge_types": ["gpu", "disk"], "earn_hour": 0.5, "earn_day": 12.0,
         "auto_renew": False, "gpu_price_dph": 0.25, "num_gpus": 2, "gpu_slots": [0, 1],
-        "disk_size_gb": 50.0, "disk_price_dpgbm": 0.1, "vol_size_gb": None,
-        "vol_price_dpgbm": None, "inet_up_cost": 2.0, "inet_down_cost": 1.0,
+        "disk_size_gb": 50.0, "disk_price_dpgbm": 0.1,
+        "inet_up_cost": 2.0, "inet_down_cost": 1.0,
     }
 
     def envelope(self, **overrides):
@@ -116,7 +116,7 @@ class TestShowMachineContracts:
         assert "truncated" in err
         assert "999" in err
         assert "billing data" in err
-        assert "GPU/volume" in err
+        assert "GPU details" in err
 
 
 class TestListMachineMinChunkDefault:

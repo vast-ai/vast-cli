@@ -11,7 +11,7 @@ from vastai.api.query import (parse_order, parse_query, benchmarks_fields,
                               fix_date_fields, invoices_fields,
                               offers_mult, templates_fields,
                               vol_offers_fields)
-from vastai.api import instances, offers, machines, teams, keys, endpoints, billing, storage, clusters, auth, deployments
+from vastai.api import instances, offers, machines, teams, keys, endpoints, billing, storage, auth, deployments
 
 
 def benchmarks_query(query):
@@ -365,22 +365,6 @@ class VastAI:
         or an already-parsed filter dict.
         """
         return offers.search_volumes(
-            self.client, query=volume_query(query),
-            order=parse_order(order), limit=limit, storage=storage,
-            no_default=no_default,
-        )
-
-    def search_network_volumes(
-        self, query: Optional[Union[str, dict]] = None,
-        order: Optional[Union[str, list]] = None, limit: Optional[int] = None,
-        storage: float = 1.0, no_default: bool = False,
-    ) -> list[dict]:
-        """Search for network volume offers.
-
-        ``query`` takes the same string syntax as
-        ``vastai search network volumes``, or an already-parsed filter dict.
-        """
-        return offers.search_network_volumes(
             self.client, query=volume_query(query),
             order=parse_order(order), limit=limit, storage=storage,
             no_default=no_default,
@@ -858,76 +842,9 @@ class VastAI:
         """Unlist a volume offer."""
         return storage.unlist_volume(self.client, id)
 
-    def create_network_volume(self, id: int, size: float = 15, name: Optional[str] = None) -> dict:
-        """Create a new network volume."""
-        return storage.create_network_volume(self.client, id, size=size, name=name)
-
-    def list_network_volume(self, disk_id: int, **kwargs) -> dict:
-        """List disk space for rent as a network volume."""
-        return storage.list_network_volume(self.client, disk_id, **kwargs)
-
-    def unlist_network_volume(self, id: int) -> dict:
-        """Unlist a network volume offer."""
-        return storage.unlist_network_volume(self.client, id)
-
-    def show_network_disks(self) -> dict:
-        """Show network disks associated with your account."""
-        return storage.show_network_disks(self.client)
-
-    def add_network_disk(self, machines: List[int], mount_point: str, disk_id: Optional[int] = None) -> dict:
-        """Add a network disk to a physical cluster."""
-        return storage.add_network_disk(self.client, machines, mount_point, disk_id=disk_id)
-
     def show_connections(self) -> list[dict]:
         """Show all connections."""
         return storage.show_connections(self.client)
-
-    # ------------------------------------------------------------------
-    # Cluster methods
-    # ------------------------------------------------------------------
-
-    def show_clusters(self) -> dict:
-        """Show clusters associated with your account."""
-        return clusters.show_clusters(self.client)
-
-    def create_cluster(self, subnet: str, manager_id: int) -> dict:
-        """Create a Vast cluster."""
-        return clusters.create_cluster(self.client, subnet, manager_id)
-
-    def delete_cluster(self, cluster_id: int) -> dict:
-        """Delete a cluster."""
-        return clusters.delete_cluster(self.client, cluster_id)
-
-    def join_cluster(self, cluster_id: int, machine_ids: List[int]) -> dict:
-        """Join machines to a cluster."""
-        return clusters.join_cluster(self.client, cluster_id, machine_ids)
-
-    def remove_machine_from_cluster(
-        self,
-        cluster_id: int,
-        machine_id: int,
-        new_manager_id: Optional[int] = None,
-    ) -> dict:
-        """Remove a machine from a cluster."""
-        return clusters.remove_machine_from_cluster(
-            self.client, cluster_id, machine_id, new_manager_id=new_manager_id,
-        )
-
-    def show_overlays(self) -> list[dict]:
-        """Show overlays associated with your account."""
-        return clusters.show_overlays(self.client)
-
-    def create_overlay(self, cluster_id: int, name: str) -> dict:
-        """Create an overlay network on a physical cluster."""
-        return clusters.create_overlay(self.client, cluster_id, name)
-
-    def delete_overlay(self, overlay_identifier: Optional[str] = None) -> dict:
-        """Delete an overlay and remove all associated instances."""
-        return clusters.delete_overlay(self.client, overlay_identifier=overlay_identifier)
-
-    def join_overlay(self, name: str, instance_id: int) -> dict:
-        """Add an instance to an overlay network."""
-        return clusters.join_overlay(self.client, name, instance_id)
 
     # ------------------------------------------------------------------
     # Auth / account methods

@@ -783,23 +783,6 @@ vol_displayable_fields = (
     ("geolocation", "country", "{}", None, True),
 )
 
-nw_vol_displayable_fields = (
-    ("id", "ID", "{}", None, True),
-    ("disk_space", "Disk", "{:.0f}", None, True),
-    ("storage_cost", "$/Gb/Month", "{:.2f}", None, True),
-    ("inet_up", "Net_up", "{:0.1f}", None, True),
-    ("inet_down", "Net_down", "{:0.1f}", None, True),
-    ("reliability", "R", "{:0.1f}", lambda x: x * 100, True),
-    ("duration", "Max_Days", "{:0.1f}", lambda x: x / (24.0 * 60.0 * 60.0), True),
-    ("verification", "status", "{}", None, True),
-    ("host_id", "host_id", "{}", None, True),
-    ("cluster_id", "cluster_id", "{}", None, True),
-    ("geolocation", "country", "{}", None, True),
-    ("nw_disk_min_bw", "Min BW MiB/s", "{}", None, True),
-    ("nw_disk_max_bw", "Max BW MiB/s", "{}", None, True),
-    ("nw_disk_avg_bw", "Avg BW MiB/s", "{}", None, True),
-
-)
 # Need to add bw_nvlink, machine_id, direct_port_count to output.
 
 
@@ -828,34 +811,6 @@ instance_fields = (
     ("uptime_mins", "uptime(mins)", "{:0.2f}",  None, True),
 )
 
-cluster_fields = (
-    ("id", "ID", "{}", None, True),
-    ("subnet", "Subnet", "{}", None, True),
-    ("node_count", "Nodes", "{}", None, True),
-    ("manager_id", "Manager ID", "{}", None, True),
-    ("manager_ip", "Manager IP", "{}", None, True),
-    ("machine_ids", "Machine ID's", "{}", None, True)
-)
-
-network_disk_fields = (
-    ("network_disk_id", "Network Disk ID", "{}", None, True),
-    ("free_space", "Free Space (GB)", "{}", None, True),
-    ("total_space", "Total Space (GB)", "{}", None, True),
-)
-
-network_disk_machine_fields = (
-    ("machine_id", "Machine ID", "{}", None, True),
-    ("mount_point", "Mount Point", "{}", None, True),
-)
-
-overlay_fields = (
-    ("overlay_id", "Overlay ID", "{}", None, True),
-    ("name", "Name", "{}", None, True),
-    ("subnet", "Subnet", "{}", None, True),
-    ("cluster_id", "Cluster ID", "{}", None, True),
-    ("instance_count", "Instances", "{}", None, True),
-    ("instances", "Instance IDs", "{}", None, True),
-)
 volume_fields = (
     ("id", "ID", "{}", None, True),
     ("cluster_id", "Cluster ID", "{}", None, True),
@@ -2087,35 +2042,6 @@ def create__api_key(args):
 
 
 @parser.command(
-    argument("subnet", help="local subnet for cluster, ex: '0.0.0.0/24'", type=str),
-    argument("manager_id", help="Machine ID of manager node in cluster. Must exist already.", type=int),
-    usage="vastai create cluster SUBNET MANAGER_ID",
-    help="Create Vast cluster",
-    epilog=deindent("""
-        Create Vast Cluster by defining a local subnet and manager id.""")
-)
-def create__cluster(args: argparse.Namespace):
-
-    json_blob = {
-        "subnet": args.subnet,
-        "manager_id": args.manager_id
-    }
-
-    #TODO: this should happen at the decorator level for all CLI commands to reduce boilerplate
-    if args.explain:
-        print("request json: ")
-        print(json_blob)
-
-    req_url = apiurl(args, "/cluster/")
-    r  = http_post(args, req_url, json=json_blob)
-    r.raise_for_status()
-
-    if args.raw:
-        return r
-
-    print(r.json()["msg"])
-
-@parser.command(
     argument("name", help="Environment variable name", type=str),
     argument("value", help="Environment variable value", type=str),
     usage="vastai create env-var <name> <value>",
@@ -2799,65 +2725,6 @@ def create__volume(args: argparse.Namespace):
 
 
 @parser.command(
-    argument("id", help="id of network volume offer", type=int),
-    argument("-s", "--size",
-             help="size in GB of network volume. Default %(default)s GB.", default=15, type=float),
-    argument("-n", "--name", help="Optional name of network volume.", type=str),
-    usage="vastai create network volume ID [options]",
-    help="Create a new network volume",
-    epilog=deindent("""
-        Creates a network volume from an offer ID (which is returned from "search network volumes"). Each offer ID can be used to create multiple volumes,
-        provided the size of all volumes does not exceed the size of the offer.
-    """)
-)
-def create__network_volume(args: argparse.Namespace):
-    
-    json_blob ={
-        "size": int(args.size),
-        "id": int(args.id)
-    }
-    if args.name:
-        json_blob["name"] = args.name
-
-    url = apiurl(args, "/network_volumes/")
-
-    if (args.explain):
-        print("request json: ")
-        print(json_blob)
-    r = http_put(args, url,  headers=headers,json=json_blob)
-    r.raise_for_status()
-    if args.raw:
-        return r
-    else:
-        print("Created. {}".format(r.json()))
-
-@parser.command(
-    argument("cluster_id", help="ID of cluster to create overlay on top of", type=int),
-    argument("name", help="overlay network name"),
-    usage="vastai create overlay CLUSTER_ID OVERLAY_NAME",
-    help="Creates overlay network on top of a physical cluster",
-    epilog=deindent("""
-    Creates an overlay network to allow local networking between instances on a physical cluster""")
-)
-def create__overlay(args: argparse.Namespace):
-    json_blob = {
-        "cluster_id": args.cluster_id,
-        "name": args.name
-    }
-
-    if args.explain:
-        print("request json:", json_blob)
-
-    req_url = apiurl(args, "/overlay/")
-    r = http_post(args, req_url, json=json_blob)
-    r.raise_for_status()
-
-    if args.raw:
-        return r
-
-    print(r.json()["msg"])
-
-@parser.command(
     argument("id", help="id of apikey to remove", type=int),
     usage="vastai delete api-key ID",
     help="Remove an api-key",
@@ -2889,32 +2756,6 @@ def delete__scheduled_job(args):
     r = http_del(args, url, headers=headers)
     r.raise_for_status()
     print(r.json())
-
-
-
-@parser.command(
-    argument("cluster_id", help="ID of cluster to delete", type=int),
-    usage="vastai delete cluster CLUSTER_ID",
-    help="Delete Cluster",
-    epilog=deindent("""
-        Delete Vast Cluster""")
-)
-def delete__cluster(args: argparse.Namespace):
-    json_blob = {
-        "cluster_id": args.cluster_id
-    }
-
-    if args.explain:
-        print("request json:", json_blob)
-
-    req_url = apiurl(args, "/cluster/")
-    r = http_del(args, req_url, json=json_blob)
-    r.raise_for_status()
-
-    if args.raw:
-        return r
-
-    print(r.json()["msg"])
 
 
 @parser.command(
@@ -3042,35 +2883,6 @@ def delete__env_var(args):
         print(result.get("msg", "Environment variable deleted successfully."))
     else:
         print(f"Failed to delete environment variable: {result.get('msg', 'Unknown error')}")
-
-@parser.command(
-    argument("overlay_identifier", help="ID (int) or name (str) of overlay to delete", nargs="?"),
-    usage="vastai delete overlay OVERLAY_IDENTIFIER",
-    help="Deletes overlay and removes all of its associated instances"
-)
-def delete__overlay(args: argparse.Namespace):
-    identifier = args.overlay_identifier
-    try:
-        overlay_id = int(identifier)
-        json_blob = {
-            "overlay_id": overlay_id
-        }
-    except (ValueError, TypeError):
-        json_blob = {
-            "overlay_name": identifier
-        }
-
-    if args.explain:
-        print("request json:", json_blob)
-
-    req_url = apiurl(args, "/overlay/")
-    r = http_del(args, req_url, json=json_blob)
-    r.raise_for_status()
-
-    if args.raw:
-        return r
-
-    print(r.json()["msg"])
 
 @parser.command(
     argument("--template-id", help="Template ID of Template to Delete", type=int),
@@ -3365,62 +3177,6 @@ def invite__member(args):
     else:
         print(r.text);
         print(f"failed with error {r.status_code}")
-
-
-@parser.command(
-    argument("cluster_id", help="ID of cluster to add machine to", type=int),
-    argument("machine_ids", help="machine id(s) to join cluster", type=int, nargs="+"),
-    usage="vastai join cluster CLUSTER_ID MACHINE_IDS",
-    help="Join Machine to Cluster",
-    epilog=deindent("""
-        Join's Machine to Vast Cluster
-    """)
-)
-def join__cluster(args: argparse.Namespace):
-    json_blob = {
-        "cluster_id": args.cluster_id,
-        "machine_ids": args.machine_ids
-    }
-
-    if args.explain:
-        print("request json:", json_blob)
-
-    req_url = apiurl(args, "/cluster/")
-    r = http_put(args, req_url, json=json_blob)
-    r.raise_for_status()
-
-    if args.raw:
-        return r
-
-    print(r.json()["msg"])
-
-
-@parser.command(
-    argument("name", help="Overlay network name to join instance to.", type=str),
-    argument("instance_id", help="Instance ID to add to overlay.", type=int),
-    usage="vastai join overlay OVERLAY_NAME INSTANCE_ID",
-    help="Adds instance to an overlay network",
-    epilog=deindent("""
-    Adds an instance to a compatible overlay network.""")
-)
-def join__overlay(args: argparse.Namespace):
-    json_blob = {
-        "name": args.name,
-        "instance_id": args.instance_id
-    }
-
-    if args.explain:
-        print("request json:", json_blob)
-
-    req_url = apiurl(args, "/overlay/")
-    r = http_put(args, req_url, json=json_blob)
-    r.raise_for_status()
-
-    if args.raw:
-        return r
-
-    print(r.json()["msg"])
-
 
 
 @parser.command(
@@ -4680,103 +4436,6 @@ def search__volumes(args: argparse.Namespace):
         return rows
     else:
         display_table(rows, vol_displayable_fields)
-
-
-
-@parser.command(
-    argument("-n", "--no-default", action="store_true", help="Disable default query"),
-    argument("--limit", type=int, help=""),
-    argument("--storage", type=float, default=1.0, help="Amount of storage to use for pricing, in GiB. default=1.0GiB"),
-    argument("-o", "--order", type=str, help="Comma-separated list of fields to sort on. postfix field with - to sort desc. ex: -o 'disk_space,inet_up-'.  default='score-'", default='score-'),
-    argument("query", help="Query to search for. default: 'external=false verified=true disk_space>=1', pass -n to ignore default", nargs="*", default=None),
-    usage="vastai search network volumes [--help] [--api-key API_KEY] [--raw] <query>",
-    help="Search for network volume offers using custom query",
-    epilog=deindent("""
-        Query syntax:
-
-            query = comparison comparison...
-            comparison = field op value
-            field = <name of a field>
-            op = one of: <, <=, ==, !=, >=, >, in, notin
-            value = <bool, int, float, string> | 'any' | [value0, value1, ...]
-            bool: True, False
-
-        note: to pass '>' and '<' on the command line, make sure to use quotes
-        note: to encode a string query value (ie for gpu_name), replace any spaces ' ' with underscore '_'
-
-        Examples:
-
-            # search for volumes with greater than 50GB of available storage and greater than 500 Mb/s upload and download speed
-            vastai search volumes "disk_space>50 inet_up>500 inet_down>500"
-            
-        Available fields:
-
-              Name                  Type       Description
-            duration:               float     max rental duration in days
-            geolocation:            string    Two letter country code. Works with operators =, !=, in, notin (e.g. geolocation not in ['XV','XZ'])
-            id:                     int       volume offer unique ID
-            inet_down:              float     internet download speed in Mb/s
-            inet_up:                float     internet upload speed in Mb/s
-            reliability:            float     machine reliability score (see FAQ for explanation)
-            storage_cost:           float     storage cost in $/GB/month
-            verified:               bool      is the machine verified
-    """),
-)
-def search__network_volumes(args: argparse.Namespace):
-    try:
-
-        if args.no_default:
-            query = {}
-        else:
-            query = {"verified": {"eq": True}, "external": {"eq": False}, "disk_space": {"gte": 1}}
-
-        if args.query is not None:
-            query = parse_query(args.query, query, vol_offers_fields, {}, offers_mult)
-
-        order = []
-        for name in args.order.split(","):
-            name = name.strip()
-            if not name: continue
-            direction = "asc"
-            field = name
-            if name.strip("-") != name:
-                direction = "desc"
-                field = name.strip("-")
-            if name.strip("+") != name:
-                direction = "asc"
-                field = name.strip("+")
-            if field in offers_alias:
-                field = offers_alias[field];
-            order.append([field, direction])
-
-        query["order"] = order
-        if (args.limit):
-            query["limit"] = int(args.limit)
-        query["allocated_storage"] = args.storage
-    except ValueError as e:
-        print("Error: ", e)
-        return 1
-
-    json_blob = query
-
-    if (args.explain):
-        print("request json: ")
-        print(json_blob)
-    url = apiurl(args, "/network_volumes/search/")
-    r = http_post(args, url, headers=headers, json=json_blob)
-
-    r.raise_for_status()
-   
-    if (r.headers.get('Content-Type') != 'application/json'):
-        print(f"invalid return Content-Type: {r.headers.get('Content-Type')}")
-        return   
-
-    rows = r.json()["offers"]
-    
-    if args.raw:
-        return rows
-    else:
-        display_table(rows, nw_vol_displayable_fields)
 
 
 @parser.command(
@@ -6400,72 +6059,6 @@ def show__ipaddrs(args):
 
 
 @parser.command(
-    usage="vastai show clusters",
-    help="Show clusters associated with your account.",
-    epilog=deindent("""
-        Show clusters associated with your account.
-    """)
-)
-def show__clusters(args: argparse.Namespace):
-    req_url = apiurl(args, "/clusters/")
-    r = http_get(args, req_url)
-    r.raise_for_status()
-    response_data = r.json()
-
-    if args.raw:
-        return response_data
-
-    rows = []
-    for cluster_id, cluster_data in response_data['clusters'].items():
-        machine_ids = [ node["machine_id"] for node in cluster_data["nodes"]]
-
-        manager_node = next(node for node in cluster_data['nodes'] if node['is_cluster_manager'])
-
-        row_data = {
-            'id': cluster_id,
-            'subnet': cluster_data['subnet'],
-            'node_count': len(cluster_data['nodes']),
-            'machine_ids': str(machine_ids),
-            'manager_id': str(manager_node['machine_id']),
-            'manager_ip': manager_node['local_ip'],
-        }
-
-        rows.append(row_data)
-
-    display_table(rows, cluster_fields, replace_spaces=False)
-
-
-@parser.command(
-    usage="vastai show overlays",
-    help="Show overlays associated with your account.",
-    epilog=deindent("""
-        Show overlays associated with your account.
-    """)
-)
-def show__overlays(args: argparse.Namespace):
-    req_url = apiurl(args, "/overlay/")
-    r = http_get(args, req_url)
-    r.raise_for_status()
-    response_data = r.json()
-    if args.raw:
-        return response_data
-    rows = []
-    for overlay in response_data:
-        row_data = {
-            'overlay_id': overlay['overlay_id'],
-            'name': overlay['name'],
-            'subnet': overlay['internal_subnet'] if overlay['internal_subnet'] else 'N/A',
-            'cluster_id': overlay['cluster_id'],
-            'instance_count': len(overlay['instances']),
-            'instances': str(overlay['instances']),
-        }
-        rows.append(row_data)
-    display_table(rows, overlay_fields, replace_spaces=False)
-
-
-
-
-@parser.command(
     argument("-q", "--quiet", action="store_true", help="display subaccounts from current user"),
     usage="vastai show subaccounts [OPTIONS]",
     help="Get current subaccounts"
@@ -6552,7 +6145,7 @@ def show__user(args):
         display_table([user_blob], user_fields)
 
 @parser.command(
-    argument("-t", "--type", help="volume type to display. Default to all. Possible values are \"local\", \"all\", \"network\"", type=str, default="all"),
+    argument("-t", "--type", help="volume type to display. Default to all. Possible values are \"local\", \"all\"", type=str, default="all"),
     usage="vastai show volumes [OPTIONS]",
     help="Show stats on owned volumes.",
     epilog=deindent("""
@@ -6562,7 +6155,6 @@ def show__user(args):
 def show__volumes(args: argparse.Namespace):
     types = {
         "local": "local_volume",
-        "network": "network_volume",
         "all": "all_volume"
     }
     type = types.get(args.type, "all")
@@ -6579,37 +6171,6 @@ def show__volumes(args: argparse.Namespace):
         return processed
     else:
         display_table(processed, volume_fields, replace_spaces=False)
-
-
-@parser.command(
-    argument("cluster_id", help="ID of cluster you want to remove machine from.", type=int),
-    argument("machine_id", help="ID of machine to remove from cluster.", type=int),
-    argument("new_manager_id", help="ID of machine to promote to manager. Must already be in cluster", type=int, nargs="?"),
-    usage="vastai remove-machine-from-cluster CLUSTER_ID MACHINE_ID NEW_MANAGER_ID",
-    help="Removes machine from cluster",
-    epilog=deindent("""Removes machine from cluster and also reassigns manager ID, 
-    if we're removing the manager node""")
-)
-def remove_machine_from_cluster(args: argparse.Namespace):
-    json_blob = {
-        "cluster_id": args.cluster_id,
-        "machine_id": args.machine_id,
-    }
-
-    if args.new_manager_id:
-        json_blob["new_manager_id"] = args.new_manager_id
-    if args.explain:
-        print("request json:", json_blob)
-
-    req_url = apiurl(args, "/cluster/remove_machine/")
-    r = http_del(args, req_url, json=json_blob)
-    r.raise_for_status()
-
-    if args.raw:
-        return r
-
-    print(r.json()["msg"])
-
 
 
 def handle_failed_tfa_verification(args, e):
@@ -8013,42 +7574,6 @@ def filter_invoice_items(args: argparse.Namespace, rows: List) -> Dict:
 #
 
 @parser.command(
-    argument("machines", help="ids of machines to add disk to, that is networked to be on the same LAN as machine", type=int, nargs='+'),
-    argument("mount_point", help="mount path of disk to add", type=str),
-    argument("-d", "--disk_id", help="id of network disk to attach to machines in the cluster", type=int, nargs='?'),
-    usage="vastai add network-disk MACHINES MOUNT_PATH [options]",
-    help="[Host] Add Network Disk to Physical Cluster.",
-    epilog=deindent("""
-        This variant can be used to add a network disk to a physical cluster.
-        When you add a network disk for the first time, you just need to specify the machine(s) and mount_path.
-        When you add a network disk for the second time, you need to specify the disk_id.
-        Example:
-        vastai add network-disk 1 /mnt/disk1
-        vastai add network-disk 1 /mnt/disk1 -d 12345
-    """)
-)
-def add__network_disk(args):
-    json_blob = {
-        "machines": [int(id) for id in args.machines],
-        "mount_point": args.mount_point,
-    }
-    if args.disk_id is not None:
-        json_blob["disk_id"] = args.disk_id
-    url = apiurl(args, "/network_disk/")
-    if args.explain:
-        print("request json: ")
-        print(json_blob)
-    r = http_post(args, url, headers=headers, json=json_blob)
-    r.raise_for_status()
- 
-    if args.raw:
-        return r
-
-    print("Attached network disk to machines. Disk id: " + str(r.json()["disk_id"]))
-
-
-
-@parser.command(
     argument("id", help="id of machine to cancel maintenance(s) for", type=int),
     usage="vastai cancel maint id",
     help="[Host] Cancel maint window",
@@ -8277,42 +7802,6 @@ def list__machines(args):
     """
     return [list_machine(args, id) for id in args.ids]
     return res
-
-
-
-
-
-@parser.command(
-    argument("disk_id", help="id of network disk to list", type=int),
-    argument("-p", "--price_disk", help="storage price in $/GB/month, default: $%(default).2f/GB/month", default=.15, type=float),
-    argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format), default 1 month", type=str, default=None),
-    argument("-s", "--size", help="size of disk space allocated to offer in GB, default %(default)s GB", default=15, type=int),
-    usage="vastai list network volume DISK_ID [options]",
-    help="[Host] list disk space for rent as a network volume"
-)
-def list__network_volume(args):
-    json_blob = {
-        "disk_id": args.disk_id,
-        "price_disk": args.price_disk,
-        "size": args.size
-    }
-
-    if args.end_date:
-        json_blob["end_date"] = string_to_unix_epoch(args.end_date)
-
-    url = apiurl(args, "/network_volumes/")
-
-    if args.explain:
-        print("request json: ")
-        print(json_blob)
-
-    r = http_post(args, url, headers=headers, json=json_blob)
-    r.raise_for_status()
-    if args.raw:
-        return r
-
-    print(r.json()["msg"])
-
 
 
 @parser.command(
@@ -9053,39 +8542,6 @@ def show__maints(args):
 
 
 @parser.command(
-    usage="vastai show network-disks",
-    help="[Host] Show network disks associated with your account.",
-    epilog=deindent("""
-        Show network disks associated with your account.
-    """)
-)
-def show__network_disks(args: argparse.Namespace):
-    req_url = apiurl(args, "/network_disk/")
-    r = http_get(args, req_url)
-    r.raise_for_status()
-    response_data = r.json()
-
-    if args.raw:
-        return response_data
-
-    for cluster_data in response_data['data']:
-        print(f"Cluster ID: {cluster_data['cluster_id']}")
-        display_table(cluster_data['network_disks'], network_disk_fields, replace_spaces=False)
-
-        machine_rows = []
-        for machine_id in cluster_data['machine_ids']:
-            machine_rows.append(
-                {
-                    "machine_id": machine_id,
-                    "mount_point": cluster_data['mounts'].get(str(machine_id), "N/A"),
-                }
-            )
-        print()
-        display_table(machine_rows, network_disk_machine_fields, replace_spaces=False)
-        print("\n")
-
-
-@parser.command(
     argument("id", help="id of machine to unlist", type=int),
     usage="vastai unlist machine <id>",
     help="[Host] Unlist a listed machine",
@@ -9109,29 +8565,6 @@ def unlist__machine(args):
     else:
         print(r.text);
         print("failed with error {r.status_code}".format(**locals()));
-
-@parser.command(
-    argument("id", help="id of network volume offer to unlist", type=int),
-    usage="vastai unlist network volume OFFER_ID",
-    help="[Host] Unlists network volume offer",
-)
-def unlist__network_volume(args):
-    json_blob = {
-        "id": args.id
-    }
-
-    url = apiurl(args, "/network_volumes/unlist/")
-
-    if args.explain:
-        print("request json: ")
-        print(json_blob)
-
-    r = http_post(args, url, headers=headers, json=json_blob)
-    r.raise_for_status()
-    if args.raw:
-        return r
- 
-    print(r.json()["msg"])
 
 @parser.command(
     argument("id", help="volume ID you want to unlist", type=int),

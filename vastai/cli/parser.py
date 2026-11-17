@@ -176,10 +176,8 @@ HOST_ONLY_MODULES = {
 HOST_ONLY_COMMANDS = {
     'reports',                # misc.py: machine reports, not instance logs
     'show earnings',          # billing.py: machine earning history
-    'list network-volume',    # storage.py: list disk space for rent
     'list volume',
     'list volumes',
-    'unlist network-volume',
     'unlist volume',
 }
 
@@ -209,12 +207,6 @@ GROUP_ORDER = [
 
 HIDDEN_COMMANDS = {
     'repl',                    # interactive shell: internal testing before announcing
-    'search network-volumes',  # network volumes are not yet released
-    'create network-volume',
-    'list network-volume',
-    'unlist network-volume',
-    'show network-disks',      # network disks are not yet released
-    'add network-disk',
 }
 
 

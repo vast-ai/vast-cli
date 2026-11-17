@@ -4,7 +4,7 @@ import pytest
 from vastai.cli.display import (
     deindent, display_table, translate_null_strings_to_blanks, strip_strings,
     displayable_fields, instance_fields, machine_fields, volume_fields,
-    cluster_fields, overlay_fields, audit_log_fields, scheduled_jobs_fields,
+    audit_log_fields, scheduled_jobs_fields,
     invoice_fields, user_fields, connection_fields,
 )
 
@@ -107,8 +107,6 @@ class TestFieldDefinitions:
         ("instance_fields", instance_fields),
         ("machine_fields", machine_fields),
         ("volume_fields", volume_fields),
-        ("cluster_fields", cluster_fields),
-        ("overlay_fields", overlay_fields),
         ("audit_log_fields", audit_log_fields),
         ("scheduled_jobs_fields", scheduled_jobs_fields),
         ("invoice_fields", invoice_fields),

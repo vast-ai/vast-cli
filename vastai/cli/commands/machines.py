@@ -14,7 +14,7 @@ import urllib3
 from vastai.cli.parser import argument
 from vastai.cli.display import (
     display_table, machine_fields, maintenance_fields,
-    network_disk_fields, network_disk_machine_fields, deindent,
+    deindent,
 )
 from vastai.api import machines as machines_api
 from vastai.api import instances as instances_api
@@ -133,40 +133,6 @@ def show__maints(args):
             print(" ".join(id for id in ids))
         else:
             display_table(rows, maintenance_fields)
-
-
-# ---------------------------------------------------------------------------
-# show network-disks
-# ---------------------------------------------------------------------------
-
-@parser.command(
-    usage="vastai show network-disks",
-    help="[Host] Show network disks associated with your account.",
-    epilog=deindent("""
-        Show network disks associated with your account.
-    """)
-)
-def show__network_disks(args):
-    """Show network disks associated with your account."""
-    client = get_client(args)
-    response_data = storage_api.show_network_disks(client)
-
-    if args.raw:
-        return response_data
-
-    for cluster_data in response_data['data']:
-        print(f"Cluster ID: {cluster_data['cluster_id']}")
-        display_table(cluster_data['network_disks'], network_disk_fields, replace_spaces=False)
-
-        machine_rows = []
-        for machine_id in cluster_data['machine_ids']:
-            machine_rows.append({
-                "machine_id": machine_id,
-                "mount_point": cluster_data['mounts'].get(str(machine_id), "N/A"),
-            })
-        print()
-        display_table(machine_rows, network_disk_machine_fields, replace_spaces=False)
-        print("\n")
 
 
 # ---------------------------------------------------------------------------
@@ -524,41 +490,6 @@ def cancel__maint(args):
     client = get_client(args)
     machines_api.cancel_maint(client, id=args.id)
     print(f"Cancel maintenance window(s) scheduled for machine {args.id} success")
-
-
-# ---------------------------------------------------------------------------
-# add network-disk
-# ---------------------------------------------------------------------------
-
-@parser.command(
-    argument("machines", help="ids of machines to add disk to, that is networked to be on the same LAN as machine", type=int, nargs='+'),
-    argument("mount_point", help="mount path of disk to add", type=str),
-    argument("-d", "--disk_id", help="id of network disk to attach to machines in the cluster", type=int, nargs='?'),
-    usage="vastai add network-disk MACHINES MOUNT_PATH [options]",
-    help="[Host] Add Network Disk to Physical Cluster.",
-    epilog=deindent("""
-        This variant can be used to add a network disk to a physical cluster.
-        When you add a network disk for the first time, you just need to specify the machine(s) and mount_path.
-        When you add a network disk for the second time, you need to specify the disk_id.
-        Example:
-        vastai add network-disk 1 /mnt/disk1
-        vastai add network-disk 1 /mnt/disk1 -d 12345
-    """)
-)
-def add__network_disk(args):
-    """Add network disk to a physical cluster."""
-    if args.explain:
-        print("request json: ")
-        print({"machines": [int(id) for id in args.machines], "mount_point": args.mount_point, "disk_id": args.disk_id})
-
-    client = get_client(args)
-    result = storage_api.add_network_disk(client, machines=args.machines, mount_point=args.mount_point,
-                                           disk_id=args.disk_id)
-
-    if args.raw:
-        return result
-
-    print("Attached network disk to machines. Disk id: " + str(result["disk_id"]))
 
 
 # ---------------------------------------------------------------------------

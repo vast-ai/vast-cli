@@ -102,20 +102,6 @@
     "/api/v0/charges/": {
       "GET": "billing_read"
     },
-    "/api/v0/cluster/": {
-      "DELETE": "user_write",
-      "POST": "user_write",
-      "PUT": "user_write"
-    },
-    "/api/v0/cluster/remove_machine/": {
-      "DELETE": "user_write"
-    },
-    "/api/v0/cluster/worker_token": {
-      "PUT": "user_write"
-    },
-    "/api/v0/clusters/": {
-      "GET": "user_read"
-    },
     "/api/v0/commands/copy_direct/": {
       "DELETE": "instance_write",
       "PUT": "instance_write"
@@ -408,24 +394,6 @@
     "/api/v0/metrics/gpu/locations/": {
       "GET": "machine_read"
     },
-    "/api/v0/network_disk/": {
-      "GET": "machine_read",
-      "POST": "machine_write"
-    },
-    "/api/v0/network_disks/": {
-      "GET": "machine_read",
-      "PUT": "machine_write"
-    },
-    "/api/v0/network_volumes/": {
-      "POST": "instance_write",
-      "PUT": "instance_write"
-    },
-    "/api/v0/network_volumes/search": {
-      "POST": "misc"
-    },
-    "/api/v0/network_volumes/unlist": {
-      "POST": "machine_write"
-    },
     "/api/v0/notify/": {},
     "/api/v0/notify/verify_fail/": {
       "POST": "misc"
@@ -452,12 +420,6 @@
     "/api/v0/oauth/start-discord-oauth/": {
       "GET": "user_read"
     },
-    "/api/v0/overlay/": {
-      "DELETE": "user_write",
-      "GET": "user_read",
-      "POST": "user_write",
-      "PUT": "user_write"
-    },
     "/api/v0/platform_fees/gpu/": {
       "DELETE": "admin_write_new",
       "POST": "admin_write_new",
@@ -475,9 +437,6 @@
     },
     "/api/v0/search/asks/": {
       "GET": "misc",
-      "PUT": "misc"
-    },
-    "/api/v0/search/clusters/": {
       "PUT": "misc"
     },
     "/api/v0/secrets/": {

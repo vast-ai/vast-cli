@@ -97,9 +97,6 @@ offers = vast.search_offers(query='gpu_name=RTX_3090 num_gpus>=2')
 # Search volume offers
 volumes = vast.search_volumes(query='...')
 
-# Search network volumes
-net_vols = vast.search_network_volumes()
-
 # Search templates
 templates = vast.search_templates()
 

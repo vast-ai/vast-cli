@@ -715,9 +715,6 @@
     "/api/v0/users/{user_id}/payment-checkout/": {
       "POST": "user_write"
     },
-    "/api/v0/users/{user_id}/payment-coinbase/": {
-      "POST": "user_write"
-    },
     "/api/v0/users/{user_id}/payment-crypto-com/": {
       "POST": "user_write"
     },
@@ -843,9 +840,6 @@
       "POST": "misc"
     },
     "/careers/": {
-      "GET": "misc"
-    },
-    "/coinbase-webhook/": {
       "GET": "misc"
     },
     "/crypto-com-webhook/": {

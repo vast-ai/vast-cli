@@ -54,7 +54,7 @@ from .data_types import (
     Session,
 )
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 log = logging.getLogger(__file__)
 
@@ -830,6 +830,9 @@ class Backend:
         if self._pubkey is None:
             log.error("Rejecting request: pubkey not loaded")
             return False
+        if not self.mtoken:
+            log.error("Rejecting request: MASTER_TOKEN not set")
+            return False
 
         def verify_signature(message, signature):
             h = SHA256.new(message.encode())
@@ -839,7 +842,7 @@ class Backend:
             except (ValueError, TypeError):
                 return False
 
-        message = {"url": self.metrics.url}
+        message = {"mtoken": self.mtoken}
 
         if verify_signature(
             json.dumps(message, indent=4, sort_keys=True), auth_data.signature
@@ -848,7 +851,7 @@ class Backend:
             return True
         else:
             log.error(
-                f"Signature error: signature verification failed, sig:{auth_data.signature}, message: {message}"
+                f"Signature error: signature verification failed, sig:{auth_data.signature}"
             )
             return False
 

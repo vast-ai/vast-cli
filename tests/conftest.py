@@ -452,6 +452,7 @@ def make_serverless_backend_and_handler():
                 log_actions=[],
                 max_sessions=effective_max,
                 unsecured=unsecured,
+                mtoken="worker-mtoken",
             )
             get_url.cache_clear()
         return backend, handler
@@ -521,9 +522,8 @@ def make_serverless_auth_payload():
 def make_serverless_signed_auth_payload(make_serverless_auth_payload):
     """Factory: auth payload with PKCS1-v1.5 signature matching Backend.__check_signature."""
 
-    def _signed(url: str, rsa_key) -> dict:
-        message = json.dumps({"url": url}, indent=4, sort_keys=True)
-        h = SHA256.new(message.encode())
+    def _signed(message: dict, rsa_key, url: str = "https://127.0.0.1:8080") -> dict:
+        h = SHA256.new(json.dumps(message, indent=4, sort_keys=True).encode())
         sig = pkcs1_15.new(rsa_key).sign(h)
         return make_serverless_auth_payload(
             url=url,

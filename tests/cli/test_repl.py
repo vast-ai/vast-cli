@@ -443,6 +443,29 @@ class TestRunLine:
         assert run_line(cli, "show user", session) is None
         assert "Failed with error 403: forbidden" in capsys.readouterr().err
 
+    def test_copy_conflict_prints_holder_and_cancel_command(self, cli, session, capsys):
+        cp_id = "cp_0123456789abcdef"
+        response = MagicMock(status_code=409)
+        response.json.return_value = {
+            "error": "copy_in_progress", "cp_id": cp_id,
+            "holder": {"cp_id": cp_id, "state": "running"},
+        }
+        cli.subparsers_.choices["show user"].set_defaults(
+            func=MagicMock(side_effect=HTTPError(response=response)))
+        assert run_line(cli, "show user", session) is None
+        err = capsys.readouterr().err
+        assert f"Copy {cp_id} (running)" in err
+        assert f"vastai cancel copy {cp_id}" in err
+
+    def test_copy_conflict_without_holder_keeps_server_message(self, cli, session, capsys):
+        msg = "A cloud copy is already running on this instance. Cancel it or wait for it to finish."
+        response = MagicMock(status_code=409)
+        response.json.return_value = {"success": False, "error": "copy_in_progress", "msg": msg}
+        cli.subparsers_.choices["show user"].set_defaults(
+            func=MagicMock(side_effect=HTTPError(response=response)))
+        assert run_line(cli, "show user", session) is None
+        assert msg in capsys.readouterr().err
+
     def test_an_expired_2fa_session_falls_back_and_retries(self, cli, session, tmp_path, capsys):
         """The one-shot CLI recovers from an expired 2FA session; so must the
         REPL, or the advertised same-auth promise breaks mid-session."""

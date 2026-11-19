@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from requests.exceptions import HTTPError
 
 
 @pytest.fixture(scope="module")
@@ -114,3 +115,82 @@ def test_http_request_waits_retry_after_on_429(legacy_vast):
 
     assert result is ok
     sleep.assert_called_once_with(2.0)
+
+
+@pytest.mark.parametrize("status,state", [(202, "cancelling"), (200, "cancelling"),
+                                        (200, "cancelled"), (200, "done"), (200, "failed")])
+def test_cancel_copy_id(legacy_vast, mock_response, capsys, status, state):
+    cp_id = "cp_0123456789abcdef"
+    args = SimpleNamespace(dst=cp_id, api_key=None, url="https://example.test", explain=False)
+    response = mock_response(status, {"success": True, "cp_id": cp_id, "state": state})
+    with patch.object(legacy_vast, "http_del", return_value=response) as delete:
+        legacy_vast.cancel__copy(args)
+    assert delete.call_args.args[1] == f"https://example.test/api/v0/copies/{cp_id}/"
+    assert "json" not in delete.call_args.kwargs
+    assert f"Copy {cp_id}: {state}" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("extra", [{}, {"cp_id": "cp_0123456789abcdef", "state": "cancelling"}])
+@pytest.mark.parametrize("dst_id", [12371, "12371"])
+def test_cancel_copy_legacy_instance_id(legacy_vast, mock_response, capsys, extra, dst_id):
+    args = SimpleNamespace(dst=dst_id, api_key=None, url="https://example.test", explain=False)
+    with patch.object(legacy_vast, "http_del", return_value=mock_response(200, {"success": True, **extra})) as delete:
+        legacy_vast.cancel__copy(args)
+    assert delete.call_args.args[1] == "https://example.test/api/v0/commands/copy_direct/"
+    assert delete.call_args.kwargs["json"] == {"client_id": "me", "dst_id": dst_id}
+    out = capsys.readouterr().out
+    assert "Remote copy canceled" not in out
+    if extra:
+        assert "Copy cp_0123456789abcdef: cancelling" in out
+
+
+def test_copy_prints_id(legacy_vast, mock_response, capsys):
+    args = SimpleNamespace(src="123:/data", dst="456:/data", api_key=None,
+                           url="https://example.test", explain=False)
+    with patch.object(legacy_vast, "http_put", return_value=mock_response(200, {
+        "success": True, "cp_id": "cp_0123456789abcdef",
+    })):
+        legacy_vast.copy(args)
+    assert "cp_0123456789abcdef" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("command", ["copy", "clone__volume"])
+def test_copy_conflict_prints_holder(legacy_vast, mock_response, capsys, command):
+    cp_id = "cp_0123456789abcdef"
+    args = SimpleNamespace(src="V.123:/data", dst="C.456:/data", api_key=None,
+                           source=123, dest=456, size=None, disable_compression=False,
+                           url="https://example.test", explain=False, raw=False)
+    args.func = getattr(legacy_vast, command)
+    response = mock_response(409, {
+        "error": "copy_in_progress", "cp_id": cp_id, "holder": {"cp_id": cp_id, "state": "running"},
+    })
+    with patch.object(legacy_vast, "http_put", return_value=response), \
+         patch.object(legacy_vast, "http_post", return_value=response), \
+         patch.object(legacy_vast, "TABCOMPLETE", False), \
+         patch.object(legacy_vast, "parser") as parser:
+        parser.parse_args.return_value = args
+        legacy_vast.main()
+    out = capsys.readouterr().out
+    assert f"Copy {cp_id} (running)" in out
+    assert f"vastai cancel copy {cp_id}" in out
+
+
+def test_cancel_copy_not_found(legacy_vast, mock_response):
+    args = SimpleNamespace(dst="cp_0123456789abcdef", api_key=None,
+                           url="https://example.test", explain=False)
+    with patch.object(legacy_vast, "http_del", return_value=mock_response(404, {"error": "not_found"})):
+        with pytest.raises(HTTPError):
+            legacy_vast.cancel__copy(args)
+
+
+def test_copy_conflict_without_holder_keeps_server_message(legacy_vast, mock_response, capsys):
+    msg = "Instance 456 is already part of a copy. Cancel that copy or wait for it to finish."
+    args = SimpleNamespace(src="C.123:/data", dst="C.456:/data", api_key=None,
+                           url="https://example.test", explain=False, raw=False, func=legacy_vast.copy)
+    response = mock_response(409, {"success": False, "error": "copy_in_progress", "msg": msg})
+    with patch.object(legacy_vast, "http_put", return_value=response), \
+         patch.object(legacy_vast, "TABCOMPLETE", False), \
+         patch.object(legacy_vast, "parser") as parser:
+        parser.parse_args.return_value = args
+        legacy_vast.main()
+    assert msg in capsys.readouterr().out

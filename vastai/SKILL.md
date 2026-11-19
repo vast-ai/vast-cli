@@ -205,8 +205,11 @@ vastai copy V.1234:/file s3.101:/workspace/              # Volume → cloud serv
 vastai cloud copy --src ./data --dst s3://bucket/path \
   --instance 12345 --connection <conn-id> \
   --transfer "Instance To Cloud"                         # To cloud storage (add connection in UI on settings page)
-vastai cancel copy <dst-id>                              # Cancel in-progress copy
+vastai cancel copy <cp_id>                               # Cancel a specific copy, print returned state
+vastai cancel copy <dst-id>                              # Legacy instance ID shim
 ```
+
+Instance and volume copy starts print `cp_id` when supplied by the server. A `copy_in_progress` conflict prints the holder copy ID, state, and `vastai cancel copy <cp_id>` command. Cancellation prints the current state without waiting; `cancelling` is not confirmation that the copy has stopped. Retry `cancel_failed` with the same command. Cloud copies retain their separate lifecycle.
 
 **cloud copy flags:** `--src`, `--dst`, `--instance`, `--connection`, `--transfer`
 

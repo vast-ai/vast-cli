@@ -276,6 +276,9 @@ def parse_order(order, field_alias: Dict = None) -> List:
         parsed.append([field_alias.get(field, field), direction])
     return parsed
 
+# One match per clause: (field, op, space, value, space)
+query_pattern = r"([a-zA-Z0-9_]+)( *[=><!]+| +(?:[lg]te?|nin|neq|eq|not ?eq|not ?in|in) )?( *)(\[[^\]]+\]|\"[^\"]+\"|[^ ]+)?( *)"
+
 def parse_query(query_str: str, res: Dict = None, fields = {}, field_alias = {}, field_multiplier = {}) -> Dict:
     """
     Basically takes a query string (like the ones in the examples of commands for the search__offers function) and
@@ -296,7 +299,7 @@ def parse_query(query_str: str, res: Dict = None, fields = {}, field_alias = {},
     # Revised regex pattern to accurately capture quoted strings, bracketed lists, and single words/numbers
     #pattern    = r"([a-zA-Z0-9_]+)\s*(=|!=|<=|>=|<|>| in | nin | eq | neq | not eq | not in )?\s*(\"[^\"]*\"|\[[^\]]+\]|[^ ]+)"
     #pattern    = "([a-zA-Z0-9_]+)( *[=><!]+| +(?:[lg]te?|nin|neq|eq|not ?eq|not ?in|in) )?( *)(\[[^\]]+\]|[^ ]+)?( *)"
-    pattern     = r"([a-zA-Z0-9_]+)( *[=><!]+| +(?:[lg]te?|nin|neq|eq|not ?eq|not ?in|in) )?( *)(\[[^\]]+\]|\"[^\"]+\"|[^ ]+)?( *)"
+    pattern     = query_pattern
     opts        = re.findall(pattern, query_str)
 
     #print("parse_query regex:")

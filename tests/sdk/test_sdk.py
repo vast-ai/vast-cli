@@ -267,6 +267,23 @@ class TestSearchOffers:
             assert "verified" not in q
             assert mock.call_args.kwargs["no_default"] is True
 
+    def test_chunked_georegion_query_keeps_filters_and_min_bid(self, sdk):
+        """Regression: with chunked/georegion (SkyPilot's query), quoted and
+        decimal values dropped every later filter, and chunked zeroed min_bid."""
+        offer = {"hosting_type": 1, "cpu_ram": 128 * 1024, "cpu_cores": 64,
+                 "min_bid": 0.173, "gpu_ram": 24576, "disk_space": 500}
+        with patch("vastai.api.offers.search_offers", return_value=[offer]) as mock:
+            res = sdk.search_offers(
+                'chunked=true georegion=true geolocation="EU" disk_space>=50 '
+                'num_gpus=1 gpu_name="RTX 3090" cpu_ram>="64.0"')
+            q = mock.call_args.kwargs["query"]
+            assert "DE" in q["geolocation"]["in"]
+            assert q["disk_space"] == {"gte": "50"}
+            assert q["num_gpus"] == {"eq": "1"}
+            assert q["gpu_name"] == {"eq": "RTX 3090"}
+            assert q["cpu_ram"] == {"gte": 64000.0}
+            assert res[0]["min_bid"] == 0.173
+
 
 # ---------------------------------------------------------------------------
 # show_env_vars — value masking

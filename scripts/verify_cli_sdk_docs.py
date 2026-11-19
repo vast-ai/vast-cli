@@ -171,7 +171,7 @@ def _generator_constant(name: str, consequence: str) -> set[str]:
 
 
 def get_excluded_names() -> set[str]:
-    """Doc names the generator never publishes (network-volume surface)."""
+    """Doc names the generator never publishes (EXCLUDED_NAMES)."""
     return _generator_constant(
         "EXCLUDED_NAMES",
         "policy-excluded commands will be reported as drift.",

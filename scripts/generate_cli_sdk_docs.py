@@ -50,29 +50,11 @@ GLOBAL_CLI_OPTIONS = {
 
 # Commands/methods we never publish to public docs, regardless of scope.
 # These are CLI/SDK surface that exists in code but isn't part of the
-# publicly-supported product. Public stance is that vast.ai does not offer
-# network volumes — the network-volume / network-disk commands were written
-# for a single customer and aren't verified to work for general users.
+# publicly-supported product.
 #
 # Names are doc_names (kebab-case, no extension). The same set applies to
 # both CLI and SDK because the kebab-case is identical across surfaces.
 EXCLUDED_NAMES = {
-    "add-network-disk",
-    "create-network-volume",
-    "list-network-volume",
-    "search-network-volumes",
-    "show-network-disks",
-    "unlist-network-volume",
-    # clusters / overlays
-    "create-cluster",
-    "create-overlay",
-    "delete-cluster",
-    "delete-overlay",
-    "join-cluster",
-    "join-overlay",
-    "remove-machine-from-cluster",
-    "show-clusters",
-    "show-overlays",
     # snapshots
     "take-snapshot",
 }

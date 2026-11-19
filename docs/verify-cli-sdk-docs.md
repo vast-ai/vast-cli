@@ -81,8 +81,8 @@ reported is worth reading rather than assuming it is noise.
 What the checker deliberately does *not* report:
 
 - **Policy-excluded commands.** `EXCLUDED_NAMES` in
-  `generate_cli_sdk_docs.py` lists surface we never publish (the
-  network-volume commands). Absent pages for those are correct. If such a page
+  `generate_cli_sdk_docs.py` lists surface we never publish (for
+  example `take-snapshot`). Absent pages for those are correct. If such a page
   *does* exist in the docs repo it is still reported, as stale — it should be
   removed.
 - **Global options.** `--url`, `--raw`, `--api_key` and friends are inherited by

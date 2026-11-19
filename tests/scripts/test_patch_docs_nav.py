@@ -190,8 +190,6 @@ def test_unrecognized_name_has_no_rule():
     # Serverless rules outrank the catch-all `instance` rule.
     ("show-endpt-instances", "Serverless", "the 'instance' -> Instances rule"),
     ("show-deployment-instances", "Serverless", "the 'instance' -> Instances rule"),
-    # `cluster` covers the longer exact name that used to be spelled out.
-    ("remove-machine-from-cluster", "Host", "nothing — it needs the substring rule"),
     # Scheduled jobs are Serverless, not Accounts.
     ("create-scheduled-job", "Serverless", "an 'Accounts' reading of scheduled jobs"),
     ("update-scheduled-job", "Serverless", "an 'Accounts' reading of scheduled jobs"),

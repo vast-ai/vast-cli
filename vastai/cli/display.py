@@ -133,24 +133,6 @@ vol_displayable_fields = (
     ("geolocation", "country", "{}", None, True),
 )
 
-nw_vol_displayable_fields = (
-    ("id", "ID", "{}", None, True),
-    ("disk_space", "Disk", "{:.0f}", None, True),
-    ("storage_cost", "$/Gb/Month", "{:.2f}", None, True),
-    ("inet_up", "Net_up", "{:0.1f}", None, True),
-    ("inet_down", "Net_down", "{:0.1f}", None, True),
-    ("reliability", "R", "{:0.1f}", lambda x: x * 100, True),
-    ("duration", "Max_Days", "{:0.1f}", lambda x: x / (24.0 * 60.0 * 60.0), True),
-    ("verification", "status", "{}", None, True),
-    ("host_id", "host_id", "{}", None, True),
-    ("cluster_id", "cluster_id", "{}", None, True),
-    ("geolocation", "country", "{}", None, True),
-    ("nw_disk_min_bw", "Min BW MiB/s", "{}", None, True),
-    ("nw_disk_max_bw", "Max BW MiB/s", "{}", None, True),
-    ("nw_disk_avg_bw", "Avg BW MiB/s", "{}", None, True),
-
-)
-
 # These fields are displayed for 'search benchmarks' (benchmarks table, AUTO-1418 schema)
 benchmarks_displayable_fields = (
     ("id", "ID", "{}", None, True),
@@ -192,34 +174,6 @@ instance_fields = (
     ("uptime_mins", "uptime(mins)", "{:0.2f}",  None, True),
 )
 
-cluster_fields = (
-    ("id", "ID", "{}", None, True),
-    ("subnet", "Subnet", "{}", None, True),
-    ("node_count", "Nodes", "{}", None, True),
-    ("manager_id", "Manager ID", "{}", None, True),
-    ("manager_ip", "Manager IP", "{}", None, True),
-    ("machine_ids", "Machine ID's", "{}", None, True)
-)
-
-network_disk_fields = (
-    ("network_disk_id", "Network Disk ID", "{}", None, True),
-    ("free_space", "Free Space (GB)", "{}", None, True),
-    ("total_space", "Total Space (GB)", "{}", None, True),
-)
-
-network_disk_machine_fields = (
-    ("machine_id", "Machine ID", "{}", None, True),
-    ("mount_point", "Mount Point", "{}", None, True),
-)
-
-overlay_fields = (
-    ("overlay_id", "Overlay ID", "{}", None, True),
-    ("name", "Name", "{}", None, True),
-    ("subnet", "Subnet", "{}", None, True),
-    ("cluster_id", "Cluster ID", "{}", None, True),
-    ("instance_count", "Instances", "{}", None, True),
-    ("instances", "Instance IDs", "{}", None, True),
-)
 instance_backup_fields = (
     ("id", "ID", "{}", None, True),
     ("contract_id", "Contract", "{}", None, True),

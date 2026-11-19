@@ -1806,7 +1806,7 @@ def cli_parser():
     from vastai.cli.main import parser
     from vastai.cli.commands import (  # noqa: F401
         instances, offers, machines, teams, keys, endpoints,
-        billing, storage, clusters, auth, misc, deployments,
+        billing, storage, auth, misc, deployments,
         benchmarks, metrics,
         price_increase,
         update,
@@ -1959,7 +1959,6 @@ COMMAND_MODULES = [
     "vastai.cli.commands.endpoints",
     "vastai.cli.commands.storage",
     "vastai.cli.commands.teams",
-    "vastai.cli.commands.clusters",
     "vastai.cli.commands.misc",
     "vastai.cli.commands.deployments",
     "vastai.cli.commands.benchmarks",

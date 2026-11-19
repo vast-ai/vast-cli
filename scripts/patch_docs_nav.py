@@ -81,7 +81,7 @@ def classify_new(name: str) -> str | None:
     """Return the group name a new page should be placed into.
 
     ``name`` is the bare filename stem (no prefix, no extension), e.g.
-    ``tfa-activate`` or ``add-network-disk``.  Returns ``None`` when no
+    ``tfa-activate`` or ``create-volume``.  Returns ``None`` when no
     rule matches — the caller then places the page in ``DEFAULT_GROUP``
     (so it is always visible in the nav) and warns so editorial can add a
     precise rule here later.
@@ -111,13 +111,9 @@ def classify_new(name: str) -> str | None:
         return "Billing"
     if "team" in name:
         return "Teams"
-    # Covers create/clone/list/show/unlist/delete-volume, the plural
-    # "network-volumes", and the policy-excluded network-disk surface.
-    if "volume" in name or "network-disk" in name:
+    # Covers create/clone/list/show/unlist/delete-volume and search-volumes.
+    if "volume" in name:
         return "Volumes"
-    # "cluster" also covers "remove-machine-from-cluster".
-    if "cluster" in name or "overlay" in name:
-        return "Host"
     if "gpu-metrics" in name or "gpu-trends" in name or "gpu-locations" in name:
         # `show gpu-metrics`/`gpu-trends`/`gpu-locations` are [Host] GPU-market
         # analytics — they live alongside the other host-facing commands.

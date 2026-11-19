@@ -21,12 +21,24 @@ parser = _get_parser()
 @parser.command(
     argument("--name", help="name of the api-key", type=str),
     argument("--permission_file", help="file path for json encoded permissions, see https://vast.ai/docs/cli/roles-and-permissions for more information", type=str),
-    argument("--key_params", help="optional wildcard key params for advanced keys", type=str),
-    usage="vastai create api-key --name NAME --permission_file PERMISSIONS",
+    argument("--key_params", help="JSON object binding the $name parameters the permissions mention, e.g. '{\"$instance_id\": 1234}'", type=str),
+    argument("--lifetime_sec", help="seconds the key lives (60 or more); it ends no later than the key it is created with. Default: no expiry of its own", type=float),
+    usage="vastai create api-key --name NAME --permission_file PERMISSIONS [--lifetime_sec SECONDS] [--key_params JSON]",
     help="Create a new api-key with restricted permissions. Can be sent to other users and teammates",
     epilog=deindent("""
         In order to create api keys you must understand how permissions must be sent via json format.
         You can find more information about permissions here: https://vast.ai/docs/cli/roles-and-permissions
+
+        --lifetime_sec gives the key an expiry. A key created with a key that expires ends when that key does,
+        whatever lifetime is asked.
+
+        --key_params binds the $name parameters used in the permissions file. A constraint such as
+        {"id": {"eq": "$instance_id"}} with --key_params '{"$instance_id": 1234}' pins the key to instance 1234.
+        Every $name the permissions mention must be bound, and a key created with a pinned key keeps its pins.
+
+        Examples:
+         vastai create api-key --name ci --permission_file perms.json --lifetime_sec 3600
+         vastai create api-key --name one-instance --permission_file instance.json --key_params '{"$instance_id": 1234}'
     """)
 )
 def create__api_key(args):
@@ -35,10 +47,14 @@ def create__api_key(args):
     try:
         client = get_client(args)
         permissions = load_permissions_from_file(args.permission_file)
-        result = keys_api.create_api_key(client, name=args.name, permissions=permissions, key_params=args.key_params)
+        result = keys_api.create_api_key(client, name=args.name, permissions=permissions, key_params=args.key_params,
+                                         lifetime_sec=args.lifetime_sec)
         print("api-key created {}".format(result))
     except FileNotFoundError:
         print("Error: Permission file '{}' not found.".format(args.permission_file))
+    except ValueError as e:
+        print("Error: {}".format(e))
+        return 1
 
 
 @parser.command(
@@ -71,6 +87,10 @@ def show__api_keys(args):
     argument("id", help="id of apikey to remove", type=int),
     usage="vastai delete api-key ID",
     help="Remove an api-key",
+    epilog=deindent("""
+        Removing an api-key also ends every api-key that was created with it and every 2FA session logged in
+        with it. Keys you created otherwise are not affected.
+    """),
 )
 def delete__api_key(args):
     """Remove an api-key."""

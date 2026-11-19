@@ -2063,8 +2063,9 @@ def update_scheduled_job(cli_command, schedule_job_url, frequency, start_date, e
 @parser.command(
     argument("--name", help="name of the api-key", type=str),
     argument("--permission_file", help="file path for json encoded permissions, see https://vast.ai/docs/cli/roles-and-permissions for more information", type=str),
-    argument("--key_params", help="optional wildcard key params for advanced keys", type=str),
-    usage="vastai create api-key --name NAME --permission_file PERMISSIONS",
+    argument("--key_params", help="JSON object binding the $name parameters the permissions mention, e.g. '{\"$instance_id\": 1234}'", type=str),
+    argument("--lifetime_sec", help="seconds the key lives (60 or more); it ends no later than the key it is created with. Default: no expiry of its own", type=float),
+    usage="vastai create api-key --name NAME --permission_file PERMISSIONS [--lifetime_sec SECONDS] [--key_params JSON]",
     help="Create a new api-key with restricted permissions. Can be sent to other users and teammates",
     epilog=deindent("""
         In order to create api keys you must understand how permissions must be sent via json format. 
@@ -2075,11 +2076,21 @@ def create__api_key(args):
     try:
         url = apiurl(args, "/auth/apikeys/")
         permissions = load_permissions_from_file(args.permission_file)
-        r = http_post(args, url, headers=headers, json={"name": args.name, "permissions": permissions, "key_params": args.key_params})
+        json_blob = {"name": args.name, "permissions": permissions}
+        if args.key_params is not None:
+            key_params = json.loads(args.key_params)
+            if not isinstance(key_params, dict) or any(not str(k).startswith("$") for k in key_params):
+                raise ValueError('key_params must be a JSON object whose names start with "$", e.g. {"$instance_id": 1234}')
+            json_blob["key_params"] = key_params
+        if args.lifetime_sec is not None:
+            json_blob["lifetime_sec"] = args.lifetime_sec
+        r = http_post(args, url, headers=headers, json=json_blob)
         r.raise_for_status()
         print("api-key created {}".format(r.json()))
     except FileNotFoundError:
         print("Error: Permission file '{}' not found.".format(args.permission_file))
+    except ValueError as e:
+        print("Error: {}".format(e))
     except requests.exceptions.RequestException as e:
         print("Error: Failed to create api-key. Reason: {}".format(e))
     except Exception as e:
@@ -7023,7 +7034,8 @@ def tfa__delete(args):
     argument("-bc", "--backup-code", mutex_group='code_grp', required=True, help="One-time backup code (alternative to regular 2FA code)", type=str, default=None),
     argument("-id", "--method-id", mutex_group="type_grp", help="2FA Method ID if you have more than one of the same type ('id' from `tfa status`)", type=str, default=None),
     
-    usage="vastai tfa login [--code CODE] [--method-type METHOD_TYPE] [--secret SECRET] [--backup-code BACKUP_CODE]",
+    argument("--lifetime-sec", help="seconds the 2FA session lives (60 or more, at most a day). Default: a day", type=float, default=None),
+    usage="vastai tfa login [--code CODE] [--method-type METHOD_TYPE] [--secret SECRET] [--backup-code BACKUP_CODE] [--lifetime-sec SECONDS]",
     help="Complete 2FA login by verifying code",
     epilog=deindent("""
         Complete Two-Factor Authentication login by providing the 2FA code.
@@ -7045,7 +7057,7 @@ def tfa__login(args):
     url = apiurl(args, "/api/v0/tfa/")
     
     # Build the request payload
-    payload = build_tfa_verification_payload(args)
+    payload = build_tfa_verification_payload(args, lifetime_sec=getattr(args, 'lifetime_sec', None))
 
     try:
         r = http_post(args, url, headers=apiheaders(args), json=payload)

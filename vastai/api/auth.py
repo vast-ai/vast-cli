@@ -302,7 +302,7 @@ def tfa_delete(client, code=None, backup_code=None, method_type=None, secret=Non
     return r.json()
 
 
-def tfa_login(client, code=None, backup_code=None, method_type=None, secret=None, method_id=None):
+def tfa_login(client, code=None, backup_code=None, method_type=None, secret=None, method_id=None, lifetime_sec=None):
     """Complete 2FA login by verifying code.
 
     POST /api/v0/tfa/
@@ -314,6 +314,8 @@ def tfa_login(client, code=None, backup_code=None, method_type=None, secret=None
         method_type (str, optional): 2FA method type ('email', 'sms', 'totp').
         secret (str, optional): Secret token (required for SMS or Email).
         method_id (str, optional): 2FA Method ID.
+        lifetime_sec (float, optional): Seconds the session lives (60 or more), at most a day and
+            never past the expiry of the API key used to log in. Default: a day.
 
     Returns:
         dict: API response data including session_key and
@@ -325,6 +327,7 @@ def tfa_login(client, code=None, backup_code=None, method_type=None, secret=None
         code=code,
         backup_code=backup_code,
         secret=secret,
+        lifetime_sec=lifetime_sec,
     )
 
     r = client.post("/api/v0/tfa/", json_data=payload)

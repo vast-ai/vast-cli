@@ -71,6 +71,40 @@ class TestDeleteApiKey:
 
 
 class TestCreateApiKey:
+    def _perms(self, tmp_path):
+        perms = tmp_path / "perms.json"
+        perms.write_text('{"api": {"instance_read": {"api.instance": {"constraints": {"id": {"eq": "$instance_id"}}}}}}')
+        return str(perms)
+
+    def test_no_lifetime_and_no_params_send_neither_field(self, parse_argv, patch_get_client, mock_response, tmp_path):
+        """A server that predates the fields refuses unknown ones, so they are sent only when asked for."""
+        patch_get_client.post.return_value = mock_response(200, {"id": 1, "key": "k", "expires_at": None})
+        args = parse_argv(["create", "api-key", "--name", "c", "--permission_file", self._perms(tmp_path)])
+        args.func(args)
+        sent = patch_get_client.post.call_args[1]["json_data"]
+        assert "lifetime_sec" not in sent and "key_params" not in sent
+
+    def test_lifetime_is_sent_as_seconds(self, parse_argv, patch_get_client, mock_response, tmp_path):
+        patch_get_client.post.return_value = mock_response(200, {"id": 1, "key": "k", "expires_at": 1800003600.0})
+        args = parse_argv(["create", "api-key", "--name", "c", "--permission_file", self._perms(tmp_path), "--lifetime_sec", "3600"])
+        args.func(args)
+        assert patch_get_client.post.call_args[1]["json_data"]["lifetime_sec"] == 3600.0
+
+    def test_key_params_are_sent_as_an_object(self, parse_argv, patch_get_client, mock_response, tmp_path):
+        """The flag is JSON text; the API takes an object. Sending the text was refused by the server."""
+        patch_get_client.post.return_value = mock_response(200, {"id": 1, "key": "k"})
+        args = parse_argv(["create", "api-key", "--name", "c", "--permission_file", self._perms(tmp_path),
+                           "--key_params", '{"$instance_id": 1234}'])
+        args.func(args)
+        assert patch_get_client.post.call_args[1]["json_data"]["key_params"] == {"$instance_id": 1234}
+
+    @pytest.mark.parametrize("bad", ['{"instance_id": 1234}', "1234", "not json"])
+    def test_key_params_that_bind_nothing_are_refused_before_any_request(self, parse_argv, patch_get_client, tmp_path, capsys, bad):
+        args = parse_argv(["create", "api-key", "--name", "c", "--permission_file", self._perms(tmp_path), "--key_params", bad])
+        assert args.func(args) == 1
+        patch_get_client.post.assert_not_called()
+        assert "key_params" in capsys.readouterr().out
+
     def test_denied_mint_propagates_server_error(self, parse_argv, patch_get_client, mock_response, tmp_path):
         """A rejected mint must reach the CLI error handler, which prints the server's reason."""
         perms = tmp_path / "perms.json"

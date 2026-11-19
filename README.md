@@ -53,6 +53,14 @@ vastai search offers --help
 vastai create instance --help
 ```
 
+For an interactive session, `vastai repl` opens a shell with Tab completion over commands, flags and your live instance ids:
+
+```bash
+vastai repl
+vast> show instances
+vast> destroy instance <tab>
+```
+
 ## SDK Usage
 
 ```python

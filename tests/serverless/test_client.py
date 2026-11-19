@@ -31,6 +31,7 @@ from vastai.serverless.client import client as serverless_client_mod
 from vastai.serverless.client.client import Serverless, ServerlessRequest
 from vastai.serverless.client.endpoint import Endpoint
 from vastai.serverless.client.session import Session
+from vastai.serverless.client.connection import WorkerUrlRejected
 
 # Repo root (tests/serverless -> parents[2]) for subprocess imports of ``vastai``.
 _REPO_ROOT = str(Path(__file__).resolve().parents[2])
@@ -968,9 +969,9 @@ class TestServerlessEndpointSessionHttp:
         - session_auth dict includes url key used as request base
         """
         ep = make_serverless_endpoint(client, name="n", endpoint_id=1, api_key="ek")
-        session_auth = {"url": "https://worker.example/session"}
+        session_auth = {"url": "https://1.2.3.5:8000"}
         worker_json = {
-            "auth_data": {"token": "t", "url": "https://worker.example/w"},
+            "auth_data": {"token": "t", "url": "https://1.2.3.20:8000"},
             "lifetime": 60.0,
             "expiration": "later",
         }
@@ -984,7 +985,7 @@ class TestServerlessEndpointSessionHttp:
         assert isinstance(sess, Session)
         assert sess.session_id == 42
         assert sess.auth_data == worker_json["auth_data"]
-        assert sess.url == "https://worker.example/w"
+        assert sess.url == "https://1.2.3.20:8000"
         mock_req.assert_awaited()
         assert mock_req.call_args.kwargs["url"] == session_auth["url"]
         assert mock_req.call_args.kwargs["route"] == "/session/get"
@@ -1011,7 +1012,7 @@ class TestServerlessEndpointSessionHttp:
             return_value={"ok": True, "json": {"lifetime": 1}},
         ):
             with pytest.raises(Exception, match="Missing auth_data"):
-                await client.get_endpoint_session(ep, 1, {"url": "https://x"})
+                await client.get_endpoint_session(ep, 1, {"url": "https://1.2.3.6:8000"})
 
     @pytest.mark.asyncio
     async def test_end_endpoint_session_raises_when_not_ok(
@@ -1029,7 +1030,7 @@ class TestServerlessEndpointSessionHttp:
         - Session.url and session.auth_data are read for the request body
         """
         mock_session = make_session_mock(
-            session_id=9, url="https://worker/u", auth_data={"a": 1}
+            session_id=9, url="https://1.2.3.7:8000", auth_data={"a": 1}
         )
 
         with patch(
@@ -1061,7 +1062,7 @@ class TestServerlessEndpointSessionHttp:
             return_value={"ok": False, "json": {"error": "nope"}},
         ):
             with pytest.raises(Exception, match="/session/get"):
-                await client.get_endpoint_session(ep, 1, {"url": "https://x"})
+                await client.get_endpoint_session(ep, 1, {"url": "https://1.2.3.6:8000"})
 
     @pytest.mark.asyncio
     async def test_get_endpoint_session_propagates_timeout_error(
@@ -1084,7 +1085,7 @@ class TestServerlessEndpointSessionHttp:
             side_effect=asyncio.TimeoutError,
         ):
             with pytest.raises(asyncio.TimeoutError):
-                await client.get_endpoint_session(ep, 1, {"url": "https://x"})
+                await client.get_endpoint_session(ep, 1, {"url": "https://1.2.3.6:8000"})
 
     @pytest.mark.asyncio
     async def test_get_endpoint_session_wraps_unexpected_errors(
@@ -1107,7 +1108,7 @@ class TestServerlessEndpointSessionHttp:
             side_effect=OSError("disk"),
         ):
             with pytest.raises(Exception, match="Failed to get session 5"):
-                await client.get_endpoint_session(ep, 5, {"url": "https://x"})
+                await client.get_endpoint_session(ep, 5, {"url": "https://1.2.3.6:8000"})
 
     @pytest.mark.asyncio
     async def test_end_endpoint_session_succeeds_when_ok_true(
@@ -1199,7 +1200,7 @@ class TestServerlessStartEndpointSession:
             result={
                 "ok": True,
                 "response": {"session_id": 100, "expiration": "e"},
-                "url": "https://w/u",
+                "url": "https://1.2.3.21:8000",
                 "auth_data": {"x": 1},
             }
         )
@@ -1209,7 +1210,7 @@ class TestServerlessStartEndpointSession:
 
         assert isinstance(sess, Session)
         assert sess.session_id == 100
-        assert sess.url == "https://w/u"
+        assert sess.url == "https://1.2.3.21:8000"
         assert sess.lifetime == 30.0
 
     @pytest.mark.asyncio
@@ -1259,7 +1260,7 @@ class TestServerlessStartEndpointSession:
             result={
                 "ok": True,
                 "response": {"expiration": "e"},
-                "url": "https://w/",
+                "url": "https://1.2.3.10:8000",
                 "auth_data": {"x": 1},
             }
         )
@@ -1319,7 +1320,7 @@ class TestServerlessStartEndpointSession:
             result={
                 "ok": True,
                 "response": {"session_id": 1, "expiration": "e"},
-                "url": "https://w/",
+                "url": "https://1.2.3.10:8000",
                 "auth_data": None,
             }
         )
@@ -1342,7 +1343,7 @@ class TestServerlessStartEndpointSession:
             result={
                 "ok": True,
                 "response": None,
-                "url": "https://w/",
+                "url": "https://1.2.3.10:8000",
                 "auth_data": {"x": 1},
             }
         )
@@ -1422,7 +1423,7 @@ class TestServerlessQueueEndpointRequest:
         waiting = make_route_response_mock(request_idx=7)
         ready = make_route_response_mock(
             status="READY",
-            url="https://worker/",
+            url="https://1.2.3.8:8000",
             request_idx=7,
             body={"token": "t"},
         )
@@ -1452,7 +1453,7 @@ class TestServerlessQueueEndpointRequest:
 
         assert result["ok"] is True
         assert result["response"] == worker_json
-        assert result["url"] == "https://worker/"
+        assert result["url"] == "https://1.2.3.8:8000"
 
     async def test_queue_endpoint_request_returns_a_non_json_body_as_response(
         self,
@@ -1465,7 +1466,7 @@ class TestServerlessQueueEndpointRequest:
         worker call opts in."""
         ep = make_serverless_endpoint(client_with_session)
         ready = make_route_response_mock(
-            status="READY", url="https://worker/", request_idx=7, body={"token": "t"},
+            status="READY", url="https://1.2.3.8:8000", request_idx=7, body={"token": "t"},
         )
 
         async def fake_route(*_a, **_kw):
@@ -1617,7 +1618,7 @@ class TestServerlessQueueEndpointRequestBranches:
 
         ready = make_route_response_mock(
             status="READY",
-            url="https://worker/",
+            url="https://1.2.3.8:8000",
             request_idx=3,
             body={"token": "t"},
         )
@@ -1671,7 +1672,7 @@ class TestServerlessQueueEndpointRequestBranches:
         """
         ep = make_serverless_endpoint(client_with_session)
         client = client_with_session
-        sess = Session(ep, 1, 60.0, "e", "https://sess/", {"a": 1})
+        sess = Session(ep, 1, 60.0, "e", "https://1.2.3.9:8000", {"a": 1})
 
         with (
             patch(
@@ -1710,7 +1711,7 @@ class TestServerlessQueueEndpointRequestBranches:
         """
         ep = make_serverless_endpoint(client_with_session)
         client = client_with_session
-        sess = Session(ep, 1, 60.0, "e", "https://sess/", {"a": 1})
+        sess = Session(ep, 1, 60.0, "e", "https://1.2.3.9:8000", {"a": 1})
 
         with (
             patch(
@@ -1792,7 +1793,7 @@ class TestServerlessQueueEndpointRequestBranches:
         """
         ep = make_serverless_endpoint(client_with_session)
         client = client_with_session
-        sess = Session(ep, 9, 60.0, "e", "https://sess-worker/", {"tok": 1})
+        sess = Session(ep, 9, 60.0, "e", "https://1.2.3.11:8000", {"tok": 1})
 
         route_mock = AsyncMock()
         with (
@@ -1812,9 +1813,9 @@ class TestServerlessQueueEndpointRequestBranches:
             result = await fut
 
         route_mock.assert_not_called()
-        assert result["url"] == "https://sess-worker/"
+        assert result["url"] == "https://1.2.3.11:8000"
         called_url = make_req.call_args.kwargs["url"]
-        assert called_url == "https://sess-worker/"
+        assert called_url == "https://1.2.3.11:8000"
 
     @pytest.mark.asyncio
     async def test_queue_non_ok_retryable_retries_until_success(
@@ -2200,7 +2201,7 @@ class TestServerlessQueueEndpointRequestBranches:
 
         from vastai.serverless.client.endpoint import RouteResponse
 
-        route = RouteResponse({"url": "https://w/", "token": "t"})
+        route = RouteResponse({"url": "https://1.2.3.10:8000", "token": "t"})
 
         with (
             patch.object(Endpoint, "_route", AsyncMock(return_value=route)),
@@ -2253,13 +2254,13 @@ class TestServerlessQueueEndpointRequestBranches:
         assert client.latencies[0] >= 0.0
 
     @pytest.mark.asyncio
-    async def test_queue_session_with_url_none_calls_worker_with_empty_url(
+    async def test_queue_session_with_url_none_is_rejected_without_calling_worker(
         self,
         client_with_session,
         make_serverless_endpoint,
         make_session_mock,
     ) -> None:
-        """If ``session.url`` is falsy, routing body is skipped and worker URL stays empty."""
+        """If ``session.url`` is falsy, the request fails without routing or calling a worker."""
         client = client_with_session
         ep = make_serverless_endpoint(client)
 
@@ -2282,10 +2283,11 @@ class TestServerlessQueueEndpointRequestBranches:
                 worker_payload={"p": 1},
                 session=mock_session,
             )
-            await fut
+            with pytest.raises(WorkerUrlRejected):
+                await fut
 
         route_mock.assert_not_called()
-        assert make_req.call_args.kwargs["url"] == ""
+        make_req.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_queue_route_raises_sets_errored_exception_on_future(

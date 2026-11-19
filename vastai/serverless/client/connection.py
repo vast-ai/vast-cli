@@ -1,13 +1,31 @@
 # connection.py
 import aiohttp
 import asyncio
+import ipaddress
 import random
+import re
 import json
 from typing import AsyncIterator, Dict, Optional, Any
 
 from vastai.utils import VERSION
 
 _JITTER_CAP_SECONDS = 5.0
+_WORKER_URL = re.compile(r"https?://([0-9]{1,3}(?:\.[0-9]{1,3}){3}):([0-9]{1,5})")
+
+class WorkerUrlRejected(ValueError):
+    pass
+
+def _require_public_worker_url(url) -> None:
+    match = _WORKER_URL.fullmatch(url or "")
+    if not (match and 0 < int(match[2]) < 65536 and _is_public_ipv4(match[1])):
+        raise WorkerUrlRejected(f"Refusing worker url {url!r}: expected http(s)://<public ipv4>:<port>")
+
+def _is_public_ipv4(host: str) -> bool:
+    try:
+        ip = ipaddress.IPv4Address(host)
+    except ValueError:
+        return False
+    return ip.is_global and not ip.is_multicast
 
 def _retryable(status: int) -> bool:
     return status in (408, 429) or (500 <= status < 600)
@@ -25,9 +43,11 @@ def _build_kwargs(
     body: Optional[dict],
     method: str,
     stream: bool,
+    allow_redirects: bool,
 ) -> Dict:
     return {
         "headers": headers,
+        "allow_redirects": allow_redirects,
         "params": params,
         "ssl": ssl_context,
         "timeout": aiohttp.ClientTimeout(total=None if stream else timeout),
@@ -92,6 +112,7 @@ async def _make_request(
     timeout: float = 30,
     stream: bool = False,
     allow_non_json: bool = False,
+    allow_redirects: bool = True,
 ) -> Dict[str, Any]:
     """
     Make an HTTP request with capped exponential backoff + jitter, returning a structured result.
@@ -154,6 +175,7 @@ async def _make_request(
                     body=body,
                     method=method,
                     stream=True,
+                    allow_redirects=allow_redirects,
                 )
 
                 resp = await _open_once(
@@ -229,6 +251,7 @@ async def _make_request(
                 body=body,
                 method=method,
                 stream=False,
+                allow_redirects=allow_redirects,
             )
 
             request_fn = {"GET": session.get, "POST": session.post, "PUT": session.put, "DELETE": session.delete}.get(method, session.post)

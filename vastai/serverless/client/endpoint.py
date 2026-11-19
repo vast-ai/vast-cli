@@ -1,7 +1,6 @@
 # endpoint.py
 import asyncio
 from dataclasses import dataclass
-import os
 
 import time
 from .connection import _make_request
@@ -167,9 +166,6 @@ class Endpoint_(Generic[R]):
     async def _route(
         self, cost: float = 0.0, req_idx: int = 0, timeout: float = 60.0
     ) -> "RouteResponse":
-        VAST_DEBUG_WORKER_URL = os.environ.get("VAST_DEBUG_WORKER_URL")
-        if VAST_DEBUG_WORKER_URL:
-            return RouteResponse({"request_idx": 1, "url": VAST_DEBUG_WORKER_URL})
         await self.client._get_session()
         if time.time() > self.last_refresh + self.soft_refresh_threshold:
             await self.refresh(

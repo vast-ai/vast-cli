@@ -1117,6 +1117,7 @@ def build_kwargs_defaults():
         "body": None,
         "method": "GET",
         "stream": False,
+        "allow_redirects": True,
     }
 
 
@@ -1383,7 +1384,7 @@ def make_serverless_bound_session(make_serverless_endpoint):
         session_id: str = "sid",
         lifetime: float = 60.0,
         expiration: str = "e",
-        url: str = "https://worker/u",
+        url: str = "https://1.2.3.7:8000",
         auth_data: dict | None = None,
         **kwargs,
     ) -> Session:
@@ -1452,7 +1453,7 @@ def make_route_response_mock():
     def _make(
         *,
         status: str = "WAITING",
-        url: str = "https://w/",
+        url: str = "https://1.2.3.10:8000",
         request_idx: int = 1,
         body: dict | None = None,
     ) -> MagicMock:
@@ -1511,7 +1512,7 @@ def make_session_mock():
     def _make(
         *,
         session_id: int = 1,
-        url: str | None = "https://worker/u",
+        url: str | None = "https://1.2.3.7:8000",
         auth_data: dict | None = None,
         open_: bool = True,
     ) -> MagicMock:
@@ -1591,7 +1592,7 @@ def make_client_session(make_mock_endpoint_for_session):
         session_id: str = "sess-1",
         lifetime: float = 60.0,
         expiration: str = "2099-01-01T00:00:00Z",
-        url: str = "https://worker.example/session",
+        url: str = "https://1.2.3.5:8000",
         auth_data: dict | None = None,
         **kwargs,
     ):
@@ -1639,7 +1640,7 @@ def make_session(make_delegate_endpoint):
         session_id="sess-123",
         lifetime=60.0,
         expiration="2026-12-31T00:00:00Z",
-        url="https://worker1.vast.ai",
+        url="https://1.2.3.13:8000",
         auth_data=None,
         on_close_route=None,
         on_close_payload=None,
@@ -1652,7 +1653,7 @@ def make_session(make_delegate_endpoint):
             )
         )
         if auth_data is None:
-            auth_data = {"url": "https://worker1.vast.ai", "signature": "abc"}
+            auth_data = {"url": "https://1.2.3.13:8000", "signature": "abc"}
         return Session(
             endpoint=ep,
             session_id=session_id,

@@ -1,5 +1,5 @@
 # client.py
-from .connection import _make_request
+from .connection import _make_request, _require_public_worker_url
 from .endpoint import Endpoint, Endpoint_
 from .managed import ManagedEndpoint, ManagedDeployment
 from .worker import Worker
@@ -505,6 +505,7 @@ class _ServerlessBase(Generic[R]):
         self, endpoint, session_id: int, session_auth: str, timeout: float = 10.0
     ):
         try:
+            _require_public_worker_url(session_auth.get("url"))
             result = await _make_request(
                 client=self,
                 url=session_auth.get("url"),
@@ -515,6 +516,7 @@ class _ServerlessBase(Generic[R]):
                 retries=1,
                 timeout=timeout,
                 stream=False,
+                allow_redirects=False,
             )
 
             if not result.get("ok"):
@@ -549,6 +551,7 @@ class _ServerlessBase(Generic[R]):
             self.logger.debug(
                 f"Attempting to end session {session.session_id} at {session.url}"
             )
+            _require_public_worker_url(session.url)
             result = await _make_request(
                 client=self,
                 url=session.url,
@@ -562,6 +565,7 @@ class _ServerlessBase(Generic[R]):
                 retries=1,
                 timeout=timeout,
                 stream=False,
+                allow_redirects=False,
             )
 
             if not result.get("ok"):
@@ -745,6 +749,7 @@ class _ServerlessBase(Generic[R]):
                     tracker.status = "In Progress"
                     tracker.start_time = time.time()
 
+                _require_public_worker_url(worker_url)
                 # Transport/JSON failures may raise; HTTP errors return ok=False.
                 try:
                     result = await _make_request(
@@ -758,6 +763,7 @@ class _ServerlessBase(Generic[R]):
                         timeout=worker_timeout,
                         stream=stream,
                         allow_non_json=True,
+                        allow_redirects=False,
                     )
                 except (
                     aiohttp.ClientConnectorError,

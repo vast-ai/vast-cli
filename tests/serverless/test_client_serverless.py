@@ -779,7 +779,7 @@ class TestServerlessSessionManagement:
             mock_req.return_value = {
                 "ok": True,
                 "json": {
-                    "auth_data": {"url": "https://w.vast.ai", "signature": "sig"},
+                    "auth_data": {"url": "https://1.2.3.4:8000", "signature": "sig"},
                     "lifetime": 120.0,
                     "expiration": "2026-12-31T00:00:00Z",
                 },
@@ -787,12 +787,12 @@ class TestServerlessSessionManagement:
             session = await client.get_endpoint_session(
                 endpoint=ep,
                 session_id=42,
-                session_auth={"url": "https://w.vast.ai"},
+                session_auth={"url": "https://1.2.3.4:8000"},
             )
             assert isinstance(session, Session)
             assert session.session_id == 42
             assert session.lifetime == 120.0
-            assert session.url == "https://w.vast.ai"
+            assert session.url == "https://1.2.3.4:8000"
 
     async def test_get_endpoint_session_raises_on_not_ok(self) -> None:
         """
@@ -819,7 +819,7 @@ class TestServerlessSessionManagement:
                 await client.get_endpoint_session(
                     endpoint=ep,
                     session_id=42,
-                    session_auth={"url": "https://w.vast.ai"},
+                    session_auth={"url": "https://1.2.3.4:8000"},
                 )
 
     async def test_get_endpoint_session_raises_on_missing_auth_data(self) -> None:
@@ -846,7 +846,7 @@ class TestServerlessSessionManagement:
                 await client.get_endpoint_session(
                     endpoint=ep,
                     session_id=42,
-                    session_auth={"url": "https://w.vast.ai"},
+                    session_auth={"url": "https://1.2.3.4:8000"},
                 )
 
     async def test_get_endpoint_session_reraises_timeout(self) -> None:
@@ -870,7 +870,7 @@ class TestServerlessSessionManagement:
                 await client.get_endpoint_session(
                     endpoint=ep,
                     session_id=42,
-                    session_auth={"url": "https://w.vast.ai"},
+                    session_auth={"url": "https://1.2.3.4:8000"},
                 )
 
     async def test_end_endpoint_session_success(self) -> None:
@@ -892,8 +892,8 @@ class TestServerlessSessionManagement:
             session_id="s1",
             lifetime=60,
             expiration="x",
-            url="https://w.vast.ai",
-            auth_data={"url": "https://w.vast.ai"},
+            url="https://1.2.3.4:8000",
+            auth_data={"url": "https://1.2.3.4:8000"},
         )
         with patch(
             "vastai.serverless.client.client._make_request", new_callable=AsyncMock
@@ -923,8 +923,8 @@ class TestServerlessSessionManagement:
             session_id="s1",
             lifetime=60,
             expiration="x",
-            url="https://w.vast.ai",
-            auth_data={"url": "https://w.vast.ai"},
+            url="https://1.2.3.4:8000",
+            auth_data={"url": "https://1.2.3.4:8000"},
         )
         with patch(
             "vastai.serverless.client.client._make_request", new_callable=AsyncMock
@@ -960,8 +960,8 @@ class TestServerlessStartEndpointSession:
             return_value={
                 "ok": True,
                 "response": {"session_id": "sess-42", "expiration": "2026-12-31"},
-                "url": "https://w.vast.ai",
-                "auth_data": {"url": "https://w.vast.ai", "sig": "abc"},
+                "url": "https://1.2.3.4:8000",
+                "auth_data": {"url": "https://1.2.3.4:8000", "sig": "abc"},
                 "status": 200,
             }
         )
@@ -971,7 +971,7 @@ class TestServerlessStartEndpointSession:
         assert isinstance(session, Session)
         assert session.session_id == "sess-42"
         assert session.lifetime == 120
-        assert session.url == "https://w.vast.ai"
+        assert session.url == "https://1.2.3.4:8000"
 
     async def test_start_session_raises_on_not_ok(self) -> None:
         """
@@ -1033,8 +1033,8 @@ class TestServerlessStartEndpointSession:
             return_value={
                 "ok": True,
                 "response": {"expiration": "2026-12-31"},
-                "url": "https://w.vast.ai",
-                "auth_data": {"url": "https://w.vast.ai"},
+                "url": "https://1.2.3.4:8000",
+                "auth_data": {"url": "https://1.2.3.4:8000"},
                 "status": 200,
             }
         )
@@ -1059,7 +1059,7 @@ class TestServerlessStartEndpointSession:
                 "ok": True,
                 "response": {"session_id": "s1", "expiration": "x"},
                 "url": None,
-                "auth_data": {"url": "https://w.vast.ai"},
+                "auth_data": {"url": "https://1.2.3.4:8000"},
                 "status": 200,
             }
         )
@@ -1083,7 +1083,7 @@ class TestServerlessStartEndpointSession:
             return_value={
                 "ok": True,
                 "response": {"session_id": "s1", "expiration": "x"},
-                "url": "https://w.vast.ai",
+                "url": "https://1.2.3.4:8000",
                 "auth_data": None,
                 "status": 200,
             }
@@ -1125,8 +1125,8 @@ class TestServerlessStartEndpointSession:
             return_value={
                 "ok": True,
                 "response": {"session_id": "s1", "expiration": "x"},
-                "url": "https://w.vast.ai",
-                "auth_data": {"url": "https://w.vast.ai"},
+                "url": "https://1.2.3.4:8000",
+                "auth_data": {"url": "https://1.2.3.4:8000"},
                 "status": 200,
             }
         )
@@ -1179,8 +1179,8 @@ class TestServerlessQueueEndpointRequest:
             mock_route.return_value = MagicMock(
                 status="READY",
                 request_idx=1,
-                get_url=MagicMock(return_value="https://w.vast.ai"),
-                body={"url": "https://w.vast.ai"},
+                get_url=MagicMock(return_value="https://1.2.3.4:8000"),
+                body={"url": "https://1.2.3.4:8000"},
             )
             with patch(
                 "vastai.serverless.client.client._make_request", new_callable=AsyncMock
@@ -1223,8 +1223,8 @@ class TestServerlessQueueEndpointRequest:
             mock_route.return_value = MagicMock(
                 status="READY",
                 request_idx=1,
-                get_url=MagicMock(return_value="https://w.vast.ai"),
-                body={"url": "https://w.vast.ai"},
+                get_url=MagicMock(return_value="https://1.2.3.4:8000"),
+                body={"url": "https://1.2.3.4:8000"},
             )
             with patch(
                 "vastai.serverless.client.client._make_request", new_callable=AsyncMock
@@ -1273,7 +1273,7 @@ class TestQueueEndpointRequestTaskBehavior:
             session_id="s1",
             lifetime=60,
             expiration="x",
-            url="https://session-worker.vast.ai",
+            url="https://1.2.3.12:8000",
             auth_data={"sig": "abc"},
         )
         client._get_session = AsyncMock()
@@ -1300,7 +1300,7 @@ class TestQueueEndpointRequestTaskBehavior:
                 assert result["ok"] is True
                 # Verify _make_request was called with the session's URL
                 call_kwargs = mock_req.call_args.kwargs
-                assert call_kwargs["url"] == "https://session-worker.vast.ai"
+                assert call_kwargs["url"] == "https://1.2.3.12:8000"
                 assert call_kwargs["body"]["session_id"] == "s1"
                 assert call_kwargs["body"]["auth_data"] == {"sig": "abc"}
 
@@ -1331,8 +1331,8 @@ class TestQueueEndpointRequestTaskBehavior:
         ready_response = MagicMock(
             status="READY",
             request_idx=5,
-            get_url=MagicMock(return_value="https://w.vast.ai"),
-            body={"url": "https://w.vast.ai"},
+            get_url=MagicMock(return_value="https://1.2.3.4:8000"),
+            body={"url": "https://1.2.3.4:8000"},
         )
 
         with patch.object(ep, "_route", new_callable=AsyncMock) as mock_route:
@@ -1381,8 +1381,8 @@ class TestQueueEndpointRequestTaskBehavior:
             mock_route.return_value = MagicMock(
                 status="READY",
                 request_idx=1,
-                get_url=MagicMock(return_value="https://w.vast.ai"),
-                body={"url": "https://w.vast.ai"},
+                get_url=MagicMock(return_value="https://1.2.3.4:8000"),
+                body={"url": "https://1.2.3.4:8000"},
             )
             with patch(
                 "vastai.serverless.client.client._make_request", new_callable=AsyncMock
@@ -1427,8 +1427,8 @@ class TestQueueEndpointRequestTaskBehavior:
             mock_route.return_value = MagicMock(
                 status="READY",
                 request_idx=1,
-                get_url=MagicMock(return_value="https://w.vast.ai"),
-                body={"url": "https://w.vast.ai"},
+                get_url=MagicMock(return_value="https://1.2.3.4:8000"),
+                body={"url": "https://1.2.3.4:8000"},
             )
             with patch(
                 "vastai.serverless.client.client._make_request", new_callable=AsyncMock
@@ -1472,8 +1472,8 @@ class TestQueueEndpointRequestTaskBehavior:
             mock_route.return_value = MagicMock(
                 status="READY",
                 request_idx=1,
-                get_url=MagicMock(return_value="https://w.vast.ai"),
-                body={"url": "https://w.vast.ai"},
+                get_url=MagicMock(return_value="https://1.2.3.4:8000"),
+                body={"url": "https://1.2.3.4:8000"},
             )
             with patch(
                 "vastai.serverless.client.client._make_request", new_callable=AsyncMock
@@ -1529,8 +1529,8 @@ class TestQueueEndpointRequestResilience:
             session_id="sess-1",
             lifetime=60.0,
             expiration="2026-12-31T00:00:00Z",
-            url="https://worker1.vast.ai",
-            auth_data={"url": "https://worker1.vast.ai", "signature": "abc"},
+            url="https://1.2.3.13:8000",
+            auth_data={"url": "https://1.2.3.13:8000", "signature": "abc"},
         )
         assert session.open is True
 
@@ -1576,8 +1576,8 @@ class TestQueueEndpointRequestResilience:
             session_id="sess-2",
             lifetime=60.0,
             expiration="2026-12-31T00:00:00Z",
-            url="https://worker2.vast.ai",
-            auth_data={"url": "https://worker2.vast.ai", "signature": "xyz"},
+            url="https://1.2.3.14:8000",
+            auth_data={"url": "https://1.2.3.14:8000", "signature": "xyz"},
         )
 
         with patch(
@@ -1618,8 +1618,8 @@ class TestQueueEndpointRequestResilience:
             mock_route.return_value = MagicMock(
                 status="READY",
                 request_idx=1,
-                get_url=MagicMock(return_value="https://w.vast.ai"),
-                body={"url": "https://w.vast.ai"},
+                get_url=MagicMock(return_value="https://1.2.3.4:8000"),
+                body={"url": "https://1.2.3.4:8000"},
             )
             conn_os_error = OSError("connection refused")
             with patch(
@@ -1671,8 +1671,8 @@ class TestQueueEndpointRequestResilience:
             mock_route.return_value = MagicMock(
                 status="READY",
                 request_idx=1,
-                get_url=MagicMock(return_value="https://w.vast.ai"),
-                body={"url": "https://w.vast.ai"},
+                get_url=MagicMock(return_value="https://1.2.3.4:8000"),
+                body={"url": "https://1.2.3.4:8000"},
             )
             with patch(
                 "vastai.serverless.client.client._make_request", new_callable=AsyncMock

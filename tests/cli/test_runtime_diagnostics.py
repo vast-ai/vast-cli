@@ -171,6 +171,88 @@ def test_status_msg_classifies_generic_daemon_startup_failure():
     assert result["underlying_error"] == status_msg
 
 
+def test_status_msg_classifies_startup_wrapper_build_line():
+    status_msg = (
+        "#6 [3/6] RUN export DEBIAN_FRONTEND=noninteractive; "
+        "apt-get update || echo 'V220614a: error during apt-get update!';"
+    )
+
+    result = diag.classify_status_msg(status_msg)
+
+    assert result["code"] == diag.DAEMON_STARTUP_FAILED
+    assert result["stage"] == diag.STAGE_STARTUP
+    assert result["underlying_error"] == status_msg
+
+
+def test_startup_daemon_log_evidence_distinguishes_apt_success_from_cdi_failure():
+    daemon_log = "\n".join(
+        [
+            "#6 [3/6] RUN export DEBIAN_FRONTEND=noninteractive; apt-get update || echo 'V220614a: error during apt-get update!';",
+            "#6 2.268 Fetched 49.3 MB in 2s (26.6 MB/s)",
+            "#6 DONE 3.3s",
+            "Successfully loaded vastai/test:self-test-v2-cuda-11.8",
+            "Error response from daemon: failed to inject CDI devices: unresolvable CDI devices D.host/gpu=0, D.host/gpu=1, D.host/gpu=2, D.host/gpu=3: unknown",
+        ]
+    )
+
+    evidence = diag.summarize_startup_daemon_log(daemon_log)
+
+    assert evidence["apt_update"]["status"] == "completed"
+    assert evidence["apt_update"]["error_marker_printed"] is False
+    assert evidence["cdi_gpu_device_injection"]["gpu_ids"] == ["0", "1", "2", "3"]
+    assert "completed successfully" in evidence["findings"][0]
+
+
+def test_startup_failure_refinement_prints_host_runtime_cause_for_cdi():
+    diagnostic = diag.classify_status_msg(
+        "#6 [3/6] RUN export DEBIAN_FRONTEND=noninteractive; apt-get update || echo 'V220614a: error during apt-get update!';"
+    )
+    daemon_log = "\n".join(
+        [
+            "#6 [3/6] RUN export DEBIAN_FRONTEND=noninteractive; apt-get update || echo 'V220614a: error during apt-get update!';",
+            "#6 DONE 3.3s",
+            "Error response from daemon: failed to inject CDI devices: unresolvable CDI devices D.host/gpu=0: unknown",
+        ]
+    )
+
+    refined = diag.refine_startup_failure_with_daemon_log(diagnostic, daemon_log)
+
+    assert refined["code"] == diag.DAEMON_STARTUP_FAILED
+    assert refined["summary"] == "Docker/NVIDIA runtime failed before the self-test container could start."
+    assert "NVIDIA container runtime/CDI" in refined["remediation"]
+    assert refined["startup_evidence"]["apt_update"]["status"] == "completed"
+    assert refined["startup_evidence"]["cdi_gpu_device_injection"]["gpu_ids"] == ["0"]
+
+
+def test_startup_failure_refinement_uses_status_message_when_daemon_log_lacks_cdi():
+    diagnostic = diag.classify_status_msg(
+        "Error response from daemon: failed to create task for container: failed to inject CDI devices: "
+        "unresolvable CDI devices D.host/gpu=0, D.host/gpu=1: unknown"
+    )
+    daemon_log = "container setup log did not include the final status error"
+
+    refined = diag.refine_startup_failure_with_daemon_log(diagnostic, daemon_log)
+
+    assert refined["summary"] == "Docker/NVIDIA runtime failed before the self-test container could start."
+    assert refined["startup_evidence"]["cdi_gpu_device_injection"]["gpu_ids"] == ["0", "1"]
+    assert refined["startup_evidence"]["sources"] == ["instance/daemon.log", "instance status message"]
+
+
+def test_startup_daemon_log_evidence_detects_actual_apt_update_marker_output():
+    daemon_log = "\n".join(
+        [
+            "#6 [3/6] RUN export DEBIAN_FRONTEND=noninteractive; apt-get update || echo 'V220614a: error during apt-get update!';",
+            "#6 2.100 V220614a: error during apt-get update!",
+            "#6 DONE 2.2s",
+        ]
+    )
+
+    evidence = diag.summarize_startup_daemon_log(daemon_log)
+
+    assert evidence["apt_update"]["status"] == "failed"
+    assert evidence["apt_update"]["error_marker_printed"] is True
+
+
 def test_status_msg_classifies_other_errors_as_status_error():
     result = diag.classify_status_msg("Error: host reported an unknown fault")
 

@@ -66,8 +66,6 @@ parser = _get_parser()
             # search for reliable machines with at least 4 gpus, unverified, order by num_gpus
             vastai search offers 'reliability > 0.99  num_gpus>=4 verified=False' -o 'num_gpus-'
 
-            # search for arm64 cpu architecture
-            vastai search offers 'cpu_arch=arm64'
 
         Available fields:
 

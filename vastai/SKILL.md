@@ -166,6 +166,7 @@ vastai search offers 'num_gpus>=4 reliability>0.99' -o 'num_gpus-'
 vastai search offers --type bid                          # Interruptible (spot) pricing
 vastai search offers --type reserved                     # Reserved pricing
 vastai search offers -n 'gpu_name=H100_SXM'             # No default filters
+vastai search offers 'cpu_arch=amd64'                   # x86 only; default includes arm64 (GB200, GB10)
 vastai search volumes                                    # Search volume offers
 vastai search templates "pytorch"                        # Search templates
 vastai search benchmarks                                 # Search benchmarks

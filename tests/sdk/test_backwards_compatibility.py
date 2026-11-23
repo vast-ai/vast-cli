@@ -188,10 +188,6 @@ class TestSearchQueryStrings:
         sdk.search_volumes("disk_space>=100")
         assert sent[-1]["disk_space"] == {"gte": "100"}
 
-    def test_search_network_volumes_parses_the_string(self, sdk, sent):
-        sdk.search_network_volumes("disk_space>=100")
-        assert sent[-1]["disk_space"] == {"gte": "100"}
-
     def test_search_benchmarks_parses_the_string(self, sdk, sent):
         sdk.search_benchmarks("gpu_name=RTX_4090")
         assert sent[-1]["select_filters"] == {"gpu_name": {"eq": "RTX 4090"}}
@@ -202,7 +198,7 @@ class TestSearchQueryStrings:
 
     @pytest.mark.parametrize("method", [
         "search_templates", "search_invoices", "search_volumes",
-        "search_network_volumes", "search_benchmarks",
+        "search_benchmarks",
     ])
     def test_a_dict_still_passes_through_untouched(self, method, sdk, sent):
         """Callers already passing dicts are the ones who worked; keep them."""

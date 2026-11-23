@@ -1,4 +1,4 @@
-"""Search offers, templates, benchmarks, volumes, network volumes, and invoices."""
+"""Search offers, templates, benchmarks, volumes, and invoices."""
 from typing import Optional
 
 from vastai.api.billing import show_user
@@ -212,43 +212,6 @@ def search_volumes(client: VastClient, query: dict = None, order: list = None,
     q["allocated_storage"] = storage
 
     r = client.post("/volumes/search/", json_data=q)
-    r.raise_for_status()
-    return r.json()["offers"]
-
-
-def search_network_volumes(client: VastClient, query: dict = None, order: list = None,
-                           limit: int = None, storage: float = 1.0,
-                           no_default: bool = False) -> list:
-    """Search for network volume offers.
-
-    Args:
-        client: VastClient instance.
-        query: Pre-parsed query dict of filters.
-        order: List of [field, direction] pairs.
-        limit: Max number of results.
-        storage: Allocated storage in GiB for pricing (default 1.0).
-        no_default: If True, skip default filters.
-
-    Returns:
-        List of network volume offer dicts.
-    """
-    if no_default:
-        q = query or {}
-    else:
-        q = {"verified": {"eq": True}, "external": {"eq": False}, "disk_space": {"gte": 1}}
-        if query:
-            q.update(query)
-
-    if order is not None:
-        q["order"] = order
-    else:
-        q["order"] = [["score", "desc"]]
-
-    if limit:
-        q["limit"] = int(limit)
-    q["allocated_storage"] = storage
-
-    r = client.post("/network_volumes/search/", json_data=q)
     r.raise_for_status()
     return r.json()["offers"]
 

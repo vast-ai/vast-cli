@@ -8,7 +8,7 @@ from urllib.parse import quote, urlparse
 
 from vastai.cli.parser import argument
 from vastai.cli.display import (
-    display_table, vol_displayable_fields, nw_vol_displayable_fields,
+    display_table, vol_displayable_fields,
     volume_fields, connection_fields, deindent,
     instance_backup_fields, instance_backup_file_fields,
 )
@@ -319,11 +319,6 @@ def show__connections(args):
 
 
 # ---------------------------------------------------------------------------
-# Note: show__network_disks and add__network_disk are in machines.py.
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
 # search volumes
 # ---------------------------------------------------------------------------
 
@@ -434,100 +429,6 @@ def search__volumes(args):
 
 
 # ---------------------------------------------------------------------------
-# search network volumes
-# ---------------------------------------------------------------------------
-
-@parser.command(
-    argument("-n", "--no-default", action="store_true", help="Disable default query"),
-    argument("--limit", type=int, help=""),
-    argument("--storage", type=float, default=1.0, help="Amount of storage to use for pricing, in GiB. default=1.0GiB"),
-    argument("-o", "--order", type=str, help="Comma-separated list of fields to sort on. postfix field with - to sort desc. ex: -o 'disk_space,inet_up-'.  default='score-'", default='score-'),
-    argument("query", help="Query to search for. default: 'external=false verified=true disk_space>=1', pass -n to ignore default", nargs="*", default=None),
-    usage="vastai search network volumes [--help] [--api-key API_KEY] [--raw] <query>",
-    help="Search for network volume offers using custom query",
-    epilog=deindent("""
-        Query syntax:
-
-            query = comparison comparison...
-            comparison = field op value
-            field = <name of a field>
-            op = one of: <, <=, ==, !=, >=, >, in, notin
-            value = <bool, int, float, string> | 'any' | [value0, value1, ...]
-            bool: True, False
-
-        note: to pass '>' and '<' on the command line, make sure to use quotes
-        note: to encode a string query value (ie for gpu_name), replace any spaces ' ' with underscore '_'
-
-        Examples:
-
-            # search for volumes with greater than 50GB of available storage and greater than 500 Mb/s upload and download speed
-            vastai search volumes "disk_space>50 inet_up>500 inet_down>500"
-
-        Available fields:
-
-              Name                  Type       Description
-            duration:               float     max rental duration in days
-            geolocation:            string    Two letter country code. Works with operators =, !=, in, notin (e.g. geolocation not in ['XV','XZ'])
-            id:                     int       volume offer unique ID
-            inet_down:              float     internet download speed in Mb/s
-            inet_up:                float     internet upload speed in Mb/s
-            reliability:            float     machine reliability score (see FAQ for explanation)
-            storage_cost:           float     storage cost in $/GB/month
-            verified:               bool      is the machine verified
-    """),
-)
-def search__network_volumes(args):
-    """Search for network volume offers using custom query."""
-    from vastai.api.query import parse_query, vol_offers_fields, offers_alias, offers_mult
-
-    try:
-        if args.no_default:
-            query = {}
-        else:
-            query = {"verified": {"eq": True}, "external": {"eq": False}, "disk_space": {"gte": 1}}
-
-        if args.query is not None:
-            query = parse_query(args.query, query, vol_offers_fields, {}, offers_mult)
-
-        order = []
-        for name in args.order.split(","):
-            name = name.strip()
-            if not name:
-                continue
-            direction = "asc"
-            field = name
-            if name.strip("-") != name:
-                direction = "desc"
-                field = name.strip("-")
-            if name.strip("+") != name:
-                direction = "asc"
-                field = name.strip("+")
-            if field in offers_alias:
-                field = offers_alias[field]
-            order.append([field, direction])
-    except ValueError as e:
-        print("Error: ", e)
-        return 1
-
-    client = get_client(args)
-
-    if args.explain:
-        print("request json: ")
-        print(query)
-
-    rows = offers_api.search_network_volumes(
-        client, query=query, order=order,
-        limit=args.limit, storage=args.storage,
-        no_default=True,  # defaults already applied above
-    )
-
-    if args.raw:
-        return rows
-    else:
-        display_table(rows, nw_vol_displayable_fields)
-
-
-# ---------------------------------------------------------------------------
 # create / delete / clone volume
 # ---------------------------------------------------------------------------
 
@@ -551,32 +452,6 @@ def create__volume(args):
 
     client = get_client(args)
     result = storage_api.create_volume(client, id=args.id, size=args.size, name=args.name)
-    if args.raw:
-        return result
-    else:
-        print("Created. {}".format(result))
-
-
-@parser.command(
-    argument("id", help="id of network volume offer", type=int),
-    argument("-s", "--size",
-             help="size in GB of network volume. Default %(default)s GB.", default=15, type=float),
-    argument("-n", "--name", help="Optional name of network volume.", type=str),
-    usage="vastai create network volume ID [options]",
-    help="Create a new network volume",
-    epilog=deindent("""
-        Creates a network volume from an offer ID (which is returned from "search network volumes"). Each offer ID can be used to create multiple volumes,
-        provided the size of all volumes does not exceed the size of the offer.
-    """),
-)
-def create__network_volume(args):
-    """Create a new network volume from an offer ID."""
-    if args.explain:
-        print("request json: ")
-        print({"size": int(args.size), "id": int(args.id)})
-
-    client = get_client(args)
-    result = storage_api.create_network_volume(client, id=args.id, size=args.size, name=args.name)
     if args.raw:
         return result
     else:
@@ -633,7 +508,7 @@ def clone__volume(args):
 # ---------------------------------------------------------------------------
 
 @parser.command(
-    argument("-t", "--type", help="volume type to display. Default to all. Possible values are \"local\", \"all\", \"network\"", type=str, default="all"),
+    argument("-t", "--type", help="volume type to display. Default to all. Possible values are \"local\", \"all\"", type=str, default="all"),
     usage="vastai show volumes [OPTIONS]",
     help="Show stats on owned volumes.",
     epilog=deindent("""
@@ -824,32 +699,6 @@ def list__volumes(args):
 
 
 @parser.command(
-    argument("disk_id", help="id of network disk to list", type=int),
-    argument("-p", "--price_disk", help="storage price in $/GB/month, default: $%(default).2f/GB/month", default=.15, type=float),
-    argument("-e", "--end_date", help="contract offer expiration - the available until date (optional, in unix float timestamp or MM/DD/YYYY format), default 1 month", type=str, default=None),
-    argument("-s", "--size", help="size of disk space allocated to offer in GB, default %(default)s GB", default=15, type=int),
-    usage="vastai list network volume DISK_ID [options]",
-    help="[Host] list disk space for rent as a network volume",
-)
-def list__network_volume(args):
-    """List disk space for rent as a network volume."""
-    from vastai.cli.util import string_to_unix_epoch
-
-    end_date = string_to_unix_epoch(args.end_date) if args.end_date else None
-
-    if args.explain:
-        print("request json: ")
-        print({"disk_id": args.disk_id, "price_disk": args.price_disk, "size": args.size})
-
-    client = get_client(args)
-    result = storage_api.list_network_volume(client, disk_id=args.disk_id, price_disk=args.price_disk,
-                                             size=args.size, end_date=end_date)
-    if args.raw:
-        return result
-    print(result["msg"])
-
-
-@parser.command(
     argument("id", help="volume ID you want to unlist", type=int),
     usage="vastai unlist volume ID",
     help="[Host] unlist volume offer",
@@ -866,20 +715,3 @@ def unlist__volume(args):
     else:
         print(result["msg"])
 
-
-@parser.command(
-    argument("id", help="id of network volume offer to unlist", type=int),
-    usage="vastai unlist network volume OFFER_ID",
-    help="[Host] Unlists network volume offer",
-)
-def unlist__network_volume(args):
-    """Unlist a network volume offer."""
-    if args.explain:
-        print("request json: ")
-        print({"id": args.id})
-
-    client = get_client(args)
-    result = storage_api.unlist_network_volume(client, id=args.id)
-    if args.raw:
-        return result
-    print(result["msg"])

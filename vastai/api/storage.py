@@ -199,15 +199,13 @@ def show_volumes(client, type="all"):
 
     Args:
         client: VastClient instance.
-        type (str): Volume type to display. Options: \"local\", \"network\",
-            \"all\". Default \"all\".
+        type (str): Volume type to display. Options: \"local\", \"all\". Default \"all\".
 
     Returns:
         list: Volume data with computed duration field.
     """
     types = {
         "local": "local_volume",
-        "network": "network_volume",
         "all": "all_volume",
     }
     vol_type = types.get(type, "all_volume")
@@ -381,120 +379,6 @@ def unlist_volume(client, id):
     """
     json_blob = {"id": id}
     r = client.post("/volumes/unlist", json_data=json_blob)
-    r.raise_for_status()
-    return r.json()
-
-
-def create_network_volume(client, id, size=15, name=None):
-    """Create a new network volume.
-
-    PUT /network_volumes/
-
-    Args:
-        client: VastClient instance.
-        id (int): ID of network volume offer.
-        size (float): Size in GB. Default 15.
-        name (str, optional): Optional name of network volume.
-
-    Returns:
-        dict: API response data.
-    """
-    json_blob = {
-        "size": int(size),
-        "id": int(id),
-    }
-    if name:
-        json_blob["name"] = name
-
-    r = client.put("/network_volumes/", json_data=json_blob)
-    r.raise_for_status()
-    return r.json()
-
-
-def list_network_volume(client, disk_id, price_disk=0.15, size=15, end_date=None):
-    """[Host] List disk space for rent as a network volume.
-
-    POST /network_volumes/
-
-    Args:
-        client: VastClient instance.
-        disk_id (int): ID of disk to list.
-        price_disk (float): Storage price in $/GB/month. Default 0.15.
-        size (int): Size of disk space in GB. Default 15.
-        end_date (str, optional): Contract offer expiration date.
-
-    Returns:
-        dict: API response data.
-    """
-    json_blob = {
-        "disk_id": disk_id,
-        "price_disk": price_disk,
-        "size": size,
-    }
-    if end_date is not None:
-        json_blob["end_date"] = end_date
-
-    r = client.post("/network_volumes/", json_data=json_blob)
-    r.raise_for_status()
-    return r.json()
-
-
-def unlist_network_volume(client, id):
-    """[Host] Unlist a network volume offer.
-
-    POST /network_volumes/unlist/
-
-    Args:
-        client: VastClient instance.
-        id (int): ID of network volume offer to unlist.
-
-    Returns:
-        dict: API response data.
-    """
-    json_blob = {"id": id}
-    r = client.post("/network_volumes/unlist/", json_data=json_blob)
-    r.raise_for_status()
-    return r.json()
-
-
-def show_network_disks(client):
-    """[Host] Show network disks associated with your account.
-
-    GET /network_disk/
-
-    Args:
-        client: VastClient instance.
-
-    Returns:
-        dict: Network disk data including cluster and machine info.
-    """
-    r = client.get("/network_disk/")
-    r.raise_for_status()
-    return r.json()
-
-
-def add_network_disk(client, machines, mount_point, disk_id=None):
-    """[Host] Add network disk to physical cluster.
-
-    POST /network_disk/
-
-    Args:
-        client: VastClient instance.
-        machines (list[int]): IDs of machines to add disk to.
-        mount_point (str): Mount path of disk to add.
-        disk_id (int, optional): ID of network disk to attach to machines.
-
-    Returns:
-        dict: API response data including disk_id.
-    """
-    json_blob = {
-        "machines": [int(mid) for mid in machines],
-        "mount_point": mount_point,
-    }
-    if disk_id is not None:
-        json_blob["disk_id"] = disk_id
-
-    r = client.post("/network_disk/", json_data=json_blob)
     r.raise_for_status()
     return r.json()
 

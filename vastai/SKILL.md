@@ -230,8 +230,6 @@ vastai show volumes                                      # List your volumes
 vastai create volume <offer_id> [-s SIZE] [-n NAME]      # Create volume (offer_id from search volumes)
 vastai clone volume <source_id> <dest_id> [-s SIZE]      # Clone volume (dest_id from search volumes)
 vastai delete volume <id>                                # Delete volume
-vastai create network-volume ...                         # Create network volume
-vastai list network-volume                               # List network volumes
 vastai take snapshot <instance_id> --repo REPO --docker_login_user USER --docker_login_pass PASS  # Snapshot instance to volume
 ```
 

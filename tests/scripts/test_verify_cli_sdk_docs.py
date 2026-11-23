@@ -42,7 +42,7 @@ def test_reads_policy_constants_from_the_generator():
     excluded = verifier.get_excluded_names()
     globals_ = verifier.get_global_cli_options()
 
-    assert "add-network-disk" in excluded
+    assert "take-snapshot" in excluded
     assert {"url", "retry", "raw", "explain", "api_key", "no_color"} <= globals_
 
 
@@ -205,11 +205,11 @@ def test_sdk_pages_keep_non_flag_parameters():
 # ---------------------------------------------------------------------------
 
 def test_policy_excluded_commands_are_not_reported_missing():
-    actual = {"create-instance": [], "add-network-disk": []}
+    actual = {"create-instance": [], "take-snapshot": []}
     documented = {"create-instance": []}
 
     undocumented, stale = verifier.compare_inventory(
-        actual, documented, lambda n: n, {"add-network-disk"},
+        actual, documented, lambda n: n, {"take-snapshot"},
     )
 
     assert undocumented == []
@@ -221,15 +221,15 @@ def test_policy_excluded_command_is_reported_if_actually_published():
     Suppression is one-directional. A page we deliberately never generate that
     shows up in the docs repo anyway is a real problem worth reporting.
     """
-    actual = {"add-network-disk": []}
-    documented = {"add-network-disk": []}
+    actual = {"take-snapshot": []}
+    documented = {"take-snapshot": []}
 
     undocumented, stale = verifier.compare_inventory(
-        actual, documented, lambda n: n, {"add-network-disk"},
+        actual, documented, lambda n: n, {"take-snapshot"},
     )
 
     assert undocumented == []
-    assert stale == ["add-network-disk"]
+    assert stale == ["take-snapshot"]
 
 
 def test_genuinely_missing_and_stale_pages_still_reported():

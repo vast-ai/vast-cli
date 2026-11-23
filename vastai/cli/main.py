@@ -127,7 +127,6 @@ def main():
         repl,
         update,
         uninstall,
-        # clusters,  # cluster/overlay commands disabled for now
     )
 
     # Wire up tab completers now that command modules are loaded

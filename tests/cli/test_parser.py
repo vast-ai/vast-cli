@@ -143,8 +143,6 @@ class TestCliParserReadOnlyCommands:
         ["show", "scheduled-jobs"],
         ["show", "endpoints"],
         ["show", "volumes"],
-        ["show", "clusters"],
-        ["show", "overlays"],
         ["show", "connections"],
         ["show", "workergroups"],
         ["tfa", "status"],
@@ -232,15 +230,10 @@ class TestIsHiddenCommand:
         assert is_hidden_command("show instances", explicit=True) is True
 
     def test_explicit_false_wins_over_registry(self):
-        assert is_hidden_command("search network-volumes", explicit=False) is False
+        assert is_hidden_command("repl", explicit=False) is False
 
     def test_known_unreleased_command_is_hidden(self):
-        assert is_hidden_command("search network-volumes") is True
-        assert is_hidden_command("create network-volume") is True
-        assert is_hidden_command("list network-volume") is True
-        assert is_hidden_command("unlist network-volume") is True
-        assert is_hidden_command("show network-disks") is True
-        assert is_hidden_command("add network-disk") is True
+        assert is_hidden_command("repl") is True
 
     def test_unregistered_command_defaults_to_visible(self):
         assert is_hidden_command("show instances") is False
@@ -284,22 +277,19 @@ class TestCommandDecoratorHidden:
 class TestFullCliHiddenCommands:
     """Sanity check against the real, fully-populated CLI parser."""
 
-    def test_network_volume_commands_are_hidden_from_help(self, cli_parser):
-        help_text = cli_parser.parser.format_help()
-        assert "network-volume" not in help_text
-
-    def test_network_volume_commands_still_parse_directly(self, cli_parser):
-        args = cli_parser.parse_args(["search", "network-volumes"])
-        assert callable(args.func)
-
-    def test_network_disk_commands_are_hidden_from_help(self, cli_parser):
-        help_text = cli_parser.parser.format_help()
-        assert "network-disk" not in help_text
-
-    def test_network_disk_commands_still_parse_directly(self, cli_parser):
-        assert callable(cli_parser.parse_args(["show", "network-disks"]).func)
-        args = cli_parser.parse_args(["add", "network-disk", "1", "/mnt/data"])
-        assert callable(args.func)
+    @pytest.mark.parametrize("argv", [
+        ["search", "network-volumes"],
+        ["create", "network-volume", "1"],
+        ["show", "network-disks"],
+        ["add", "network-disk", "1", "/mnt/data"],
+        ["show", "clusters"],
+        ["create", "cluster", "10.0.0.0/24", "1"],
+        ["show", "overlays"],
+        ["join", "overlay", "net", "1"],
+    ])
+    def test_removed_network_volume_and_cluster_commands_do_not_parse(self, cli_parser, argv):
+        with pytest.raises(SystemExit):
+            cli_parser.parse_args(argv)
 
     def test_update_is_visible_in_help(self, cli_parser):
         help_text = cli_parser.parser.format_help()

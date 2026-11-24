@@ -1561,6 +1561,41 @@ class TestBackendHandleRequest:
         mock_cb.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_handle_request_bad_signature_rejects_before_payload_parse(
+        self, serverless_backend_testkit, make_serverless_test_rsa_key
+    ) -> None:
+        """A forged signature is rejected before the payload is parsed or its workload counted."""
+        key = make_serverless_test_rsa_key()
+        backend, handler = serverless_backend_testkit.make_backend(unsecured=False)
+        backend._pubkey = key.publickey()
+        fn = backend.create_handler(handler)
+        req = serverless_backend_testkit.json_request(
+            serverless_backend_testkit.signed_auth({"mtoken": "other-worker-mtoken"}, key)
+        )
+        parse = MagicMock()
+        with patch.object(type(handler), "get_data_from_request", classmethod(parse)):
+            with patch.object(backend.metrics, "_request_reject") as mock_reject:
+                resp = await fn(req)
+        assert resp.status == 401
+        parse.assert_not_called()
+        mock_reject.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_handle_request_missing_auth_rejects_before_payload_parse(
+        self, serverless_backend_testkit
+    ) -> None:
+        """A secured worker answers a request without auth_data with 422 and never parses its payload."""
+        backend, handler = serverless_backend_testkit.make_backend(unsecured=False)
+        fn = backend.create_handler(handler)
+        req = serverless_backend_testkit.json_request({"payload": {"args": [], "kwargs": {}}})
+        parse = MagicMock()
+        with patch.object(type(handler), "get_data_from_request", classmethod(parse)):
+            resp = await fn(req)
+        assert resp.status == 422
+        assert serverless_backend_testkit.response_json(resp) == {"auth_data": "field missing"}
+        parse.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_handle_request_signature_failure_log_omits_mtoken(
         self, serverless_backend_testkit, make_serverless_test_rsa_key, caplog
     ) -> None:

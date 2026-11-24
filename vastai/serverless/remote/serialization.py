@@ -1,6 +1,6 @@
 import base64
 from typing import Any, TypeAlias
-from importlib import import_module
+import sys
 import logging
 
 logger = logging.getLogger("vastai")
@@ -77,10 +77,21 @@ def deserialize(json, root_module: str, globals):
         )
     elif json["type"] == "obj":
         modname = derelativize_module(json["module"], root_module)
-        namespace = globals if modname == "" else import_module(modname).__dict__
-        cls = namespace[json["class"]]
+        if modname == "":
+            namespace = globals
+        else:
+            namespace = getattr(sys.modules.get(modname), "__dict__", {})
+        cls = namespace.get(json["class"])
+        if not isinstance(cls, type) or not (
+            cls.__module__ == root_module or issubclass(cls, BaseException)
+        ):
+            raise TypeError(
+                f"Refusing to deserialize {modname or root_module}.{json['class']}"
+            )
         obj = cls.__new__(cls)
         for k, v in json["contents"].items():
+            if k.startswith("__") and k.endswith("__"):
+                raise TypeError(f"Refusing to deserialize attribute {k}")
             setattr(obj, k, deserialize(v, root_module, globals))
         return obj
     raise TypeError(

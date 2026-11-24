@@ -467,11 +467,23 @@ class Backend:
         """use this function to forward requests to the model endpoint"""
         try:
             data = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response(dict(error="invalid JSON"), status=422)
+
+        if not self.unsecured:
+            if not isinstance(data, dict) or not isinstance(data.get("auth_data"), dict):
+                return web.json_response(dict(auth_data="field missing"), status=422)
+            try:
+                signed_auth_data = AuthData.from_json_msg(data["auth_data"])
+            except JsonDataException as e:
+                return web.json_response(dict(auth_data=e.message), status=422)
+            if self.__check_signature(signed_auth_data) is False:
+                return web.Response(status=401)
+
+        try:
             auth_data, payload, session_id = handler.get_data_from_request(data)
         except JsonDataException as e:
             return web.json_response(data=e.message, status=422)
-        except json.JSONDecodeError:
-            return web.json_response(dict(error="invalid JSON"), status=422)
         workload = payload.count_workload()
         request_metrics: RequestMetrics = RequestMetrics(
             request_idx=auth_data.request_idx,
@@ -539,10 +551,6 @@ class Backend:
                 return web.Response(status=500)
 
         ###########
-
-        if self.__check_signature(auth_data) is False:
-            self.metrics._request_reject(request_metrics)
-            return web.Response(status=401)
 
         # Check queue time with lock to prevent race conditions on concurrent requests
         if handler.max_queue_time is not None:

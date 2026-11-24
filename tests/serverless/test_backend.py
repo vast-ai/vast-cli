@@ -565,11 +565,11 @@ class TestBackendSessionCreate:
     async def test_session_create_secured_valid_signature_returns_201(
         self, serverless_backend_testkit, make_serverless_test_rsa_key
     ) -> None:
-        """Secured mode accepts a bundle signed over this worker's own URL."""
+        """Secured mode accepts a bundle signed over this worker's own mtoken."""
         key = make_serverless_test_rsa_key()
         backend, _ = serverless_backend_testkit.make_backend(unsecured=False)
         backend._pubkey = key.publickey()
-        body = serverless_backend_testkit.signed_auth(backend.metrics.url, key)
+        body = serverless_backend_testkit.signed_auth({"mtoken": backend.mtoken}, key)
         body["auth_data"]["cost"] = 1.0
         body["payload"] = {"lifetime": 30.0}
         resp = await backend.session_create_handler(
@@ -588,7 +588,7 @@ class TestBackendSessionCreate:
         attacker_key = make_serverless_test_rsa_key()
         backend, _ = serverless_backend_testkit.make_backend(unsecured=False)
         backend._pubkey = key.publickey()
-        body = serverless_backend_testkit.signed_auth(backend.metrics.url, attacker_key)
+        body = serverless_backend_testkit.signed_auth({"mtoken": backend.mtoken}, attacker_key)
         body["payload"] = {"lifetime": 30.0}
         resp = await backend.session_create_handler(
             serverless_backend_testkit.json_request(body)
@@ -600,11 +600,29 @@ class TestBackendSessionCreate:
     async def test_session_create_secured_signature_for_other_worker_returns_401(
         self, serverless_backend_testkit, make_serverless_test_rsa_key
     ) -> None:
-        """A genuine bundle issued for a different worker URL does not open a session here."""
+        """A genuine bundle issued for a different worker does not open a session here."""
         key = make_serverless_test_rsa_key()
         backend, _ = serverless_backend_testkit.make_backend(unsecured=False)
         backend._pubkey = key.publickey()
-        body = serverless_backend_testkit.signed_auth("https://10.0.0.9:41234", key)
+        body = serverless_backend_testkit.signed_auth({"mtoken": "other-worker-mtoken"}, key)
+        body["payload"] = {"lifetime": 30.0}
+        resp = await backend.session_create_handler(
+            serverless_backend_testkit.json_request(body)
+        )
+        assert resp.status == 401
+        assert backend.sessions == {}
+
+    @pytest.mark.asyncio
+    async def test_session_create_secured_url_signed_bundle_returns_401(
+        self, serverless_backend_testkit, make_serverless_test_rsa_key
+    ) -> None:
+        """A genuine pre-1.2.0 bundle signed over this worker's URL no longer opens a session."""
+        key = make_serverless_test_rsa_key()
+        backend, _ = serverless_backend_testkit.make_backend(unsecured=False)
+        backend._pubkey = key.publickey()
+        body = serverless_backend_testkit.signed_auth(
+            {"url": backend.metrics.url}, key, url=backend.metrics.url
+        )
         body["payload"] = {"lifetime": 30.0}
         resp = await backend.session_create_handler(
             serverless_backend_testkit.json_request(body)
@@ -1377,7 +1395,7 @@ class TestBackendHandleRequest:
         backend._pubkey = key.publickey()
         fn = backend.create_handler(handler)
         req = serverless_backend_testkit.json_request(
-            serverless_backend_testkit.signed_auth(backend.metrics.url, key)
+            serverless_backend_testkit.signed_auth({"mtoken": backend.mtoken}, key)
         )
         mock_model = MagicMock()
         with patch.object(
@@ -1484,27 +1502,17 @@ class TestBackendHandleRequest:
         assert r2.status == 200
 
     @pytest.mark.asyncio
-    async def test_handle_request_invalid_signature_returns_401(
+    async def test_handle_request_url_signed_bundle_returns_401(
         self, serverless_backend_testkit, make_serverless_test_rsa_key
     ) -> None:
-        """
-        Verifies secured mode rejects when the signature does not match the claimed URL.
-
-        This test verifies by:
-        1. Setting a real RSA public key on the backend
-        2. Sending a PKCS1 signature over a different URL than ``auth_data.url``
-        3. Asserting 401 without calling the model
-
-        Assumptions:
-        - ``__check_signature`` returns False when verify fails (cryptographically wrong sig)
-        """
+        """A genuine pre-1.2.0 bundle signed over this worker's URL is rejected."""
         key = make_serverless_test_rsa_key()
         backend, handler = serverless_backend_testkit.make_backend(unsecured=False)
         backend._pubkey = key.publickey()
         fn = backend.create_handler(handler)
-        signed_url = "https://tenant.example/v1/predict"
-        body = serverless_backend_testkit.signed_auth(signed_url, key)
-        body["auth_data"]["url"] = "https://other.example/different"
+        body = serverless_backend_testkit.signed_auth(
+            {"url": backend.metrics.url}, key, url=backend.metrics.url
+        )
         req = serverless_backend_testkit.json_request(body)
         with patch.object(
             backend, "_Backend__call_backend", new_callable=AsyncMock
@@ -1523,7 +1531,7 @@ class TestBackendHandleRequest:
         backend._pubkey = key.publickey()
         fn = backend.create_handler(handler)
         req = serverless_backend_testkit.json_request(
-            serverless_backend_testkit.signed_auth("https://10.0.0.9:41234", key)
+            serverless_backend_testkit.signed_auth({"mtoken": "other-worker-mtoken"}, key)
         )
         with patch.object(
             backend, "_Backend__call_backend", new_callable=AsyncMock
@@ -1531,6 +1539,44 @@ class TestBackendHandleRequest:
             resp = await fn(req)
         assert resp.status == 401
         mock_cb.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_handle_request_without_master_token_returns_401(
+        self, serverless_backend_testkit, make_serverless_test_rsa_key
+    ) -> None:
+        """A worker with no MASTER_TOKEN rejects even a genuine signature over an empty mtoken."""
+        key = make_serverless_test_rsa_key()
+        backend, handler = serverless_backend_testkit.make_backend(unsecured=False)
+        backend._pubkey = key.publickey()
+        backend.mtoken = ""
+        fn = backend.create_handler(handler)
+        req = serverless_backend_testkit.json_request(
+            serverless_backend_testkit.signed_auth({"mtoken": ""}, key)
+        )
+        with patch.object(
+            backend, "_Backend__call_backend", new_callable=AsyncMock
+        ) as mock_cb:
+            resp = await fn(req)
+        assert resp.status == 401
+        mock_cb.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_handle_request_signature_failure_log_omits_mtoken(
+        self, serverless_backend_testkit, make_serverless_test_rsa_key, caplog
+    ) -> None:
+        """A rejected bundle is logged without the worker's MASTER_TOKEN."""
+        key = make_serverless_test_rsa_key()
+        backend, handler = serverless_backend_testkit.make_backend(unsecured=False)
+        backend._pubkey = key.publickey()
+        fn = backend.create_handler(handler)
+        req = serverless_backend_testkit.json_request(
+            serverless_backend_testkit.signed_auth({"mtoken": "other-worker-mtoken"}, key)
+        )
+        with caplog.at_level("DEBUG"):
+            resp = await fn(req)
+        assert resp.status == 401
+        assert "Signature error" in caplog.text
+        assert backend.mtoken not in caplog.text
 
     @pytest.mark.asyncio
     async def test_handle_request_session_extension_capped_at_max_lifetime(

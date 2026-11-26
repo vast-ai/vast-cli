@@ -12,6 +12,7 @@ from vastai.data.deployment import (
     DeploymentPutResponse,
 )
 from vastai.data.workergroup import WorkergroupConfig
+from vastai._user_agent import build_user_agent
 import asyncio
 import aiohttp
 import ssl
@@ -210,7 +211,7 @@ class _ServerlessBase(Generic[R]):
             return await self._transport_owner.get_ssl_context()
         if self._ssl_context is None:
             async with aiohttp.ClientSession() as s:
-                async with s.get(self.SSL_CERT_URL) as resp:
+                async with s.get(self.SSL_CERT_URL, headers={"User-Agent": build_user_agent("sdk")}) as resp:
                     if resp.status != 200:
                         raise Exception(f"Failed to fetch SSL cert: {resp.status}")
                     cert_bytes = await resp.read()
@@ -473,7 +474,8 @@ class _ServerlessBase(Generic[R]):
         payload = {"id": endpoint.id, "api_key": self.api_key}
 
         async with self._session.post(
-            url, json=payload, timeout=aiohttp.ClientTimeout(total=30)
+            url, json=payload, headers={"User-Agent": build_user_agent("sdk")},
+            timeout=aiohttp.ClientTimeout(total=30),
         ) as resp:
             if resp.status != 200:
                 text = await resp.text()

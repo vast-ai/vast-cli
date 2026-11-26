@@ -1,7 +1,7 @@
 import os
 from typing import Optional
 
-from vastai.utils import VERSION
+from vastai._user_agent import build_user_agent
 
 _APIKEY_SENTINEL = object()
 
@@ -47,7 +47,7 @@ class _BaseClient:
         self._vast_server = vast_server.rstrip("/")
 
     def _headers(self) -> dict:
-        return {"Authorization": f"Bearer {self._api_key}", "User-Agent": f"vastai-sdk/{VERSION}"}
+        return {"Authorization": f"Bearer {self._api_key}", "User-Agent": build_user_agent("sdk")}
 
     def _url(self, path: str) -> str:
         return f"{self._vast_server}{path}"

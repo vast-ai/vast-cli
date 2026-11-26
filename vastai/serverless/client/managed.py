@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Awaitable, Generic, Optional, Union, TypeVar
 from vastai.data.endpoint import EndpointData
 from vastai.data.deployment import DeploymentData, DeploymentPutResponse
 from vastai.data.workergroup import WorkergroupConfig
+from vastai._user_agent import build_user_agent
 from .endpoint import Endpoint_
 import requests
 
@@ -192,7 +193,7 @@ class ManagedDeployment(Generic[R]):
     def sync_heartbeat(
         self,
     ):  # for use in background thread outside of main aiohttp connection
-        headers = {"Authorization": f"Bearer {self._client.api_key}"}
+        headers = {"Authorization": f"Bearer {self._client.api_key}", "User-Agent": build_user_agent("sdk")}
         requests.post(
             url=self._client.vast_web_url.rstrip("/")
             + f"/api/v0/deployment/{self.id}/heartbeat/",

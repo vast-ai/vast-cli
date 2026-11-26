@@ -87,6 +87,40 @@ def _attach_mock_aiohttp_session(sl: Serverless) -> None:
 # ---------------------------------------------------------------------------
 
 
+# Every environment variable the agent-detection code reads: the harness variables of
+# vastai/agent_harnesses.json plus the two standard ones. Hard-coded on purpose, so a
+# wrong or missing name in the data file shows up in tests/api/test_agent_registry_pins.py.
+_AGENT_ENV_VARS = (
+    "ANTIGRAVITY_AGENT", "AUGMENT_AGENT", "CLINE_ACTIVE", "CLAUDE_CODE_IS_COWORK", "CLAUDECODE",
+    "CLAUDE_CODE", "CODEX_SANDBOX", "CODEX_CI", "CODEX_THREAD_ID", "CRUSH", "GEMINI_CLI",
+    "COPILOT_MODEL", "COPILOT_ALLOW_ALL", "COPILOT_GITHUB_TOKEN", "GOOSE_TERMINAL",
+    "HERMES_SESSION_ID", "KILOCODE_FEATURE", "AGENT_CONTEXT_OUT", "OPENCLAW_SHELL",
+    "OPENCODE_CLIENT", "PI_CODING_AGENT", "REPL_ID", "TRAE_AI_SHELL_ID", "VTCODE", "ZED_TERM",
+    "WORKBUDDY_APPLICATION_NAME", "WORKBUDDY_APP_NAME", "SAND_AGENT",
+    "QODER_WORK_INTEGRATION_PRODUCT", "MANUS_LONG_DESKTOP_WORKER", "MANUS_OPERATOR_PLATFORM",
+    "JARVIS_IS_ASSIGNED", "JARVIS_TOOL_CALL_ID", "MANUS_ADDON_RUNTIME_SPEC_PATH",
+    "MANUS_ADDON_RUNTIME_SPECS_REVISION", "DOUBAO_OFFICE_AGENT_NAME", "KIMI_PLUGIN_ROOT",
+    "GROK_AGENT", "GROK_PLUGIN_ROOT", "GROK_PLUGIN_DATA", "QWEN_CODE", "ROO_ACTIVE",
+    "ROO_CLI_RUNTIME", "JUNIE_SHIM_PATH", "DEVIN_DIR", "DEVIN_DISABLE_HISTEXPAND",
+    "INSTINCT_OUTER_TOOL_USE_ID", "INSTINCT_OUTER_TOOL_USE_STARTED_AT",
+    "INSTINCT_OUTER_TOOL_USE_TIMEOUT_SECONDS", "EXEC_FROM", "CURSOR_AGENT", "DSH_SHELL",
+    "CURSOR_TRACE_ID", "AI_AGENT", "AGENT",
+)
+
+
+@pytest.fixture(scope="session")
+def agent_env_var_names():
+    """The hard-coded list of agent-detection environment variable names."""
+    return _AGENT_ENV_VARS
+
+
+@pytest.fixture(autouse=True)
+def _scrub_agent_env(monkeypatch):
+    """Remove every agent-detection variable so tests do not depend on the agent running them."""
+    for name in _AGENT_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+
+
 @pytest.fixture(autouse=True)
 def _restore_serverless_logger_state():
     """Snapshot and restore the ``Serverless`` client logger after each test.
@@ -1999,3 +2033,81 @@ def live_client(api_key):
     """Real VastClient for live tests."""
     from vastai.api.client import VastClient
     return VastClient(api_key=api_key)
+
+
+# ---------------------------------------------------------------------------
+# Local echo server (records the headers of every request it receives)
+# ---------------------------------------------------------------------------
+
+
+class EchoServer:
+    """A local HTTP server that answers every request with a small JSON body and records it."""
+
+    def __init__(self):
+        import http.server
+        import threading
+
+        outer = self
+        self.requests = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def _handle(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                body = self.rfile.read(length) if length else b""
+                outer.requests.append(
+                    {"method": self.command, "path": self.path, "headers": dict(self.headers), "body": body}
+                )
+                payload = json.dumps({
+                    "success": True, "ok": True, "workers": [], "instances": [],
+                    "offers": [], "gpu_names": [], "download_url": outer.url + "/blob",
+                }).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            do_GET = do_POST = do_PUT = do_DELETE = _handle
+
+            def log_message(self, *args):
+                pass
+
+        self._server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self._server.server_address[1]}"
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+
+    def user_agents(self, method=None, path_contains=""):
+        """User-Agent header values (None when absent) of the recorded requests that match."""
+        found = [
+            r for r in self.requests
+            if (method is None or r["method"] == method) and path_contains in r["path"]
+        ]
+        assert found, f"no recorded {method or 'any'} request with {path_contains!r} in its path: {self.requests}"
+        return [
+            next((v for k, v in r["headers"].items() if k.lower() == "user-agent"), None)
+            for r in found
+        ]
+
+    def close(self):
+        self._server.shutdown()
+        self._server.server_close()
+
+
+@pytest.fixture
+def echo_server():
+    server = EchoServer()
+    yield server
+    server.close()
+
+
+@pytest.fixture(params=["scrubbed", "claude-code"])
+def agent_case(request, monkeypatch):
+    """Runs a test once with no agent detected and once under CLAUDECODE=1.
+
+    Yields the suffix the User-Agent must end with in that run.
+    """
+    if request.param == "claude-code":
+        monkeypatch.setenv("CLAUDECODE", "1")
+        return " (via claude-code)"
+    return ""

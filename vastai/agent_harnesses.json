@@ -1,0 +1,261 @@
+{
+  "_comment": "AI coding agent harnesses, copied from the Hugging Face agent-harnesses registry; order matters, the first match wins. env maps a variable to \"*\" (any non-empty value) or an exact value; a harness with no env is detected through AI_AGENT only.",
+  "source": {
+    "repository": "https://github.com/huggingface/huggingface.js",
+    "commit": "b0f65c20e8c1",
+    "path": "packages/tasks/src/agent-harnesses.ts"
+  },
+  "harnesses": [
+    {
+      "id": "antigravity",
+      "env": {
+        "ANTIGRAVITY_AGENT": "*"
+      }
+    },
+    {
+      "id": "augment-cli",
+      "env": {
+        "AUGMENT_AGENT": "*"
+      }
+    },
+    {
+      "id": "cline",
+      "env": {
+        "CLINE_ACTIVE": "*"
+      }
+    },
+    {
+      "id": "cowork",
+      "env": {
+        "CLAUDE_CODE_IS_COWORK": "*"
+      }
+    },
+    {
+      "id": "claude-code",
+      "env": {
+        "CLAUDECODE": "*",
+        "CLAUDE_CODE": "*"
+      }
+    },
+    {
+      "id": "codex",
+      "env": {
+        "CODEX_SANDBOX": "*",
+        "CODEX_CI": "*",
+        "CODEX_THREAD_ID": "*"
+      }
+    },
+    {
+      "id": "crush",
+      "env": {
+        "CRUSH": "*"
+      }
+    },
+    {
+      "id": "gemini-cli",
+      "env": {
+        "GEMINI_CLI": "*"
+      }
+    },
+    {
+      "id": "github-copilot",
+      "env": {
+        "COPILOT_MODEL": "*",
+        "COPILOT_ALLOW_ALL": "*",
+        "COPILOT_GITHUB_TOKEN": "*"
+      }
+    },
+    {
+      "id": "goose",
+      "env": {
+        "GOOSE_TERMINAL": "*"
+      }
+    },
+    {
+      "id": "hermes-agent",
+      "env": {
+        "HERMES_SESSION_ID": "*"
+      }
+    },
+    {
+      "id": "hi",
+      "env": {}
+    },
+    {
+      "id": "kilo-code",
+      "env": {
+        "KILOCODE_FEATURE": "*"
+      }
+    },
+    {
+      "id": "kiro",
+      "env": {
+        "AGENT_CONTEXT_OUT": "*"
+      }
+    },
+    {
+      "id": "openclaw",
+      "env": {
+        "OPENCLAW_SHELL": "*"
+      }
+    },
+    {
+      "id": "sandbase-harness",
+      "env": {}
+    },
+    {
+      "id": "opencode",
+      "env": {
+        "OPENCODE_CLIENT": "*"
+      }
+    },
+    {
+      "id": "pi",
+      "env": {
+        "PI_CODING_AGENT": "*"
+      }
+    },
+    {
+      "id": "replit",
+      "env": {
+        "REPL_ID": "*"
+      }
+    },
+    {
+      "id": "trae",
+      "env": {
+        "TRAE_AI_SHELL_ID": "*"
+      }
+    },
+    {
+      "id": "vtcode",
+      "env": {
+        "VTCODE": "1"
+      }
+    },
+    {
+      "id": "zed",
+      "env": {
+        "ZED_TERM": "*"
+      }
+    },
+    {
+      "id": "workbuddy",
+      "env": {
+        "WORKBUDDY_APPLICATION_NAME": "*",
+        "WORKBUDDY_APP_NAME": "*"
+      }
+    },
+    {
+      "id": "grok-bot",
+      "env": {
+        "SAND_AGENT": "*"
+      }
+    },
+    {
+      "id": "qwenwork",
+      "env": {
+        "QODER_WORK_INTEGRATION_PRODUCT": "*"
+      }
+    },
+    {
+      "id": "cue",
+      "env": {
+        "MANUS_LONG_DESKTOP_WORKER": "*",
+        "MANUS_OPERATOR_PLATFORM": "*"
+      }
+    },
+    {
+      "id": "muse",
+      "env": {
+        "JARVIS_IS_ASSIGNED": "*",
+        "JARVIS_TOOL_CALL_ID": "*"
+      }
+    },
+    {
+      "id": "manus",
+      "env": {
+        "MANUS_ADDON_RUNTIME_SPEC_PATH": "*",
+        "MANUS_ADDON_RUNTIME_SPECS_REVISION": "*"
+      }
+    },
+    {
+      "id": "doubao-work",
+      "env": {
+        "DOUBAO_OFFICE_AGENT_NAME": "*"
+      }
+    },
+    {
+      "id": "kimi",
+      "env": {
+        "KIMI_PLUGIN_ROOT": "*"
+      }
+    },
+    {
+      "id": "grok-build",
+      "env": {
+        "GROK_AGENT": "1",
+        "GROK_PLUGIN_ROOT": "*",
+        "GROK_PLUGIN_DATA": "*"
+      }
+    },
+    {
+      "id": "qwen-code",
+      "env": {
+        "QWEN_CODE": "*"
+      }
+    },
+    {
+      "id": "roo-code",
+      "env": {
+        "ROO_ACTIVE": "*",
+        "ROO_CLI_RUNTIME": "*"
+      }
+    },
+    {
+      "id": "junie",
+      "env": {
+        "JUNIE_SHIM_PATH": "*"
+      }
+    },
+    {
+      "id": "devin",
+      "env": {
+        "DEVIN_DIR": "*",
+        "DEVIN_DISABLE_HISTEXPAND": "*"
+      }
+    },
+    {
+      "id": "instinct",
+      "env": {
+        "INSTINCT_OUTER_TOOL_USE_ID": "*",
+        "INSTINCT_OUTER_TOOL_USE_STARTED_AT": "*",
+        "INSTINCT_OUTER_TOOL_USE_TIMEOUT_SECONDS": "*"
+      }
+    },
+    {
+      "id": "lingguang",
+      "env": {
+        "EXEC_FROM": "*"
+      }
+    },
+    {
+      "id": "cursor-cli",
+      "env": {
+        "CURSOR_AGENT": "*"
+      }
+    },
+    {
+      "id": "deepseek-harness",
+      "env": {
+        "DSH_SHELL": "*"
+      }
+    },
+    {
+      "id": "cursor",
+      "env": {
+        "CURSOR_TRACE_ID": "*"
+      }
+    }
+  ]
+}

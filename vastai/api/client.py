@@ -10,7 +10,7 @@ import requests
 from urllib.parse import quote_plus, urlsplit
 from typing import Dict, Optional
 
-from vastai.utils import VERSION
+from vastai._user_agent import build_user_agent
 
 # Emoji support
 _HAS_EMOJI = sys.stdout.encoding and 'utf' in sys.stdout.encoding.lower()
@@ -131,7 +131,7 @@ class VastClient:
         self.explain = explain
         self.curl = curl
         self.timeout = timeout
-        self.user_agent = f"vastai-{client_type}/{VERSION}"
+        self.user_agent = build_user_agent(client_type)
 
     def _build_url(self, subpath: str, query_args: Optional[Dict] = None) -> str:
         """Build full API URL from subpath and optional query args."""

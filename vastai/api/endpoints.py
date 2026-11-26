@@ -156,7 +156,7 @@ def get_endpt_logs(client, id, level=1, tail=None):
     if tail is not None:
         json_blob["tail"] = tail
 
-    headers = {}
+    headers = {"User-Agent": client.user_agent}
     if client.api_key is not None:
         headers["Authorization"] = "Bearer " + client.api_key
 
@@ -320,7 +320,7 @@ def get_wrkgrp_logs(client, id, level=1, tail=None):
     if tail is not None:
         json_blob["tail"] = tail
 
-    headers = {}
+    headers = {"User-Agent": client.user_agent}
     if client.api_key is not None:
         headers["Authorization"] = "Bearer " + client.api_key
 
@@ -355,7 +355,7 @@ def get_endpoint_workers(client, id):
     url = base + "/get_endpoint_workers/"
     json_blob = {"id": id}
 
-    headers = {}
+    headers = {"User-Agent": client.user_agent}
     if client.api_key is not None:
         headers["Authorization"] = "Bearer " + client.api_key
 
@@ -386,7 +386,7 @@ def update_workers(client, id: int, cancel: bool = False):
     if cancel:
         json_blob["cancel_update"] = True
 
-    headers = {}
+    headers = {"User-Agent": client.user_agent}
     if client.api_key is not None:
         headers["Authorization"] = "Bearer " + client.api_key
 

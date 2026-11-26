@@ -26,6 +26,7 @@ from typing import Dict, List, Optional
 # Re-export string_to_unix_epoch so CLI command modules can import from here
 from vastai.api.query import string_to_unix_epoch  # noqa: F401
 from vastai.utils import VERSION, parse_version, parse_env, smart_split  # noqa: F401
+from vastai._user_agent import build_user_agent
 
 
 # Server URL default — canonical definition lives in api/client.py
@@ -114,7 +115,7 @@ def _get_gpu_names() -> Optional[List[str]]:
         endpoint = "/api/v0/gpu_names/unique/"
         url = f"{server_url_default}{endpoint}"
         try:
-            r = requests.get(url, headers={})
+            r = requests.get(url, headers={"User-Agent": build_user_agent("cli")})
             r.raise_for_status()
             gpu_names = r.json()
         except (requests.exceptions.RequestException, ValueError):
@@ -157,7 +158,7 @@ def _get_gpu_types() -> Optional[List[dict]]:
         endpoint = "/api/v0/gpu_types/"
         url = f"{server_url_default}{endpoint}"
         try:
-            r = requests.get(url, headers={})
+            r = requests.get(url, headers={"User-Agent": build_user_agent("cli")})
             r.raise_for_status()
             payload = r.json()
         except (requests.exceptions.RequestException, ValueError):

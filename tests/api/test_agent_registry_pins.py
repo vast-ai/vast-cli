@@ -16,8 +16,52 @@ def _ids():
     return [h["id"] for h in AGENT_HARNESSES]
 
 
-def test_registry_has_forty_harnesses():
-    assert len(AGENT_HARNESSES) == 40
+EXPECTED_IDS = (
+    "antigravity",
+    "augment-cli",
+    "cline",
+    "cowork",
+    "claude-code",
+    "codex",
+    "crush",
+    "gemini-cli",
+    "github-copilot",
+    "goose",
+    "hermes-agent",
+    "hi",
+    "kilo-code",
+    "kiro",
+    "openclaw",
+    "sandbase-harness",
+    "opencode",
+    "pi",
+    "replit",
+    "trae",
+    "vtcode",
+    "zed",
+    "workbuddy",
+    "grok-bot",
+    "qwenwork",
+    "cue",
+    "muse",
+    "manus",
+    "doubao-work",
+    "kimi",
+    "grok-build",
+    "qwen-code",
+    "roo-code",
+    "junie",
+    "devin",
+    "instinct",
+    "lingguang",
+    "cursor-cli",
+    "deepseek-harness",
+    "cursor",
+)
+
+
+def test_registry_has_exactly_these_forty_ids_in_this_order():
+    assert _ids() == list(EXPECTED_IDS)
 
 
 def test_order_that_decides_ties():
@@ -33,7 +77,7 @@ def test_ids_without_variables_are_pinned_by_count_only():
     assert by_id["sandbase-harness"]["env"] == {}
 
 
-def test_five_variables_named_by_the_ticket(monkeypatch):
+def test_variables_named_by_the_ticket_and_the_registry_variants(monkeypatch):
     for var, expected in [
         ("CLAUDECODE", "claude-code"),
         ("CODEX_SANDBOX", "codex"),

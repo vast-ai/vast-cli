@@ -27,18 +27,35 @@ _UNSAFE = re.compile(r"[^A-Za-z0-9._-]")
 
 
 def _load_registry():
-    """Read the committed registry; a missing or broken file means no harness is known."""
+    """Read the committed registry, keeping only well-formed entries.
+
+    A missing, unreadable or wrongly shaped file (or entry) must never break a request or
+    an import: it just means that harness is not known, and AI_AGENT still works.
+    """
     try:
         with open(_REGISTRY_FILE, encoding="utf-8") as f:
-            return json.load(f)["harnesses"]
-    except (OSError, ValueError, KeyError):
+            entries = json.load(f)["harnesses"]
+    except Exception:
         return []
+    if not isinstance(entries, list):
+        return []
+    return [
+        {"id": e["id"], "env": e["env"]}
+        for e in entries
+        if isinstance(e, dict)
+        and isinstance(e.get("id"), str)
+        and isinstance(e.get("env"), dict)
+        and all(isinstance(k, str) and isinstance(v, str) for k, v in e["env"].items())
+    ]
 
 
 AGENT_HARNESSES = _load_registry()
 
 
 def _variable_matches(name, pattern):
+    """The variable counts when set to a non-blank value (surrounding whitespace is ignored)
+    that fits the pattern: "*" any value, "<prefix>*" a prefix, anything else an exact value.
+    """
     value = os.environ.get(name, "").strip()
     if not value:
         return False

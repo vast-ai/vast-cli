@@ -132,5 +132,54 @@ def test_sentinel_environment_value_never_reaches_the_header(monkeypatch):
     assert ua == f"vastai-cli/{VERSION} (via claude-code)"
 
 
-def test_registry_is_loaded_from_the_committed_file():
-    assert [h["id"] for h in AGENT_HARNESSES] == [h["id"] for h in _DATA["harnesses"]]
+def _use_registry_file(monkeypatch, tmp_path, text):
+    from vastai import _user_agent
+
+    path = tmp_path / "harnesses.json"
+    path.write_text(text)
+    monkeypatch.setattr(_user_agent, "_REGISTRY_FILE", str(path))
+    monkeypatch.setattr(_user_agent, "AGENT_HARNESSES", _user_agent._load_registry())
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["not json", "[]", '{"harnesses": 5}', '{"harnesses": [1, null, {"id": 3}, {"env": {}}, {"id": "x", "env": []}]}'],
+)
+def test_a_broken_registry_file_never_breaks_detection(monkeypatch, tmp_path, text):
+    _use_registry_file(monkeypatch, tmp_path, text)
+    assert detect_agent_id() == ""
+    monkeypatch.setenv("AI_AGENT", "still-works")
+    assert detect_agent_id() == "still-works"
+    assert build_user_agent("cli") == f"vastai-cli/{VERSION} (via still-works)"
+
+
+def test_a_missing_registry_file_never_breaks_detection(monkeypatch, tmp_path):
+    from vastai import _user_agent
+
+    monkeypatch.setattr(_user_agent, "_REGISTRY_FILE", str(tmp_path / "absent.json"))
+    monkeypatch.setattr(_user_agent, "AGENT_HARNESSES", _user_agent._load_registry())
+    assert detect_agent_id() == ""
+
+
+def test_valid_entries_survive_next_to_malformed_ones(monkeypatch, tmp_path):
+    _use_registry_file(
+        monkeypatch, tmp_path,
+        '{"harnesses": [{"id": 3}, {"id": "good", "env": {"GOOD_VAR": "*"}}]}',
+    )
+    monkeypatch.setenv("GOOD_VAR", "1")
+    assert detect_agent_id() == "good"
+
+
+def test_prefix_and_exact_value_patterns(monkeypatch, tmp_path):
+    _use_registry_file(
+        monkeypatch, tmp_path,
+        '{"harnesses": [{"id": "pre", "env": {"P_VAR": "abc*"}}, {"id": "exact", "env": {"E_VAR": "1"}}]}',
+    )
+    monkeypatch.setenv("P_VAR", "abcdef")
+    assert detect_agent_id() == "pre"
+    monkeypatch.setenv("P_VAR", "xabc")
+    assert detect_agent_id() == ""
+    monkeypatch.setenv("E_VAR", " 1 ")  # surrounding whitespace is trimmed before matching
+    assert detect_agent_id() == "exact"
+    monkeypatch.setenv("E_VAR", "10")
+    assert detect_agent_id() == ""

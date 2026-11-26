@@ -87,6 +87,40 @@ def _attach_mock_aiohttp_session(sl: Serverless) -> None:
 # ---------------------------------------------------------------------------
 
 
+# Every environment variable the agent-detection code reads: the harness variables of
+# vastai/agent_harnesses.json plus the two standard ones. Hard-coded on purpose, so a
+# wrong or missing name in the data file shows up in tests/api/test_agent_registry_pins.py.
+_AGENT_ENV_VARS = (
+    "ANTIGRAVITY_AGENT", "AUGMENT_AGENT", "CLINE_ACTIVE", "CLAUDE_CODE_IS_COWORK", "CLAUDECODE",
+    "CLAUDE_CODE", "CODEX_SANDBOX", "CODEX_CI", "CODEX_THREAD_ID", "CRUSH", "GEMINI_CLI",
+    "COPILOT_MODEL", "COPILOT_ALLOW_ALL", "COPILOT_GITHUB_TOKEN", "GOOSE_TERMINAL",
+    "HERMES_SESSION_ID", "KILOCODE_FEATURE", "AGENT_CONTEXT_OUT", "OPENCLAW_SHELL",
+    "OPENCODE_CLIENT", "PI_CODING_AGENT", "REPL_ID", "TRAE_AI_SHELL_ID", "VTCODE", "ZED_TERM",
+    "WORKBUDDY_APPLICATION_NAME", "WORKBUDDY_APP_NAME", "SAND_AGENT",
+    "QODER_WORK_INTEGRATION_PRODUCT", "MANUS_LONG_DESKTOP_WORKER", "MANUS_OPERATOR_PLATFORM",
+    "JARVIS_IS_ASSIGNED", "JARVIS_TOOL_CALL_ID", "MANUS_ADDON_RUNTIME_SPEC_PATH",
+    "MANUS_ADDON_RUNTIME_SPECS_REVISION", "DOUBAO_OFFICE_AGENT_NAME", "KIMI_PLUGIN_ROOT",
+    "GROK_AGENT", "GROK_PLUGIN_ROOT", "GROK_PLUGIN_DATA", "QWEN_CODE", "ROO_ACTIVE",
+    "ROO_CLI_RUNTIME", "JUNIE_SHIM_PATH", "DEVIN_DIR", "DEVIN_DISABLE_HISTEXPAND",
+    "INSTINCT_OUTER_TOOL_USE_ID", "INSTINCT_OUTER_TOOL_USE_STARTED_AT",
+    "INSTINCT_OUTER_TOOL_USE_TIMEOUT_SECONDS", "EXEC_FROM", "CURSOR_AGENT", "DSH_SHELL",
+    "CURSOR_TRACE_ID", "AI_AGENT", "AGENT",
+)
+
+
+@pytest.fixture(scope="session")
+def agent_env_var_names():
+    """The hard-coded list of agent-detection environment variable names."""
+    return _AGENT_ENV_VARS
+
+
+@pytest.fixture(autouse=True)
+def _scrub_agent_env(monkeypatch):
+    """Remove every agent-detection variable so tests do not depend on the agent running them."""
+    for name in _AGENT_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+
+
 @pytest.fixture(autouse=True)
 def _restore_serverless_logger_state():
     """Snapshot and restore the ``Serverless`` client logger after each test.

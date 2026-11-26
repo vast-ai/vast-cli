@@ -1798,7 +1798,11 @@ class TestGetSslContext:
         assert ctx1 is ctx2
         assert ctx1 is mock_ctx
         # The HTTP fetch should only happen once
-        mock_session.get.assert_called_once_with(Serverless.SSL_CERT_URL)
+        from vastai._user_agent import build_user_agent
+
+        mock_session.get.assert_called_once_with(
+            Serverless.SSL_CERT_URL, headers={"User-Agent": build_user_agent("sdk")}
+        )
         # The cert should have been loaded
         mock_ctx.load_verify_locations.assert_called_once()
 

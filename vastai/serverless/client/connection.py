@@ -7,7 +7,7 @@ import re
 import json
 from typing import AsyncIterator, Dict, Optional, Any
 
-from vastai.utils import VERSION
+from vastai._user_agent import build_user_agent
 
 _JITTER_CAP_SECONDS = 5.0
 _WORKER_URL = re.compile(r"https?://([0-9]{1,3}(?:\.[0-9]{1,3}){3}):([0-9]{1,5})")
@@ -144,7 +144,7 @@ async def _make_request(
     params = {**(params or {})}
     params["api_key"] = api_key
 
-    headers = {"Authorization": f"Bearer {api_key}", "User-Agent": f"vastai-sdk/{VERSION}"}
+    headers = {"Authorization": f"Bearer {api_key}", "User-Agent": build_user_agent("sdk")}
 
     session = await client._get_session()
     ssl_context = await client.get_ssl_context() if client else None

@@ -15,6 +15,8 @@ import tarfile
 import tempfile
 import urllib.request
 
+from vastai._user_agent import build_user_agent
+
 
 VAST_API_URL = os.environ.get("VAST_API_URL", "https://console.vast.ai")
 
@@ -36,7 +38,10 @@ def get_api_key() -> str:
 def get_download_url(deployment_id: str, api_key: str) -> str:
     """Fetch the presigned S3 download URL for the deployment blob."""
     url = f"{VAST_API_URL}/api/v0/deployment/{deployment_id}/download_url/"
-    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {api_key}"})
+    req = urllib.request.Request(
+        url,
+        headers={"Authorization": f"Bearer {api_key}", "User-Agent": build_user_agent("cli")},
+    )
     with urllib.request.urlopen(req) as resp:
         data = json.loads(resp.read())
     if not data.get("success"):

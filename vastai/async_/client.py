@@ -7,6 +7,7 @@ import asyncio
 from typing import Any, Optional, Union
 
 from vastai._base import _BaseClient, _APIKEY_SENTINEL
+from vastai._user_agent import build_user_agent
 from vastai.data.query import Query
 from vastai.data.offer import Offer
 from vastai.data.instance import Instance, InstanceConfig, CreateInstanceResponse
@@ -47,7 +48,7 @@ class AsyncClient(_BaseClient):
         """
         if self._ssl_context is None:
             async with aiohttp.ClientSession() as s:
-                async with s.get(self.SSL_CERT_URL) as resp:
+                async with s.get(self.SSL_CERT_URL, headers={"User-Agent": build_user_agent("sdk")}) as resp:
                     if resp.status != 200:
                         raise Exception(f"Failed to fetch SSL cert: {resp.status}")
                     cert_bytes = await resp.read()

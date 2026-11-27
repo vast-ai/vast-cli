@@ -13,6 +13,7 @@ from vastai.data.deployment import (
 )
 from vastai.data.workergroup import WorkergroupConfig
 import asyncio
+import socket
 import aiohttp
 import ssl
 import os
@@ -186,9 +187,24 @@ class _ServerlessBase(Generic[R]):
             return await self._transport_owner._get_session()
         if self._session is None or self._session.closed:
             self.logger.info("Started aiohttp ClientSession")
-            connector = aiohttp.TCPConnector(
-                limit=self.connection_limit, ssl=await self.get_ssl_context()
-            )
+            # TCP keepalives so long-running worker requests (minutes of silence while the
+            # model computes) survive NAT/conntrack idle timeouts on the path to the worker.
+            def _keepalive_socket_factory(addr_info):
+                family, sock_type, proto = addr_info[0], addr_info[1], addr_info[2]
+                sock = socket.socket(family=family, type=sock_type, proto=proto)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                for name, val in (("TCP_KEEPIDLE", 30), ("TCP_KEEPINTVL", 15), ("TCP_KEEPCNT", 8)):
+                    if hasattr(socket, name):
+                        sock.setsockopt(socket.IPPROTO_TCP, getattr(socket, name), val)
+                return sock
+
+            import inspect
+            connector_kwargs = {"limit": self.connection_limit, "ssl": await self.get_ssl_context()}
+            if "socket_factory" in inspect.signature(aiohttp.TCPConnector.__init__).parameters:
+                connector_kwargs["socket_factory"] = _keepalive_socket_factory
+            else:
+                self.logger.warning("aiohttp %s lacks TCPConnector socket_factory; long requests may hit NAT idle timeouts", aiohttp.__version__)
+            connector = aiohttp.TCPConnector(**connector_kwargs)
             self._session = aiohttp.ClientSession(connector=connector)
         return self._session
 

@@ -46,6 +46,9 @@ def create_endpoint(client, **kwargs):
             max_workers (int): Max workers for the endpoint group. Default 20.
             endpoint_name (str): Deployment endpoint name.
             auto_instance (str): Autoscaler instance type. Default "prod".
+            scaling_config (dict): Queue-scaling settings, e.g.
+                {"mode": "queue", "requests_per_worker": 1, "idle_timeout": 60.0}.
+                Omit (or None) for the classic load/perf based scaling.
 
     Returns:
         dict: API response data.
@@ -63,6 +66,7 @@ def create_endpoint(client, **kwargs):
         "target_queue_time": kwargs.get("target_queue_time"),
         "inactivity_timeout": kwargs.get("inactivity_timeout"),
         "autoscaler_instance": kwargs.get("auto_instance", "prod"),
+        "scaling_config": kwargs.get("scaling_config"),
     }
 
     r = client.post("/endptjobs/", json_data=json_blob)
@@ -98,6 +102,7 @@ def update_endpoint(client, id, **kwargs):
         "target_queue_time": kwargs.get("target_queue_time"),
         "inactivity_timeout": kwargs.get("inactivity_timeout"),
         "autoscaler_instance": kwargs.get("auto_instance", "prod"),
+        "scaling_config": kwargs.get("scaling_config"),
     }
     r = client.put(f"/endptjobs/{id}/", json_data=json_blob)
     r.raise_for_status()

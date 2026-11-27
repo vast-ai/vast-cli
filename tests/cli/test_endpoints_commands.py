@@ -26,6 +26,38 @@ class TestCreateEndpoint:
         assert "/endptjobs/" in call_args[0][0]
 
 
+class TestCreateEndpointScalingConfig:
+    def test_create_endpoint_builds_scaling_config(self, parse_argv, patch_get_client, mock_response, capsys):
+        patch_get_client.post.return_value = mock_response(200, {"success": True, "id": 1})
+        args = parse_argv([
+            "create", "endpoint", "--endpoint_name", "test-ep",
+            "--scaling_mode", "queue", "--requests_per_worker", "2", "--idle_timeout", "30",
+        ])
+        args.func(args)
+        call_args = patch_get_client.post.call_args
+        blob = call_args.kwargs.get("json_data") or call_args[1].get("json_data")
+        assert blob["scaling_config"] == {"mode": "queue", "requests_per_worker": 2, "idle_timeout": 30.0}
+
+    def test_create_endpoint_without_scaling_mode_sends_none(self, parse_argv, patch_get_client, mock_response, capsys):
+        patch_get_client.post.return_value = mock_response(200, {"success": True, "id": 1})
+        args = parse_argv(["create", "endpoint", "--endpoint_name", "test-ep"])
+        args.func(args)
+        call_args = patch_get_client.post.call_args
+        blob = call_args.kwargs.get("json_data") or call_args[1].get("json_data")
+        assert blob["scaling_config"] is None
+
+    def test_update_endpoint_builds_scaling_config(self, parse_argv, patch_get_client, mock_response, capsys):
+        patch_get_client.put.return_value = mock_response(200, {"success": True})
+        args = parse_argv([
+            "update", "endpoint", "1",
+            "--scaling_mode", "queue", "--scaler", "queue_delay", "--queue_delay_target", "15",
+        ])
+        args.func(args)
+        call_args = patch_get_client.put.call_args
+        blob = call_args.kwargs.get("json_data") or call_args[1].get("json_data")
+        assert blob["scaling_config"] == {"mode": "queue", "scaler": "queue_delay", "queue_delay_target": 15.0}
+
+
 class TestDeleteEndpoint:
     def test_delete_endpoint(self, parse_argv, patch_get_client, mock_response, capsys):
         patch_get_client.delete.return_value = mock_response(200, {"success": True})

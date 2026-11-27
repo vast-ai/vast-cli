@@ -79,6 +79,9 @@ def handle_failed_tfa_verification(args, e):
             minutes, seconds = divmod(lock_time_sec, 60)
             print(f"   Time Remaining for 2FA Lock: {minutes} minutes and {seconds} seconds...")
 
+    elif error_code == "tfa_code_used":
+        print("\n   An authenticator code works once. Wait for your app to show the next code and try again.")
+
     elif error_code == "2fa_expired":
         # Note: Only SMS uses tfa challenges that expire when verifying
         print("\n   The SMS code and secret have expired. Please start over:")
@@ -537,7 +540,8 @@ def tfa__delete(args):
     argument("-s", "--secret", help="Secret token from previous login step (required for SMS or Email 2FA)", type=str, default=None),
     argument("-bc", "--backup-code", mutex_group='code_grp', required=True, help="One-time backup code (alternative to regular 2FA code)", type=str, default=None),
     argument("-id", "--method-id", mutex_group="type_grp", help="2FA Method ID if you have more than one of the same type ('id' from `tfa status`)", type=str, default=None),
-    usage="vastai tfa login [--code CODE] [--method-type METHOD_TYPE] [--secret SECRET] [--backup-code BACKUP_CODE]",
+    argument("--lifetime-sec", help="seconds the 2FA session lives (60 or more, at most a day). Default: a day", type=float, default=None),
+    usage="vastai tfa login [--code CODE] [--method-type METHOD_TYPE] [--secret SECRET] [--backup-code BACKUP_CODE] [--lifetime-sec SECONDS]",
     help="Complete 2FA login by verifying code",
     epilog=deindent("""
         Complete Two-Factor Authentication login by providing the 2FA code.
@@ -552,6 +556,11 @@ def tfa__delete(args):
          vastai tfa login --method-type sms --code 123456 --secret abc123def456
          vastai tfa login -t email -c 123456 -s abc123def456
          vastai tfa login --backup-code ABCD-EFGH-IJKL
+         vastai tfa login --method-type totp -c 123456 --lifetime-sec 900
+
+        The session lasts a day unless --lifetime-sec asks for less, and never outlives the API key you log in with.
+        Running `tfa login` again while the session is live renews it with a new code. An authenticator code
+        works once: after a login, wait for the next code before using it for another 2FA action.
     """),
 )
 def tfa__login(args):
@@ -563,6 +572,7 @@ def tfa__login(args):
         response_data = auth_api.tfa_login(
             client, code=args.code, backup_code=args.backup_code,
             method_type=args.method_type, secret=args.secret, method_id=args.method_id,
+            lifetime_sec=args.lifetime_sec,
         )
 
         if "session_key" in response_data:

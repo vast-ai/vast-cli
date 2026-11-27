@@ -610,9 +610,10 @@ class VastAI:
         """Show details of an API key."""
         return keys.show_api_key(self.client, id)
 
-    def create_api_key(self, name, permissions, key_params=None) -> dict:
-        """Create a new API key."""
-        return keys.create_api_key(self.client, name, permissions, key_params=key_params)
+    def create_api_key(self, name, permissions, key_params=None, lifetime_sec=None) -> dict:
+        """Create a new API key. ``lifetime_sec`` gives it an expiry; ``key_params`` binds the
+        ``$name`` parameters its permissions mention."""
+        return keys.create_api_key(self.client, name, permissions, key_params=key_params, lifetime_sec=lifetime_sec)
 
     def delete_api_key(self, id: int) -> dict:
         """Delete an API key."""

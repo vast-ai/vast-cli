@@ -255,3 +255,24 @@ class TestTfaMethodFieldsFormatUtc:
         created_formatter = dict((f[0], f[3]) for f in TFA_METHOD_FIELDS)["created_at"]
         assert created_formatter(None) == "N/A"
         assert created_formatter(0) == "N/A"
+
+
+class TestTfaLogin:
+    def test_lifetime_is_sent_only_when_asked(self, parse_argv, patch_get_client, mock_response, tmp_path, monkeypatch):
+        """A server that predates the field refuses unknown ones, so a plain login sends none."""
+        import vastai.cli.util as util
+        monkeypatch.setattr(util, "TFAKEY_FILE", str(tmp_path / "tfa_key"))
+        patch_get_client.post.return_value = mock_response(200, {"session_key": "s" * 64})
+        args = parse_argv(["tfa", "login", "--method-type", "totp", "-c", "123456"])
+        args.func(args)
+        assert "lifetime_sec" not in patch_get_client.post.call_args[1]["json_data"]
+
+        args = parse_argv(["tfa", "login", "--method-type", "totp", "-c", "123456", "--lifetime-sec", "900"])
+        args.func(args)
+        assert patch_get_client.post.call_args[1]["json_data"]["lifetime_sec"] == 900.0
+
+    def test_a_code_used_twice_says_to_wait_for_the_next_one(self, parse_argv, patch_get_client, mock_response, capsys):
+        patch_get_client.post.return_value = mock_response(400, {"error": "tfa_code_used", "msg": "This 2FA code was already used."})
+        args = parse_argv(["tfa", "login", "--method-type", "totp", "-c", "123456"])
+        assert args.func(args) == 1
+        assert "next code" in capsys.readouterr().out

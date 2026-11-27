@@ -77,17 +77,12 @@ def execute(args):
         add_scheduled_job(client, args, json_blob, cli_command, api_endpoint, "PUT", instance_id=args.id)
         return
 
-    if rj.get("success"):
-        for i in range(0, 30):
-            time.sleep(0.3)
-            url = rj["result_url"]
-            r2 = req_lib.get(url)
-            if r2.status_code == 200:
-                filtered_text = r2.text.replace(rj["writeable_path"], '')
-                print(filtered_text)
-                break
-    else:
-        print(rj)
+    # instances_api.execute() already polls the result URL internally and
+    # returns the command's output as a str on success, or the raw response
+    # dict on failure (no result_url). The previous code assumed a dict and
+    # called rj.get("success"), which raised
+    # "'str' object has no attribute 'get'" on the normal success path.
+    print(rj)
 
 
 # ---------------------------------------------------------------------------

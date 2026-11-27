@@ -398,11 +398,41 @@ class TestUpdateTemplate:
 
 
 class TestCopy:
+    def test_returns_copy_id(self, sdk, mock_response):
+        payload = {"success": True, "cp_id": "cp_0123456789abcdef"}
+        sdk.client.put.return_value = mock_response(200, payload)
+        assert sdk.copy("123:/data", "456:/data") == payload
+
     def test_parses_urls(self, sdk):
         with patch("vastai.api.storage.copy", return_value={"success": True}) as mock:
             sdk.copy("12345:/data/input", "67890:/data/output")
             # parse_vast_url returns string IDs
             mock.assert_called_once_with(sdk.client, "12345", "67890", "/data/input", "/data/output")
+
+
+class TestCancelCopy:
+    def test_returns_copy_state(self, sdk, mock_response):
+        cp_id = "cp_0123456789abcdef"
+        payload = {"success": True, "cp_id": cp_id, "state": "cancelling"}
+        sdk.client.delete.return_value = mock_response(202, payload)
+        assert sdk.cancel_copy(cp_id) == payload
+        sdk.client.delete.assert_called_once_with(f"/copies/{cp_id}/")
+
+    @pytest.mark.parametrize("dst_id", [12371, "12371"])
+    def test_legacy_keyword_is_preserved(self, sdk, mock_response, dst_id):
+        sdk.client.delete.return_value = mock_response(200, {"success": True})
+        sdk.cancel_copy(dst_id=dst_id)
+        sdk.client.delete.assert_called_once_with(
+            "/commands/copy_direct/", json_data={"client_id": "me", "dst_id": dst_id})
+
+    def test_conflict_keeps_holder_in_response(self, sdk, mock_response):
+        from requests.exceptions import HTTPError
+        payload = {"error": "copy_in_progress", "cp_id": "cp_0123456789abcdef",
+                   "holder": {"cp_id": "cp_0123456789abcdef", "state": "cancel_failed"}}
+        sdk.client.put.return_value = mock_response(409, payload)
+        with pytest.raises(HTTPError) as exc:
+            sdk.copy("123:/data", "456:/data")
+        assert exc.value.response.json() == payload
 
 
 # ---------------------------------------------------------------------------
